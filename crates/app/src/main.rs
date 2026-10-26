@@ -533,6 +533,37 @@ mod tests {
     /// Counts, `$`, and `u` must work through the real keymap, not just the
     /// core engine's unit tests.
     #[gpui::test]
+    fn ctrl_z_and_ctrl_r_undo_redo(cx: &mut TestAppContext) {
+        cx.update(|cx| cx.bind_keys(keybindings()));
+
+        let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+        let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+        editor
+            .update(cx, |editor, window, cx| {
+                editor.set_text("start".to_string(), cx);
+                let focus = editor.focus_handle(cx);
+                window.focus(&focus, cx);
+            })
+            .unwrap();
+
+        cx.simulate_keystrokes("i");
+        cx.simulate_input("abc");
+        cx.simulate_keystrokes("escape");
+        assert_eq!(
+            editor.read_with(cx, |editor, _cx| editor.text()).unwrap(),
+            "abcstart"
+        );
+
+        cx.simulate_keystrokes("ctrl+z");
+        let text = editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
+        assert_eq!(text, "start", "ctrl+z should undo");
+
+        cx.simulate_keystrokes("ctrl+r");
+        let text = editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
+        assert_eq!(text, "abcstart", "ctrl+r should redo");
+    }
+
+    #[gpui::test]
     fn normal_mode_counts_and_edits(cx: &mut TestAppContext) {
         cx.update(|cx| cx.bind_keys(keybindings()));
 

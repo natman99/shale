@@ -170,11 +170,22 @@ impl MarkdownEditor {
     fn normal(&mut self, key: Key, cx: &mut Context<Self>) {
         let before = self.buffer.text().to_string();
         let outcome = self.vim.handle_normal_key(key, &mut self.buffer);
-        if self.buffer.text() != before {
+        let changed = self.buffer.text() != before;
+        if changed {
             self.mark_dirty();
         }
         match outcome {
-            Outcome::EnterInsert => self.vim.enter_insert(),
+            Outcome::EnterInsert => {
+                self.vim.enter_insert();
+                // Everything typed from here belongs to one undo step. When an
+                // operator (`cw`, `o`) already changed the text it also already
+                // snapshotted, so join that step instead of starting a new one.
+                if changed {
+                    self.buffer.continue_undo_group();
+                } else {
+                    self.buffer.begin_undo_group();
+                }
+            }
             Outcome::FollowLink => {
                 let cursor = self.buffer.cursor();
                 self.refresh_links();
@@ -196,6 +207,7 @@ impl MarkdownEditor {
 
     fn on_escape(&mut self, _: &VimEscape, _window: &mut Window, cx: &mut Context<Self>) {
         self.vim.enter_normal();
+        self.buffer.end_undo_group();
         cx.notify();
     }
 
@@ -256,6 +268,7 @@ impl MarkdownEditor {
     }
 
     fn on_undo(&mut self, _: &Undo, _window: &mut Window, cx: &mut Context<Self>) {
+        tracing::debug!(undo_depth = self.buffer.undo_depth(), "undo action");
         self.buffer.undo();
         self.mark_dirty();
         self.ensure_cursor_visible();
@@ -263,6 +276,7 @@ impl MarkdownEditor {
     }
 
     fn on_redo(&mut self, _: &Redo, _window: &mut Window, cx: &mut Context<Self>) {
+        tracing::debug!(redo_depth = self.buffer.redo_depth(), "redo action");
         self.buffer.redo();
         self.mark_dirty();
         self.ensure_cursor_visible();

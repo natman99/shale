@@ -43,6 +43,8 @@ pub struct Buffer {
     /// Byte column the cursor is aiming for on vertical motions, so moving
     /// down onto a short line and back restores the original column (vim).
     desired_col: Option<usize>,
+    /// True while insert-mode edits are being coalesced into one undo step.
+    group_open: bool,
 }
 
 impl Default for Buffer {
@@ -60,6 +62,7 @@ impl Buffer {
             undo: Vec::new(),
             redo: Vec::new(),
             desired_col: None,
+            group_open: false,
         }
     }
 
@@ -74,6 +77,7 @@ impl Buffer {
         self.cursor = 0;
         self.selection = None;
         self.desired_col = None;
+        self.group_open = false;
         self.cursor = self.clamp(self.cursor);
     }
 
@@ -445,17 +449,63 @@ impl Buffer {
     // ----- edits (each pushes one undo snapshot) ------------------------
 
     fn snapshot(&mut self) {
+        // Skip snapshots that would record the state we are already in; an undo
+        // step that appears to do nothing is worse than no step at all.
+        if let Some(last) = self.undo.last() {
+            if last.text == self.text && last.cursor == self.cursor {
+                self.redo.clear();
+                self.group_open = false;
+                return;
+            }
+        }
         self.undo.push(Snapshot {
             text: self.text.clone(),
             cursor: self.cursor,
             selection: self.selection,
         });
         self.redo.clear();
+        self.group_open = false;
+    }
+
+    /// Start coalescing edits into one undo step, remembering the current state
+    /// first (call when entering insert mode without having edited anything).
+    pub fn begin_undo_group(&mut self) {
+        self.snapshot();
+        self.group_open = true;
+    }
+
+    /// Join an undo group that was already started by the operator that moved us
+    /// into insert mode (`cw`, `c$`), so one `u` restores the whole change.
+    pub fn continue_undo_group(&mut self) {
+        self.group_open = true;
+    }
+
+    /// Stop coalescing (leaving insert mode). If nothing actually changed, the
+    /// group's snapshot is dropped so undo never has a dead step.
+    pub fn end_undo_group(&mut self) {
+        if self.group_open {
+            let unchanged = self
+                .undo
+                .last()
+                .is_some_and(|last| last.text == self.text && last.cursor == self.cursor);
+            if unchanged {
+                self.undo.pop();
+            }
+        }
+        self.group_open = false;
+    }
+
+    /// Snapshot unless an undo group is already open, so a run of insert-mode
+    /// keystrokes becomes a single undo step.
+    fn snapshot_for_edit(&mut self) {
+        if !self.group_open {
+            self.snapshot();
+        }
     }
 
     /// Replace the selection (or insert at the cursor) with `text`.
     pub fn insert(&mut self, text: &str) {
-        self.snapshot();
+        self.snapshot_for_edit();
         let (start, end) = self.selection_range();
         self.text.replace_range(start..end, text);
         let new_cursor = start + text.len();
@@ -483,7 +533,7 @@ impl Buffer {
         if self.cursor == 0 {
             return;
         }
-        self.snapshot();
+        self.snapshot_for_edit();
         let prev = self.prev_char_boundary(self.cursor);
         self.text.replace_range(prev..self.cursor, "");
         self.cursor = prev;
@@ -499,7 +549,7 @@ impl Buffer {
         if end == self.cursor {
             return;
         }
-        self.snapshot();
+        self.snapshot_for_edit();
         self.text.replace_range(self.cursor..end, "");
     }
 
@@ -585,7 +635,17 @@ impl Buffer {
         }
     }
 
+    /// How many undo / redo steps are available (for diagnostics).
+    pub fn undo_depth(&self) -> usize {
+        self.undo.len()
+    }
+
+    pub fn redo_depth(&self) -> usize {
+        self.redo.len()
+    }
+
     pub fn undo(&mut self) {
+        self.group_open = false;
         if let Some(snap) = self.undo.pop() {
             self.redo.push(Snapshot {
                 text: self.text.clone(),
@@ -599,6 +659,7 @@ impl Buffer {
     }
 
     pub fn redo(&mut self) {
+        self.group_open = false;
         if let Some(snap) = self.redo.pop() {
             self.undo.push(Snapshot {
                 text: self.text.clone(),
@@ -774,6 +835,44 @@ mod tests {
         assert_eq!(b.cursor(), 1);
         b.redo();
         assert_eq!(b.text(), "aXb");
+    }
+
+    /// A run of insert-mode edits is one undo step, like vim's insert session.
+    #[test]
+    fn insert_group_is_one_undo_step() {
+        let mut b = Buffer::new("x".to_string());
+        b.begin_undo_group();
+        b.insert("a");
+        b.insert("b");
+        b.backspace();
+        b.insert("c");
+        b.end_undo_group();
+        assert_eq!(b.text(), "acx");
+        assert_eq!(b.undo_depth(), 1, "the whole session is one step");
+        b.undo();
+        assert_eq!(b.text(), "x");
+        b.redo();
+        assert_eq!(b.text(), "acx");
+    }
+
+    /// Entering insert mode without editing must not leave a dead undo step.
+    #[test]
+    fn empty_insert_group_is_dropped() {
+        let mut b = Buffer::new("x".to_string());
+        b.begin_undo_group();
+        b.end_undo_group();
+        assert_eq!(b.undo_depth(), 0);
+    }
+
+    /// Edits outside a group (normal-mode operators) still snapshot per edit.
+    #[test]
+    fn ungrouped_edits_snapshot_each() {
+        let mut b = Buffer::new("x".to_string());
+        b.insert("a");
+        b.insert("b");
+        assert_eq!(b.undo_depth(), 2);
+        b.undo();
+        assert_eq!(b.text(), "ax");
     }
 
     #[test]
