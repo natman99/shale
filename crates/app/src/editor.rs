@@ -5,11 +5,12 @@ use std::collections::HashSet;
 use std::ops::Range;
 
 use gpui::{
-    div, fill, prelude::*, px, relative, rgb, App, Bounds, Context, CursorStyle, Element,
+    div, fill, font, prelude::*, px, relative, rgb, App, Bounds, Context, CursorStyle, Element,
     ElementId, ElementInputHandler, Entity, EntityInputHandler, EventEmitter, FocusHandle,
-    Focusable, GlobalElementId, InspectorElementId, InteractiveElement, IntoElement, LayoutId,
-    MouseButton, MouseDownEvent, ParentElement, Pixels, Render, ScrollHandle, ShapedLine,
-    SharedString, Style, Styled, TextRun, UTF16Selection, Window,
+    Focusable, GlobalElementId, IndentAdjustment, InspectorElementId, InteractiveElement,
+    IntoElement, LayoutId, LineFragment, LineWrapper, MouseButton, MouseDownEvent, ParentElement,
+    Pixels, Render, ScrollHandle, ShapedLine, SharedString, Style, Styled, TextRun, UTF16Selection,
+    Window,
 };
 use shale_core::buffer::Buffer;
 use shale_core::markdown::{extract_wikilinks, WikiLink};
@@ -41,8 +42,10 @@ pub struct MarkdownEditor {
     buffer: Buffer,
     vim: Vim,
     scroll_handle: ScrollHandle,
-    /// Shaped lines from the last paint, with their bounds, for hit-testing.
-    hit_lines: Vec<(usize, ShapedLine, Bounds<Pixels>)>,
+    /// Display lines captured during the last paint, for hit-testing.
+    hit_lines: Vec<HitLine>,
+    /// Cached wrap boundaries: (buffer change id, wrap width, per-row starts).
+    wrap_cache: Option<(u64, Pixels, Vec<Vec<usize>>)>,
     /// Wiki-link spans in the current buffer text (buffer byte offsets).
     links: Vec<WikiLink>,
     /// Lowercased note names present in the vault, for resolved/unresolved
@@ -63,6 +66,7 @@ impl MarkdownEditor {
             vim: Vim::new(),
             scroll_handle: ScrollHandle::default(),
             hit_lines: Vec::new(),
+            wrap_cache: None,
             links: Vec::new(),
             known: HashSet::new(),
             input_registered: false,
@@ -101,8 +105,31 @@ impl MarkdownEditor {
         self.dirty = false;
     }
 
+    /// Cursor position in buffer coordinates (row, byte column), 0-based.
+    #[cfg(test)]
     pub fn cursor_position(&self) -> (usize, usize) {
         self.buffer.row_col(self.buffer.cursor())
+    }
+
+    /// Buffer rows and wrapped display lines, for tests and diagnostics.
+    #[cfg(test)]
+    pub fn line_count(&self) -> usize {
+        self.buffer.line_count()
+    }
+
+    #[cfg(test)]
+    pub fn display_line_count(&self) -> usize {
+        self.buffer.display_line_count()
+    }
+
+    /// Cursor position in display coordinates (wrapped segments counted as
+    /// lines, column measured from the segment start), like a vim ruler.
+    pub fn display_position(&self) -> (usize, usize) {
+        let cursor = self.buffer.cursor();
+        (
+            self.buffer.display_index_for(cursor),
+            cursor - self.buffer.display_start(cursor),
+        )
     }
 
     /// Status-bar hint for a half-typed command, e.g. `3d` or `2`.
@@ -163,8 +190,74 @@ impl MarkdownEditor {
     }
 
     fn ensure_cursor_visible(&self) {
-        let (row, _) = self.buffer.row_col(self.buffer.cursor());
-        self.scroll_handle.scroll_to_item(row);
+        let index = self.buffer.display_index_for(self.buffer.cursor());
+        self.scroll_handle.scroll_to_item(index);
+    }
+
+    /// Build this frame's display lines: buffer rows split at the wrap points
+    /// gpui computes for the current width. The same boundaries are handed to
+    /// the buffer, so vim's `j`/`k` step over wrapped rows like neovim's.
+    /// Boundaries are cached until the text or the width changes.
+    fn display_lines(&mut self, width: Pixels, wrapper: &mut LineWrapper) -> Vec<DisplayLine> {
+        let line_count = self.buffer.line_count();
+        let change_id = self.buffer.change_id();
+        let fresh = self
+            .wrap_cache
+            .as_ref()
+            .is_some_and(|(id, w, _)| *id == change_id && *w == width);
+
+        let segments: Vec<Vec<usize>> = if fresh {
+            self.wrap_cache.as_ref().unwrap().2.clone()
+        } else {
+            let mut segments: Vec<Vec<usize>> = Vec::with_capacity(line_count);
+            if width > px(0.) {
+                for row in 0..line_count {
+                    let start = self.buffer.line_start(row);
+                    let end = self.buffer.line_end(row);
+                    let text = &self.buffer.text()[start..end];
+                    let mut starts = vec![start];
+                    for boundary in wrapper.wrap_line(
+                        &[LineFragment::text(text)],
+                        width,
+                        IndentAdjustment::NoIndent,
+                    ) {
+                        let ix = start + boundary.ix;
+                        // Boundaries must be strictly inside the row and increasing.
+                        if ix > *starts.last().unwrap() && ix < end {
+                            starts.push(ix);
+                        }
+                    }
+                    segments.push(starts);
+                }
+            } else {
+                // No measured width yet (first frame): one display line per row.
+                for row in 0..line_count {
+                    segments.push(vec![self.buffer.line_start(row)]);
+                }
+            }
+            self.wrap_cache = Some((change_id, width, segments.clone()));
+            segments
+        };
+
+        self.buffer.set_display_segments(segments.clone());
+        let mut out = Vec::new();
+        for (row, segs) in segments.iter().enumerate() {
+            let row_start = self.buffer.line_start(row);
+            let row_end = self.buffer.line_end(row);
+            // Re-validate against the current row bounds: a cached boundary can
+            // be stale if the cache key ever fails to notice an edit.
+            let mut starts = vec![row_start];
+            for &s in segs {
+                if s > row_start && s < row_end && s > *starts.last().unwrap() {
+                    starts.push(s);
+                }
+            }
+            for (i, &start) in starts.iter().enumerate() {
+                let end = starts.get(i + 1).copied().unwrap_or(row_end);
+                out.push(DisplayLine { row, start, end });
+            }
+        }
+        out
     }
 
     fn normal(&mut self, key: Key, cx: &mut Context<Self>) {
@@ -300,20 +393,20 @@ impl MarkdownEditor {
     fn on_click(&mut self, event: &MouseDownEvent, _window: &mut Window, cx: &mut Context<Self>) {
         let y = event.position.y;
         let x = event.position.x;
-        // Find the hit line containing y (or the closest one).
-        let mut best: Option<(usize, &ShapedLine, Bounds<Pixels>)> = None;
-        for (row, line, bounds) in &self.hit_lines {
-            if bounds.top() <= y && y < bounds.bottom() {
-                best = Some((*row, line, *bounds));
+        // Find the display line containing y (or the closest one above it).
+        let mut best: Option<&HitLine> = None;
+        for hit in &self.hit_lines {
+            if hit.bounds.top() <= y && y < hit.bounds.bottom() {
+                best = Some(hit);
                 break;
             }
-            if best.is_none() && bounds.top() <= y {
-                best = Some((*row, line, *bounds));
+            if best.is_none() && hit.bounds.top() <= y {
+                best = Some(hit);
             }
         }
-        if let Some((row, line, bounds)) = best {
-            let col = line.closest_index_for_x(x - bounds.left());
-            let offset = self.buffer.offset_of(row, col);
+        if let Some(hit) = best {
+            let col = hit.line.closest_index_for_x(x - hit.bounds.left());
+            let offset = (hit.start + col).min(hit.end);
             if event.modifiers.control {
                 self.refresh_links();
                 if self.link_at(offset).is_some() {
@@ -435,12 +528,12 @@ impl EntityInputHandler for MarkdownEditor {
         _cx: &mut Context<Self>,
     ) -> Option<Bounds<Pixels>> {
         let start = self.offset_from_utf16(range_utf16.start);
-        let (row, col) = self.buffer.row_col(start);
-        let (_, line, line_bounds) = self.hit_lines.iter().find(|(r, _, _)| *r == row)?;
-        let x = line.x_for_index(col);
+        let index = self.buffer.display_index_for(start);
+        let hit = self.hit_lines.iter().find(|h| h.index == index)?;
+        let x = hit.line.x_for_index(start - hit.start);
         Some(Bounds::from_corners(
-            gpui::point(line_bounds.left() + x, line_bounds.top()),
-            gpui::point(line_bounds.left() + x + px(8.), line_bounds.bottom()),
+            gpui::point(hit.bounds.left() + x, hit.bounds.top()),
+            gpui::point(hit.bounds.left() + x + px(8.), hit.bounds.bottom()),
         ))
     }
 
@@ -450,17 +543,18 @@ impl EntityInputHandler for MarkdownEditor {
         _window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<usize> {
-        let (row, line, line_bounds) = self
+        let hit = self
             .hit_lines
             .iter()
-            .find(|(_, _, b)| b.top() <= point.y && point.y < b.bottom())?;
-        let col = line.closest_index_for_x(point.x - line_bounds.left());
-        Some(self.offset_to_utf16(self.buffer.offset_of(*row, col)))
+            .find(|h| h.bounds.top() <= point.y && point.y < h.bounds.bottom())?;
+        let col = hit.line.closest_index_for_x(point.x - hit.bounds.left());
+        let offset = (hit.start + col).min(hit.end);
+        Some(self.offset_to_utf16(offset))
     }
 }
 
 impl Render for MarkdownEditor {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.hit_lines.clear();
         self.input_registered = false;
         let context = if self.vim.mode() == Mode::Insert {
@@ -474,6 +568,18 @@ impl Render for MarkdownEditor {
         let selection = self.buffer.selection();
         self.refresh_links();
         tracing::trace!(lines = line_count, "editor render");
+
+        // Soft wrap: the scroll container's width from the previous frame tells
+        // us where each row breaks; the buffer gets the same boundaries so j/k
+        // can step across wrapped rows.
+        let wrap_width = self.scroll_handle.bounds().size.width;
+        let display_lines = {
+            let mut wrapper = window
+                .text_system()
+                .line_wrapper(font("monospace"), px(FONT_SIZE));
+            self.display_lines(wrap_width, &mut wrapper)
+        };
+        let cursor_display = self.buffer.display_index_for(cursor);
 
         div()
             .key_context(context)
@@ -541,52 +647,54 @@ impl Render for MarkdownEditor {
                     .bg(rgb(BG))
                     .text_color(rgb(FG))
                     .on_mouse_down(MouseButton::Left, cx.listener(Self::on_click))
-                    .children((0..line_count).map(|row| {
-                        let start = self.buffer.line_start(row);
-                        let end = self.buffer.line_end(row);
-                        let text: SharedString = self.buffer.text()[start..end].to_string().into();
+                    .children(display_lines.iter().enumerate().map(|(index, dl)| {
+                        let text: SharedString =
+                            self.buffer.text()[dl.start..dl.end].to_string().into();
 
-                        // Selection restricted to this line.
+                        // Selection restricted to this display line.
                         let line_sel = selection.and_then(|(a, h)| {
                             let (lo, hi) = (a.min(h), a.max(h));
-                            if hi <= start || lo >= end {
+                            if hi <= dl.start || lo >= dl.end {
                                 return None;
                             }
-                            let s = lo.saturating_sub(start);
-                            let e = hi.min(end) - start;
+                            let s = lo.saturating_sub(dl.start);
+                            let e = hi.min(dl.end).saturating_sub(dl.start);
                             Some((s, e))
                         });
-                        // Cursor column on this line (insert mode draws a full
+                        // Cursor on this display line (insert mode draws a full
                         // bar; normal mode highlights the char under it).
-                        let cursor_col = if self.buffer.row_col(cursor).0 == row {
-                            Some(cursor - start)
+                        let cursor_col = if cursor_display == index {
+                            Some(cursor - dl.start)
                         } else {
                             None
                         };
 
-                        // Wiki-link spans restricted to this line, in
+                        // Wiki-link spans restricted to this display line, in
                         // line-relative byte offsets, with whether they
                         // resolve to an existing note.
                         let line_links: Vec<(usize, usize, bool)> = self
                             .links
                             .iter()
-                            .filter(|l| l.start < end && l.end > start)
+                            .filter(|l| l.start < dl.end && l.end > dl.start)
                             .map(|l| {
                                 (
-                                    l.start.saturating_sub(start),
-                                    l.end.min(end).saturating_sub(start),
+                                    l.start.saturating_sub(dl.start),
+                                    l.end.min(dl.end).saturating_sub(dl.start),
                                     self.is_known(&l.target),
                                 )
                             })
                             .collect();
 
                         div()
-                            .id(("line", row))
+                            .id(("line", index))
                             .w_full()
                             .h(px(LINE_HEIGHT))
                             .child(LineElement {
                                 editor: cx.entity(),
-                                row,
+                                row: dl.row,
+                                index,
+                                start: dl.start,
+                                end: dl.end,
                                 text,
                                 line_sel,
                                 cursor_col,
@@ -604,10 +712,33 @@ impl Focusable for MarkdownEditor {
     }
 }
 
+/// One painted row: a segment of a buffer row when the row soft-wraps.
+#[derive(Clone, Copy)]
+struct DisplayLine {
+    row: usize,
+    start: usize,
+    end: usize,
+}
+
+/// A display line captured during paint, for hit-testing and IME placement.
+#[derive(Clone)]
+struct HitLine {
+    index: usize,
+    start: usize,
+    end: usize,
+    line: ShapedLine,
+    bounds: Bounds<Pixels>,
+}
+
 /// One painted line: text, optional selection and cursor quads.
 struct LineElement {
     editor: Entity<MarkdownEditor>,
     row: usize,
+    /// Flat display-line index of this row's segment.
+    index: usize,
+    /// Buffer byte offsets this segment covers (`end` is exclusive).
+    start: usize,
+    end: usize,
     text: SharedString,
     line_sel: Option<(usize, usize)>,
     cursor_col: Option<usize>,
@@ -784,7 +915,13 @@ impl Element for LineElement {
 
         // Record for hit-testing.
         self.editor.update(cx, |editor, _cx| {
-            editor.hit_lines.push((self.row, line.clone(), bounds));
+            editor.hit_lines.push(HitLine {
+                index: self.index,
+                start: self.start,
+                end: self.end,
+                line: line.clone(),
+                bounds,
+            });
         });
     }
 }

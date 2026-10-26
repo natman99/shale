@@ -42,9 +42,18 @@ pub struct Buffer {
     redo: Vec<Snapshot>,
     /// Byte column the cursor is aiming for on vertical motions, so moving
     /// down onto a short line and back restores the original column (vim).
+    /// Measured from the start of the current *display* line, which is the
+    /// buffer row when nothing wraps.
     desired_col: Option<usize>,
+    /// Per buffer row, the absolute byte offsets where wrapped display lines
+    /// begin (supplied by the UI, which knows the pixel width). Empty means the
+    /// row is a single display line.
+    display_segments: Vec<Vec<usize>>,
     /// True while insert-mode edits are being coalesced into one undo step.
     group_open: bool,
+    /// Bumped on every mutation, so the UI can cache per-text computations
+    /// (like soft-wrap boundaries) across frames.
+    change_id: u64,
 }
 
 impl Default for Buffer {
@@ -62,7 +71,9 @@ impl Buffer {
             undo: Vec::new(),
             redo: Vec::new(),
             desired_col: None,
+            display_segments: Vec::new(),
             group_open: false,
+            change_id: 0,
         }
     }
 
@@ -77,7 +88,9 @@ impl Buffer {
         self.cursor = 0;
         self.selection = None;
         self.desired_col = None;
+        self.display_segments = Vec::new();
         self.group_open = false;
+        self.change_id += 1;
         self.cursor = self.clamp(self.cursor);
     }
 
@@ -92,7 +105,7 @@ impl Buffer {
     pub fn set_cursor(&mut self, offset: usize) {
         self.cursor = self.clamp(offset);
         self.selection = None;
-        self.desired_col = Some(self.row_col(self.cursor).1);
+        self.desired_col = Some(self.cursor - self.display_start(self.cursor));
     }
 
     /// Move the cursor without disturbing the vertical target column, for
@@ -172,6 +185,77 @@ impl Buffer {
         text
     }
 
+    // ----- display lines (soft wrap) ------------------------------------
+
+    /// Record where the UI wrapped each row. `segments[row]` holds the absolute
+    /// byte offsets that begin each display line of that row (the first should
+    /// be the row's own start). Rows with no wrapping get an empty vec.
+    pub fn set_display_segments(&mut self, segments: Vec<Vec<usize>>) {
+        self.display_segments = segments;
+    }
+
+    /// The absolute offsets at which row `row`'s display lines begin.
+    fn segment_starts(&self, row: usize) -> Vec<usize> {
+        match self.display_segments.get(row) {
+            Some(segs) if !segs.is_empty() => segs.clone(),
+            _ => vec![self.line_start(row)],
+        }
+    }
+
+    /// The byte offset where the display line containing `offset` begins.
+    pub fn display_start(&self, offset: usize) -> usize {
+        let offset = self.clamp(offset);
+        let (row, _) = self.row_col(offset);
+        let fallback = self.line_start(row);
+        *self
+            .segment_starts(row)
+            .iter()
+            .rev()
+            .find(|&&s| s <= offset)
+            .unwrap_or(&fallback)
+    }
+
+    /// The byte range `[start, end)` of the display line at flat index `index`.
+    pub fn display_range(&self, index: usize) -> Option<(usize, usize)> {
+        let mut i = 0usize;
+        for row in 0..self.line_count() {
+            let segs = self.segment_starts(row);
+            let line_end = self.line_end(row);
+            for (k, start) in segs.iter().enumerate() {
+                let end = segs.get(k + 1).copied().unwrap_or(line_end);
+                if i == index {
+                    return Some((*start, end));
+                }
+                i += 1;
+            }
+        }
+        None
+    }
+
+    /// Total number of display lines, wrapped rows included.
+    pub fn display_line_count(&self) -> usize {
+        (0..self.line_count())
+            .map(|row| self.segment_starts(row).len())
+            .sum()
+    }
+
+    /// Flat display-line index containing `offset`.
+    pub fn display_index_for(&self, offset: usize) -> usize {
+        let offset = self.clamp(offset);
+        let (row, _) = self.row_col(offset);
+        let mut index = 0usize;
+        for r in 0..row {
+            index += self.segment_starts(r).len();
+        }
+        let segs = self.segment_starts(row);
+        let within = segs
+            .iter()
+            .filter(|&&s| s <= offset)
+            .count()
+            .saturating_sub(1);
+        index + within
+    }
+
     pub fn row_col(&self, offset: usize) -> (usize, usize) {
         let offset = self.clamp(offset);
         let row = self.text[..offset].matches('\n').count();
@@ -235,19 +319,32 @@ impl Buffer {
     }
 
     pub fn move_up(&mut self) {
-        let (row, col) = self.row_col(self.cursor);
-        let target = self.desired_col.unwrap_or(col);
-        if row > 0 {
-            self.set_cursor_keep_desired(self.offset_of(row - 1, target));
+        let index = self.display_index_for(self.cursor);
+        if index == 0 {
+            return;
         }
+        self.move_display_to(index - 1);
     }
 
     pub fn move_down(&mut self) {
-        let (row, col) = self.row_col(self.cursor);
-        let target = self.desired_col.unwrap_or(col);
-        if row + 1 < self.line_count() {
-            self.set_cursor_keep_desired(self.offset_of(row + 1, target));
+        let index = self.display_index_for(self.cursor);
+        if index + 1 >= self.display_line_count() {
+            return;
         }
+        self.move_display_to(index + 1);
+    }
+
+    /// Move to display line `index`, keeping the column we are aiming for and
+    /// clamping to that line's width (vim's behaviour across soft wraps).
+    fn move_display_to(&mut self, index: usize) {
+        let Some((start, end)) = self.display_range(index) else {
+            return;
+        };
+        let target = self
+            .desired_col
+            .unwrap_or_else(|| self.cursor - self.display_start(self.cursor));
+        let offset = self.clamp(start.saturating_add(target).min(end));
+        self.set_cursor_keep_desired(offset);
     }
 
     pub fn line_start_motion(&mut self) {
@@ -448,7 +545,13 @@ impl Buffer {
 
     // ----- edits (each pushes one undo snapshot) ------------------------
 
+    /// Changes to the buffer text, for caching UI-side derived data.
+    pub fn change_id(&self) -> u64 {
+        self.change_id
+    }
+
     fn snapshot(&mut self) {
+        self.change_id += 1;
         // Skip snapshots that would record the state we are already in; an undo
         // step that appears to do nothing is worse than no step at all.
         if let Some(last) = self.undo.last() {
@@ -498,6 +601,9 @@ impl Buffer {
     /// Snapshot unless an undo group is already open, so a run of insert-mode
     /// keystrokes becomes a single undo step.
     fn snapshot_for_edit(&mut self) {
+        // The text is about to change even when the snapshot is suppressed, so
+        // the change id has to move for UI-side caches to stay honest.
+        self.change_id += 1;
         if !self.group_open {
             self.snapshot();
         }
@@ -646,6 +752,7 @@ impl Buffer {
 
     pub fn undo(&mut self) {
         self.group_open = false;
+        self.change_id += 1;
         if let Some(snap) = self.undo.pop() {
             self.redo.push(Snapshot {
                 text: self.text.clone(),
@@ -660,6 +767,7 @@ impl Buffer {
 
     pub fn redo(&mut self) {
         self.group_open = false;
+        self.change_id += 1;
         if let Some(snap) = self.redo.pop() {
             self.undo.push(Snapshot {
                 text: self.text.clone(),
@@ -795,6 +903,34 @@ mod tests {
         b.line_start_motion();
         b.move_up();
         assert_eq!(b.row_col(b.cursor()), (1, 0));
+    }
+
+    #[test]
+    fn vertical_motions_cross_wrapped_display_lines() {
+        // One buffer row wrapped into three display lines, then a normal row.
+        let mut b = Buffer::new("aaa bbb ccc\nd".to_string());
+        b.set_display_segments(vec![vec![0, 4, 8], vec![12]]);
+        assert_eq!(b.display_line_count(), 4);
+        assert_eq!(b.display_range(1), Some((4, 8)));
+        assert_eq!(b.display_index_for(9), 2);
+
+        b.set_cursor(0);
+        b.move_down();
+        assert_eq!(b.cursor(), 4, "j steps onto the wrapped segment");
+        b.move_down();
+        assert_eq!(b.cursor(), 8);
+        b.move_down();
+        assert_eq!(b.cursor(), 12, "and then onto the next buffer row");
+        b.move_up();
+        assert_eq!(b.cursor(), 8);
+
+        // The column being aimed for is relative to the display line.
+        b.set_cursor(9); // one byte into the "ccc" segment
+        assert_eq!(b.desired_col, Some(1));
+        b.move_down();
+        assert_eq!(b.cursor(), 13, "clamped to the short row");
+        b.move_up();
+        assert_eq!(b.cursor(), 9, "and restored when coming back");
     }
 
     #[test]

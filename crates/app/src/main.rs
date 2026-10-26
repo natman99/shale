@@ -106,6 +106,7 @@ struct Workspace {
     status: SharedString,
     editor: Entity<MarkdownEditor>,
     _editor_events: Subscription,
+    _keystroke_observer: Subscription,
 }
 
 impl Workspace {
@@ -121,6 +122,18 @@ impl Workspace {
         let editor_events = cx.subscribe(&editor, |ws, _editor, event, cx| match event {
             EditorEvent::FollowLink { target } => ws.follow_link(target, cx),
         });
+        // Keybinding bugs on Linux are almost always "what did the platform
+        // actually deliver, and which action did it resolve to", so log both.
+        // The subscription has to be kept alive or the observer is dropped.
+        let keystroke_observer = cx.observe_keystrokes(|_ws, event, _window, _cx| {
+            tracing::debug!(
+                key = event.keystroke.key.as_str(),
+                modifiers = ?event.keystroke.modifiers,
+                action = event.action.as_ref().map(|action| action.name()),
+                contexts = ?event.context_stack,
+                "keystroke"
+            );
+        });
         Self {
             focus_handle: cx.focus_handle(),
             vault,
@@ -131,6 +144,7 @@ impl Workspace {
             status: "".into(),
             editor,
             _editor_events: editor_events,
+            _keystroke_observer: keystroke_observer,
         }
     }
 
@@ -222,7 +236,7 @@ impl Render for Workspace {
             ""
         };
         let pending = self.editor.read(cx).pending_hint();
-        let (line, col) = self.editor.read(cx).cursor_position();
+        let (line, col) = self.editor.read(cx).display_position();
 
         div()
             .track_focus(&self.focus_handle)
@@ -403,6 +417,8 @@ fn keybindings() -> Vec<KeyBinding> {
         "enter" => NextLine,
         "ctrl+z" => Undo,
         "ctrl+r" => Redo,
+        "ctrl+shift+z" => Redo,
+        "ctrl+y" => Redo,
         "ctrl+shift+c" => CopyText,
         "ctrl+shift+v" => PasteText,
     ]);
@@ -417,6 +433,8 @@ fn keybindings() -> Vec<KeyBinding> {
         "down" => MoveDown,
         "ctrl+z" => Undo,
         "ctrl+r" => Redo,
+        "ctrl+shift+z" => Redo,
+        "ctrl+y" => Redo,
         "ctrl+shift+c" => CopyText,
         "ctrl+shift+v" => PasteText,
     ]);
@@ -528,6 +546,49 @@ mod tests {
         cx.simulate_input("xyz");
         let text = editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
         assert_eq!(text, "hello", "normal mode should swallow typed input");
+    }
+
+    /// Soft wrap: a long row must break into several display lines, and `j`
+    /// has to step across them (neovim-style) even though it is one buffer row.
+    #[gpui::test]
+    fn soft_wrap_steps_across_display_lines(cx: &mut TestAppContext) {
+        cx.update(|cx| cx.bind_keys(keybindings()));
+
+        let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+        let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+        editor
+            .update(cx, |editor, window, cx| {
+                editor.set_text("word ".repeat(200), cx);
+                let focus = editor.focus_handle(cx);
+                window.focus(&focus, cx);
+            })
+            .unwrap();
+
+        // The first frame has no measured width yet, so paint twice.
+        for _ in 0..2 {
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+        }
+        let (rows, displays) = editor
+            .read_with(cx, |editor, _cx| {
+                (editor.line_count(), editor.display_line_count())
+            })
+            .unwrap();
+        assert_eq!(rows, 1, "the note is a single buffer row");
+        // 1000 characters at ~150 chars per line in a maximized test window.
+        assert!(
+            (4..=12).contains(&displays),
+            "a long row should wrap into a sensible number of display lines, got {displays}"
+        );
+
+        cx.simulate_keystrokes("j");
+        let (row, col) = editor
+            .read_with(cx, |editor, _cx| editor.cursor_position())
+            .unwrap();
+        assert_eq!(row, 0, "still the same buffer row");
+        assert!(
+            (40..1000).contains(&col),
+            "j should land on the next display line, got col {col}"
+        );
     }
 
     /// Counts, `$`, and `u` must work through the real keymap, not just the

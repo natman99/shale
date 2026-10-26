@@ -72,12 +72,13 @@ Workspace layout:
   vault), text `Buffer` with undo/redo, and the vim mode engine. Pure Rust,
   fully unit tested.
 - `crates/app` (`shale` binary): GPUI app (Zed's gpui, tag `v1.25.3`) — file
-  tree sidebar, custom line-based editor view with vim normal/insert modes
-  (hjkl, w/b/e, 0 ^ $, gg/G, counts on motions and operators, d/c/y + motions,
-  x, p/P, u undo, i/a/I/A/o/O, ctrl+z/ctrl+r, clipboard, mouse click to
-  position), wiki-link styling (resolved tinted blue, unresolved dimmed)
-  and navigation (`gx` on a link in normal mode, ctrl+click), status bar (mode,
-  pending count/operator, dirty flag, path, row:col), ctrl+s save.
+  tree sidebar, custom line-based editor view with **soft wrap** and vim
+  normal/insert modes (hjkl, w/b/e, 0 ^ $, gg/G, counts on motions and
+  operators, d/c/y + motions, x, p/P, u undo, i/a/I/A/o/O, ctrl+z/ctrl+r,
+  clipboard, mouse click to position), wiki-link styling (resolved tinted blue,
+  unresolved dimmed) and navigation (`gx` on a link in normal mode, ctrl+click),
+  status bar (mode, pending count/operator, dirty flag, path, display row:col),
+  ctrl+s save.
 - `crates/mcp` (`shale-mcp` binary): MCP stdio server exposing list/read/
   write/search/backlinks tools.
 
@@ -127,6 +128,60 @@ Workspace layout:
   screenshot-window --id <id> --write-to-disk true` for a single window, and
   `niri msg --json windows` to find the window id.
 
+### Open threads (write findings here as they come up)
+- **Soft wrap — done.** `Buffer` holds a *display model*: the UI calls
+  `Buffer::set_display_segments(rows_of_absolute_byte_starts)` each frame, and
+  every vertical motion (`j`/`k`, `desired_col`) works on flat display-line
+  indices, so wrapped rows step like neovim and the core stays unit-testable
+  without any UI. The app gets break points from
+  `window.text_system().line_wrapper(font, size).wrap_line(&[LineFragment::text(
+  row)], width, IndentAdjustment::NoIndent)`, whose `Boundary.ix` is a **byte
+  offset into the row** (add `line_start(row)` for absolute). Boundaries are
+  cached per `(buffer change_id, width)`; `Buffer::change_id()` bumps on every
+  mutation (including edits inside an undo group — forgetting that produced
+  slices containing `\n` and a `shape_line` debug_assert panic).
+  Wrap width comes from `scroll_handle.bounds().size.width`, i.e. the **previous
+  frame's** layout: the first frame has 0 width (no wrap) and a resize takes one
+  frame to catch up. The scroll container's width is definite (viewport minus
+  sidebar), so there is no content-driven feedback loop — verified live: 940px
+  transient then a stable 1781.6px in a 2042px viewport.
+  Still open in this area:
+  - `$`, `0`, `^` are still *logical* line motions; neovim's `$`/`0` are
+    screen-line motions (`g$`/`g0` are the logical ones). Decide and implement.
+  - Columns are byte offsets, so tabs and multi-byte characters mis-measure the
+    desired column; needs display columns (same work as the ruler).
+  - The ruler shows the display row (`display_position()`), which is what vim
+    shows, but the buffer row is no longer visible anywhere.
+- **ctrl+z / ctrl+r still reported dead in the live app** while `u` works and the
+  headless test (`tests::ctrl_z_and_ctrl_r_undo_redo`) passes, so the binding and
+  action path are correct. Zed binds `ctrl-z`/`ctrl-y`/`ctrl+shift+z` on Linux and
+  they work there, so the platform path can deliver these. Diagnostic added:
+  `Workspace` calls `cx.observe_keystrokes` and logs `key`, `modifiers`, resolved
+  `action` and the `contexts` stack at debug level (the `Subscription` must be
+  stored or the observer is dropped). Next step: have the user press ctrl+z and
+  read that line — no line means the keystroke never arrives (compositor/IME), a
+  line with `modifiers { control: true }` and `action = Some("Undo")` means the
+  buffer state is at fault. `ctrl+shift+z` and `ctrl+y` are now also bound to redo.
+- **Undo granularity** is now: one insert session = one step, `cw`/`o` + typing =
+  one step, each normal-mode operator = one step. Vim coalesces slightly
+  differently; revisit if it feels wrong in practice.
+- **ctrl+z / ctrl+r**: the bindings and actions are proven correct by the
+  headless test (`tests::ctrl_z_and_ctrl_r_undo_redo`); the perceived "does not
+  work" was the per-character undo granularity above. If it ever looks dead in a
+  live window again, `RUST_LOG=shale=debug` prints `undo action` /
+  `undo_depth` / `redo action` / `redo_depth`, which distinguishes "keystroke
+  never arrived" from "nothing on the stack".
+- **Not implemented yet in vim mode**: visual mode (`v`/`V`) and selection
+  operators, `.` repeat, text objects (`iw`, `aw`, `ap`), `f`/`F`/`t`/`T` find
+  motions, `0`-column vs display-column subtleties, registers other than the
+  unnamed one.
+- **Cursor model nits**: `Buffer` cursors may sit at `text.len()` (between
+  characters) while vim's normal-mode cursor always sits *on* a character, so
+  `w` at the end of a buffer can leave the cursor one position past the last
+  character; normal mode should clamp. Columns are byte offsets today, which is
+  wrong for tabs and multi-byte characters and will need to become display
+  columns (same work as soft wrap).
+
 System dependency (Linux): `libxkbcommon-x11-devel` (plus fontconfig, freetype,
 x11, xcb, wayland dev packages) and a working Vulkan driver (the Linux renderer
 is wgpu).
@@ -135,16 +190,15 @@ Next steps, roughly in order:
 1. ~~Wiki-link rendering/highlighting + navigation~~ Done: resolved links tinted,
    unresolved dimmed; `gx` / ctrl+click follow the link under the cursor.
    Still TODO here: creating a note from an unresolved link, and link preview.
-2. Soft wrap: j/k (and the cursor) must step over *display* lines when a line
-   wraps, neovim-style (Zed does not do this). Needs a display-line model built
-   from the shaped-line wrap API, painting wrapped segments, scrolling by display
-   row, and a desired **display** column.
-3. Visual mode (`v`/`V`) and selection operators; `.` repeat; text objects
+2. ~~Soft wrap~~ Done (see Open threads). Follow-ups there: screen-line `$`/`0`,
+   display columns for tabs/multi-byte text.
+3. Resolve the ctrl+z / redo keystroke question (see Open threads).
+4. Visual mode (`v`/`V`) and selection operators; `.` repeat; text objects
    (`iw`, `ap`); `f`/`t` find motions.
-4. Table-aware motions and manipulation (the table goal): column motions on the
+5. Table-aware motions and manipulation (the table goal): column motions on the
    pipe and dash characters, adding/removing rows and columns.
-5. Live preview mode (rendered markdown toggle) — pulldown-cmark for parsing.
-6. Theming (light/dark, TOML theme files).
-7. HarperLS / LSP integration for spellcheck and grammar.
-8. Image display in vaults (gpui image elements).
-9. File tree: new/rename/delete, file watching.
+6. Live preview mode (rendered markdown toggle) — pulldown-cmark for parsing.
+7. Theming (light/dark, TOML theme files).
+8. HarperLS / LSP integration for spellcheck and grammar.
+9. Image display in vaults (gpui image elements).
+10. File tree: new/rename/delete, file watching.
