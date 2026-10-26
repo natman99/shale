@@ -39,6 +39,20 @@ mod acts {
             VimUpperG,
             VimX,
             VimD,
+            VimC,
+            VimY,
+            VimP,
+            VimUpperP,
+            VimU,
+            VimDigit1,
+            VimDigit2,
+            VimDigit3,
+            VimDigit4,
+            VimDigit5,
+            VimDigit6,
+            VimDigit7,
+            VimDigit8,
+            VimDigit9,
             VimI,
             VimUpperI,
             VimA,
@@ -207,6 +221,7 @@ impl Render for Workspace {
         } else {
             ""
         };
+        let pending = self.editor.read(cx).pending_hint();
         let (line, col) = self.editor.read(cx).cursor_position();
 
         div()
@@ -257,7 +272,7 @@ impl Render for Workspace {
                     .gap_4()
                     .text_xs()
                     .bg(gpui::rgb(0x252526))
-                    .child(format!("{mode_str}{dirty}"))
+                    .child(format!("{mode_str}{pending}{dirty}"))
                     .child(self.status.clone())
                     .child(format!("{}:{}", line + 1, col + 1)),
             )
@@ -358,11 +373,25 @@ fn keybindings() -> Vec<KeyBinding> {
         "b" => VimB,
         "e" => VimE,
         "0" => VimZero,
-        "shift-6" => VimCaret,
-        "shift-4" => VimDollar,
+        "^" => VimCaret,
+        "$" => VimDollar,
         "g" => VimG,
         "shift-g" => VimUpperG,
         "d" => VimD,
+        "c" => VimC,
+        "y" => VimY,
+        "p" => VimP,
+        "shift-p" => VimUpperP,
+        "u" => VimU,
+        "1" => VimDigit1,
+        "2" => VimDigit2,
+        "3" => VimDigit3,
+        "4" => VimDigit4,
+        "5" => VimDigit5,
+        "6" => VimDigit6,
+        "7" => VimDigit7,
+        "8" => VimDigit8,
+        "9" => VimDigit9,
         "x" => VimX,
         "i" => VimI,
         "shift-i" => VimUpperI,
@@ -499,5 +528,59 @@ mod tests {
         cx.simulate_input("xyz");
         let text = editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
         assert_eq!(text, "hello", "normal mode should swallow typed input");
+    }
+
+    /// Counts, `$`, and `u` must work through the real keymap, not just the
+    /// core engine's unit tests.
+    #[gpui::test]
+    fn normal_mode_counts_and_edits(cx: &mut TestAppContext) {
+        cx.update(|cx| cx.bind_keys(keybindings()));
+
+        let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+        let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+        editor
+            .update(cx, |editor, window, cx| {
+                editor.set_text("one two three four\nsecond line".to_string(), cx);
+                let focus = editor.focus_handle(cx);
+                window.focus(&focus, cx);
+            })
+            .unwrap();
+
+        cx.simulate_keystrokes("d 2 w");
+        let text = editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
+        assert_eq!(
+            text, "three four\nsecond line",
+            "`d2w` should delete two words"
+        );
+
+        // `u` undoes it again.
+        cx.simulate_keystrokes("u");
+        let text = editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
+        assert_eq!(text, "one two three four\nsecond line", "`u` should undo");
+
+        // `$` lands on the last character, and `2j` moves two display lines
+        // down (clamped at the last line here).
+        cx.simulate_keystrokes("0 $");
+        let pos = editor
+            .read_with(cx, |editor, _cx| editor.cursor_position())
+            .unwrap();
+        assert_eq!(pos, (0, 17), "`$` should land on the last char");
+
+        cx.simulate_keystrokes("^");
+        let pos = editor
+            .read_with(cx, |editor, _cx| editor.cursor_position())
+            .unwrap();
+        assert_eq!(pos, (0, 0), "`^` should land on the first non-blank");
+
+        // `cw` replaces a word and enters insert mode.
+        cx.simulate_keystrokes("escape 0 c w");
+        let text = editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
+        assert_eq!(
+            text, "two three four\nsecond line",
+            "`cw` should delete the word"
+        );
+        cx.simulate_input("X");
+        let text = editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
+        assert_eq!(text, "Xtwo three four\nsecond line");
     }
 }

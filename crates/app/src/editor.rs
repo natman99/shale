@@ -105,6 +105,21 @@ impl MarkdownEditor {
         self.buffer.row_col(self.buffer.cursor())
     }
 
+    /// Status-bar hint for a half-typed command, e.g. `3d` or `2`.
+    pub fn pending_hint(&self) -> String {
+        let count = self.vim.count().map(|c| c.to_string()).unwrap_or_default();
+        let op = self
+            .vim
+            .pending_operator()
+            .map(|c| c.to_string())
+            .unwrap_or_default();
+        if count.is_empty() && op.is_empty() {
+            String::new()
+        } else {
+            format!(" {count}{op}")
+        }
+    }
+
     fn mark_dirty(&mut self) {
         self.dirty = true;
     }
@@ -153,7 +168,11 @@ impl MarkdownEditor {
     }
 
     fn normal(&mut self, key: Key, cx: &mut Context<Self>) {
+        let before = self.buffer.text().to_string();
         let outcome = self.vim.handle_normal_key(key, &mut self.buffer);
+        if self.buffer.text() != before {
+            self.mark_dirty();
+        }
         match outcome {
             Outcome::EnterInsert => self.vim.enter_insert(),
             Outcome::FollowLink => {
@@ -462,6 +481,20 @@ impl Render for MarkdownEditor {
             .on_action(cx.listener(|this, _: &VimUpperG, _, cx| this.normal(Key::Char('G'), cx)))
             .on_action(cx.listener(|this, _: &VimX, _, cx| this.normal(Key::Char('x'), cx)))
             .on_action(cx.listener(|this, _: &VimD, _, cx| this.normal(Key::Char('d'), cx)))
+            .on_action(cx.listener(|this, _: &VimC, _, cx| this.normal(Key::Char('c'), cx)))
+            .on_action(cx.listener(|this, _: &VimY, _, cx| this.normal(Key::Char('y'), cx)))
+            .on_action(cx.listener(|this, _: &VimP, _, cx| this.normal(Key::Char('p'), cx)))
+            .on_action(cx.listener(|this, _: &VimUpperP, _, cx| this.normal(Key::Char('P'), cx)))
+            .on_action(cx.listener(|this, _: &VimU, _, cx| this.normal(Key::Char('u'), cx)))
+            .on_action(cx.listener(|this, _: &VimDigit1, _, cx| this.normal(Key::Char('1'), cx)))
+            .on_action(cx.listener(|this, _: &VimDigit2, _, cx| this.normal(Key::Char('2'), cx)))
+            .on_action(cx.listener(|this, _: &VimDigit3, _, cx| this.normal(Key::Char('3'), cx)))
+            .on_action(cx.listener(|this, _: &VimDigit4, _, cx| this.normal(Key::Char('4'), cx)))
+            .on_action(cx.listener(|this, _: &VimDigit5, _, cx| this.normal(Key::Char('5'), cx)))
+            .on_action(cx.listener(|this, _: &VimDigit6, _, cx| this.normal(Key::Char('6'), cx)))
+            .on_action(cx.listener(|this, _: &VimDigit7, _, cx| this.normal(Key::Char('7'), cx)))
+            .on_action(cx.listener(|this, _: &VimDigit8, _, cx| this.normal(Key::Char('8'), cx)))
+            .on_action(cx.listener(|this, _: &VimDigit9, _, cx| this.normal(Key::Char('9'), cx)))
             .on_action(cx.listener(|this, _: &VimI, _, cx| this.normal(Key::Char('i'), cx)))
             .on_action(cx.listener(|this, _: &VimUpperI, _, cx| this.normal(Key::Char('I'), cx)))
             .on_action(cx.listener(|this, _: &VimA, _, cx| this.normal(Key::Char('a'), cx)))

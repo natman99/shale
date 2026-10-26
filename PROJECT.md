@@ -11,16 +11,18 @@ Shale is an obsidian-style markdown editor with extra developer focused features
 - [ ] Image support in vaults
 - [ ] Theming support and support for custom themes. Include light and dark themes.
 - [ ] Graph view
+- [ ] Pdf export notes
 
 - Config files in TOML
 - Assure any code you reference or copy from online has a commercial permissible licensing 
 - Write unit tests 
 - Regularly commit to a local git repo. You don't need to publish it. Don't override the user's global config, make a local override for a user for yourself.
 - Expand this plan and goals as needed.
-- Assure **proper** support for manipulating tables with vim bindings. No unexpected around when manipulating tables. 
+- Assure **proper** support for manipulating tables with vim bindings. No unexpected skipping or jumping around when manipulating tables. Ask the user for expected behavior when designing this behavior.
 - Tree-sitter powered code highlighting for code blocks.
 - Full keyboard support if at all possible. 98% of the app should not require mouse usage. Mouse in the settings menu is fine.
 - Indexing for quick wiki-link look up and resolving.
+- Use GPUI's testing framework for headless testing of the app when possible.
 
 ## Non-Goals
 - Plugins
@@ -71,10 +73,11 @@ Workspace layout:
   fully unit tested.
 - `crates/app` (`shale` binary): GPUI app (Zed's gpui, tag `v1.25.3`) — file
   tree sidebar, custom line-based editor view with vim normal/insert modes
-  (hjkl, w/b/e, 0 ^ $, gg/G, dd, x, i/a/I/A/o/O, undo/redo, clipboard, mouse
-  click to position), wiki-link styling (resolved tinted blue, unresolved dimmed)
+  (hjkl, w/b/e, 0 ^ $, gg/G, counts on motions and operators, d/c/y + motions,
+  x, p/P, u undo, i/a/I/A/o/O, ctrl+z/ctrl+r, clipboard, mouse click to
+  position), wiki-link styling (resolved tinted blue, unresolved dimmed)
   and navigation (`gx` on a link in normal mode, ctrl+click), status bar (mode,
-  dirty flag, path, row:col), ctrl+s save.
+  pending count/operator, dirty flag, path, row:col), ctrl+s save.
 - `crates/mcp` (`shale-mcp` binary): MCP stdio server exposing list/read/
   write/search/backlinks tools.
 
@@ -96,6 +99,20 @@ Workspace layout:
   is silently dropped while bound keys (enter/backspace/dd/x) keep working —
   exactly the symptom we hit. `LineElement::paint` does this once per frame
   (guarded by `MarkdownEditor::input_registered`, reset in `render`).
+- **Linux keystrokes: shifted symbols arrive without shift.** gpui's
+  `keystroke_from_xkb` maps a shifted symbol to the symbol itself and drops the
+  shift modifier (shift is only kept for uppercase letters). So `"shift-4"`
+  never matches; bind `"^"` and `"$"` literally, exactly as Zed's
+  `assets/keymaps/vim.json` does. `"shift-g"` is correct for `G`. This is why
+  `^`/`$` looked "not implemented" — the bindings simply never fired.
+- **Counts are actions, not text input.** `1`..`9` are bound to `VimDigit1..9`
+  in the `vim-normal` context and fed to the engine as `Key::Char('1'..)`; the
+  engine builds the count and applies it to the next motion/operator (counts on
+  both sides of an operator multiply, like vim). `0` stays the first-column
+  motion and only extends a count that is already in progress. Zed does the same
+  thing with a data-carrying `vim::Number(usize)` action; that derive needs
+  `Deserialize` + `JsonSchema` (i.e. a `schemars` dependency), so we use ten
+  unit actions instead.
 - Other API notes for this version: `gpui_platform::application()` instead of
   `Application::new()`; `ShapedLine::paint` takes `TextAlign` + `align_width`;
   `Window::focus` takes `cx`; `TextRun.len` and `ShapedLine::x_for_index` are
@@ -113,17 +130,21 @@ Workspace layout:
 System dependency (Linux): `libxkbcommon-x11-devel` (plus fontconfig, freetype,
 x11, xcb, wayland dev packages) and a working Vulkan driver (the Linux renderer
 is wgpu).
-freetype, x11, xcb, wayland dev packages) and a working Vulkan driver (the Linux
-renderer is wgpu).
 
 Next steps, roughly in order:
 1. ~~Wiki-link rendering/highlighting + navigation~~ Done: resolved links tinted,
    unresolved dimmed; `gx` / ctrl+click follow the link under the cursor.
    Still TODO here: creating a note from an unresolved link, and link preview.
-2. Live preview mode (rendered markdown toggle) — pulldown-cmark for parsing.
-3. Visual mode, more vim operators (c/d + motions, counts), table-aware
-   motions for the table-manipulation goal.
-4. Theming (light/dark, TOML theme files).
-5. HarperLS / LSP integration for spellcheck and grammar.
-6. Image display in vaults (gpui image elements).
-7. File tree: new/rename/delete, file watching.
+2. Soft wrap: j/k (and the cursor) must step over *display* lines when a line
+   wraps, neovim-style (Zed does not do this). Needs a display-line model built
+   from the shaped-line wrap API, painting wrapped segments, scrolling by display
+   row, and a desired **display** column.
+3. Visual mode (`v`/`V`) and selection operators; `.` repeat; text objects
+   (`iw`, `ap`); `f`/`t` find motions.
+4. Table-aware motions and manipulation (the table goal): column motions on the
+   pipe and dash characters, adding/removing rows and columns.
+5. Live preview mode (rendered markdown toggle) — pulldown-cmark for parsing.
+6. Theming (light/dark, TOML theme files).
+7. HarperLS / LSP integration for spellcheck and grammar.
+8. Image display in vaults (gpui image elements).
+9. File tree: new/rename/delete, file watching.
