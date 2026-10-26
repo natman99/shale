@@ -460,3 +460,44 @@ fn main() -> Result<()> {
     });
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui::{TestAppContext, VisualTestContext};
+
+    /// Typing printable characters must reach the buffer through gpui's input
+    /// handler, not just the keys we bind to actions.
+    #[gpui::test]
+    fn typing_in_insert_mode_inserts_text(cx: &mut TestAppContext) {
+        cx.update(|cx| cx.bind_keys(keybindings()));
+
+        let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+        let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+        editor
+            .update(cx, |editor, window, cx| {
+                let focus = editor.focus_handle(cx);
+                window.focus(&focus, cx);
+            })
+            .unwrap();
+
+        cx.simulate_keystrokes("i");
+        cx.simulate_input("hello");
+
+        let (mode, text) = editor
+            .read_with(cx, |editor, _cx| (editor.mode(), editor.text()))
+            .unwrap();
+        assert_eq!(
+            mode,
+            shale_core::vim::Mode::Insert,
+            "`i` should enter insert"
+        );
+        assert_eq!(text, "hello", "typed characters should land in the buffer");
+
+        // Normal mode swallows typed characters instead of inserting them.
+        cx.simulate_keystrokes("escape");
+        cx.simulate_input("xyz");
+        let text = editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
+        assert_eq!(text, "hello", "normal mode should swallow typed input");
+    }
+}

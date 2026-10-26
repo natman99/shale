@@ -16,3 +16,6 @@ gpui_platform.workspace = true
 shale-core.workspace = true
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+gpui = { workspace = true, features = ["test-support"] }

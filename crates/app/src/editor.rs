@@ -6,10 +6,10 @@ use std::ops::Range;
 
 use gpui::{
     div, fill, prelude::*, px, relative, rgb, App, Bounds, Context, CursorStyle, Element,
-    ElementId, Entity, EntityInputHandler, EventEmitter, FocusHandle, Focusable, GlobalElementId,
-    InspectorElementId, InteractiveElement, IntoElement, LayoutId, MouseButton, MouseDownEvent,
-    ParentElement, Pixels, Render, ScrollHandle, ShapedLine, SharedString, Style, Styled, TextRun,
-    UTF16Selection, Window,
+    ElementId, ElementInputHandler, Entity, EntityInputHandler, EventEmitter, FocusHandle,
+    Focusable, GlobalElementId, InspectorElementId, InteractiveElement, IntoElement, LayoutId,
+    MouseButton, MouseDownEvent, ParentElement, Pixels, Render, ScrollHandle, ShapedLine,
+    SharedString, Style, Styled, TextRun, UTF16Selection, Window,
 };
 use shale_core::buffer::Buffer;
 use shale_core::markdown::{extract_wikilinks, WikiLink};
@@ -48,6 +48,10 @@ pub struct MarkdownEditor {
     /// Lowercased note names present in the vault, for resolved/unresolved
     /// link styling.
     known: HashSet<String>,
+    /// Whether the input handler was registered during the current frame's
+    /// paint. gpui only routes typed characters to a handler registered while
+    /// painting the frame, so exactly one line element does it per frame.
+    input_registered: bool,
     dirty: bool,
 }
 
@@ -61,6 +65,7 @@ impl MarkdownEditor {
             hit_lines: Vec::new(),
             links: Vec::new(),
             known: HashSet::new(),
+            input_registered: false,
             dirty: false,
         }
     }
@@ -424,6 +429,7 @@ impl EntityInputHandler for MarkdownEditor {
 impl Render for MarkdownEditor {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.hit_lines.clear();
+        self.input_registered = false;
         let context = if self.vim.mode() == Mode::Insert {
             "vim-insert"
         } else {
@@ -665,6 +671,27 @@ impl Element for LineElement {
         cx: &mut App,
     ) {
         let line = &prepaint.line;
+
+        // gpui only routes typed characters to an input handler that was
+        // registered during the current frame's paint, so exactly one line
+        // element per frame registers it (with the bounds of the first painted
+        // line, which is also what IME candidate windows anchor to).
+        let register = self.editor.update(cx, |editor, _| {
+            if editor.input_registered {
+                false
+            } else {
+                editor.input_registered = true;
+                true
+            }
+        });
+        if register {
+            let focus_handle = self.editor.read(cx).focus_handle.clone();
+            window.handle_input(
+                &focus_handle,
+                ElementInputHandler::new(bounds, self.editor.clone()),
+                cx,
+            );
+        }
 
         // Selection quad.
         if let Some((s, e)) = self.line_sel {
