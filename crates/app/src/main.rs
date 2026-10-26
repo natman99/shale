@@ -12,12 +12,13 @@ use clap::Parser;
 use gpui::{
     div, prelude::*, px, size, App, Application, Bounds, Context, Entity, Focusable,
     InteractiveElement, IntoElement, KeyBinding, ParentElement, Render, SharedString,
-    StatefulInteractiveElement, Styled, TitlebarOptions, Window, WindowBounds, WindowOptions,
+    StatefulInteractiveElement, Styled, Subscription, TitlebarOptions, Window, WindowBounds,
+    WindowOptions,
 };
 use shale_core::vault::VaultEntry;
 use shale_core::{Config, Vault};
 
-use editor::MarkdownEditor;
+use editor::{EditorEvent, MarkdownEditor};
 
 mod acts {
     use gpui::actions;
@@ -74,6 +75,11 @@ struct Args {
     /// Open this note on startup (vault-relative).
     #[arg(long)]
     note: Option<PathBuf>,
+
+    /// Debug aid: open `--note` (or Welcome.md) this many seconds after the
+    /// window is created, to exercise post-paint updates.
+    #[arg(long)]
+    open_after: Option<u64>,
 }
 
 struct Workspace {
@@ -86,6 +92,7 @@ struct Workspace {
     active: Option<PathBuf>,
     status: SharedString,
     editor: Entity<MarkdownEditor>,
+    _editor_events: Subscription,
 }
 
 impl Workspace {
@@ -96,6 +103,11 @@ impl Workspace {
             .filter_map(|e| e.path.parent().map(|p| p.to_path_buf()))
             .collect();
         let editor = cx.new(|cx| MarkdownEditor::new(cx));
+        let known = note_keys(&entries);
+        editor.update(cx, |editor, cx| editor.set_known_links(known, cx));
+        let editor_events = cx.subscribe(&editor, |ws, _editor, event, cx| match event {
+            EditorEvent::FollowLink { target } => ws.follow_link(target, cx),
+        });
         Self {
             focus_handle: cx.focus_handle(),
             vault,
@@ -105,6 +117,7 @@ impl Workspace {
             active: None,
             status: "".into(),
             editor,
+            _editor_events: editor_events,
         }
     }
 
@@ -123,6 +136,27 @@ impl Workspace {
             }
         }
         cx.notify();
+    }
+
+    /// Open the note a wiki-link target refers to, if it exists.
+    fn follow_link(&mut self, target: &str, cx: &mut Context<Self>) {
+        match self.vault.resolve_link(target, &self.entries) {
+            Ok(Some(entry)) => {
+                let path = entry.path.clone();
+                tracing::debug!(target, path = %path.display(), "following wiki-link");
+                self.open_note(&path, cx);
+            }
+            Ok(None) => {
+                tracing::debug!(target, "unresolved wiki-link");
+                self.status = format!("no note named {target}").into();
+                cx.notify();
+            }
+            Err(err) => {
+                tracing::warn!(target, "failed to resolve link: {err:#}");
+                self.status = format!("{err:#}").into();
+                cx.notify();
+            }
+        }
     }
 
     fn toggle_dir(&mut self, path: PathBuf) {
@@ -229,6 +263,23 @@ impl Render for Workspace {
                     .child(format!("{}:{}", line + 1, col + 1)),
             )
     }
+}
+
+/// Lowercased link targets that resolve to an existing note: file stems and
+/// vault-relative paths (with and without the `.md` extension).
+fn note_keys(entries: &[VaultEntry]) -> HashSet<String> {
+    let mut keys = HashSet::new();
+    for entry in entries {
+        keys.insert(entry.stem().to_lowercase());
+        if let Some(s) = entry.path.to_str() {
+            let lower = s.to_lowercase();
+            keys.insert(lower.clone());
+            if let Some(stripped) = lower.strip_suffix(".md") {
+                keys.insert(stripped.to_string());
+            }
+        }
+    }
+    keys
 }
 
 fn push_node(
@@ -392,6 +443,21 @@ fn main() -> Result<()> {
         window
             .update(cx, |_ws, window, _cx| window.focus(&editor_focus))
             .unwrap();
+
+        if let Some(secs) = args.open_after {
+            let ws = workspace.clone();
+            let note = args
+                .note
+                .clone()
+                .unwrap_or_else(|| PathBuf::from("Welcome.md"));
+            cx.spawn(async move |cx| {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_secs(secs))
+                    .await;
+                _ = ws.update(cx, |ws, cx| ws.open_note(&note, cx));
+            })
+            .detach();
+        }
     });
     Ok(())
 }

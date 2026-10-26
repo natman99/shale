@@ -1,16 +1,18 @@
 //! The markdown editor view: a scrollable, line-based text surface driven by
 //! `shale_core::buffer::Buffer` and the vim engine.
 
+use std::collections::HashSet;
 use std::ops::Range;
 
 use gpui::{
     div, fill, prelude::*, px, relative, rgb, App, Bounds, Context, CursorStyle, Element,
-    ElementId, Entity, EntityInputHandler, FocusHandle, Focusable, GlobalElementId,
+    ElementId, Entity, EntityInputHandler, EventEmitter, FocusHandle, Focusable, GlobalElementId,
     InspectorElementId, InteractiveElement, IntoElement, LayoutId, MouseButton, MouseDownEvent,
     ParentElement, Pixels, Render, ScrollHandle, ShapedLine, SharedString, Style, Styled, TextRun,
     UTF16Selection, Window,
 };
 use shale_core::buffer::Buffer;
+use shale_core::markdown::{extract_wikilinks, WikiLink};
 use shale_core::vim::{Key, Mode, Outcome, Vim};
 
 use crate::acts::*;
@@ -22,6 +24,17 @@ const BG: u32 = 0x1e1e1e;
 const FG: u32 = 0xd4d4d4;
 const CURSOR: u32 = 0xaeafad;
 const SELECTION: u32 = 0x264f78;
+const LINK: u32 = 0x7aa6f0;
+const LINK_UNRESOLVED: u32 = 0x7d6f6f;
+
+/// Events the editor emits for the workspace to handle.
+#[derive(Debug, Clone)]
+pub enum EditorEvent {
+    /// The user asked to follow the wiki-link to `target`.
+    FollowLink { target: String },
+}
+
+impl EventEmitter<EditorEvent> for MarkdownEditor {}
 
 pub struct MarkdownEditor {
     focus_handle: FocusHandle,
@@ -30,6 +43,11 @@ pub struct MarkdownEditor {
     scroll_handle: ScrollHandle,
     /// Shaped lines from the last paint, with their bounds, for hit-testing.
     hit_lines: Vec<(usize, ShapedLine, Bounds<Pixels>)>,
+    /// Wiki-link spans in the current buffer text (buffer byte offsets).
+    links: Vec<WikiLink>,
+    /// Lowercased note names present in the vault, for resolved/unresolved
+    /// link styling.
+    known: HashSet<String>,
     dirty: bool,
 }
 
@@ -41,8 +59,17 @@ impl MarkdownEditor {
             vim: Vim::new(),
             scroll_handle: ScrollHandle::default(),
             hit_lines: Vec::new(),
+            links: Vec::new(),
+            known: HashSet::new(),
             dirty: false,
         }
+    }
+
+    /// Tell the editor which note names exist, so it can style resolved
+    /// links differently from unresolved ones.
+    pub fn set_known_links(&mut self, known: HashSet<String>, cx: &mut Context<Self>) {
+        self.known = known;
+        cx.notify();
     }
 
     pub fn text(&self) -> String {
@@ -77,6 +104,44 @@ impl MarkdownEditor {
         self.dirty = true;
     }
 
+    // ----- wiki links ---------------------------------------------------
+
+    /// Recompute wiki-link spans for the current buffer text. Called before
+    /// any link lookup or paint, since the buffer may have changed since the
+    /// last call.
+    fn refresh_links(&mut self) {
+        self.links = extract_wikilinks(self.buffer.text());
+    }
+
+    /// Whether a link target names a note that exists in the vault.
+    fn is_known(&self, target: &str) -> bool {
+        let t = target.trim().to_lowercase();
+        if self.known.contains(&t) {
+            return true;
+        }
+        match t.strip_suffix(".md") {
+            Some(stripped) => self.known.contains(stripped),
+            None => false,
+        }
+    }
+
+    /// The wiki-link containing `offset`, if any.
+    fn link_at(&self, offset: usize) -> Option<&WikiLink> {
+        self.links
+            .iter()
+            .find(|l| l.start <= offset && offset < l.end)
+    }
+
+    fn follow_link_at(&mut self, offset: usize, cx: &mut Context<Self>) {
+        if let Some(link) = self.link_at(offset) {
+            cx.emit(EditorEvent::FollowLink {
+                target: link.target.clone(),
+            });
+        } else {
+            tracing::debug!(offset, "no wiki-link at cursor");
+        }
+    }
+
     fn ensure_cursor_visible(&self) {
         let (row, _) = self.buffer.row_col(self.buffer.cursor());
         self.scroll_handle.scroll_to_item(row);
@@ -84,8 +149,14 @@ impl MarkdownEditor {
 
     fn normal(&mut self, key: Key, cx: &mut Context<Self>) {
         let outcome = self.vim.handle_normal_key(key, &mut self.buffer);
-        if outcome == Outcome::EnterInsert {
-            self.vim.enter_insert();
+        match outcome {
+            Outcome::EnterInsert => self.vim.enter_insert(),
+            Outcome::FollowLink => {
+                let cursor = self.buffer.cursor();
+                self.refresh_links();
+                self.follow_link_at(cursor, cx);
+            }
+            Outcome::Stay | Outcome::Unhandled => {}
         }
         self.ensure_cursor_visible();
         cx.notify();
@@ -205,6 +276,13 @@ impl MarkdownEditor {
         if let Some((row, line, bounds)) = best {
             let col = line.closest_index_for_x(x - bounds.left());
             let offset = self.buffer.offset_of(row, col);
+            if event.modifiers.control {
+                self.refresh_links();
+                if self.link_at(offset).is_some() {
+                    self.follow_link_at(offset, cx);
+                    return;
+                }
+            }
             self.buffer.set_cursor(offset);
             cx.notify();
         }
@@ -355,6 +433,7 @@ impl Render for MarkdownEditor {
         let line_count = self.buffer.line_count();
         let cursor = self.buffer.cursor();
         let selection = self.buffer.selection();
+        self.refresh_links();
         tracing::trace!(lines = line_count, "editor render");
 
         div()
@@ -432,6 +511,22 @@ impl Render for MarkdownEditor {
                             None
                         };
 
+                        // Wiki-link spans restricted to this line, in
+                        // line-relative byte offsets, with whether they
+                        // resolve to an existing note.
+                        let line_links: Vec<(usize, usize, bool)> = self
+                            .links
+                            .iter()
+                            .filter(|l| l.start < end && l.end > start)
+                            .map(|l| {
+                                (
+                                    l.start.saturating_sub(start),
+                                    l.end.min(end).saturating_sub(start),
+                                    self.is_known(&l.target),
+                                )
+                            })
+                            .collect();
+
                         div()
                             .id(("line", row))
                             .w_full()
@@ -443,6 +538,7 @@ impl Render for MarkdownEditor {
                                 line_sel,
                                 cursor_col,
                                 insert: self.vim.mode() == Mode::Insert,
+                                links: line_links,
                             })
                     })),
             )
@@ -463,6 +559,8 @@ struct LineElement {
     line_sel: Option<(usize, usize)>,
     cursor_col: Option<usize>,
     insert: bool,
+    /// (start, end, resolved) byte spans of wiki-links within `text`.
+    links: Vec<(usize, usize, bool)>,
 }
 
 struct LinePrepaint {
@@ -512,19 +610,47 @@ impl Element for LineElement {
         _cx: &mut App,
     ) -> Self::PrepaintState {
         let style = window.text_style();
-        let line = window.text_system().shape_line(
-            self.text.clone(),
-            px(FONT_SIZE),
-            &[TextRun {
-                len: self.text.len(),
-                font: style.font(),
-                color: rgb(FG).into(),
+        let font = style.font();
+        let total = self.text.len();
+
+        // One TextRun per wiki-link span (colored) plus the plain text
+        // between them. TextRun lengths are utf-8 byte counts.
+        let mut runs: Vec<TextRun> = Vec::new();
+        let mut pos = 0usize;
+        let plain = |len: usize| TextRun {
+            len,
+            font: font.clone(),
+            color: rgb(FG).into(),
+            background_color: None,
+            underline: None,
+            strikethrough: None,
+        };
+        for &(start, end, resolved) in &self.links {
+            let start = start.min(total);
+            let end = end.clamp(start, total);
+            if end <= pos {
+                continue;
+            }
+            if start > pos {
+                runs.push(plain(start - pos));
+            }
+            runs.push(TextRun {
+                len: end - start,
+                font: font.clone(),
+                color: rgb(if resolved { LINK } else { LINK_UNRESOLVED }).into(),
                 background_color: None,
                 underline: None,
                 strikethrough: None,
-            }],
-            None,
-        );
+            });
+            pos = end;
+        }
+        if pos < total {
+            runs.push(plain(total - pos));
+        }
+
+        let line = window
+            .text_system()
+            .shape_line(self.text.clone(), px(FONT_SIZE), &runs, None);
         LinePrepaint { line }
     }
 
@@ -553,7 +679,9 @@ impl Element for LineElement {
             ));
         }
 
-        line.paint(bounds.origin, px(LINE_HEIGHT), window, cx).ok();
+        if let Err(err) = line.paint(bounds.origin, px(LINE_HEIGHT), window, cx) {
+            tracing::warn!(row = self.row, "failed to paint line: {err:#}");
+        }
 
         // Cursor quad.
         if let Some(col) = self.cursor_col {

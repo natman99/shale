@@ -19,7 +19,7 @@ enum Pending {
     None,
     /// `d` typed, waiting for the motion/operator.
     Delete,
-    /// `g` typed, waiting for a second `g`.
+    /// `g` typed, waiting for a second `g` or `x`.
     Goto,
 }
 
@@ -32,6 +32,8 @@ pub enum Outcome {
     EnterInsert,
     /// Key not applicable (e.g. unbound); UI may fall back to default handling.
     Unhandled,
+    /// `gx` was typed: the UI should follow the link under the cursor.
+    FollowLink,
 }
 
 #[derive(Debug, Clone)]
@@ -94,11 +96,14 @@ impl Vim {
             }
             Pending::Goto => {
                 self.pending = Pending::None;
-                if let Key::Char('g') = key {
-                    buf.buffer_start();
-                    return Outcome::Stay;
+                match key {
+                    Key::Char('g') => {
+                        buf.buffer_start();
+                        return Outcome::Stay;
+                    }
+                    Key::Char('x') => return Outcome::FollowLink,
+                    _ => return Outcome::Unhandled,
                 }
-                return Outcome::Unhandled;
             }
             Pending::None => {}
         }
@@ -226,6 +231,21 @@ mod tests {
         vim.handle_normal_key(Key::Char('d'), &mut b);
         vim.handle_normal_key(Key::Char('d'), &mut b);
         assert_eq!(b.line_count(), 2);
+    }
+
+    #[test]
+    fn gx_requests_link_follow() {
+        let mut vim = Vim::new();
+        let mut b = buf();
+        b.set_cursor(20);
+        vim.handle_normal_key(Key::Char('g'), &mut b);
+        assert_eq!(
+            vim.handle_normal_key(Key::Char('x'), &mut b),
+            Outcome::FollowLink
+        );
+        // The motion-less `gx` leaves the cursor where it was.
+        assert_eq!(b.cursor(), 20);
+        assert_eq!(vim.mode(), Mode::Normal);
     }
 
     #[test]

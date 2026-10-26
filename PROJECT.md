@@ -69,11 +69,28 @@ Workspace layout:
 - `vendor/xattr`: patched xattr 0.2.3 (glibc ENOATTR build fix) via
   `[patch.crates-io]`; see `vendor/xattr/PATCH.md`.
 
+Known platform issue (important): crates.io `gpui` 0.2.2 has **no published
+Wayland fix** for its frame/present path. Its Wayland backend requests a
+`wl_surface` frame callback exactly once (at first configure) and then relies on
+the compositor's callback chain; on niri that chain stalls, so the app draws new
+frames (render logs confirm) but never presents them — the window keeps showing
+the first frame. Forcing the X11 backend (`env -u WAYLAND_DISPLAY shale ...`, i.e.
+XWayland under niri) renders and updates correctly. Current Zed works on Wayland
+because it builds a newer, unpublished gpui split (`gpui` + `gpui_linux` /
+`gpui_platform`) whose Wayland window has a full frame-loop state machine
+(`FrameLoop`, `PresentationState`, `schedule_frame_retry`). `gpui_platform` is not
+on crates.io; latest published `gpui` is 0.2.2. Options: depend on Zed's git
+(tag `v1.25.3` has the fixed stack, Apache-2.0), stay on 0.2.2 + X11, or port the
+frame-loop rework into a vendored gpui.
+
 System dependency (Linux): `libxkbcommon-x11-devel` (plus fontconfig,
 freetype, x11, xcb, wayland dev packages).
 
 Next steps, roughly in order:
 1. Wiki-link rendering/highlighting + navigation (jump/preview) in the editor.
+   Done: resolved links are tinted, unresolved links dimmed; `gx` in normal mode
+   and ctrl+click follow a link under the cursor (unresolved targets report a
+   status message; creating them is still TODO).
 2. Live preview mode (rendered markdown toggle) — pulldown-cmark for parsing.
 3. Visual mode, more vim operators (c/d + motions, counts), table-aware
    motions for the table-manipulation goal.
