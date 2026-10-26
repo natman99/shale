@@ -11,7 +11,7 @@ use anyhow::{Context as _, Result};
 use clap::Parser;
 use gpui::{
     div, prelude::*, px, size, App, Application, Bounds, Context, Entity, Focusable,
-    InteractiveElement, IntoElement, KeyBinding, MouseButton, ParentElement, Render, SharedString,
+    InteractiveElement, IntoElement, KeyBinding, ParentElement, Render, SharedString,
     StatefulInteractiveElement, Styled, TitlebarOptions, Window, WindowBounds, WindowOptions,
 };
 use shale_core::vault::VaultEntry;
@@ -46,6 +46,8 @@ mod acts {
             VimO,
             VimUpperO,
             VimEscape,
+            Newline,
+            NextLine,
             MoveLeft,
             MoveRight,
             MoveUp,
@@ -189,6 +191,7 @@ impl Render for Workspace {
                     .child(
                         div()
                             .id("tree-scroll")
+                            .flex_none()
                             .w(px(260.))
                             .h_full()
                             .overflow_scroll()
@@ -208,7 +211,7 @@ impl Render for Workspace {
                             )
                             .children(rows),
                     )
-                    .child(self.editor.clone()),
+                    .child(div().flex_1().min_w_0().h_full().child(self.editor.clone())),
             )
             .child(
                 div()
@@ -264,10 +267,11 @@ fn push_node(
         .when(is_active, |d| d.bg(gpui::rgb(0x2f2f2f)))
         .hover(|s| s.bg(gpui::rgb(0x2a2a2a)))
         .child(label)
-        .on_mouse_up(MouseButton::Left, {
+        .on_click({
             let path = node.path.clone();
-            cx.listener(move |this, _: &gpui::MouseUpEvent, _window, cx| {
-                if path.extension().map(|e| e == "md").unwrap_or(false) && !is_dir {
+            cx.listener(move |this, _: &gpui::ClickEvent, _window, cx| {
+                eprintln!("shale: tree click: {} (dir={is_dir})", path.display());
+                if !is_dir && path.extension().map(|e| e == "md").unwrap_or(false) {
                     this.open_note(&path, cx);
                 } else {
                     this.toggle_dir(path.clone());
@@ -315,6 +319,7 @@ fn keybindings() -> Vec<KeyBinding> {
         "o" => VimO,
         "shift-o" => VimUpperO,
         "escape" => VimEscape,
+        "enter" => NextLine,
         "ctrl+z" => Undo,
         "ctrl+r" => Redo,
         "ctrl+shift+c" => CopyText,
@@ -322,6 +327,7 @@ fn keybindings() -> Vec<KeyBinding> {
     ]);
     bind!("vim-insert", [
         "escape" => VimEscape,
+        "enter" => Newline,
         "backspace" => Backspace,
         "delete" => DeleteForward,
         "left" => MoveLeft,

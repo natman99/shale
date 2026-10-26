@@ -208,6 +208,15 @@ impl Buffer {
         self.set_cursor(self.text.len());
     }
 
+    /// Move to the first non-blank of the next line (vim Enter).
+    pub fn next_line_first_non_blank(&mut self) {
+        let (row, _) = self.row_col(self.cursor);
+        if row + 1 < self.line_count() {
+            self.set_cursor(self.line_start(row + 1));
+            self.first_non_blank();
+        }
+    }
+
     /// Move to the start of the next word (vim `w`).
     pub fn word_forward(&mut self) {
         let mut i = self.cursor;
@@ -543,6 +552,18 @@ mod tests {
         assert_eq!(b.row_col(b.cursor()), (0, 11));
         b.first_non_blank();
         assert_eq!(b.cursor(), 0);
+    }
+
+    #[test]
+    fn enter_motion() {
+        let mut b = Buffer::new("aaa\n  indented\nzzz".to_string());
+        b.set_cursor(0);
+        b.next_line_first_non_blank();
+        assert_eq!(b.cursor(), 6); // 'i' of "indented"
+        b.next_line_first_non_blank();
+        assert_eq!(b.cursor(), 15); // 'z' of "zzz"
+        b.next_line_first_non_blank(); // stays at last line
+        assert_eq!(b.cursor(), 15);
     }
 
     #[test]

@@ -103,6 +103,23 @@ impl MarkdownEditor {
         cx.notify();
     }
 
+    fn on_newline(&mut self, _: &Newline, _window: &mut Window, cx: &mut Context<Self>) {
+        if self.vim.mode() == Mode::Normal {
+            return;
+        }
+        self.buffer.insert("\n");
+        self.insert_edit(cx);
+    }
+
+    fn on_next_line(&mut self, _: &NextLine, _window: &mut Window, cx: &mut Context<Self>) {
+        if self.vim.mode() == Mode::Insert {
+            return;
+        }
+        self.buffer.next_line_first_non_blank();
+        self.ensure_cursor_visible();
+        cx.notify();
+    }
+
     fn on_backspace(&mut self, _: &Backspace, _window: &mut Window, cx: &mut Context<Self>) {
         self.buffer.backspace();
         self.insert_edit(cx);
@@ -365,6 +382,8 @@ impl Render for MarkdownEditor {
             .on_action(cx.listener(|this, _: &VimUpperO, _, cx| this.normal(Key::Char('O'), cx)))
             // Shared editing keys.
             .on_action(cx.listener(Self::on_escape))
+            .on_action(cx.listener(Self::on_newline))
+            .on_action(cx.listener(Self::on_next_line))
             .on_action(cx.listener(Self::on_backspace))
             .on_action(cx.listener(Self::on_delete_forward))
             .on_action(cx.listener(Self::on_move_left))
