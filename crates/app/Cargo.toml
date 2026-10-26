@@ -1,0 +1,15 @@
+[package]
+name = "shale-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "shale"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap = { version = "4", features = ["derive"] }
+gpui = "0.2.2"
+shale-core.workspace = true

@@ -1,0 +1,115 @@
+use std::path::Path;
+
+use anyhow::Context as _;
+use serde::{Deserialize, Serialize};
+
+/// Top-level Shale configuration, loaded from `shale.toml` in the vault
+/// (all fields optional; defaults apply when absent).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Config {
+    #[serde(default)]
+    pub editor: EditorConfig,
+    #[serde(default)]
+    pub appearance: AppearanceConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct EditorConfig {
+    /// Vim-style normal/insert mode bindings.
+    pub vim_mode: bool,
+    /// Soft-wrap long lines.
+    pub line_wrap: bool,
+    /// Show the file tree on startup.
+    pub show_file_tree: bool,
+}
+
+impl Default for EditorConfig {
+    fn default() -> Self {
+        Self {
+            vim_mode: true,
+            line_wrap: true,
+            show_file_tree: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct AppearanceConfig {
+    /// UI font size in points.
+    pub font_size: f32,
+    /// Live preview (render markdown while editing).
+    pub live_preview: bool,
+}
+
+impl Default for AppearanceConfig {
+    fn default() -> Self {
+        Self {
+            font_size: 14.0,
+            live_preview: true,
+        }
+    }
+}
+
+impl Config {
+    /// Load from `shale.toml` inside `dir`, falling back to defaults when
+    /// the file does not exist.
+    pub fn load(dir: &Path) -> anyhow::Result<Config> {
+        let path = dir.join("shale.toml");
+        if !path.is_file() {
+            return Ok(Config::default());
+        }
+        let text = std::fs::read_to_string(&path)
+            .with_context(|| format!("reading config {}", path.display()))?;
+        Config::from_toml(&text).with_context(|| format!("parsing config {}", path.display()))
+    }
+
+    pub fn from_toml(text: &str) -> anyhow::Result<Config> {
+        Ok(toml::from_str(text)?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn defaults_when_missing_fields() {
+        let cfg = Config::from_toml("[editor]\nvim_mode = false").unwrap();
+        assert!(!cfg.editor.vim_mode);
+        assert!(cfg.editor.line_wrap);
+        assert!(cfg.appearance.live_preview);
+        assert_eq!(cfg.appearance.font_size, 14.0);
+    }
+
+    #[test]
+    fn full_config_roundtrips() {
+        let toml = r#"
+[editor]
+vim_mode = false
+line_wrap = false
+show_file_tree = false
+
+[appearance]
+font_size = 16.5
+live_preview = false
+"#;
+        let cfg = Config::from_toml(toml).unwrap();
+        assert!(!cfg.editor.vim_mode);
+        assert_eq!(cfg.appearance.font_size, 16.5);
+    }
+
+    #[test]
+    fn unknown_keys_rejected() {
+        assert!(Config::from_toml("[editor]\nnope = true").is_err());
+    }
+
+    #[test]
+    fn load_missing_file_gives_defaults() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = Config::load(dir.path()).unwrap();
+        assert_eq!(cfg, Config::default());
+    }
+}
