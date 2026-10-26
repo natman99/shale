@@ -1,7 +1,6 @@
 //! A small text buffer with cursor/selection and undo, designed for
 //! markdown notes (whole-file `String` storage is fine at this scale).
-
-use std::ops::Range;
+//! whole-file `String` storage is fine at this scale).
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Snapshot {
@@ -372,6 +371,35 @@ impl Buffer {
         self.text.replace_range(start..end, "");
         self.selection = None;
         self.cursor = start;
+    }
+
+    /// Delete backwards from the cursor (or the selection, if any).
+    pub fn backspace(&mut self) {
+        if self.selection.is_some() {
+            self.delete_selected();
+            return;
+        }
+        if self.cursor == 0 {
+            return;
+        }
+        self.snapshot();
+        let prev = self.prev_char_boundary(self.cursor);
+        self.text.replace_range(prev..self.cursor, "");
+        self.cursor = prev;
+    }
+
+    /// Delete the character after the cursor (or the selection, if any).
+    pub fn delete_forward(&mut self) {
+        if self.selection.is_some() {
+            self.delete_selected();
+            return;
+        }
+        let end = self.next_char_boundary(self.cursor);
+        if end == self.cursor {
+            return;
+        }
+        self.snapshot();
+        self.text.replace_range(self.cursor..end, "");
     }
 
     /// Delete the character at the cursor (vim `x`).
