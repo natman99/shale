@@ -11,7 +11,8 @@ path = "src/main.rs"
 [dependencies]
 anyhow.workspace = true
 clap = { version = "4", features = ["derive"] }
-gpui = "0.2.2"
+gpui.workspace = true
+gpui_platform.workspace = true
 shale-core.workspace = true
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

@@ -10,10 +10,9 @@ use std::rc::Rc;
 use anyhow::{Context as _, Result};
 use clap::Parser;
 use gpui::{
-    div, prelude::*, px, size, App, Application, Bounds, Context, Entity, Focusable,
-    InteractiveElement, IntoElement, KeyBinding, ParentElement, Render, SharedString,
-    StatefulInteractiveElement, Styled, Subscription, TitlebarOptions, Window, WindowBounds,
-    WindowOptions,
+    div, prelude::*, px, size, App, Bounds, Context, Entity, Focusable, InteractiveElement,
+    IntoElement, KeyBinding, ParentElement, Render, SharedString, StatefulInteractiveElement,
+    Styled, Subscription, TitlebarOptions, Window, WindowBounds, WindowOptions,
 };
 use shale_core::vault::VaultEntry;
 use shale_core::{Config, Vault};
@@ -408,7 +407,7 @@ fn main() -> Result<()> {
     let config = Rc::new(Config::load(vault.root())?);
     let initial_note = args.note.clone();
 
-    let app = Application::new();
+    let app = gpui_platform::application();
     app.run(move |cx: &mut App| {
         cx.bind_keys(keybindings());
 
@@ -441,7 +440,7 @@ fn main() -> Result<()> {
             .unwrap();
         let editor_focus = workspace.read(cx).editor.read(cx).focus_handle(cx);
         window
-            .update(cx, |_ws, window, _cx| window.focus(&editor_focus))
+            .update(cx, |_ws, window, cx| window.focus(&editor_focus, cx))
             .unwrap();
 
         if let Some(secs) = args.open_after {

@@ -13,14 +13,17 @@ license = "Apache-2.0"
 
 [workspace.dependencies]
 anyhow = "1"
+# Zed's gpui as shipped in Zed 1.25.3. crates.io's gpui 0.2.2 is an older tree
+# whose Wayland backend stalls its frame/present loop (blank window on niri);
+# this tag has the rewritten frame-loop in gpui_linux. Apache-2.0.
+gpui = { git = "https://github.com/zed-industries/zed", tag = "v1.25.3" }
+gpui_platform = {
+    git = "https://github.com/zed-industries/zed",
+    tag = "v1.25.3",
+    features = ["wayland", "x11", "font-kit"],
+}
 pulldown-cmark = "0.13"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 shale-core = { path = "crates/core" }
 toml = "0.9"
-
-# xattr 0.2.3 (pulled in by gpui_http_client -> zed-async-tar) fails to build
-# on glibc because libc no longer exposes ENOATTR on Linux. Vendored patched
-# copy defines it as 61 (ENODATA). See vendor/xattr/PATCH.md.
-[patch.crates-io]
-xattr = { path = "vendor/xattr" }

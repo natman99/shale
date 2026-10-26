@@ -28,7 +28,12 @@ Shale is an obsidian-style markdown editor with extra developer focused features
 ### Tech Stack
 Keep as much in Rust as possible, no bindings external libraries. Update the tech stack as needed.
 - Tokio for async
-- GPUI for UI
+- GPUI for UI — **from Zed's repo, tag `v1.25.3`** (`gpui` + `gpui_platform`
+  with `wayland`/`x11`/`font-kit`). crates.io `gpui` 0.2.2 is an older tree whose
+  Wayland backend stalls its frame/present loop, so the window never updates on
+  compositors like niri; the `gpui_linux` crate at this tag has the rewritten
+  frame-loop state machine and works. Apache-2.0 (commercially fine).
+  On Linux the renderer is wgpu (Vulkan), so a Vulkan driver is required.
 - Serde for file parsing
 - You may want to use GPUI kit, a components library for GPUI. Evaluate if it's useful before using.
 https://gpui-kit.com/
@@ -66,25 +71,15 @@ Workspace layout:
   status bar (mode, dirty flag, path, row:col), ctrl+s save.
 - `crates/mcp` (`shale-mcp` binary): MCP stdio server exposing list/read/
   write/search/backlinks tools.
-- `vendor/xattr`: patched xattr 0.2.3 (glibc ENOATTR build fix) via
-  `[patch.crates-io]`; see `vendor/xattr/PATCH.md`.
 
-Known platform issue (important): crates.io `gpui` 0.2.2 has **no published
-Wayland fix** for its frame/present path. Its Wayland backend requests a
-`wl_surface` frame callback exactly once (at first configure) and then relies on
-the compositor's callback chain; on niri that chain stalls, so the app draws new
-frames (render logs confirm) but never presents them — the window keeps showing
-the first frame. Forcing the X11 backend (`env -u WAYLAND_DISPLAY shale ...`, i.e.
-XWayland under niri) renders and updates correctly. Current Zed works on Wayland
-because it builds a newer, unpublished gpui split (`gpui` + `gpui_linux` /
-`gpui_platform`) whose Wayland window has a full frame-loop state machine
-(`FrameLoop`, `PresentationState`, `schedule_frame_retry`). `gpui_platform` is not
-on crates.io; latest published `gpui` is 0.2.2. Options: depend on Zed's git
-(tag `v1.25.3` has the fixed stack, Apache-2.0), stay on 0.2.2 + X11, or port the
-frame-loop rework into a vendored gpui.
+Wayland note: `--open-after <secs>` (debug flag) opens a note that many seconds
+after the window exists; it is the regression test for the old "window never
+repaints after the first frame" bug, which was a gpui Wayland frame-loop bug and
+is fixed by the version pin above.
 
 System dependency (Linux): `libxkbcommon-x11-devel` (plus fontconfig,
-freetype, x11, xcb, wayland dev packages).
+freetype, x11, xcb, wayland dev packages) and a working Vulkan driver (the Linux
+renderer is wgpu).
 
 Next steps, roughly in order:
 1. Wiki-link rendering/highlighting + navigation (jump/preview) in the editor.

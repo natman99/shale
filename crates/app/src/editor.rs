@@ -679,7 +679,14 @@ impl Element for LineElement {
             ));
         }
 
-        if let Err(err) = line.paint(bounds.origin, px(LINE_HEIGHT), window, cx) {
+        if let Err(err) = line.paint(
+            bounds.origin,
+            px(LINE_HEIGHT),
+            gpui::TextAlign::default(),
+            None,
+            window,
+            cx,
+        ) {
             tracing::warn!(row = self.row, "failed to paint line: {err:#}");
         }
 
