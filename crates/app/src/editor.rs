@@ -53,6 +53,7 @@ impl MarkdownEditor {
         self.buffer.set_text(text);
         self.vim.enter_normal();
         self.dirty = false;
+        tracing::debug!(lines = self.buffer.line_count(), "editor set_text");
         cx.notify();
     }
 
@@ -344,6 +345,7 @@ impl EntityInputHandler for MarkdownEditor {
 
 impl Render for MarkdownEditor {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.hit_lines.clear();
         let context = if self.vim.mode() == Mode::Insert {
             "vim-insert"
         } else {
@@ -353,6 +355,7 @@ impl Render for MarkdownEditor {
         let line_count = self.buffer.line_count();
         let cursor = self.buffer.cursor();
         let selection = self.buffer.selection();
+        tracing::debug!(lines = line_count, "editor render");
 
         div()
             .key_context(context)

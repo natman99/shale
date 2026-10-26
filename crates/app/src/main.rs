@@ -111,12 +111,14 @@ impl Workspace {
     fn open_note(&mut self, path: &PathBuf, cx: &mut Context<Self>) {
         match self.vault.read(path) {
             Ok(text) => {
+                tracing::debug!(path = %path.display(), bytes = text.len(), "opened note");
                 self.active = Some(path.clone());
                 self.editor
                     .update(cx, |editor, cx| editor.set_text(text, cx));
                 self.status = path.display().to_string().into();
             }
             Err(err) => {
+                tracing::warn!(path = %path.display(), "failed to read note: {err:#}");
                 self.status = format!("{err:#}").into();
             }
         }
@@ -270,7 +272,7 @@ fn push_node(
         .on_click({
             let path = node.path.clone();
             cx.listener(move |this, _: &gpui::ClickEvent, _window, cx| {
-                eprintln!("shale: tree click: {} (dir={is_dir})", path.display());
+                tracing::debug!(path = %path.display(), is_dir, "tree click");
                 if !is_dir && path.extension().map(|e| e == "md").unwrap_or(false) {
                     this.open_note(&path, cx);
                 } else {
@@ -344,6 +346,13 @@ fn keybindings() -> Vec<KeyBinding> {
 
 fn main() -> Result<()> {
     let args = Args::parse();
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "shale=debug".into()),
+        )
+        .with_writer(std::io::stderr)
+        .init();
     let vault = Rc::new(Vault::open(&args.vault).context("opening vault")?);
     let config = Rc::new(Config::load(vault.root())?);
     let initial_note = args.note.clone();
