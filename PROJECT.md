@@ -37,6 +37,10 @@ Keep as much in Rust as possible, no bindings external libraries. Update the tec
 - Serde for file parsing
 - You may want to use GPUI kit, a components library for GPUI. Evaluate if it's useful before using.
 https://gpui-kit.com/
+  Note (evaluated): gpui-kit's crates (`gpui-pre`, `gpui-base`) are a **fork of
+  gpui**, so they cannot be mixed with Zed's gpui — a component library would
+  have to be built on our own elements. Don't re-litigate this without checking
+  the dependency tree.
 
 ### MCP
 Shale has an MCP server with support for reading, writing, and searching vaults. The MCP server should *either* be a separate binary which shares core functionality with a `common` crate in the project, or if speed will be acceptable use the main binary.
@@ -65,27 +69,57 @@ Workspace layout:
   extraction/resolution/backlinks, search, TOML config (`shale.toml` in the
   vault), text `Buffer` with undo/redo, and the vim mode engine. Pure Rust,
   fully unit tested.
-- `crates/app` (`shale` binary): GPUI 0.2.2 app — file tree sidebar, custom
-  line-based editor view with vim normal/insert modes (hjkl, w/b/e, 0 ^ $,
-  gg/G, dd, x, i/a/I/A/o/O, undo/redo, clipboard, mouse click to position),
-  status bar (mode, dirty flag, path, row:col), ctrl+s save.
+- `crates/app` (`shale` binary): GPUI app (Zed's gpui, tag `v1.25.3`) — file
+  tree sidebar, custom line-based editor view with vim normal/insert modes
+  (hjkl, w/b/e, 0 ^ $, gg/G, dd, x, i/a/I/A/o/O, undo/redo, clipboard, mouse
+  click to position), wiki-link styling (resolved tinted blue, unresolved dimmed)
+  and navigation (`gx` on a link in normal mode, ctrl+click), status bar (mode,
+  dirty flag, path, row:col), ctrl+s save.
 - `crates/mcp` (`shale-mcp` binary): MCP stdio server exposing list/read/
   write/search/backlinks tools.
 
-Wayland note: `--open-after <secs>` (debug flag) opens a note that many seconds
-after the window exists; it is the regression test for the old "window never
-repaints after the first frame" bug, which was a gpui Wayland frame-loop bug and
-is fixed by the version pin above.
+### GPUI gotchas (learned the hard way — re-read before touching the UI)
+- **Never use crates.io `gpui` 0.2.2.** Its Wayland backend requests a
+  `wl_surface` frame callback exactly once (at first configure) and then depends
+  on the compositor's callback chain; under niri that chain stalls, so the app
+  keeps drawing new frames (render logs prove it) but never presents them — the
+  window looks frozen at its first frame and only updates when the compositor
+  forces a full redraw (resize, remap). Zed's tag `v1.25.3` has the rewritten
+  frame-loop state machine in `gpui_linux` and works. `gpui_platform` /
+  `gpui_linux` are **not on crates.io**, so the git pin is load-bearing.
+  Debug aid: `--open-after <secs>` opens a note after the window exists, which is
+  the repro for that bug.
+- **Views must register their input handler during paint.** Typed printable
+  characters are not keymap actions; gpui hands them to whichever handler was
+  registered with `window.handle_input(&focus, ElementInputHandler::new(bounds,
+  entity), cx)` while painting the current frame. Forget it and every character
+  is silently dropped while bound keys (enter/backspace/dd/x) keep working —
+  exactly the symptom we hit. `LineElement::paint` does this once per frame
+  (guarded by `MarkdownEditor::input_registered`, reset in `render`).
+- Other API notes for this version: `gpui_platform::application()` instead of
+  `Application::new()`; `ShapedLine::paint` takes `TextAlign` + `align_width`;
+  `Window::focus` takes `cx`; `TextRun.len` and `ShapedLine::x_for_index` are
+  **utf-8 byte** offsets, while the input-handler range methods are utf-16.
 
-System dependency (Linux): `libxkbcommon-x11-devel` (plus fontconfig,
+### Testing
+- `crates/core`: pure-Rust unit tests (vault, markdown, search, buffer, vim).
+- `crates/app`: headless UI tests via gpui's `test-support` feature
+  (`#[gpui::test]` + `VisualTestContext::simulate_keystrokes/simulate_input`),
+  which is how input-path regressions get caught without a live window.
+- Manual Wayland checks: `grim` for full-screen, `niri msg action
+  screenshot-window --id <id> --write-to-disk true` for a single window, and
+  `niri msg --json windows` to find the window id.
+
+System dependency (Linux): `libxkbcommon-x11-devel` (plus fontconfig, freetype,
+x11, xcb, wayland dev packages) and a working Vulkan driver (the Linux renderer
+is wgpu).
 freetype, x11, xcb, wayland dev packages) and a working Vulkan driver (the Linux
 renderer is wgpu).
 
 Next steps, roughly in order:
-1. Wiki-link rendering/highlighting + navigation (jump/preview) in the editor.
-   Done: resolved links are tinted, unresolved links dimmed; `gx` in normal mode
-   and ctrl+click follow a link under the cursor (unresolved targets report a
-   status message; creating them is still TODO).
+1. ~~Wiki-link rendering/highlighting + navigation~~ Done: resolved links tinted,
+   unresolved dimmed; `gx` / ctrl+click follow the link under the cursor.
+   Still TODO here: creating a note from an unresolved link, and link preview.
 2. Live preview mode (rendered markdown toggle) — pulldown-cmark for parsing.
 3. Visual mode, more vim operators (c/d + motions, counts), table-aware
    motions for the table-manipulation goal.
