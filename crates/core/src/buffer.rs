@@ -1,12 +1,33 @@
 //! A small text buffer with cursor/selection and undo, designed for
 //! markdown notes (whole-file `String` storage is fine at this scale).
-//! whole-file `String` storage is fine at this scale).
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Snapshot {
     text: String,
     cursor: usize,
     selection: Option<(usize, usize)>,
+}
+
+/// Vim's word classes: keyword runs, punctuation runs, whitespace, and
+/// newlines (tracked separately so motions can reason about line ends).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WordClass {
+    Newline,
+    Whitespace,
+    Word,
+    Punct,
+}
+
+fn class_of(c: char) -> WordClass {
+    if c == '\n' {
+        WordClass::Newline
+    } else if c.is_whitespace() {
+        WordClass::Whitespace
+    } else if c.is_alphanumeric() || c == '_' {
+        WordClass::Word
+    } else {
+        WordClass::Punct
+    }
 }
 
 /// Byte offsets are always clamped to character boundaries.
@@ -19,6 +40,9 @@ pub struct Buffer {
     selection: Option<(usize, usize)>,
     undo: Vec<Snapshot>,
     redo: Vec<Snapshot>,
+    /// Byte column the cursor is aiming for on vertical motions, so moving
+    /// down onto a short line and back restores the original column (vim).
+    desired_col: Option<usize>,
 }
 
 impl Default for Buffer {
@@ -35,6 +59,7 @@ impl Buffer {
             selection: None,
             undo: Vec::new(),
             redo: Vec::new(),
+            desired_col: None,
         }
     }
 
@@ -48,6 +73,7 @@ impl Buffer {
         self.text = text;
         self.cursor = 0;
         self.selection = None;
+        self.desired_col = None;
         self.cursor = self.clamp(self.cursor);
     }
 
@@ -60,6 +86,14 @@ impl Buffer {
     }
 
     pub fn set_cursor(&mut self, offset: usize) {
+        self.cursor = self.clamp(offset);
+        self.selection = None;
+        self.desired_col = Some(self.row_col(self.cursor).1);
+    }
+
+    /// Move the cursor without disturbing the vertical target column, for
+    /// motions that clamp against a shorter line.
+    fn set_cursor_keep_desired(&mut self, offset: usize) {
         self.cursor = self.clamp(offset);
         self.selection = None;
     }
@@ -121,6 +155,19 @@ impl Buffer {
         }
     }
 
+    /// The text of `count` whole lines from `row`, with a trailing newline when
+    /// the range does not end at EOF (the linewise yank text).
+    pub fn yank_lines(&self, row: usize, count: usize) -> String {
+        let last_row = self.line_count() - 1;
+        let row = row.min(last_row);
+        let last = row.saturating_add(count.saturating_sub(1)).min(last_row);
+        let mut text = self.text()[self.line_start(row)..self.line_end(last)].to_string();
+        if last < last_row {
+            text.push('\n');
+        }
+        text
+    }
+
     pub fn row_col(&self, offset: usize) -> (usize, usize) {
         let offset = self.clamp(offset);
         let row = self.text[..offset].matches('\n').count();
@@ -138,6 +185,23 @@ impl Buffer {
         } else {
             self.clamp(target)
         }
+    }
+
+    /// Byte range covering `count` whole lines from `row`, including the
+    /// trailing newline when there is one (the linewise operator range).
+    pub fn line_range(&self, row: usize, count: usize) -> (usize, usize) {
+        let last_row = self.line_count() - 1;
+        let row = row.min(last_row);
+        let last = row.saturating_add(count.saturating_sub(1)).min(last_row);
+        let mut start = self.line_start(row);
+        let mut end = self.line_end(last);
+        if end < self.text.len() {
+            end += 1; // include the trailing newline
+        } else if start > 0 {
+            // Final line of the buffer: take the preceding newline instead.
+            start = start.saturating_sub(1);
+        }
+        (start, end)
     }
 
     // ----- motions (never modify text) ----------------------------------
@@ -168,15 +232,17 @@ impl Buffer {
 
     pub fn move_up(&mut self) {
         let (row, col) = self.row_col(self.cursor);
+        let target = self.desired_col.unwrap_or(col);
         if row > 0 {
-            self.set_cursor(self.offset_of(row - 1, col));
+            self.set_cursor_keep_desired(self.offset_of(row - 1, target));
         }
     }
 
     pub fn move_down(&mut self) {
         let (row, col) = self.row_col(self.cursor);
+        let target = self.desired_col.unwrap_or(col);
         if row + 1 < self.line_count() {
-            self.set_cursor(self.offset_of(row + 1, col));
+            self.set_cursor_keep_desired(self.offset_of(row + 1, target));
         }
     }
 
@@ -200,8 +266,27 @@ impl Buffer {
         self.set_cursor(self.line_end(row));
     }
 
+    /// Move to the last character of the line (vim `$`), which unlike
+    /// [`Self::line_end_motion`] does not land past the final character.
+    pub fn line_last_char_motion(&mut self) {
+        let (row, _) = self.row_col(self.cursor);
+        let start = self.line_start(row);
+        let end = self.line_end(row);
+        if end > start {
+            self.set_cursor(self.prev_char_boundary(end));
+        } else {
+            self.set_cursor(start);
+        }
+    }
+
     pub fn buffer_start(&mut self) {
         self.set_cursor(0);
+    }
+
+    /// Move to the first character of `row` (0-based, clamped).
+    pub fn goto_line(&mut self, row: usize) {
+        let row = row.min(self.line_count() - 1);
+        self.set_cursor(self.line_start(row));
     }
 
     pub fn buffer_end(&mut self) {
@@ -218,52 +303,66 @@ impl Buffer {
     }
 
     /// Move to the start of the next word (vim `w`).
+    ///
+    /// Words are runs of one of three classes: keyword characters
+    /// (alphanumeric + `_`), punctuation runs, and whitespace. `w` consumes the
+    /// current run (unless it is whitespace) and then any whitespace, landing on
+    /// the start of the next run — crossing line boundaries like vim does.
     pub fn word_forward(&mut self) {
-        let mut i = self.cursor;
         let len = self.text.len();
-        // Advance past the current word (or newline), then past whitespace.
-        i = self.skip_word(i);
-        while i < len {
-            let c = self.text[i..].chars().next().unwrap();
-            if c == '\n' {
-                i += 1;
-                break;
-            }
-            if !c.is_whitespace() {
-                break;
-            }
-            i += c.len_utf8();
+        let mut i = self.cursor;
+        if i >= len {
+            return;
         }
+        let cls = class_of(self.char_at(i).unwrap());
+        if cls != WordClass::Whitespace && cls != WordClass::Newline {
+            i = self.skip_run(i, cls);
+        }
+        i = self.skip_blanks(i);
         self.set_cursor(i);
     }
 
     /// Move to the start of the previous word (vim `b`).
     pub fn word_backward(&mut self) {
+        if self.cursor == 0 {
+            return;
+        }
+        let len = self.text.len();
         let mut i = self.cursor;
-        if i > 0 {
-            i = self.prev_char_boundary(i);
-        }
-        // Back over whitespace (crossing at most one newline).
-        let mut crossed_newline = false;
-        while i > 0 {
-            let c = self.prev_char(i).unwrap();
-            if c == '\n' {
-                if crossed_newline {
-                    break;
+
+        // In the middle of a run: back up to that run's start.
+        if i < len {
+            if let Some(cls) = self.char_at(i).map(class_of) {
+                if cls != WordClass::Whitespace && cls != WordClass::Newline {
+                    while i > 0 && self.prev_char(i).map(class_of) == Some(cls) {
+                        i = self.prev_char_boundary(i);
+                    }
+                    if i < self.cursor {
+                        self.set_cursor(i);
+                        return;
+                    }
                 }
-                crossed_newline = true;
-            } else if !c.is_whitespace() {
-                break;
             }
-            i = self.prev_char_boundary(i);
         }
-        // Back over the word.
+
+        // At a run start (or on a blank): cross blanks, then back over the
+        // previous run.
         while i > 0 {
-            let c = self.prev_char(i).unwrap();
-            if !(c.is_alphanumeric() || c == '_') {
-                break;
+            match self.prev_char(i).map(class_of) {
+                Some(WordClass::Whitespace) | Some(WordClass::Newline) => {
+                    i = self.prev_char_boundary(i);
+                }
+                _ => break,
             }
-            i = self.prev_char_boundary(i);
+        }
+        if i == 0 {
+            self.set_cursor(0);
+            return;
+        }
+        if let Some(cls) = self.prev_char(i).map(class_of) {
+            while i > 0 && self.prev_char(i).map(class_of) == Some(cls) {
+                i = self.prev_char_boundary(i);
+            }
         }
         self.set_cursor(i);
     }
@@ -271,59 +370,52 @@ impl Buffer {
     /// Move to the end of the current/next word (vim `e`).
     pub fn word_end(&mut self) {
         let len = self.text.len();
-        let mut i = self.cursor;
-        // Step at least one char forward.
-        if i < len {
-            i = self.next_char_boundary(i);
+        if len == 0 {
+            return;
         }
-        // Past whitespace.
-        while i < len {
-            let c = self.text[i..].chars().next().unwrap();
-            if c == '\n' {
-                i = self.next_char_boundary(i);
-                break;
-            }
-            if !c.is_whitespace() {
-                break;
-            }
-            i += c.len_utf8();
+        let i = self.cursor.min(len - 1);
+        let cls = class_of(self.char_at(i).unwrap());
+        let run_end = self.skip_run(i, cls);
+        // Strictly inside a keyword/punctuation run: finish that run.
+        let here = self.char_at(i).unwrap().len_utf8();
+        if matches!(cls, WordClass::Word | WordClass::Punct) && run_end > i + here {
+            self.set_cursor(self.prev_char_boundary(run_end));
+            return;
         }
-        // To the last char of the word.
-        let mut last = i;
-        while i < len {
-            let c = self.text[i..].chars().next().unwrap();
-            if !(c.is_alphanumeric() || c == '_') {
-                break;
-            }
-            last = i;
-            i += c.len_utf8();
+        // Otherwise step to the next non-blank run and take its last char.
+        let j = self.skip_blanks(run_end);
+        if j >= len {
+            self.set_cursor(self.prev_char_boundary(len));
+            return;
         }
-        self.set_cursor(last);
+        let end = self.skip_run(j, class_of(self.char_at(j).unwrap()));
+        self.set_cursor(self.prev_char_boundary(end));
     }
 
-    fn skip_word(&self, mut i: usize) -> usize {
+    fn char_at(&self, i: usize) -> Option<char> {
+        self.text[i..].chars().next()
+    }
+
+    /// Advance past a run of `cls` starting at `i`.
+    fn skip_run(&self, mut i: usize, cls: WordClass) -> usize {
         let len = self.text.len();
-        if i < len {
-            let c = self.text[i..].chars().next().unwrap();
-            if c == '\n' {
-                return i + 1;
+        while i < len {
+            match self.char_at(i) {
+                Some(c) if class_of(c) == cls => i += c.len_utf8(),
+                _ => break,
             }
-            if c.is_whitespace() {
-                while i < len {
-                    let c = self.text[i..].chars().next().unwrap();
-                    if c == '\n' || !c.is_whitespace() {
-                        break;
-                    }
-                    i += c.len_utf8();
-                }
-                return i;
-            }
-            while i < len {
-                let c = self.text[i..].chars().next().unwrap();
-                if !(c.is_alphanumeric() || c == '_') {
-                    break;
-                }
-                i += c.len_utf8();
+        }
+        i
+    }
+
+    /// Advance past any run of blanks (spaces/tabs and newlines).
+    fn skip_blanks(&self, mut i: usize) -> usize {
+        let len = self.text.len();
+        while i < len {
+            match self.char_at(i).map(class_of) {
+                Some(WordClass::Whitespace) => i = self.skip_run(i, WordClass::Whitespace),
+                Some(WordClass::Newline) => i = self.skip_run(i, WordClass::Newline),
+                _ => break,
             }
         }
         i
@@ -337,7 +429,7 @@ impl Buffer {
         o
     }
 
-    fn next_char_boundary(&self, offset: usize) -> usize {
+    pub(crate) fn next_char_boundary(&self, offset: usize) -> usize {
         let mut o = self.clamp(offset) + 1;
         while o < self.text.len() && !self.text.is_char_boundary(o) {
             o += 1;
@@ -411,9 +503,13 @@ impl Buffer {
         self.text.replace_range(self.cursor..end, "");
     }
 
-    /// Delete the character at the cursor (vim `x`).
-    pub fn delete_char(&mut self) {
-        let end = self.next_char_boundary(self.cursor);
+    /// Delete the `count` characters at the cursor (vim `x`, `2x`).
+    pub fn delete_char(&mut self, count: usize) {
+        let count = count.max(1);
+        let mut end = self.cursor;
+        for _ in 0..count {
+            end = self.next_char_boundary(end);
+        }
         if end == self.cursor {
             return;
         }
@@ -423,40 +519,61 @@ impl Buffer {
         self.cursor = self.clamp(self.cursor);
     }
 
-    /// Delete the whole line containing the cursor, including its newline
-    /// (vim `dd`).
-    pub fn delete_line(&mut self) {
-        self.snapshot();
-        let (row, _) = self.row_col(self.cursor);
-        let mut start = self.line_start(row);
-        let mut end = self.line_end(row);
-        if end < self.text.len() {
-            end += 1; // include the trailing newline
-        } else if start > 0 {
-            // Last line: take the preceding newline instead.
-            start -= 1;
+    /// Delete the half-open byte range `[start, end)` and park the cursor at
+    /// `start` (used by vim operators over a motion range).
+    pub fn delete_range(&mut self, start: usize, end: usize) {
+        let (start, end) = (self.clamp(start), self.clamp(end));
+        if start >= end {
+            return;
         }
+        self.snapshot();
+        self.text.replace_range(start..end, "");
+        self.selection = None;
+        self.cursor = self.clamp(start);
+    }
+
+    /// Delete `count` whole lines starting at the cursor's row, including their
+    /// newlines (vim `dd`, `2dd`).
+    pub fn delete_line(&mut self, count: usize) {
+        let (start, end) = self.line_range(self.row_col(self.cursor).0, count.max(1));
+        if start >= end {
+            return;
+        }
+        self.snapshot();
         self.text.replace_range(start..end, "");
         self.cursor = self.clamp(start.min(self.text.len()));
         self.selection = None;
     }
 
-    /// Open a new line below the cursor and place the cursor on it (vim `o`).
-    pub fn open_line_below(&mut self) {
+    /// Insert `text` at `offset` without touching the selection semantics of
+    /// [`Self::insert`] (used by linewise paste).
+    pub fn insert_at(&mut self, offset: usize, text: &str) {
+        let offset = self.clamp(offset);
         self.snapshot();
-        let (row, _) = self.row_col(self.cursor);
-        let end = self.line_end(row);
-        self.text.insert(end, '\n');
-        self.cursor = end + 1;
+        self.text.insert_str(offset, text);
+        self.cursor = self.clamp(offset + text.len());
         self.selection = None;
     }
 
-    /// Open a new line above the cursor (vim `O`).
-    pub fn open_line_above(&mut self) {
+    /// Open `count` new lines below the cursor and place the cursor on the last
+    /// of them (vim `o`, `2o`).
+    pub fn open_line_below(&mut self, count: usize) {
+        self.snapshot();
+        let (row, _) = self.row_col(self.cursor);
+        let end = self.line_end(row);
+        let n = count.max(1);
+        self.text.replace_range(end..end, &"\n".repeat(n));
+        self.cursor = end + n;
+        self.selection = None;
+    }
+
+    /// Open `count` new lines above the cursor (vim `O`, `2O`).
+    pub fn open_line_above(&mut self, count: usize) {
         self.snapshot();
         let (row, _) = self.row_col(self.cursor);
         let start = self.line_start(row);
-        self.text.insert(start, '\n');
+        let n = count.max(1);
+        self.text.replace_range(start..start, &"\n".repeat(n));
         self.cursor = start;
         self.selection = None;
     }
@@ -540,6 +657,85 @@ mod tests {
         assert_eq!(b2.cursor(), 10); // 'd' of world
     }
 
+    /// `w`/`b`/`e` must treat punctuation runs as words instead of stalling.
+    /// Like vim, a run of non-blank non-keyword characters counts as one word,
+    /// so `).` is a single word.
+    #[test]
+    fn word_motions_punctuation() {
+        let mut b = Buffer::new("a, b). c".to_string());
+        b.word_forward(); // 'a' -> ','
+        assert_eq!(b.cursor(), 1);
+        b.word_forward(); // ',' -> 'b'
+        assert_eq!(b.cursor(), 3);
+        b.word_forward(); // 'b' -> ')'
+        assert_eq!(b.cursor(), 4);
+        b.word_forward(); // '). ' -> 'c'
+        assert_eq!(b.cursor(), 7);
+        b.word_forward(); // at end: stays
+        assert_eq!(b.cursor(), 8);
+
+        b.word_backward(); // end -> 'c'
+        assert_eq!(b.cursor(), 7);
+        b.word_backward(); // 'c' -> start of the `).` run
+        assert_eq!(b.cursor(), 4);
+        b.word_backward(); // '). ' -> 'b'
+        assert_eq!(b.cursor(), 3);
+        b.word_backward(); // 'b' -> ','
+        assert_eq!(b.cursor(), 1);
+
+        // `e` walks run ends, including punctuation runs.
+        let mut b = Buffer::new("foo,bar".to_string());
+        b.word_end(); // end of "foo"
+        assert_eq!(b.cursor(), 2);
+        b.word_end(); // end of ","
+        assert_eq!(b.cursor(), 3);
+        b.word_end(); // end of "bar"
+        assert_eq!(b.cursor(), 6);
+    }
+
+    /// `w` crosses a line end to the first word of the next line.
+    #[test]
+    fn word_motion_crosses_lines() {
+        let mut b = Buffer::new("end\n   next".to_string());
+        b.set_cursor(0);
+        b.word_forward(); // 'end' -> 'next'
+        assert_eq!(b.cursor(), 7);
+        b.word_backward(); // 'next' -> 'end'
+        assert_eq!(b.cursor(), 0);
+    }
+
+    /// `$` is the last character of the line, not past it.
+    #[test]
+    fn dollar_is_last_char() {
+        let mut b = Buffer::new("abcd\nxy".to_string());
+        b.set_cursor(0);
+        b.line_last_char_motion();
+        assert_eq!(b.cursor(), 3);
+        b.move_down();
+        b.line_last_char_motion();
+        assert_eq!(b.cursor(), 6);
+        // An empty line stays at the line start.
+        let mut b = Buffer::new("a\n\nb".to_string());
+        b.set_cursor(2);
+        b.line_last_char_motion();
+        assert_eq!(b.cursor(), 2);
+    }
+
+    /// Vertical motions remember the column they were aiming for.
+    #[test]
+    fn vertical_motions_keep_desired_column() {
+        let mut b = Buffer::new("aaaaaaaa\nb\ncccccccc".to_string());
+        b.set_cursor(7); // col 7 of the first line
+        b.move_down(); // clamped onto the short line
+        assert_eq!(b.row_col(b.cursor()), (1, 1));
+        b.move_down(); // restores col 7 on the third line
+        assert_eq!(b.row_col(b.cursor()), (2, 7));
+        // A horizontal motion resets the target column.
+        b.line_start_motion();
+        b.move_up();
+        assert_eq!(b.row_col(b.cursor()), (1, 0));
+    }
+
     #[test]
     fn line_motions() {
         let mut b = buf();
@@ -584,12 +780,12 @@ mod tests {
     fn delete_line_middle_and_last() {
         let mut b = buf();
         b.set_cursor(13);
-        b.delete_line();
+        b.delete_line(1);
         assert_eq!(b.text(), "hello world\nthird");
 
         let mut b2 = buf();
         b2.set_cursor(25);
-        b2.delete_line();
+        b2.delete_line(1);
         assert_eq!(b2.text(), "hello world\nsecond line");
     }
 
@@ -597,13 +793,13 @@ mod tests {
     fn open_lines() {
         let mut b = buf();
         b.set_cursor(5);
-        b.open_line_below();
+        b.open_line_below(1);
         assert_eq!(b.text(), "hello world\n\nsecond line\nthird");
         assert_eq!(b.cursor(), 12);
 
         let mut b2 = buf();
         b2.set_cursor(13);
-        b2.open_line_above();
+        b2.open_line_above(1);
         assert_eq!(&b2.text()[11..13], "\n\n");
         assert_eq!(b2.cursor(), 12);
     }
@@ -612,7 +808,7 @@ mod tests {
     fn delete_char_and_selection() {
         let mut b = Buffer::new("héllo".to_string());
         b.set_cursor(1); // on the é (2 bytes)
-        b.delete_char();
+        b.delete_char(1);
         assert_eq!(b.text(), "hllo");
 
         let mut b2 = Buffer::new("hello".to_string());
@@ -629,5 +825,57 @@ mod tests {
         assert_eq!(b.cursor(), 1);
         b.set_cursor(999);
         assert_eq!(b.cursor(), 6);
+    }
+
+    #[test]
+    fn counted_deletes() {
+        let mut b = Buffer::new("abcdef\nsecond\nthird".to_string());
+        b.set_cursor(0);
+        b.delete_char(3);
+        assert_eq!(b.text(), "def\nsecond\nthird");
+
+        b.set_cursor(4); // on 'e' of "second"
+        b.delete_line(2);
+        assert_eq!(b.text(), "def");
+
+        let mut b2 = Buffer::new("one two three four".to_string());
+        b2.set_cursor(3);
+        b2.delete_range(0, 7);
+        assert_eq!(b2.text(), " three four");
+        assert_eq!(b2.cursor(), 0);
+    }
+
+    #[test]
+    fn linewise_helpers() {
+        let b = Buffer::new("aa\nb\nccc".to_string());
+        assert_eq!(b.yank_lines(0, 2), "aa\nb\n");
+        assert_eq!(b.yank_lines(2, 5), "ccc");
+        // Deleting the final line takes the preceding newline instead.
+        assert_eq!(b.line_range(1, 1), (3, 5));
+        assert_eq!(b.line_range(2, 1), (4, 8));
+
+        let mut b = Buffer::new("aa\nb\nccc".to_string());
+        b.goto_line(1);
+        assert_eq!(b.cursor(), 3);
+        b.goto_line(99);
+        assert_eq!(b.cursor(), 5);
+        b.insert_at(3, "d\n");
+        assert_eq!(b.text(), "aa\nd\nb\nccc");
+        assert_eq!(b.cursor(), 5);
+    }
+
+    #[test]
+    fn counted_open_lines() {
+        let mut b = Buffer::new("a\nb".to_string());
+        b.set_cursor(0);
+        b.open_line_below(2);
+        assert_eq!(b.text(), "a\n\n\nb");
+        assert_eq!(b.cursor(), 3);
+
+        let mut b2 = Buffer::new("a\nb".to_string());
+        b2.set_cursor(2);
+        b2.open_line_above(2);
+        assert_eq!(b2.text(), "a\n\n\nb");
+        assert_eq!(b2.cursor(), 2);
     }
 }
