@@ -26,15 +26,15 @@ use shale_core::markdown::{extract_wikilinks, WikiLink};
 use shale_core::mdstyle::{style_spans, Style, StyleSpan};
 use shale_core::vault::VaultEntry;
 use shale_core::vim::{Mode, Vim};
-use shale_core::Vault;
+use shale_core::{theme::Palette, Vault};
 
 use crate::line::HitLine;
 
 use self::wrap::CachedRow;
 
 // Re-exported so the headless tests can shape text at the same size the editor
-// does.
-pub(crate) use crate::theme::FONT_SIZE;
+// does when a vault asks for none.
+pub(crate) use crate::theme::DEFAULT_FONT_SIZE;
 
 /// Events the editor emits for the workspace to handle.
 #[derive(Debug, Clone)]
@@ -82,6 +82,11 @@ pub struct MarkdownEditor {
     font_family: SharedString,
     /// Whether `font_family` has been resolved against the system's fonts.
     font_family_resolved: bool,
+    /// The colours everything is drawn with, from the vault's theme. Shared so a
+    /// theme change is one assignment rather than a rebuild of the view.
+    palette: Rc<Palette>,
+    /// Body text size in pixels; headings are scaled from it.
+    font_size: f32,
     dirty: bool,
 }
 
@@ -102,6 +107,8 @@ impl MarkdownEditor {
             input_registered: false,
             font_family: "monospace".into(),
             font_family_resolved: false,
+            palette: Rc::new(Palette::DARK),
+            font_size: DEFAULT_FONT_SIZE,
             dirty: false,
         }
     }
@@ -133,6 +140,23 @@ impl MarkdownEditor {
             return;
         }
         self.font_family = family.into();
+        cx.notify();
+    }
+
+    /// The palette the editor and its line elements draw with.
+    pub fn set_palette(&mut self, palette: Rc<Palette>, cx: &mut Context<Self>) {
+        self.palette = palette;
+        cx.notify();
+    }
+
+    /// The body text size in pixels, from `appearance.font_size`. Headings and
+    /// line heights are scaled from it, and the soft-wrap model measures with
+    /// it, so a frame that changed it has to re-measure every row.
+    pub fn set_font_size(&mut self, size: f32, cx: &mut Context<Self>) {
+        if size <= 0. || (size - self.font_size).abs() < f32::EPSILON {
+            return;
+        }
+        self.font_size = size;
         cx.notify();
     }
 

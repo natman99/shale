@@ -1,39 +1,43 @@
-//! The editor's palette and how markdown styles become painted text runs.
+//! The editor's text metrics, font choice, and how markdown styles become
+//! painted text runs.
 //!
-//! Colours live in one place rather than at each paint site so the theming goal
-//! only has to swap a single table: a TOML theme will fill in this palette
-//! instead of the dark defaults below. The mapping from a `shale_core::mdstyle::
-//! Style` (which knows nothing about painting) to a [`RunStyle`] is what keeps
-//! the parser and the presentation separate.
+//! Colours are *not* here: they are [`shale_core::theme::Palette`], a bag of
+//! 0xRRGGBB roles that the built-in dark and light themes and any TOML theme
+//! file produce, and that the editor hands to every paint site. What this module
+//! owns is the part that needs gpui: turning a `shale_core::mdstyle::Style`
+//! (which knows nothing about painting) plus a palette into a [`RunStyle`], which
+//! is what keeps the parser and the presentation separate.
 
 use gpui::{px, rgb, Font, StrikethroughStyle, TextRun, UnderlineStyle};
-use shale_core::mdstyle::{CalloutKind, Style};
+use shale_core::mdstyle::Style;
+use shale_core::theme::Palette;
 
-/// Height of one display line, in pixels.
-pub(crate) const LINE_HEIGHT: f32 = 20.0;
-/// Text size the editor shapes and wraps at.
-pub(crate) const FONT_SIZE: f32 = 14.0;
+/// The text size to shape and wrap at when the vault asks for none.
+pub(crate) const DEFAULT_FONT_SIZE: f32 = 14.0;
+/// How much taller a display line is than the text it holds, so wrapped rows do
+/// not crowd. Every size uses the same ratio.
+pub(crate) const LINE_RATIO: f32 = 20.0 / 14.0;
 /// Heading levels 1..=6 plus body text (level 0): how many text sizes, and so
 /// how many line wrappers, a frame may need.
 pub(crate) const SIZES: usize = 7;
 
-/// The text size a heading level is drawn at (level 0 is body text).
-pub(crate) fn font_size(level: u8) -> f32 {
-    match level {
-        1 => 22.0,
-        2 => 19.0,
-        3 => 17.0,
-        4 => 16.0,
-        5 => 15.0,
-        // Level 6 headings are body-sized but still bold.
-        _ => FONT_SIZE,
+/// The heading sizes at the default text size; a larger or smaller base scales
+/// all of them by the same factor, so a note's proportions survive theming.
+const HEADING_SIZES: [f32; 6] = [22.0, 19.0, 17.0, 16.0, 15.0, 14.0];
+
+/// The text size a heading level is drawn at (level 0 is body text), relative to
+/// the editor's base text size `base`.
+pub(crate) fn font_size(level: u8, base: f32) -> f32 {
+    if level == 0 {
+        return base;
     }
+    let scale = base / DEFAULT_FONT_SIZE;
+    HEADING_SIZES[(level as usize).min(HEADING_SIZES.len()) - 1] * scale
 }
 
-/// The height of a display line drawn at `size`, keeping the body line's
-/// leading ratio so wrapped text does not crowd.
+/// The height of a display line drawn at `size`.
 pub(crate) fn line_height(size: f32) -> f32 {
-    size * (LINE_HEIGHT / FONT_SIZE)
+    size * LINE_RATIO
 }
 
 /// Monospace families we know how to find, in preference order. Families with
@@ -71,60 +75,8 @@ pub(crate) fn pick_mono_family(available: &[String], preferred: &str) -> String 
         .unwrap_or_else(|| preferred.to_string())
 }
 
-/// Note background.
-pub(crate) const BG: u32 = 0x1e1e1e;
-/// Ordinary note text.
-pub(crate) const FG: u32 = 0xd4d4d4;
-/// The normal-mode cursor block.
-pub(crate) const CURSOR: u32 = 0xaeafad;
-/// Visual-mode selection.
-pub(crate) const SELECTION: u32 = 0x264f78;
-/// A wiki-link that names an existing note.
-pub(crate) const LINK: u32 = 0x7aa6f0;
-/// A wiki-link that does not (yet) name an existing note.
-pub(crate) const LINK_UNRESOLVED: u32 = 0x7d6f6f;
-/// Syntax punctuation and markers: `#`, `*`, `|`, brackets, table pipes.
-pub(crate) const DIM: u32 = 0x6b7280;
-/// Heading text.
-pub(crate) const HEADING: u32 = 0xe8e8e8;
-/// Blockquote text.
-pub(crate) const QUOTE: u32 = 0x9aa0a6;
-/// List bullets, task boxes and other structural accents.
-pub(crate) const ACCENT: u32 = 0x7aa6f0;
-/// A `#tag`.
-pub(crate) const TAG: u32 = 0x8fbf7f;
-/// Background of an inline code span.
-pub(crate) const CODE_BG: u32 = 0x2f2f2f;
-/// Background of a fenced code block's lines.
-pub(crate) const CODE_BLOCK_BG: u32 = 0x262626;
-/// Background of `==highlighted==` text.
-pub(crate) const HIGHLIGHT_BG: u32 = 0x4a3f1f;
-/// The grid lines drawn around table cells, in place of the source pipes.
-pub(crate) const TABLE_LINE: u32 = 0x3f3f46;
-/// Background of a table's header row.
-pub(crate) const TABLE_HEADER_BG: u32 = 0x2a2a2e;
-/// Background of an Obsidian callout's box, which spans the editor like a
-/// fenced block's does.
-pub(crate) const CALLOUT_BG: u32 = 0x252a33;
-
-/// The accent colour of a callout: its left bar and its title. Obsidian colours
-/// each callout type, and treats an unknown type like a note.
-pub(crate) fn callout_accent(kind: CalloutKind) -> u32 {
-    match kind {
-        CalloutKind::Note => 0x8ca0b3,
-        CalloutKind::Info | CalloutKind::Todo => LINK,
-        CalloutKind::Abstract | CalloutKind::Example => 0x6fc7c2,
-        CalloutKind::Tip | CalloutKind::Success => TAG,
-        CalloutKind::Question => 0xc586c0,
-        CalloutKind::Warning => 0xe0a55e,
-        CalloutKind::Failure => 0xe07a5e,
-        CalloutKind::Danger | CalloutKind::Bug => 0xe05e5e,
-        CalloutKind::Quote => QUOTE,
-        CalloutKind::Other => ACCENT,
-    }
-}
-
-/// How a run of text is drawn, resolved from a markdown [`Style`].
+/// How a run of text is drawn, resolved from a markdown [`Style`] and a
+/// [`Palette`].
 ///
 /// The editor builds a per-byte map of these for each display line and then
 /// coalesces neighbours into `gpui::TextRun`s, so this has to stay cheap to
@@ -147,73 +99,74 @@ pub(crate) struct RunStyle {
 }
 
 impl RunStyle {
-    /// Ordinary note text.
-    pub(crate) const PLAIN: RunStyle = RunStyle {
-        color: FG,
-        bold: false,
-        italic: false,
-        background: None,
-        underline: false,
-        strikethrough: false,
-    };
+    /// Ordinary note text in `palette`.
+    pub(crate) fn plain(palette: &Palette) -> RunStyle {
+        RunStyle {
+            color: palette.fg,
+            bold: false,
+            italic: false,
+            background: None,
+            underline: false,
+            strikethrough: false,
+        }
+    }
 
-    /// How a markdown span of `style` is drawn.
-    pub(crate) fn for_style(style: Style) -> Self {
-        let mut run = Self::PLAIN;
+    /// How a markdown span of `style` is drawn with `palette`.
+    pub(crate) fn for_style(style: Style, palette: &Palette) -> Self {
+        let mut run = Self::plain(palette);
         match style {
             Style::Heading { .. } => {
-                run.color = HEADING;
+                run.color = palette.heading;
                 run.bold = true;
             }
             Style::HeadingMarker => {
-                run.color = DIM;
+                run.color = palette.dim;
                 run.bold = true;
             }
             Style::Quote => {
-                run.color = QUOTE;
+                run.color = palette.quote;
                 run.italic = true;
             }
-            Style::QuoteMarker => run.color = DIM,
-            Style::ListMarker => run.color = ACCENT,
+            Style::QuoteMarker => run.color = palette.dim,
+            Style::ListMarker => run.color = palette.accent,
             Style::TaskMark { done } => {
-                run.color = if done { ACCENT } else { DIM };
+                run.color = if done { palette.accent } else { palette.dim };
                 run.bold = true;
             }
             Style::Strong => run.bold = true,
             Style::Emphasis => run.italic = true,
             Style::Strike => run.strikethrough = true,
-            Style::Highlight => run.background = Some(HIGHLIGHT_BG),
-            Style::Code => run.background = Some(CODE_BG),
-            Style::CodeBlock => run.background = Some(CODE_BLOCK_BG),
+            Style::Highlight => run.background = Some(palette.highlight_bg),
+            Style::Code => run.background = Some(palette.code_bg),
+            Style::CodeBlock => run.background = Some(palette.code_block_bg),
             Style::CodeFence => {
-                run.color = DIM;
-                run.background = Some(CODE_BLOCK_BG);
+                run.color = palette.dim;
+                run.background = Some(palette.code_block_bg);
             }
-            Style::LinkText => run.color = LINK,
+            Style::LinkText => run.color = palette.link,
             Style::LinkUrl => {
-                run.color = DIM;
+                run.color = palette.dim;
                 run.underline = true;
             }
             // The hidden half of `[[target|alias]]`: drawn dimly only while the
             // row is being edited (see `shale_core::mdlayout`).
-            Style::LinkTarget => run.color = DIM,
+            Style::LinkTarget => run.color = palette.dim,
             // The editor overrides the colour of wiki-link spans with
             // resolved/unresolved colours, so this is only the fallback.
-            Style::WikiLink | Style::WikiEmbed => run.color = LINK,
-            Style::Tag => run.color = TAG,
+            Style::WikiLink | Style::WikiEmbed => run.color = palette.link,
+            Style::Tag => run.color = palette.tag,
             // The box itself is painted by the line element (a background quad
             // and an accent bar), so its text stays ordinary.
             Style::Callout { .. } => {}
             Style::CalloutTitle { kind } => {
-                run.color = callout_accent(kind);
+                run.color = palette.callout_accent(kind);
                 run.bold = true;
             }
-            Style::TablePipe | Style::TableRule | Style::Rule => run.color = DIM,
-            Style::Punctuation => run.color = DIM,
+            Style::TablePipe | Style::TableRule | Style::Rule => run.color = palette.dim,
+            Style::Punctuation => run.color = palette.dim,
         }
         run
     }
-
     /// Whether this style is drawn with a face that measures wider than the
     /// regular one (bold, or italic for some fonts). Used to pick the font the
     /// soft wrapper measures a row with.
@@ -252,6 +205,42 @@ impl RunStyle {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The heading sizes follow the base text size, so a vault that asks for
+    /// bigger or smaller text keeps the same proportions.
+    #[test]
+    fn sizes_scale_with_the_base_text_size() {
+        assert_eq!(font_size(0, 14.0), 14.0);
+        assert_eq!(font_size(1, 14.0), 22.0);
+        assert_eq!(font_size(6, 14.0), 14.0);
+        // A 50% larger base scales every level the same way.
+        assert_eq!(font_size(1, 21.0), 33.0);
+        assert_eq!(font_size(0, 21.0), 21.0);
+        // A level past six is still body text.
+        assert_eq!(font_size(9, 14.0), 14.0);
+        // The line height keeps one ratio at every size.
+        assert!((line_height(14.0) - 20.0).abs() < 1e-5);
+        assert!((line_height(21.0) - 30.0).abs() < 1e-5);
+    }
+
+    /// A run's colours come from the palette it is given, which is what makes a
+    /// theme a data change rather than a paint change.
+    #[test]
+    fn a_run_style_reads_the_palette() {
+        let dark = RunStyle::for_style(Style::Heading { level: 1 }, &Palette::DARK);
+        let light = RunStyle::for_style(Style::Heading { level: 1 }, &Palette::LIGHT);
+        assert!(
+            dark.bold && light.bold,
+            "the face does not depend on the theme"
+        );
+        assert_eq!(dark.color, Palette::DARK.heading);
+        assert_eq!(light.color, Palette::LIGHT.heading);
+        assert_ne!(dark.color, light.color);
+        // Ordinary text is the palette's foreground, with no background.
+        let plain = RunStyle::plain(&Palette::LIGHT);
+        assert_eq!(plain.color, Palette::LIGHT.fg);
+        assert_eq!(plain.background, None);
+    }
 
     /// The family choice has to land on something installed *and* able to draw
     /// bold and italic, because gpui will not synthesize either.

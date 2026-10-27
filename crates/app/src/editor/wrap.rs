@@ -156,7 +156,7 @@ impl MarkdownEditor {
             while row < line_count && self.buffer.line_end(row) <= span.start {
                 row += 1;
             }
-            let style = theme::RunStyle::for_style(span.style);
+            let style = theme::RunStyle::for_style(span.style, &self.palette);
             let wide = style.is_wide();
             let heading = match span.style {
                 Style::Heading { level } => level,
@@ -376,7 +376,10 @@ impl MarkdownEditor {
         let mut out = Vec::new();
         for (row, starts) in segments.iter().enumerate() {
             let row_end = self.buffer.line_end(row);
-            let size = theme::font_size(rows.get(row).copied().unwrap_or_default().heading);
+            let size = theme::font_size(
+                rows.get(row).copied().unwrap_or_default().heading,
+                self.font_size,
+            );
             for (i, &start) in starts.iter().enumerate() {
                 let end = starts.get(i + 1).copied().unwrap_or(row_end);
                 out.push(DisplayLine {

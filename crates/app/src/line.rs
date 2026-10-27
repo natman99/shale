@@ -21,18 +21,21 @@
 //! row, one per cell for a table row — and every x <-> offset question is
 //! answered against them.
 
+use std::rc::Rc;
+
 use gpui::{
     fill, font, px, relative, rgb, App, Bounds, Corners, Element, ElementId, ElementInputHandler,
     Entity, Font, GlobalElementId, InspectorElementId, IntoElement, LayoutId, Pixels, ShapedLine,
     SharedString, Style as ElementStyle, TextRun, Window,
 };
 use shale_core::mdstyle::{CalloutKind, Style};
+use shale_core::theme::Palette;
 
 use crate::editor::MarkdownEditor;
 use crate::image::ImagePaint;
 use crate::preview::PieceMap;
 use crate::table_view::TablePaint;
-use crate::theme::{self, RunStyle, CURSOR, LINK, LINK_UNRESOLVED, SELECTION};
+use crate::theme::{self, RunStyle};
 
 /// One painted row: a segment of a buffer row when the row soft-wraps.
 #[derive(Clone, Copy)]
@@ -187,6 +190,11 @@ pub(crate) struct LineElement {
     /// The width of one character cell, which turns the grid's character
     /// geometry into pixels.
     pub(crate) char_width: Pixels,
+    /// The palette this line is painted with, shared from the editor. Every
+    /// colour in the element (text runs, the cursor and selection quads, the
+    /// table grid, a callout's box) comes from it, so a theme change is one
+    /// assignment on the editor rather than a change here.
+    pub(crate) palette: Rc<Palette>,
 }
 
 pub(crate) struct LinePrepaint {
@@ -219,20 +227,26 @@ fn build_runs(
     spans: &[(usize, usize, Style)],
     links: &[(usize, usize, bool)],
     base_font: &Font,
+    palette: &Palette,
 ) -> Vec<TextRun> {
     let total = text.len();
-    let mut styles = vec![RunStyle::PLAIN; total];
+    let plain = RunStyle::plain(palette);
+    let mut styles = vec![plain; total];
     for (start, end, style) in spans {
         let start = (*start).min(total);
         let end = (*end).clamp(start, total);
         for slot in &mut styles[start..end] {
-            *slot = RunStyle::for_style(*style);
+            *slot = RunStyle::for_style(*style, palette);
         }
     }
     for (start, end, resolved) in links {
         let start = (*start).min(total);
         let end = (*end).clamp(start, total);
-        let color = if *resolved { LINK } else { LINK_UNRESOLVED };
+        let color = if *resolved {
+            palette.link
+        } else {
+            palette.link_unresolved
+        };
         for slot in &mut styles[start..end] {
             slot.color = color;
         }
@@ -251,7 +265,7 @@ fn build_runs(
     }
     if runs.is_empty() {
         // An empty display line still gets one (empty) run.
-        runs.push(RunStyle::PLAIN.text_run(0, base_font));
+        runs.push(plain.text_run(0, base_font));
     }
     runs
 }
@@ -304,7 +318,7 @@ impl LineElement {
                     gpui::point(left, bounds.top()),
                     gpui::point(left + grid_width, bounds.bottom()),
                 ),
-                rgb(theme::TABLE_HEADER_BG),
+                rgb(self.palette.table_header_bg),
             ));
         }
         // A vertical rule on every row, at each column boundary, so the columns
@@ -316,7 +330,7 @@ impl LineElement {
                     gpui::point(x - px(0.5), bounds.top()),
                     gpui::point(x + px(0.5), bounds.bottom()),
                 ),
-                rgb(theme::TABLE_LINE),
+                rgb(self.palette.table_line),
             ));
         }
         // The rule under the header. It is painted once: along the delimiter
@@ -336,7 +350,7 @@ impl LineElement {
                     gpui::point(left, y),
                     gpui::point(left + grid_width, y + px(1.)),
                 ),
-                rgb(theme::TABLE_LINE),
+                rgb(self.palette.table_line),
             ));
         }
 
@@ -359,7 +373,7 @@ impl LineElement {
                             gpui::point(x0, bounds.top()),
                             gpui::point(x1.max(x0 + px(1.)), bounds.bottom()),
                         ),
-                        rgb(SELECTION),
+                        rgb(self.palette.selection),
                     ));
                 }
             }
@@ -416,7 +430,7 @@ impl LineElement {
                         gpui::point(x, bounds.top()),
                         gpui::point(x + width, bounds.bottom()),
                     ),
-                    rgb(CURSOR),
+                    rgb(self.palette.cursor),
                 ));
             }
         }
@@ -475,6 +489,7 @@ impl Element for LineElement {
                 &self.map.rebase_spans(&self.spans),
                 &self.map.rebase_links(&self.links),
                 &base_font,
+                &self.palette,
             );
             let line = text_system.shape_line(self.text.clone(), px(self.size), &runs, None);
             return LinePrepaint {
@@ -501,7 +516,7 @@ impl Element for LineElement {
                     .map(|&(s, e)| &text[s - self.start..e - self.start])
                     .collect();
                 let (spans, links) = cell_styles(&self.spans, &self.links, &map);
-                let runs = build_runs(&painted, &spans, &links, &base_font);
+                let runs = build_runs(&painted, &spans, &links, &base_font, &self.palette);
                 CellShaped {
                     line: text_system.shape_line(
                         SharedString::from(painted),
@@ -549,7 +564,7 @@ impl Element for LineElement {
 
         // A fenced block's background covers the whole line, not just its text.
         if self.block {
-            window.paint_quad(fill(bounds, rgb(theme::CODE_BLOCK_BG)));
+            window.paint_quad(fill(bounds, rgb(self.palette.code_block_bg)));
         }
 
         // A callout is a box: a background across the whole line and an accent
@@ -557,13 +572,13 @@ impl Element for LineElement {
         // the `[!type]` header are hidden by live preview, so what is left of
         // the line reads as the box's content.
         if let Some(kind) = self.callout {
-            window.paint_quad(fill(bounds, rgb(theme::CALLOUT_BG)));
+            window.paint_quad(fill(bounds, rgb(self.palette.callout_bg)));
             window.paint_quad(fill(
                 Bounds::from_corners(
                     gpui::point(bounds.left(), bounds.top()),
                     gpui::point(bounds.left() + px(2.), bounds.bottom()),
                 ),
-                rgb(theme::callout_accent(kind)),
+                rgb(self.palette.callout_accent(kind)),
             ));
         }
 
@@ -577,7 +592,7 @@ impl Element for LineElement {
                     gpui::point(bounds.left(), y - px(0.5)),
                     gpui::point(bounds.right(), y + px(0.5)),
                 ),
-                rgb(theme::TABLE_LINE),
+                rgb(self.palette.table_line),
             ));
         }
 
@@ -641,7 +656,7 @@ impl Element for LineElement {
                         gpui::point(bounds.left() + x0, bounds.top()),
                         gpui::point(bounds.left() + x1, bounds.bottom()),
                     ),
-                    rgb(SELECTION),
+                    rgb(self.palette.selection),
                 ));
             }
 
@@ -683,7 +698,7 @@ impl Element for LineElement {
                         gpui::point(bounds.left() + x, bounds.top()),
                         gpui::point(bounds.left() + x + cursor_width, bounds.bottom()),
                     ),
-                    rgb(CURSOR),
+                    rgb(self.palette.cursor),
                 ));
             }
         }
@@ -743,7 +758,7 @@ mod tests {
             ),
         ];
         for (text, spans, links) in cases {
-            let runs = build_runs(text, &spans, &links, &font);
+            let runs = build_runs(text, &spans, &links, &font, &Palette::DARK);
             let total: usize = runs.iter().map(|r| r.len).sum();
             assert_eq!(total, text.len(), "runs must cover {text:?} exactly");
             if text.is_empty() {

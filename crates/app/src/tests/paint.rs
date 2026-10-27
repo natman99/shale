@@ -88,8 +88,13 @@ fn wrap_model_versus_shaped_widths(cx: &mut TestAppContext) {
                 underline: None,
                 strikethrough: None,
             };
-            ts.shape_line(s.to_string().into(), px(editor::FONT_SIZE), &[run], None)
-                .width()
+            ts.shape_line(
+                s.to_string().into(),
+                px(editor::DEFAULT_FONT_SIZE),
+                &[run],
+                None,
+            )
+            .width()
         };
         println!("wrap width = {width:?}; display lines = {}", ranges.len());
         println!("painted lines from the last paint ({}):", painted.len());
@@ -158,8 +163,13 @@ fn wrap_stays_accurate_for_tabs_and_unicode(cx: &mut TestAppContext) {
                 underline: None,
                 strikethrough: None,
             };
-            ts.shape_line(s.to_string().into(), px(editor::FONT_SIZE), &[run], None)
-                .width()
+            ts.shape_line(
+                s.to_string().into(),
+                px(editor::DEFAULT_FONT_SIZE),
+                &[run],
+                None,
+            )
+            .width()
         };
         let mut widest = px(0.);
         for (i, (s, e, w)) in painted.iter().enumerate() {

@@ -103,10 +103,12 @@ Workspace layout:
   presentation-agnostic markdown style scanner, split into `mdstyle/mod.rs` for
   the vocabulary and the line walk, `mdstyle/block.rs` for what a line *is* and
   `mdstyle/inline.rs` for emphasis/links/tags inside it), `mdlayout` (which
-  markdown markers live preview hides, and the visible pieces that remain) and
+  markdown markers live preview hides, and the visible pieces that remain),
   `table` (the table model: cells, cell lookup, row/column editing and moving —
-  `table/mod.rs` is the model, `table/edit.rs` the splices). Pure Rust, fully
-  unit tested.
+  `table/mod.rs` is the model, `table/edit.rs` the splices) and `theme` (the
+  colour palette as data: the `Palette` roles, the built-in dark and light
+  values, the `<vault>/.shale/themes/<name>.toml` loader and the callout accents
+  derived from them). Pure Rust, fully unit tested.
 - `crates/app` (`shale` binary): GPUI app (Zed's gpui, tag `v1.25.3`) — file
   tree sidebar, custom line-based editor view with **soft wrap** and vim
   normal/insert/visual modes (hjkl, w/b/e, 0 ^ $ — screen-line aware, gg/G,
@@ -117,6 +119,9 @@ Workspace layout:
   unresolved dimmed) with **live preview** hiding the markers of a row the cursor
   is not on, and link navigation (`gx` on a link in normal mode, ctrl+click),
   status bar (mode, pending count/operator, dirty flag, path, display row:col),
+  **theming** (`appearance.theme` selects the built-in dark/light palette or a
+  `<vault>/.shale/themes/<name>.toml` file, and `appearance.font_size` sizes the
+  text),
   ctrl+s save. Split into `main.rs` (workspace, keymap, actions) with its
   headless tests in `tests/` (`keys.rs`, `paint.rs`), `editor/` (the view: `mod.rs`
   holds the state and accessors, `wrap.rs` the display model, `render.rs` builds
@@ -126,7 +131,9 @@ Workspace layout:
   the buffer <-> painted-offset map), `image.rs` (resolving an embed target to a
   vault attachment and sizing the picture), `table_view.rs` (the table grid
   geometry: column widths and cell offsets, in character cells), `theme.rs` (the
-  palette and `Style` -> `RunStyle` mapping) and `tree.rs`.
+  text metrics, the monospace family choice and the `Style` -> `RunStyle`
+  mapping — the colours themselves are `shale_core::theme::Palette`) and
+  `tree.rs`.
 - `crates/mcp` (`shale-mcp` binary): MCP stdio server exposing list/read/
   write/search/backlinks tools.
 - `refs/` (**gitignored, not shipped**): local copies of the Vim help files
@@ -660,6 +667,40 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
     longer skips it, so a column can never be narrower than its `:---:` and the
     drawn row cannot overflow into its neighbour.
 
+- **Theming — done (first pass).** Colours are data, not paint sites.
+  `shale_core::theme::Palette` is one struct of 0xRRGGBB *roles* (`bg`, `fg`,
+  `dim`, `link`, `table_line`, `callout_warning`, `ui_status_bg`, …) with two
+  built-in values, `Palette::DARK` and `Palette::LIGHT`; `callout_accent(kind)`
+  reads its colours off the palette, so a theme can retune one callout type
+  without touching the rest. `appearance.theme` in `shale.toml` names a built-in
+  or a `<vault>/.shale/themes/<name>.toml` file, which sets `base` and overrides
+  only the roles it cares about (`bg = "#282828"`); unknown keys and malformed
+  colours are errors, and a theme that cannot be found or parsed is logged and
+  falls back to dark rather than stopping the editor. `theme::palette_for` does
+  the resolution, `Workspace::new` calls it once and shares the `Rc<Palette>`
+  with the editor, which hands it to every `LineElement`.
+  - **The app's `theme.rs` no longer holds colours.** It owns the parts that
+    need gpui: `RunStyle::for_style(style, &palette)` / `RunStyle::plain(&palette)`
+    (the single place a markdown `Style` becomes a painted run) and the text
+    metrics. `DEFAULT_FONT_SIZE` is the fallback; `font_size(level, base)` scales
+    every heading from the base, and `line_height(size)` keeps one ratio
+    (`LINE_RATIO`) at every size.
+  - **`appearance.font_size` is wired up.** The editor holds `font_size`, uses it
+    for the wrappers, the char-cell width, the heading sizes and the scroll
+    container's `text_size`, so a bigger base means bigger headings *and*
+    correctly measured wrapping. `set_font_size` no-ops when the size is
+    unchanged, which keeps the wrap cache valid.
+  - **The window chrome is themed too**: the sidebar, its border, the hovered and
+    active tree row and the status bar are `ui_*` palette roles, so a light theme
+    is light end to end.
+  - **Verified live** (screenshots): `theme = "light"` end to end, and a
+    `gruvbox.toml` (`base = "dark"` plus `bg`/`fg`/`link`/`ui_bg`/`table_line`/
+    `callout_warning`) at `font_size = 18` — the note, sidebar, table grid and
+    callout bar all followed, and the headings scaled with the base size.
+  - **Not done here**: no way to change the theme at runtime (restart to pick one
+    up), no per-role preview UI, and the palette has no entry for syntax
+    highlighting inside fenced code (which is the tree-sitter goal anyway).
+
 - **Module sizes.** `editor.rs` and `main.rs` both passed the 1000-line mark in
   `AGENTS.md`, so they are now directories: `editor/{mod,wrap,render,actions,input}.rs`
   (a submodule can reach `MarkdownEditor`'s private state because they are all
@@ -668,10 +709,10 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   `mdstyle/{mod,block,inline}.rs` (450 / 398 / 277): `mod.rs` holds `Style`,
   `CalloutKind`, `StyleSpan`, the line walk and the tests, `block.rs` classifies
   each line, `inline.rs` styles the text inside it. Largest files now: `vim.rs`
-  2109, `buffer.rs` 1554, `line.rs` 807, `tests/paint.rs` 707, `main.rs` 585.
-  `vim.rs` and `buffer.rs` are still over the rule — split them the next time
-  either one is touched; `line.rs` (the element, the run builder and the table
-  grid paint) is the next candidate after those.
+  2109, `buffer.rs` 1554, `line.rs` 822, `tests/paint.rs` 717, `main.rs` 620,
+  `core/theme.rs` 531. `vim.rs` and `buffer.rs` are still over the rule — split
+  them the next time either one is touched; `line.rs` (the element, the run
+  builder and the table grid paint) is the next candidate after those.
 
 System dependency (Linux): `libxkbcommon-x11-devel` (plus fontconfig, freetype,
 x11, xcb, wayland dev packages) and a working Vulkan driver (the Linux renderer
@@ -718,12 +759,11 @@ Next steps, roughly in order:
    the keymap), and keeping the display-line count in step for `j`/`k`, the status
    bar's row:col and the scroll position. Folding is view state: the buffer text
    must never change.
-8. Theming (light/dark, TOML theme files). `theme.rs` is the palette and
-   `appearance.font_family` in `shale.toml` already picks the editor's font;
-   `appearance.font_size` is still not wired up (the editor shapes at
-   `theme::FONT_SIZE`). Every colour the editor draws is a constant there
-   (`TABLE_LINE` doubles as the thematic-break rule), so a theme is a palette
-   swap plus a TOML loader — nothing else needs to change.
+8. ~~Theming (light/dark, TOML theme files)~~ Done — see Open threads. The
+   palette is `shale_core::theme::Palette`, `appearance.theme` selects it, and
+   `appearance.font_size` is wired through the editor. Follow-ups: switching
+   themes without a restart, and whatever roles a tree-sitter code highlighter
+   will need.
 9. Editor bindings round: **list / task / quote continuation on Enter.** Inside
    a `-`/`*`/`+` bullet, a numbered item, a task (`- [ ]`) or a `>` quote,
    pressing Enter should insert the same marker on the new line (Obsidian's

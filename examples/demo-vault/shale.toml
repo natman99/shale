@@ -1,0 +1,26 @@
+# Shale reads this file when it opens the vault. Every key is optional; what is
+# here is the default settings, written out so you can see what exists.
+
+[editor]
+vim_mode = true
+line_wrap = true
+show_file_tree = true
+
+[appearance]
+# The palette: "dark" or "light", or the name of a file in
+# .shale/themes/<name>.toml. A theme file starts from one of the built-ins
+# (`base = "light"`) and overrides only the colours it cares about, by role:
+#
+#   base = "dark"
+#   bg = "#282828"
+#   fg = "#ebdbb2"
+#   link = "#83a598"
+#
+# The full list of role names is the field list of `shale_core::theme::Palette`.
+theme = "dark"
+# Body text size in points; headings and line heights are scaled from it.
+font_size = 14.0
+# Empty means "pick a monospace family that is actually installed".
+font_family = ""
+# Hide the markdown syntax of a row the cursor is not on.
+live_preview = true

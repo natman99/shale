@@ -20,7 +20,7 @@ use gpui::{
     Styled, Subscription, TitlebarOptions, Window, WindowBounds, WindowOptions,
 };
 use shale_core::vault::VaultEntry;
-use shale_core::{Config, Vault};
+use shale_core::{theme::Palette, Config, Vault};
 
 use editor::{EditorEvent, MarkdownEditor};
 
@@ -124,6 +124,9 @@ struct Workspace {
     vault: Rc<Vault>,
     #[allow(dead_code)]
     config: Rc<Config>,
+    /// The palette the whole window is drawn with, shared with the editor so a
+    /// theme change repaints everything at once.
+    palette: Rc<Palette>,
     entries: Vec<VaultEntry>,
     expanded: HashSet<PathBuf>,
     active: Option<PathBuf>,
@@ -152,6 +155,22 @@ impl Workspace {
         editor.update(cx, |editor, cx| {
             editor.set_font_family(&config.appearance.font_family, cx);
         });
+        // The palette comes from `appearance.theme`: a built-in name or a
+        // `<vault>/.shale/themes/<name>.toml` file. A theme that cannot be found
+        // or parsed must not stop the editor from starting, so it is reported and
+        // the default palette is used.
+        let palette = match shale_core::theme::palette_for(vault.root(), &config.appearance.theme) {
+            Ok(palette) => palette,
+            Err(err) => {
+                tracing::warn!("could not load the configured theme: {err:#}");
+                Palette::DARK
+            }
+        };
+        let palette = Rc::new(palette);
+        editor.update(cx, |editor, cx| {
+            editor.set_palette(Rc::clone(&palette), cx);
+            editor.set_font_size(config.appearance.font_size, cx);
+        });
         let editor_events = cx.subscribe(&editor, |ws, _editor, event, cx| match event {
             EditorEvent::FollowLink { target } => ws.follow_link(target, cx),
         });
@@ -173,6 +192,7 @@ impl Workspace {
             focus_handle: cx.focus_handle(),
             vault,
             config,
+            palette,
             entries,
             expanded,
             active: None,
@@ -256,8 +276,13 @@ impl Render for Workspace {
         // Build sidebar rows.
         let mut rows: Vec<gpui::AnyElement> = Vec::new();
         let mut idx = 0usize;
+        let state = TreeState {
+            active: &active,
+            expanded,
+            palette: &self.palette,
+        };
         for node in &tree {
-            push_node(&mut rows, node, 0, &active, expanded, &mut idx, cx);
+            push_node(&mut rows, node, 0, &state, &mut idx, cx);
         }
 
         let mode = self.editor.read(cx).mode();
@@ -280,8 +305,8 @@ impl Render for Workspace {
             .size_full()
             .flex()
             .flex_col()
-            .bg(gpui::rgb(0x1e1e1e))
-            .text_color(gpui::rgb(0xd4d4d4))
+            .bg(gpui::rgb(self.palette.ui_bg))
+            .text_color(gpui::rgb(self.palette.fg))
             .on_action(cx.listener(Self::save))
             .on_action(cx.listener(|_, _: &Quit, _, cx| cx.quit()))
             .child(
@@ -297,7 +322,7 @@ impl Render for Workspace {
                             .h_full()
                             .overflow_scroll()
                             .border_r_1()
-                            .border_color(gpui::rgb(0x3c3c3c))
+                            .border_color(gpui::rgb(self.palette.ui_border))
                             .p_2()
                             .text_sm()
                             .child(
@@ -322,7 +347,7 @@ impl Render for Workspace {
                     .items_center()
                     .gap_4()
                     .text_xs()
-                    .bg(gpui::rgb(0x252526))
+                    .bg(gpui::rgb(self.palette.ui_status_bg))
                     .child(format!("{mode_str}{pending}{dirty}"))
                     .child(self.status.clone())
                     .child(format!("{}:{}", line + 1, col + 1)),
@@ -347,19 +372,29 @@ fn note_keys(entries: &[VaultEntry]) -> HashSet<String> {
     keys
 }
 
+/// What the sidebar rows are drawn from, bundled so `push_node` does not take
+/// an argument per question it asks.
+struct TreeState<'a> {
+    /// The note the sidebar marks as current.
+    active: &'a Option<PathBuf>,
+    /// The directories the user has opened.
+    expanded: &'a HashSet<PathBuf>,
+    /// The theme's colours.
+    palette: &'a Palette,
+}
+
 fn push_node(
     rows: &mut Vec<gpui::AnyElement>,
     node: &tree::TreeNode,
     depth: usize,
-    active: &Option<PathBuf>,
-    expanded: &HashSet<PathBuf>,
+    state: &TreeState,
     idx: &mut usize,
     cx: &mut Context<Workspace>,
 ) {
     let indent = px(12. * depth as f32);
     let is_dir = !node.is_file;
-    let is_open = expanded.contains(&node.path);
-    let is_active = active.as_deref() == Some(node.path.as_path());
+    let is_open = state.expanded.contains(&node.path);
+    let is_active = state.active.as_deref() == Some(node.path.as_path());
     let label = format!(
         "{} {}",
         if is_dir {
@@ -382,8 +417,8 @@ fn push_node(
         .pl(indent)
         .pr_1()
         .py_0p5()
-        .when(is_active, |d| d.bg(gpui::rgb(0x2f2f2f)))
-        .hover(|s| s.bg(gpui::rgb(0x2a2a2a)))
+        .when(is_active, |d| d.bg(gpui::rgb(state.palette.ui_active_bg)))
+        .hover(|s| s.bg(gpui::rgb(state.palette.ui_hover_bg)))
         .child(label)
         .on_click({
             let path = node.path.clone();
@@ -400,7 +435,7 @@ fn push_node(
 
     if is_dir && is_open {
         for child in &node.children {
-            push_node(rows, child, depth + 1, active, expanded, idx, cx);
+            push_node(rows, child, depth + 1, state, idx, cx);
         }
     }
 }

@@ -38,6 +38,9 @@ impl Default for EditorConfig {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AppearanceConfig {
+    /// The palette the editor draws with: `dark` or `light`, or the name of a
+    /// `<vault>/.shale/themes/<name>.toml` file (see [`crate::theme`]).
+    pub theme: String,
     /// UI font size in points.
     pub font_size: f32,
     /// Font family for the editor. Empty means "pick a monospace family that is
@@ -52,6 +55,7 @@ pub struct AppearanceConfig {
 impl Default for AppearanceConfig {
     fn default() -> Self {
         Self {
+            theme: "dark".to_string(),
             font_size: 14.0,
             font_family: String::new(),
             live_preview: true,
@@ -89,6 +93,14 @@ mod tests {
         assert!(cfg.appearance.live_preview);
         assert_eq!(cfg.appearance.font_size, 14.0);
         assert_eq!(cfg.appearance.font_family, "");
+        assert_eq!(cfg.appearance.theme, "dark");
+    }
+
+    #[test]
+    fn a_theme_can_be_named() {
+        let cfg = Config::from_toml("[appearance]\ntheme = \"gruvbox\"\nfont_size = 12.0").unwrap();
+        assert_eq!(cfg.appearance.theme, "gruvbox");
+        assert_eq!(cfg.appearance.font_size, 12.0);
     }
 
     #[test]
@@ -103,11 +115,13 @@ show_file_tree = false
 font_size = 16.5
 font_family = "Iosevka"
 live_preview = false
+theme = "light"
 "#;
         let cfg = Config::from_toml(toml).unwrap();
         assert!(!cfg.editor.vim_mode);
         assert_eq!(cfg.appearance.font_size, 16.5);
         assert_eq!(cfg.appearance.font_family, "Iosevka");
+        assert_eq!(cfg.appearance.theme, "light");
     }
 
     #[test]

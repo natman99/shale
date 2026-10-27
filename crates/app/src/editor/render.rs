@@ -1,6 +1,8 @@
 //! The view itself: resolving the font, building this frame's display lines and
 //! handing each one to a `LineElement`, and wiring the vim key context.
 
+use std::rc::Rc;
+
 use gpui::{
     div, font, prelude::*, px, rgb, Context, CursorStyle, ImgResourceLoader, IntoElement,
     LineWrapperHandle, MouseButton, ParentElement, Render, SharedString, Styled, Window,
@@ -15,7 +17,6 @@ use crate::table_view;
 use crate::theme;
 
 use super::MarkdownEditor;
-use super::FONT_SIZE;
 
 impl Render for MarkdownEditor {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -41,8 +42,9 @@ impl Render for MarkdownEditor {
                 let bold = text_system.resolve_font(&font(chosen.clone()).bold());
                 tracing::debug!(
                     family = chosen.as_str(),
-                    regular_char_width = ?text_system.layout_width(regular, px(FONT_SIZE), 'a'),
-                    bold_char_width = ?text_system.layout_width(bold, px(FONT_SIZE), 'a'),
+                    font_size = self.font_size,
+                    regular_char_width = ?text_system.layout_width(regular, px(self.font_size), 'a'),
+                    bold_char_width = ?text_system.layout_width(bold, px(self.font_size), 'a'),
                     "editor font family",
                 );
             }
@@ -120,7 +122,7 @@ impl Render for MarkdownEditor {
         let char_width = {
             let text_system = window.text_system();
             let font_id = text_system.resolve_font(&font(self.font_family.clone()));
-            text_system.layout_width(font_id, px(FONT_SIZE), 'a')
+            text_system.layout_width(font_id, px(self.font_size), 'a')
         };
         let display_lines = {
             let text_system = window.text_system();
@@ -129,7 +131,7 @@ impl Render for MarkdownEditor {
             let family = self.font_family.clone();
             let mut wrappers: Vec<LineWrapperHandle> = Vec::with_capacity(theme::SIZES * 2);
             for level in 0..theme::SIZES as u8 {
-                let size = px(theme::font_size(level));
+                let size = px(theme::font_size(level, self.font_size));
                 wrappers.push(text_system.line_wrapper(font(family.clone()), size));
                 wrappers.push(text_system.line_wrapper(font(family.clone()).bold(), size));
             }
@@ -260,10 +262,10 @@ impl Render for MarkdownEditor {
                     .overflow_scroll()
                     .track_scroll(&self.scroll_handle)
                     .font_family(self.font_family.clone())
-                    .text_size(px(FONT_SIZE))
-                    .line_height(px(theme::LINE_HEIGHT))
-                    .bg(rgb(theme::BG))
-                    .text_color(rgb(theme::FG))
+                    .text_size(px(self.font_size))
+                    .line_height(px(theme::line_height(self.font_size)))
+                    .bg(rgb(self.palette.bg))
+                    .text_color(rgb(self.palette.fg))
                     .on_mouse_down(MouseButton::Left, cx.listener(Self::on_click))
                     .children(display_lines.iter().enumerate().map(|(index, dl)| {
                         let table = plans.get(dl.row).cloned().flatten();
@@ -385,6 +387,7 @@ impl Render for MarkdownEditor {
                                 table,
                                 image,
                                 char_width,
+                                palette: Rc::clone(&self.palette),
                             })
                     })),
             )
