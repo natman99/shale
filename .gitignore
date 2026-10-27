@@ -1,2 +1,4 @@
 target/
 styles/
+# Local-only upstream docs (vim help files, Obsidian help pages). See refs/README.md.
+refs/

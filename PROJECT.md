@@ -85,6 +85,12 @@ Workspace layout:
   ctrl+s save.
 - `crates/mcp` (`shale-mcp` binary): MCP stdio server exposing list/read/
   write/search/backlinks tools.
+- `refs/` (**gitignored, not shipped**): local copies of the Vim help files
+  (`motion`, `visual`, `change`, `insert`, `editing`, `pattern`, `repeat`,
+  `quickref`, `undo`, `options`) and ~57 Obsidian help pages, fetched 2026-10-26
+  so behaviour can be checked without network access. Sources and licensing in
+  `refs/README.md`: the Obsidian help repo grants **no** license, so those pages
+  are specification only — never copy their prose or assets into Shale.
 
 ### GPUI gotchas (learned the hard way — re-read before touching the UI)
 - **Never use crates.io `gpui` 0.2.2.** Its Wayland backend requests a
