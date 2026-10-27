@@ -38,7 +38,7 @@ pub enum Style {
     Strike,
     /// `==highlight==` content.
     Highlight,
-    /// A code span (backticks included).
+    /// The content of a code span, between its backticks.
     Code,
     /// The content of a fenced code block (one span per line).
     CodeBlock,
@@ -48,7 +48,10 @@ pub enum Style {
     LinkText,
     /// The `(url)` part of a `[text](url)`.
     LinkUrl,
-    /// A `[[wiki-link]]`.
+    /// The target of an aliased wiki-link, `[[target|alias]]`: the part a reader
+    /// never sees, so live preview hides it and shows only the alias.
+    LinkTarget,
+    /// The text of a `[[wiki-link]]` (its target, or its alias).
     WikiLink,
     /// A `![[wiki-embed]]`.
     WikiEmbed,
@@ -412,22 +415,33 @@ fn inline_spans(base: usize, content: &str, out: &mut Vec<StyleSpan>) {
     while i < bytes.len() {
         match bytes[i] {
             b'\\' => {
-                // An escape covers the next character.
-                i += 1;
-                if i < bytes.len() {
-                    i += next_char_len(bytes, i);
+                // An escape covers the next character. The backslash itself is
+                // syntax, so it is marked as punctuation: live preview hides it
+                // and `\*` reads as a literal `*`.
+                let next = if i + 1 < bytes.len() {
+                    next_char_len(bytes, i + 1)
+                } else {
+                    0
+                };
+                if next > 0 && (bytes[i + 1] as char).is_ascii_punctuation() {
+                    push_span(base, i, i + 1, Style::Punctuation, out);
                 }
+                i += 1 + next;
             }
             b'`' => {
                 let run = bytes[i..].iter().take_while(|&&b| b == b'`').count();
                 let open = i + run;
-                if let Some(close) = find_subslice(&bytes[open..], &vec![b'`'; run]) {
-                    let end = open + close + run;
-                    out.push(StyleSpan {
-                        start: base + i,
-                        end: base + end,
-                        style: Style::Code,
-                    });
+                if let Some(found) = find_subslice(&bytes[open..], &vec![b'`'; run]) {
+                    // `found` is relative to `open`: the closing run starts at
+                    // `close` and the whole span ends at `end`.
+                    let close = open + found;
+                    let end = close + run;
+                    // The backticks are punctuation (hidden in live preview, and
+                    // outside the code span's background); only the content
+                    // between them is the code.
+                    push_span(base, i, open, Style::Punctuation, out);
+                    push_span(base, open, close, Style::Code, out);
+                    push_span(base, close, end, Style::Punctuation, out);
                     i = end;
                 } else {
                     i += 1;
@@ -572,6 +586,10 @@ fn md_link(base: usize, content: &str, i: usize, out: &mut Vec<StyleSpan>) -> Op
 }
 
 /// `[[target|alias]]` and `![[target]]`, opening at the `!` or the first `[`.
+/// The brackets are punctuation, the target of an aliased link is [`Style::LinkTarget`]
+/// and the text a reader sees is [`Style::WikiLink`] / [`Style::WikiEmbed`], so
+/// live preview can hide the syntax around the name. Returns the absolute offset
+/// just past the construct.
 fn wiki_link(base: usize, content: &str, i: usize, out: &mut Vec<StyleSpan>) -> Option<usize> {
     let bytes = content.as_bytes();
     let bang = bytes[i] == b'!';
@@ -580,17 +598,25 @@ fn wiki_link(base: usize, content: &str, i: usize, out: &mut Vec<StyleSpan>) -> 
         return None;
     }
     let close = find_subslice(&bytes[open + 2..], b"]]")? + open + 2;
-    push_span(
-        base,
-        i,
-        close + 2,
-        if bang {
-            Style::WikiEmbed
-        } else {
-            Style::WikiLink
-        },
-        out,
-    );
+    // The brackets (and the `!` of an embed) are punctuation, so live preview
+    // can hide them and show just the link text. With an alias the target and
+    // the `|` are hidden too: `[[target|alias]]` reads as `alias`.
+    push_span(base, i, open + 2, Style::Punctuation, out);
+    let inner = open + 2;
+    let shown = if bang {
+        Style::WikiEmbed
+    } else {
+        Style::WikiLink
+    };
+    match find_subslice(&bytes[inner..close], b"|") {
+        Some(bar) => {
+            let bar = inner + bar;
+            push_span(base, inner, bar + 1, Style::LinkTarget, out);
+            push_span(base, bar + 1, close, shown, out);
+        }
+        None => push_span(base, inner, close, shown, out),
+    }
+    push_span(base, close, close + 2, Style::Punctuation, out);
     Some(base + close + 2)
 }
 
@@ -710,19 +736,27 @@ mod tests {
         let text = "a **b** c *d* `e` ~~f~~ ==g==";
         assert_eq!(texts(text, Style::Strong), vec!["b"]);
         assert_eq!(texts(text, Style::Emphasis), vec!["d"]);
-        assert_eq!(texts(text, Style::Code), vec!["`e`"]);
+        assert_eq!(texts(text, Style::Code), vec!["e"]);
         assert_eq!(texts(text, Style::Strike), vec!["f"]);
         assert_eq!(texts(text, Style::Highlight), vec!["g"]);
         assert_eq!(
             texts(text, Style::Punctuation),
-            vec!["**", "**", "*", "*", "~~", "~~", "==", "=="]
+            vec!["**", "**", "*", "*", "`", "`", "~~", "~~", "==", "=="],
+            "every inline marker, including the code span's backticks"
         );
+    }
+
+    #[test]
+    fn an_escaped_marker_is_punctuation() {
+        let text = "a \\* literal \\b";
+        assert_eq!(texts(text, Style::Punctuation), vec!["\\"]);
+        assert!(spans(text, Style::Emphasis).is_empty());
     }
 
     #[test]
     fn code_suppresses_inline_markers() {
         let text = "`a **b** c`";
-        assert_eq!(texts(text, Style::Code), vec!["`a **b** c`"]);
+        assert_eq!(texts(text, Style::Code), vec!["a **b** c"]);
         assert!(spans(text, Style::Strong).is_empty());
 
         let fenced = "```\nlet x = **y**;\n```";
@@ -779,9 +813,21 @@ mod tests {
         let text = "[text](url) ![[img.png]] [[Note]] #tag here";
         assert_eq!(texts(text, Style::LinkText), vec!["text"]);
         assert_eq!(texts(text, Style::LinkUrl), vec!["(url)"]);
-        assert_eq!(texts(text, Style::WikiEmbed), vec!["![[img.png]]"]);
-        assert_eq!(texts(text, Style::WikiLink), vec!["[[Note]]"]);
+        assert_eq!(texts(text, Style::WikiEmbed), vec!["img.png"]);
+        assert_eq!(texts(text, Style::WikiLink), vec!["Note"]);
         assert_eq!(texts(text, Style::Tag), vec!["#tag"]);
+        assert_eq!(
+            texts(text, Style::Punctuation),
+            vec!["[", "]", "![[", "]]", "[[", "]]"]
+        );
+    }
+
+    #[test]
+    fn an_aliased_wiki_link_keeps_only_the_alias_visible() {
+        let text = "[[The Target|The Alias]]";
+        assert_eq!(texts(text, Style::LinkTarget), vec!["The Target|"]);
+        assert_eq!(texts(text, Style::WikiLink), vec!["The Alias"]);
+        assert_eq!(texts(text, Style::Punctuation), vec!["[[", "]]"]);
     }
 
     #[test]
