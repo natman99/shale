@@ -101,12 +101,13 @@ pub fn style_spans(text: &str) -> Vec<StyleSpan> {
     out
 }
 
-/// True for lines that are part of a table: the delimiter row itself, and the
-/// rows above and below it that contain a pipe.
-fn table_row_flags(lines: &[(usize, &str)]) -> Vec<bool> {
+/// Which lines belong to a table: the delimiter row itself, and the rows above
+/// and below it that contain a pipe. Shared with [`crate::table`] so styling
+/// and cell editing can never disagree about what is a table.
+pub fn table_row_flags(lines: &[(usize, &str)]) -> Vec<bool> {
     let mut flags = vec![false; lines.len()];
     for (index, (_, content)) in lines.iter().enumerate() {
-        if !is_table_rule(content) {
+        if !is_table_delimiter_row(content) {
             continue;
         }
         flags[index] = true;
@@ -130,7 +131,7 @@ fn has_pipe(content: &str) -> bool {
 
 /// A table delimiter row: `| --- | :--: |`, at least one cell. Must contain a
 /// pipe, so a plain `---` thematic break is not mistaken for one.
-fn is_table_rule(content: &str) -> bool {
+pub fn is_table_delimiter_row(content: &str) -> bool {
     let trimmed = content.trim();
     if trimmed.is_empty() || !trimmed.contains('-') || !trimmed.contains('|') {
         return false;
@@ -253,7 +254,7 @@ fn scan_line(
     }
 
     // A table's delimiter row is styled as a whole.
-    if in_table && is_table_rule(content) {
+    if in_table && is_table_delimiter_row(content) {
         out.push(StyleSpan {
             start: base,
             end: line_end,

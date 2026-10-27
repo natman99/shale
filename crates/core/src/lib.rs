@@ -3,6 +3,7 @@ pub mod config;
 pub mod markdown;
 pub mod mdstyle;
 pub mod search;
+pub mod table;
 pub mod vault;
 pub mod vim;
 
