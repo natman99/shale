@@ -90,6 +90,8 @@ Persist metadata about notes to a local sqlite DB. This, along with other vault 
 
 The user will be able to write in line SQL queries (heavily sanitized, read only) that will then be used to create in line rendered tables based on vault contents. Query results should be cached when possible. For now, modifying information in these tables is not required. Just list the matching notes and data with the option to go to the note like wikilinks.
 
+These are equivalent to Obsidian bases, which allow dynamically updating views into vault contents based on tags, referenced other notes, referenced by notes, and Obsidian note "properties".
+
 **Note:** The DB remains an extra feature. The plain text notes are the source of truth always. If you need to persist note contents to the DB (for user searching or whatever else) that's okay, but it will never be the primary source of information.
 
 ## Current status (updated as the project progresses)
@@ -100,7 +102,8 @@ Workspace layout:
   vault), text `Buffer` with undo/redo, the vim mode engine, `mdstyle` (the
   presentation-agnostic markdown style scanner), `mdlayout` (which markdown
   markers live preview hides, and the visible pieces that remain) and `table`
-  (the table model: cells, cell lookup, row/column editing). Pure Rust, fully
+  (the table model: cells, cell lookup, row/column editing and moving —
+  `table/mod.rs` is the model, `table/edit.rs` the splices). Pure Rust, fully
   unit tested.
 - `crates/app` (`shale` binary): GPUI app (Zed's gpui, tag `v1.25.3`) — file
   tree sidebar, custom line-based editor view with **soft wrap** and vim
@@ -181,19 +184,24 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
   text (a scanner bug can allocate until the OOM killer takes the editor down —
   see the table postmortem). Build parallelism is capped in `.cargo/config.toml`
   at the user's request because a full-parallel build stalled the editor.
+  Current peak RSS of the test binaries: core 4 MB, app 19 MB, mcp 3 MB. The app
+  binary's *address space* (not RSS) exceeds 600 MB because of gpui/wgpu
+  reservations, so use a 1 GB cap or more there.
 
 ### Open threads (write findings here as they come up)
 
 - **Live preview stage 2a — the markers are hidden.**
   `shale_core::mdlayout` answers the two questions the paint needs:
   `hidden_ranges` (which bytes of a row to leave unpainted) and `visible_pieces`
-  (which remain). `is_marker` hides a heading's `#` (and the space after it, so a
+  `visible_pieces` (which remain). `is_marker` hides a heading's `#` (and the space after it, so a
   heading is not indented), a blockquote's `>` (but *not* its space, which is what
   leaves the quote visibly indented), every `Style::Punctuation` — emphasis
   delimiters, a code span's backticks, a link's brackets, an escaped marker's
   backslash — plus `LinkUrl` and the new `LinkTarget`, the `target|` of an aliased
-  wiki-link. Deliberately kept: list bullets and numbers, task checkboxes, `#tags`,
-  thematic breaks and the ``` fence lines (the only sign of where a block starts).
+  wiki-link, and a thematic break's dashes (which the line element replaces with a
+  rule across its width). Deliberately kept: list bullets and numbers, task
+  checkboxes, `#tags` and the ``` fence lines (the only sign of where a block
+  starts).
   `mdstyle` had to change to make that expressible: the backticks of a code span
   and the brackets of a wiki-link are now `Punctuation` spans *outside* the
   content, and `[[target|alias]]` reports the alias as the link. So the note reads
@@ -230,7 +238,10 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
   lines of a code block.
 
 - **Tables — done: model, editing, and the grid widget.**
-  `shale_core::table` holds the model; `mdstyle::table_row_flags` and
+  `shale_core::table` holds the model (`table/mod.rs`: parsing, cell lookup,
+  offset-to-cell resolution) and the edits (`table/edit.rs`: add, drop and move
+  rows and columns, and where the cursor lands afterwards);
+  `mdstyle::table_row_flags` and
   `mdstyle::is_table_delimiter_row` are public so the styler and the editor ask
   the same question and can never disagree about which lines are a table. A
   `Table` is `rows` + `columns` + the index of the delimiter row. Each `Cell`
@@ -256,24 +267,32 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
   pipe looped forever allocating until the kernel killed the editor at 20 GB. The
   fix is one `i += 1`; `table::tests::a_row_of_only_pipes_terminates` is the
   regression test. Run these binaries under `ulimit -v` when touching this area —
-  peak RSS afterwards: core 4 MB, app 22 MB, mcp 3 MB.
+  peak RSS afterwards: core 4 MB, app 19 MB, mcp 3 MB. Note that the **app** test
+  binary needs more than 600 MB of *address space* (gpui/wgpu reservations, not
+  touched pages), so cap it at 1 GB or more; the core binary runs fine at 500 MB.
   **Bindings (implemented in the vim engine + keymap):** `Shift+H`/`Shift+L`
   column left/right, `Shift+J`/`Shift+K` row down/up, `dd` delete row, `DD`
   (`shift-d`) delete column, `Shift+I` empty the cell and insert, `o`/`O` insert
   an empty row below/above, `|` insert a column after, `\` insert a column
-  before. Plain `j`/`k` inside a table step **cell to cell** in the same column,
-  which is what the user asked for after other apps skipped around; `A` appends
-  at the cell's end rather than the row's. The ordinary motions are clamped to
-  the cell: `h l w b e` are undone if they would step outside, `0 ^ $` use the
-  cell's edges, a find that would land outside counts as "not found" (so `f|`
-  works — the closing pipe belongs to the cell — and `d3x`-style sweeps stop at
-  the content edge). `H/J/K/L` are bound in the visual context too, where they
-  extend the selection; `D`, `|` and `\` are normal-mode only, since `D` in
+  before, and **`alt+h`/`alt+j`/`alt+k`/`alt+l` move a whole row or column**
+  (`table::move_row`/`move_column`: the columns or rows between the cursor and
+  its destination rotate by one, the delimiter row never moves, and the cursor
+  follows what moved). Plain `j`/`k` inside a table step **cell to cell** in the
+  same column, which is what the user asked for after other apps skipped around;
+  `A` appends at the cell's end rather than the row's. A find that would land
+  outside the cell counts as "not found" (so `f|` works — the closing pipe
+  belongs to the cell — and `d3x`-style sweeps stop at the content edge, as do
+  `dw`/`d$`). `H/J/K/L` are bound in the visual context too, where they extend
+  the selection; `D`, `|`, `\` and `alt+hjkl` are normal-mode only, since `D` in
   visual is the selection operator. **Caveat:** `D` is not `d$` yet (it was
   unbound before), so if we want vim's `D` it needs a different key or a
   table/non-table split. As with every new bound key, the half-typed-command
   path was checked: `f|`, `f\`, `fH` arrive through the pending-find arm, which
-  runs before the table match.
+  runs before the table match. `alt+hjkl` arrives as the plain letter with the
+  alt modifier (xkb leaves a letter's keysym alone under alt, unlike shift),
+  mapped to `Key::AltChar(c)`; `keymap_matches_the_linux_keystroke_shape` pins
+  that shape. If the user's compositor uses Alt as its modifier key these bindings
+  will never reach the app — rebind rather than debug.
   **Painting.** A table row is *not* painted as markdown: `table_view::plans_by_row`
   turns each table into a grid in **character cells** (the widest content per
   column plus a one-cell gutter on each side), and `LineElement` paints each
@@ -300,6 +319,52 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
 
   `column_widths` counts characters, not display cells, so CJK/emoji columns
   will not line up until the tab/width rework noted above.
+
+- **Table polish round (the user's feedback) — done.**
+  - **Character motions step cell to cell.** `h`/`l`/`w`/`b`/`e` inside a cell
+    are no longer "undone at the boundary": at a cell's edge they step into the
+    neighbouring cell, and they never come to rest on a cell's padding or on a
+    pipe (`vim::snap_cell_motion`). Which end of the neighbour they land on
+    follows the motion: `l`, `w` and `b` arrive at its first content character,
+    `h` and the inclusive `e` at its last; at the edge of the row the cursor
+    stays on its own cell's content instead of escaping into the gutter. `0` now
+    lands on the cell's first content character like `^` (it used to land on the
+    padding), and `$` on its last.
+  - **`j`/`k` can leave the table.** They used to be captured as cell-to-cell
+    motion and clamped, so the cursor was trapped. `step_cell_rows` walks the
+    table's *navigable* rows and, when the count runs past the top or bottom,
+    comes to rest on the edge row and hands the leftover steps to the ordinary
+    line motion, so the cursor walks out (`j_and_k_walk_out_of_the_table`).
+  - **The delimiter row is not a cell.** `Table::cell_at` refuses every offset on
+    it, `cell_clamped` snaps a request for it to the nearest row with cells (the
+    one below, else the one above), and `navigable_rows` is what the vertical
+    motions walk, so no motion lands on the rule. A click on the painted rule is
+    snapped into the cell below it by `table::clickable_offset`, which
+    `editor/input.rs` applies. Consequence: `dd` can never target the rule, and
+    if a cursor ever does end up there (a leftover count from a counted motion,
+    say) the engine treats that line as ordinary text.
+  - **One table edit = one undo step.** `delete_column`, `insert_column`,
+    `move_row` and `move_column` splice every row, so they open a buffer undo
+    group; `Buffer::delete_range`/`insert_at` now use `snapshot_for_edit`, which
+    joins an open group instead of closing it (`a_table_edit_is_one_undo_step`
+    checks undo *and* redo). `dd` and `shift-i` were already single edits.
+  - **`---` is painted as a rule.** `mdlayout::is_marker` hides `Style::Rule`, so
+    a thematic break's dashes are hidden on any row the cursor is not on, and
+    `LineElement` draws a `TABLE_LINE` quad across the full width of the line in
+    their place (like the fenced-block background). `RowStyle.rule` carries the
+    flag from the spans; the dashes come back on the cursor's own row so they
+    stay editable (`a_thematic_break_is_painted_as_a_rule`, and verified live:
+    the rule spans the editor's width at the row's vertical centre).
+  - **Wiki-links do not span lines** — in Shale and in Obsidian. The scanner is
+    line-based (`markdown::tests::multiline_link_ignored` pins it), so a link
+    broken across two source lines is plain text. `examples/demo-vault/Markdown
+    Tour.md` had exactly that and now keeps each link on one line; if a note ever
+    looks like its links stopped resolving, check for a line break inside `[[…]]`
+    before debugging the parser.
+  - Still to check in a live window (no key-injection tool is installed, so this
+    needs the user): cell-to-cell `l`/`h`, `H`/`L` landing on content, `j`/`k`
+    escaping the table, the rule line being skipped, single-step undo for `DD`
+    and `alt+hjkl`, and whether the user's compositor swallows `alt+letter`.
 
 - **Font family: `font("monospace")` does not work on Linux.** gpui's Linux text
   system (`gpui_wgpu::CosmicTextSystem`) matches a family name *literally*
@@ -535,9 +600,12 @@ Next steps, roughly in order:
 4. ~~Visual mode~~ and ~~`.` repeat~~ done (see Open threads). Next: the table
    goal, then live preview.
 5. ~~Table-aware motions and manipulation (the table goal)~~ Done: the model, the
-   row/column edits, the cell-aware motions, the keymap and the grid widget (see
-   Open threads). Follow-ups: horizontal scrolling for a table wider than the
-   window, and wide-glyph column widths.
+   row/column edits, the cell-aware motions, the keymap and the grid widget, plus
+   the user's polish round (cell-to-cell `h`/`l`/`w`/`b`/`e`, `j`/`k` escaping the
+   table, the rule line never being navigable, one undo step per table edit,
+   `alt+hjkl` row/column moves) — see Open threads. Follow-ups: horizontal
+   scrolling for a table wider than the window, wide-glyph column widths, and
+   live confirmation of the motions by the user.
 6. ~~Live preview mode~~ stage 1 (markdown syntax styling, heading sizes and
    code-block backgrounds) and stage 2a (hiding the markers of a row the cursor is
    not on, including inside table cells) are done — see Open threads. Stage 2
@@ -545,7 +613,9 @@ Next steps, roughly in order:
 7. Theming (light/dark, TOML theme files). `theme.rs` is the palette and
    `appearance.font_family` in `shale.toml` already picks the editor's font;
    `appearance.font_size` is still not wired up (the editor shapes at
-   `theme::FONT_SIZE`).
+   `theme::FONT_SIZE`). Every colour the editor draws is a constant there
+   (`TABLE_LINE` doubles as the thematic-break rule), so a theme is a palette
+   swap plus a TOML loader — nothing else needs to change.
 8. Editor bindings round: **list / task / quote continuation on Enter.** Inside
    a `-`/`*`/`+` bullet, a numbered item, a task (`- [ ]`) or a `>` quote,
    pressing Enter should insert the same marker on the new line (Obsidian's
@@ -557,3 +627,11 @@ Next steps, roughly in order:
 9. HarperLS / LSP integration for spellcheck and grammar.
 10. Image display in vaults (gpui image elements).
 11. File tree: new/rename/delete, file watching.
+12. **Database tables (Obsidian bases)** — the user's goal, see the Database
+    section above. Nothing built yet, but the shape of it is already useful:
+    a query result is a table that is *not* buffer text, and the grid paint
+    (`table_view::plans_by_row` + `LineElement`) is the widget it needs. Keep
+    that geometry independent of `shale_core::table`'s buffer offsets so a
+    rendered-from-a-query grid can reuse it, and keep the note files the source
+    of truth (the DB in `<vault>/.shale` is a cache, updated incrementally in the
+    background at startup and then on edits).
