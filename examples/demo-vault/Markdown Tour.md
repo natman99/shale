@@ -1,7 +1,7 @@
 # Markdown Tour
 
-Live-preview styling, one construct per line. Links: [[Welcome]], [[Another
-Note]], [[alias|an aliased link]] and [[A Note That Does Not Exist]].
+Live-preview styling, one construct per line. Links: [[Welcome]], [[Another Note]],
+[[alias|an aliased link]] and [[A Note That Does Not Exist]].
 
 ## Text
 
