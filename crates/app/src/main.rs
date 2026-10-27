@@ -1,6 +1,7 @@
 //! Shale: an Obsidian-style markdown editor built on GPUI.
 
 mod editor;
+mod image;
 mod line;
 mod preview;
 mod table_view;
@@ -142,6 +143,12 @@ impl Workspace {
         let editor = cx.new(|cx| MarkdownEditor::new(cx));
         let known = note_keys(&entries);
         editor.update(cx, |editor, cx| editor.set_known_links(known, cx));
+        // The editor resolves `![[image.png]]` against the vault's attachments,
+        // so it needs the vault itself and everything in it that is not a note.
+        let attachments = vault.list_attachments().unwrap_or_default();
+        editor.update(cx, |editor, cx| {
+            editor.set_vault(vault.clone(), attachments, cx);
+        });
         editor.update(cx, |editor, cx| {
             editor.set_font_family(&config.appearance.font_family, cx);
         });

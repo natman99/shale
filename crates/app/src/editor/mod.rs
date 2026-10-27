@@ -16,6 +16,7 @@ mod render;
 mod wrap;
 
 use std::collections::HashSet;
+use std::rc::Rc;
 
 use gpui::{
     App, Context, EventEmitter, FocusHandle, Focusable, Pixels, ScrollHandle, SharedString,
@@ -23,7 +24,9 @@ use gpui::{
 use shale_core::buffer::Buffer;
 use shale_core::markdown::{extract_wikilinks, WikiLink};
 use shale_core::mdstyle::{style_spans, Style, StyleSpan};
+use shale_core::vault::VaultEntry;
 use shale_core::vim::{Mode, Vim};
+use shale_core::Vault;
 
 use crate::line::HitLine;
 
@@ -60,6 +63,13 @@ pub struct MarkdownEditor {
     style_cache: Option<(u64, Vec<StyleSpan>)>,
     /// Wiki-link spans in the current buffer text (buffer byte offsets).
     links: Vec<WikiLink>,
+    /// The vault the note lives in, which an image embed's target is resolved
+    /// against. `None` until the workspace supplies one, which is how the
+    /// headless tests run without a vault (and without images).
+    vault: Option<Rc<Vault>>,
+    /// The vault's attachment files (everything that is not a note), for
+    /// resolving `![[image.png]]`.
+    attachments: Vec<VaultEntry>,
     /// Lowercased note names present in the vault, for resolved/unresolved
     /// link styling.
     known: HashSet<String>,
@@ -86,6 +96,8 @@ impl MarkdownEditor {
             wrap_cache: None,
             style_cache: None,
             links: Vec::new(),
+            vault: None,
+            attachments: Vec::new(),
             known: HashSet::new(),
             input_registered: false,
             font_family: "monospace".into(),
@@ -98,6 +110,19 @@ impl MarkdownEditor {
     /// links differently from unresolved ones.
     pub fn set_known_links(&mut self, known: HashSet<String>, cx: &mut Context<Self>) {
         self.known = known;
+        cx.notify();
+    }
+
+    /// Tell the editor which vault the note came from and what attachments it
+    /// holds, so a row that is only an image embed can be painted as the picture.
+    pub fn set_vault(
+        &mut self,
+        vault: Rc<Vault>,
+        attachments: Vec<VaultEntry>,
+        cx: &mut Context<Self>,
+    ) {
+        self.vault = Some(vault);
+        self.attachments = attachments;
         cx.notify();
     }
 

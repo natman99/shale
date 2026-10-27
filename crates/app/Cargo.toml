@@ -19,3 +19,4 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }
+tempfile = "3"

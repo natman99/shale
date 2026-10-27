@@ -53,6 +53,9 @@ pub(super) struct CachedRow {
     /// The row was collapsed (drawn as no line at all) when this was measured,
     /// so its empty list of starts must not be reused once it is visible again.
     collapsed: bool,
+    /// The row was drawn as one line whatever its width (a table row, or a row
+    /// painted as an embedded image), so it was never measured for breaks.
+    no_wrap: bool,
     /// Absolute byte offsets where the row's display lines start, beginning with
     /// the row itself.
     starts: Vec<usize>,
@@ -69,6 +72,21 @@ impl MarkdownEditor {
                 .map(|(a, h)| a.max(h) >= start && a.min(h) <= end)
                 .unwrap_or(false)
     }
+    /// Which buffer rows the cursor or the selection touches. Live preview draws
+    /// those exactly as the file holds them — markers, fence lines, image
+    /// sources — and every other row as its reader sees it.
+    pub(super) fn active_rows(&self, selection: Option<(usize, usize)>) -> Vec<bool> {
+        (0..self.buffer.line_count())
+            .map(|row| {
+                self.touches(
+                    selection,
+                    self.buffer.line_start(row),
+                    self.buffer.line_end(row),
+                )
+            })
+            .collect()
+    }
+
     /// The markdown markers hidden on each buffer row, as merged buffer ranges:
     /// empty on the cursor's row, on a selected row, and on a row with no
     /// markers. Obsidian's live preview rule, and what lets the user see and edit
@@ -81,15 +99,15 @@ impl MarkdownEditor {
         let Some((_, spans)) = self.style_cache.as_ref() else {
             return vec![Vec::new(); line_count];
         };
+        let active = self.active_rows(selection);
         let mut out = Vec::with_capacity(line_count);
         // Spans and rows are both in offset order, so one forward walk finds the
         // spans that touch each row.
         let mut first = 0usize;
-        for row in 0..line_count {
+        for (row, is_active) in active.iter().enumerate() {
             let row_start = self.buffer.line_start(row);
             let row_end = self.buffer.line_end(row);
-            let active = self.touches(selection, row_start, row_end);
-            if active {
+            if *is_active {
                 out.push(Vec::new());
                 continue;
             }
@@ -255,7 +273,7 @@ impl MarkdownEditor {
         width: Pixels,
         wrappers: &mut [LineWrapperHandle],
         rows: &[RowStyle],
-        table_rows: &[bool],
+        no_wrap: &[bool],
         pieces: &[Vec<(usize, usize)>],
         collapsed: &[bool],
     ) -> Vec<DisplayLine> {
@@ -286,24 +304,28 @@ impl MarkdownEditor {
                 measured.push(CachedRow {
                     preview,
                     collapsed: true,
+                    no_wrap: false,
                     starts: Vec::new(),
                 });
                 continue;
             }
-            // A table row is painted as one grid row and never soft-wraps, so
-            // the buffer's display model must agree or j/k and the painted lines
-            // fall out of step.
-            if table_rows.get(row).copied().unwrap_or(false) {
+            // A table row is painted as one grid row, and a row drawn as an
+            // embedded image is one picture, so neither soft-wraps: the buffer's
+            // display model must agree or j/k and the paint fall out of step.
+            if no_wrap.get(row).copied().unwrap_or(false) {
                 segments.push(starts);
                 measured.push(CachedRow {
                     preview,
                     collapsed: false,
+                    no_wrap: true,
                     starts: vec![row_start],
                 });
                 continue;
             }
             let cached_row = cached.as_ref().and_then(|rows| rows.get(row));
-            if cached_row.is_some_and(|cached| !cached.collapsed && cached.preview == preview) {
+            if cached_row.is_some_and(|cached| {
+                !cached.collapsed && !cached.no_wrap && cached.preview == preview
+            }) {
                 // Re-validate even a cached boundary against the current row, so
                 // a cache key that ever fails to notice an edit cannot push a
                 // segment past the end of the row.
@@ -337,6 +359,7 @@ impl MarkdownEditor {
             measured.push(CachedRow {
                 preview,
                 collapsed: false,
+                no_wrap: false,
                 starts: starts.clone(),
             });
             segments.push(starts);

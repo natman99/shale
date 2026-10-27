@@ -139,6 +139,83 @@ fn find_close(bytes: &[u8], from: usize) -> Option<usize> {
     None
 }
 
+/// An image that a whole line embeds, which the editor can draw in place of the
+/// source text.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImageEmbed {
+    /// The attachment target: a vault-relative path, a file name or a stem.
+    pub target: String,
+    /// A width in pixels from Obsidian's size suffix (`![[img.png|300]]`,
+    /// `![[img.png|300x200]]`) or markdown's (`![alt](img.png =300x200)`).
+    pub width: Option<f32>,
+    /// A height in pixels, from the `WxH` forms only.
+    pub height: Option<f32>,
+}
+
+/// The image a whole line embeds, if the line is nothing but one: `![[att.png]]`
+/// (Obsidian's embed) or `![alt](path)` (markdown image syntax).
+///
+/// A line with any other text on it is not an image line. That is deliberate:
+/// the editor hands the entire display line over to the picture, so a row that
+/// mixes text and image would put the paint and the wrap model out of step.
+pub fn line_image_embed(line: &str) -> Option<ImageEmbed> {
+    let trimmed = line.trim();
+    let (inner, size) = wiki_embed_target(trimmed).or_else(|| markdown_image_target(trimmed))?;
+    let (width, height) = size.map(parse_size).unwrap_or((None, None));
+    // A heading anchor names a section of a note, not part of an image.
+    let target = inner.split('#').next().unwrap_or(inner).trim().to_string();
+    if target.is_empty() {
+        return None;
+    }
+    Some(ImageEmbed {
+        target,
+        width,
+        height,
+    })
+}
+
+/// The Obsidian embed form, `![[att.png]]` or `![[att.png|300]]`: the target and
+/// its size suffix, which may be an alias instead of a size.
+fn wiki_embed_target(trimmed: &str) -> Option<(&str, Option<&str>)> {
+    let rest = trimmed.strip_prefix("![[")?;
+    let inner = rest.strip_suffix("]]")?;
+    // An aliased link is not an image, and a nested bracket is a mistake.
+    if inner.contains('[') || inner.contains(']') {
+        return None;
+    }
+    match inner.split_once('|') {
+        Some((target, size)) => Some((target, Some(size))),
+        None => Some((inner, None)),
+    }
+}
+
+/// The markdown image form, `![alt](path)`: the path and whatever follows it,
+/// which may be `=300x200`, a quoted title, or nothing.
+fn markdown_image_target(trimmed: &str) -> Option<(&str, Option<&str>)> {
+    let rest = trimmed.strip_prefix("![")?;
+    let inner = rest.strip_suffix(')')?;
+    let (alt, dest) = inner.split_once("](")?;
+    // An alt text may not contain brackets, and a second `)` means the form was
+    // not a plain image after all.
+    if alt.contains('[') || alt.contains(']') || dest.contains(')') {
+        return None;
+    }
+    let mut parts = dest.split_whitespace();
+    let path = parts.next()?;
+    Some((path, parts.next()))
+}
+
+/// Obsidian's image size suffix: `300` (width) or `300x200`.
+fn parse_size(size: &str) -> (Option<f32>, Option<f32>) {
+    let size = size.trim().trim_start_matches('=');
+    if let Some((w, h)) = size.split_once('x') {
+        let (w, h) = (w.parse::<f32>().ok(), h.parse::<f32>().ok());
+        return (w.filter(|v| *v > 0.), h.filter(|v| *v > 0.));
+    }
+    let width = size.parse::<f32>().ok();
+    (width.filter(|v| *v > 0.), None)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -223,5 +300,52 @@ mod tests {
     #[test]
     fn multiline_link_ignored() {
         assert_eq!(targets("[[spans\nlines]]"), Vec::<String>::new());
+    }
+
+    #[test]
+    fn an_image_line_is_only_an_embed() {
+        let embed = line_image_embed("![[diagram.png]]").unwrap();
+        assert_eq!(embed.target, "diagram.png");
+        assert_eq!((embed.width, embed.height), (None, None));
+
+        // Indentation and trailing spaces do not stop it being an image line.
+        assert_eq!(
+            line_image_embed("  ![[assets/diagram.png]]  ")
+                .unwrap()
+                .target,
+            "assets/diagram.png"
+        );
+
+        // Markdown image syntax, with alt text and a title.
+        let md = line_image_embed(r#"![a diagram](assets/diagram.png "the title")"#).unwrap();
+        assert_eq!(md.target, "assets/diagram.png");
+
+        // Anything else on the row means it is not an image line.
+        assert!(line_image_embed("see ![[diagram.png]] below").is_none());
+        assert!(line_image_embed("![[unclosed").is_none());
+        assert!(
+            line_image_embed("[[note]]").is_none(),
+            "a link is not an embed"
+        );
+        assert!(line_image_embed("![[ ]]").is_none(), "an empty target");
+    }
+
+    #[test]
+    fn an_image_line_can_carry_a_size() {
+        let embed = line_image_embed("![[diagram.png|300]]").unwrap();
+        assert_eq!((embed.width, embed.height), (Some(300.), None));
+
+        let embed = line_image_embed("![[diagram.png|300x200]]").unwrap();
+        assert_eq!((embed.width, embed.height), (Some(300.), Some(200.)));
+
+        let embed = line_image_embed("![alt](diagram.png =300x200)").unwrap();
+        assert_eq!(embed.target, "diagram.png");
+        assert_eq!((embed.width, embed.height), (Some(300.), Some(200.)));
+
+        // A non-numeric suffix is an alias, not a size: Obsidian's `|alias` on
+        // an embed is rare, and drawing at the natural size is the safe answer.
+        let embed = line_image_embed("![[diagram.png|the diagram]]").unwrap();
+        assert_eq!(embed.target, "diagram.png");
+        assert_eq!((embed.width, embed.height), (None, None));
     }
 }

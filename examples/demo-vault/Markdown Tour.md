@@ -26,6 +26,10 @@ Live-preview styling, one construct per line. Links: [[Welcome]], [[Another Note
 
 > [!warning]- A folded callout shows its type name as its title.
 
+## Image
+
+![[demo.png|300]]
+
 ## Table
 
 | Note | Links to |

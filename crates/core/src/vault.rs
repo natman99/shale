@@ -82,6 +82,19 @@ impl Vault {
     /// Hidden directories (dot-prefixed) and known non-content directories
     /// are skipped.
     pub fn list_markdown(&self) -> Result<Vec<VaultEntry>> {
+        self.walk(|name| name.ends_with(".md"))
+    }
+
+    /// Every file in the vault that is not a markdown note — images and other
+    /// attachments — sorted by relative path, with the same directories skipped
+    /// as for notes.
+    pub fn list_attachments(&self) -> Result<Vec<VaultEntry>> {
+        self.walk(|name| !name.ends_with(".md"))
+    }
+
+    /// The directory walk both listings share: every file whose name `accept`
+    /// takes, as a vault-relative path.
+    fn walk(&self, accept: impl Fn(&str) -> bool) -> Result<Vec<VaultEntry>> {
         let mut out = Vec::new();
         let mut stack = vec![self.root.clone()];
         while let Some(dir) = stack.pop() {
@@ -105,7 +118,7 @@ impl Vault {
                 let path = entry.path();
                 if file_type.is_dir() {
                     stack.push(path);
-                } else if file_type.is_file() && name.ends_with(".md") {
+                } else if file_type.is_file() && accept(&name) {
                     out.push(VaultEntry {
                         path: self.relativize(path)?,
                     });
@@ -173,6 +186,45 @@ impl Vault {
         Ok(best.cloned())
     }
 
+    /// Find the attachment an embed target refers to (`![[diagram.png]]`), with
+    /// the same shortest-unique-name rules as [`Self::resolve_link`]:
+    /// 1. exact relative-path match,
+    /// 2. case-insensitive relative-path match,
+    /// 3. case-insensitive match on the file name (`diagram.png`) or the stem
+    ///    (`diagram`), the shortest path winning a tie.
+    ///
+    /// Unlike a note link, an attachment keeps its extension, so both a bare
+    /// stem and a full file name are worth trying: Obsidian accepts either.
+    pub fn resolve_attachment(&self, target: &str, entries: &[VaultEntry]) -> Option<VaultEntry> {
+        let target = target.trim();
+        if target.is_empty() {
+            return None;
+        }
+        let as_path = PathBuf::from(target);
+        let lower_path = target.to_lowercase().replace('\\', "/");
+        for entry in entries {
+            if entry.path == as_path {
+                return Some(entry.clone());
+            }
+            if entry.path.to_string_lossy().to_lowercase() == lower_path {
+                return Some(entry.clone());
+            }
+        }
+        let lower = target.to_lowercase();
+        let mut best: Option<&VaultEntry> = None;
+        for entry in entries {
+            let name = entry.path.file_name().and_then(|s| s.to_str())?;
+            if name.to_lowercase() != lower && entry.stem().to_lowercase() != lower {
+                continue;
+            }
+            match best {
+                Some(b) if b.path.components().count() <= entry.path.components().count() => {}
+                _ => best = Some(entry),
+            }
+        }
+        best.cloned()
+    }
+
     /// Notes that link to `rel` (backlinks).
     pub fn backlinks(
         &self,
@@ -211,11 +263,61 @@ mod tests {
         let root = dir.path().to_path_buf();
         fs::create_dir_all(root.join("notes"))?;
         fs::create_dir_all(root.join(".obsidian"))?;
+        fs::create_dir_all(root.join("assets"))?;
         fs::write(root.join("Welcome.md"), "Link to [[Another Note]].")?;
         fs::write(root.join("notes/Another Note.md"), "Back to [[welcome]].")?;
         fs::write(root.join(".obsidian/config.json"), "{}")?;
         fs::write(root.join("notes/ignored.txt"), "not markdown")?;
+        fs::write(root.join("assets/Diagram.png"), "not really a png")?;
         Ok((dir, Vault::open(root)?))
+    }
+
+    #[test]
+    fn lists_attachments_as_well_as_notes() -> Result<()> {
+        let (_dir, vault) = fixture()?;
+        let paths: Vec<_> = vault
+            .list_attachments()?
+            .iter()
+            .map(|e| e.path.clone())
+            .collect();
+        assert_eq!(
+            paths,
+            vec![
+                PathBuf::from("assets/Diagram.png"),
+                PathBuf::from("notes/ignored.txt")
+            ],
+            "everything that is not a note, and no dot directories"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn resolve_attachment_by_path_name_or_stem() -> Result<()> {
+        let (_dir, vault) = fixture()?;
+        let entries = vault.list_attachments()?;
+
+        assert_eq!(
+            vault
+                .resolve_attachment("assets/Diagram.png", &entries)
+                .unwrap()
+                .path,
+            PathBuf::from("assets/Diagram.png")
+        );
+        // Case-insensitive path, and a bare name or stem anywhere in the vault.
+        assert_eq!(
+            vault
+                .resolve_attachment("assets/diagram.PNG", &entries)
+                .unwrap()
+                .path,
+            PathBuf::from("assets/Diagram.png")
+        );
+        assert_eq!(
+            vault.resolve_attachment("Diagram", &entries).unwrap().path,
+            PathBuf::from("assets/Diagram.png")
+        );
+        assert!(vault.resolve_attachment("missing.png", &entries).is_none());
+        assert!(vault.resolve_attachment("", &entries).is_none());
+        Ok(())
     }
 
     #[test]

@@ -2,12 +2,13 @@
 //! handing each one to a `LineElement`, and wiring the vim key context.
 
 use gpui::{
-    div, font, prelude::*, px, rgb, Context, CursorStyle, IntoElement, LineWrapperHandle,
-    MouseButton, ParentElement, Render, Styled, Window,
+    div, font, prelude::*, px, rgb, Context, CursorStyle, ImgResourceLoader, IntoElement,
+    LineWrapperHandle, MouseButton, ParentElement, Render, SharedString, Styled, Window,
 };
 use shale_core::vim::{Key, Mode};
 
 use crate::acts::*;
+use crate::image;
 use crate::line::LineElement;
 use crate::preview::{LineLayout, PieceMap};
 use crate::table_view;
@@ -85,6 +86,27 @@ impl Render for MarkdownEditor {
         // the display model is what keeps j/k, the scroll position and the ruler
         // in step with what is on screen.
         let collapsed = self.collapsed_rows(selection, &buffer_tables);
+        // Images: a row that is nothing but an embed is painted as the picture
+        // while the cursor is elsewhere in the note. Whether a row shows the
+        // picture or its source follows the same live-preview rule as every
+        // other marker, and a row drawn as a picture never soft-wraps.
+        let active = self.active_rows(selection);
+        let image_plans: Vec<Option<image::ImagePlan>> = match self.vault.as_ref() {
+            Some(vault) => image::plans_by_row(self.buffer.text(), vault, &self.attachments),
+            None => Vec::new(),
+        };
+        let image_rows: Vec<bool> = (0..line_count)
+            .map(|row| {
+                image_plans.get(row).is_some_and(|plan| plan.is_some())
+                    && !active.get(row).copied().unwrap_or(false)
+            })
+            .collect();
+        let no_wrap: Vec<bool> = (0..line_count)
+            .map(|row| {
+                table_rows.get(row).copied().unwrap_or(false)
+                    || image_rows.get(row).copied().unwrap_or(false)
+            })
+            .collect();
         // Live preview: every row but the cursor's and the selection's is painted
         // without its markdown markers, and the wrap model has to measure the text
         // that is actually left visible. A table row hides its markers too, but
@@ -113,12 +135,44 @@ impl Render for MarkdownEditor {
                 wrap_width,
                 &mut wrappers,
                 &row_styles,
-                &table_rows,
+                &no_wrap,
                 &row_pieces,
                 &collapsed,
             )
         };
         let cursor_display = self.buffer.display_index_for(cursor);
+
+        // Ask gpui for each picture it will draw. It decodes on a background
+        // thread and marks the view for redraw when the file arrives, so the
+        // frame right after an embed is typed shows its source and the next one
+        // shows the image.
+        let images: Vec<Option<image::ImagePaint>> = image_rows
+            .iter()
+            .enumerate()
+            .map(|(row, shown)| {
+                if !*shown {
+                    return None;
+                }
+                let plan = image_plans.get(row).cloned().flatten()?;
+                let source = gpui::Resource::Path(plan.path.clone().into());
+                match window.use_asset::<ImgResourceLoader>(&source, cx) {
+                    Some(Ok(data)) => Some(image::draw_size(
+                        &data,
+                        window.scale_factor(),
+                        wrap_width,
+                        &plan,
+                    )),
+                    // The asset cache holds the failure, so this repeats every
+                    // frame: trace level, and the row keeps showing its source.
+                    Some(Err(err)) => {
+                        tracing::trace!(path = %plan.path.display(), "image not loaded: {err:#}");
+                        None
+                    }
+                    // Still decoding.
+                    None => None,
+                }
+            })
+            .collect();
 
         div()
             .key_context(context)
@@ -211,6 +265,9 @@ impl Render for MarkdownEditor {
                     .on_mouse_down(MouseButton::Left, cx.listener(Self::on_click))
                     .children(display_lines.iter().enumerate().map(|(index, dl)| {
                         let table = plans.get(dl.row).cloned().flatten();
+                        // The picture this row is drawn as, if live preview chose
+                        // the image over the row's source.
+                        let image = images.get(dl.row).cloned().flatten();
                         // The visible pieces of this display line: the row's
                         // pieces clipped to it, which is the whole line when no
                         // markers were hidden.
@@ -226,8 +283,16 @@ impl Render for MarkdownEditor {
                             .unwrap_or_default();
                         // A table row is painted as a grid, which decides what of
                         // the row to draw, so it gets the raw row and applies the
-                        // hidden ranges itself cell by cell.
-                        let layout = if table.is_some() {
+                        // hidden ranges itself cell by cell. An image row has no
+                        // text at all: the identity map keeps a click on the
+                        // picture landing on the row's start, which is what brings
+                        // the source back for editing.
+                        let layout = if image.is_some() {
+                            LineLayout {
+                                text: SharedString::default(),
+                                map: PieceMap::identity(dl.start, dl.end),
+                            }
+                        } else if table.is_some() {
                             LineLayout {
                                 text: self.buffer.text()[dl.start..dl.end].to_string().into(),
                                 map: PieceMap::identity(dl.start, dl.end),
@@ -286,11 +351,17 @@ impl Render for MarkdownEditor {
                         // colour of its type; the markers stay visible on the row the
                         // cursor is on, exactly as with other markdown syntax.
                         let callout = row_styles.get(dl.row).copied().unwrap_or_default().callout;
+                        // An embedded image makes its display line as tall as the
+                        // picture; every other line follows its text size.
+                        let height = image
+                            .as_ref()
+                            .map(|image| f32::from(image.height))
+                            .unwrap_or_else(|| theme::line_height(dl.size));
 
                         div()
                             .id(("line", index))
                             .w_full()
-                            .h(px(theme::line_height(dl.size)))
+                            .h(px(height))
                             .child(LineElement {
                                 editor: cx.entity(),
                                 row: dl.row,
@@ -310,6 +381,7 @@ impl Render for MarkdownEditor {
                                 rule,
                                 callout,
                                 table,
+                                image,
                                 char_width,
                             })
                     })),

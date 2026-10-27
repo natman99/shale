@@ -19,13 +19,14 @@
 //! every x <-> offset question is answered against them.
 
 use gpui::{
-    fill, font, px, relative, rgb, App, Bounds, Element, ElementId, ElementInputHandler, Entity,
-    Font, GlobalElementId, InspectorElementId, IntoElement, LayoutId, Pixels, ShapedLine,
+    fill, font, px, relative, rgb, App, Bounds, Corners, Element, ElementId, ElementInputHandler,
+    Entity, Font, GlobalElementId, InspectorElementId, IntoElement, LayoutId, Pixels, ShapedLine,
     SharedString, Style as ElementStyle, TextRun, Window,
 };
 use shale_core::mdstyle::{CalloutKind, Style};
 
 use crate::editor::MarkdownEditor;
+use crate::image::ImagePaint;
 use crate::preview::PieceMap;
 use crate::table_view::TablePaint;
 use crate::theme::{self, RunStyle, CURSOR, LINK, LINK_UNRESOLVED, SELECTION};
@@ -176,6 +177,9 @@ pub(crate) struct LineElement {
     /// Set when this row is a table row: the grid to paint instead of the raw
     /// markdown, whose pipes and dashes are then hidden.
     pub(crate) table: Option<TablePaint>,
+    /// Set when this row is drawn as an embedded image instead of as text: the
+    /// picture and the rectangle it fits in, which is also the line's height.
+    pub(crate) image: Option<ImagePaint>,
     /// The width of one character cell, which turns the grid's character
     /// geometry into pixels.
     pub(crate) char_width: Pixels,
@@ -264,6 +268,15 @@ impl LineElement {
     /// The x of a cell's content, measured from the line's left edge.
     fn cell_x(&self, cell_x: usize) -> Pixels {
         px(cell_x as f32 * f32::from(self.char_width))
+    }
+
+    /// How tall this line is: as tall as its picture when it has one, and
+    /// otherwise the height its text size implies.
+    fn height(&self) -> f32 {
+        self.image
+            .as_ref()
+            .map(|image| f32::from(image.height))
+            .unwrap_or_else(|| theme::line_height(self.size))
     }
 
     /// Paints one row of a table: the header's background, the grid lines, the
@@ -438,7 +451,7 @@ impl Element for LineElement {
     ) -> (LayoutId, Self::RequestLayoutState) {
         let mut style = ElementStyle::default();
         style.size.width = relative(1.).into();
-        style.size.height = px(theme::line_height(self.size)).into();
+        style.size.height = px(self.height()).into();
         (window.request_layout(style, [], cx), ())
     }
 
@@ -576,6 +589,26 @@ impl Element for LineElement {
             ));
         }
 
+        // An embedded image fills the line's height, and its source text is not
+        // painted while the picture is: clicking the picture puts the cursor on
+        // the row, which is what brings the source back.
+        if let Some(image) = self.image.clone() {
+            let image_bounds = Bounds::from_corners(
+                bounds.origin,
+                gpui::point(bounds.left() + image.width, bounds.top() + image.height),
+            );
+            if let Err(err) = window.paint_image(
+                bounds,
+                image_bounds,
+                Corners::all(px(0.)),
+                image.image,
+                0,
+                false,
+            ) {
+                tracing::warn!(row = self.row, "failed to paint image: {err:#}");
+            }
+        }
+
         let width;
         let segments: Vec<HitSegment>;
         if let Some(table) = self.table.clone() {
@@ -596,7 +629,11 @@ impl Element for LineElement {
                 .line
                 .as_ref()
                 .expect("an ordinary line is shaped in prepaint");
-            width = line.width();
+            width = self
+                .image
+                .as_ref()
+                .map(|image| image.width)
+                .unwrap_or_else(|| line.width());
             segments = vec![HitSegment {
                 x: px(0.),
                 line: line.clone(),
