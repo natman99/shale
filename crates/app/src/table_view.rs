@@ -42,6 +42,10 @@ pub(crate) struct TablePaint {
     pub(crate) cells: Vec<CellPaint>,
     /// The delimiter row: painted as a horizontal rule, its dashes hidden.
     pub(crate) delimiter: bool,
+    /// The row directly above the delimiter. Live preview usually collapses the
+    /// delimiter row to nothing, so the rule under the header is painted along
+    /// this row's bottom edge instead.
+    pub(crate) rule_below: bool,
     /// The header row (the one above the delimiter), which gets a background.
     pub(crate) header: bool,
     /// x positions (character cells) of the vertical grid lines, the outer edges
@@ -110,6 +114,7 @@ pub(crate) fn plans_by_row(
             out[row.row] = Some(TablePaint {
                 cells,
                 delimiter: index == table.delimiter,
+                rule_below: index + 1 == table.delimiter,
                 header: index < table.delimiter,
                 boundaries: boundaries.clone(),
                 total,
@@ -175,6 +180,15 @@ mod tests {
             flags,
             vec![(true, false), (false, true), (false, false)],
             "the header is the row above the delimiter"
+        );
+        let rules: Vec<bool> = plans
+            .iter()
+            .map(|p| p.as_ref().is_some_and(|p| p.rule_below))
+            .collect();
+        assert_eq!(
+            rules,
+            vec![true, false, false],
+            "only the row above the delimiter carries the rule when that row is collapsed"
         );
         for plan in plans.iter().flatten() {
             assert_eq!(plan.boundaries.len(), 3, "two columns, three lines");

@@ -190,18 +190,23 @@ impl Buffer {
     // ----- display lines (soft wrap) ------------------------------------
 
     /// Record where the UI wrapped each row. `segments[row]` holds the absolute
-    /// byte offsets that begin each display line of that row (the first should
-    /// be the row's own start). Rows with no wrapping get an empty vec.
+    /// byte offsets that begin each display line of that row (the first is the
+    /// row's own start). A row the UI does not draw at all — a collapsed fence
+    /// line, a table's delimiter row — gets an empty vec and so contributes no
+    /// display line; a row with no entry (the text changed since the last frame)
+    /// counts as one unwrapped line.
     pub fn set_display_segments(&mut self, segments: Vec<Vec<usize>>) {
         self.display_segments = segments;
     }
 
-    /// The absolute offsets at which row `row`'s display lines begin.
+    /// The absolute offsets at which row `row`'s display lines begin. Empty when
+    /// the row is collapsed: it has no display line, so the vertical motions step
+    /// over it and an offset inside it resolves to the line that follows.
     fn segment_starts(&self, row: usize) -> Vec<usize> {
-        match self.display_segments.get(row) {
-            Some(segs) if !segs.is_empty() => segs.clone(),
-            _ => vec![self.line_start(row)],
-        }
+        self.display_segments
+            .get(row)
+            .cloned()
+            .unwrap_or_else(|| vec![self.line_start(row)])
     }
 
     /// The byte offset where the display line containing `offset` begins.
@@ -1278,6 +1283,34 @@ mod tests {
         assert_eq!(b.cursor(), 13, "clamped to the short row");
         b.move_up();
         assert_eq!(b.cursor(), 9, "and restored when coming back");
+    }
+
+    #[test]
+    fn a_collapsed_row_takes_no_display_line() {
+        // A fenced block whose ``` lines live preview does not draw at all: five
+        // buffer rows, three display lines.
+        let mut b = Buffer::new("one\n```\ncode\n```\ntwo".to_string());
+        b.set_display_segments(vec![vec![0], vec![], vec![8], vec![], vec![17]]);
+        assert_eq!(b.display_line_count(), 3);
+        assert_eq!(
+            b.display_range(1),
+            Some((8, 12)),
+            "the code line follows `one`"
+        );
+        assert_eq!(b.display_index_for(17), 2);
+        assert_eq!(
+            b.display_index_for(4),
+            1,
+            "an offset inside a collapsed row resolves to the line after it"
+        );
+
+        b.set_cursor(0);
+        b.move_down();
+        assert_eq!(b.cursor(), 8, "j steps over the collapsed fence");
+        b.move_down();
+        assert_eq!(b.cursor(), 17, "and over the closing one");
+        b.move_up();
+        assert_eq!(b.cursor(), 8);
     }
 
     #[test]

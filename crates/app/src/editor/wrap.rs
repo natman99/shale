@@ -9,6 +9,7 @@
 use gpui::{px, IndentAdjustment, LineFragment, LineWrapperHandle, Pixels};
 use shale_core::mdlayout;
 use shale_core::mdstyle::{CalloutKind, Style, StyleSpan};
+use shale_core::table::Table;
 
 use crate::line::DisplayLine;
 use crate::preview::offset_for_visible_index;
@@ -49,11 +50,25 @@ fn wrapper_index(row: RowStyle) -> usize {
 pub(super) struct CachedRow {
     /// Whether the row's markdown markers were hidden when it was measured.
     preview: bool,
+    /// The row was collapsed (drawn as no line at all) when this was measured,
+    /// so its empty list of starts must not be reused once it is visible again.
+    collapsed: bool,
     /// Absolute byte offsets where the row's display lines start, beginning with
     /// the row itself.
     starts: Vec<usize>,
 }
 impl MarkdownEditor {
+    /// Whether the cursor or the selection touches `start..=end` in buffer
+    /// offsets. Live preview shows the syntax of anything it touches and hides
+    /// the syntax of everything else, and the same rule decides whether a
+    /// collapsed row (a fence line, a table's delimiter) comes back.
+    fn touches(&self, selection: Option<(usize, usize)>, start: usize, end: usize) -> bool {
+        let cursor = self.buffer.cursor();
+        (cursor >= start && cursor <= end)
+            || selection
+                .map(|(a, h)| a.max(h) >= start && a.min(h) <= end)
+                .unwrap_or(false)
+    }
     /// The markdown markers hidden on each buffer row, as merged buffer ranges:
     /// empty on the cursor's row, on a selected row, and on a row with no
     /// markers. Obsidian's live preview rule, and what lets the user see and edit
@@ -63,7 +78,6 @@ impl MarkdownEditor {
         selection: Option<(usize, usize)>,
     ) -> Vec<Vec<(usize, usize)>> {
         let line_count = self.buffer.line_count();
-        let cursor = self.buffer.cursor();
         let Some((_, spans)) = self.style_cache.as_ref() else {
             return vec![Vec::new(); line_count];
         };
@@ -74,13 +88,7 @@ impl MarkdownEditor {
         for row in 0..line_count {
             let row_start = self.buffer.line_start(row);
             let row_end = self.buffer.line_end(row);
-            let active = (cursor >= row_start && cursor <= row_end)
-                || selection
-                    .map(|(a, h)| {
-                        let (lo, hi) = (a.min(h), a.max(h));
-                        hi >= row_start && lo <= row_end
-                    })
-                    .unwrap_or(false);
+            let active = self.touches(selection, row_start, row_end);
             if active {
                 out.push(Vec::new());
                 continue;
@@ -158,6 +166,78 @@ impl MarkdownEditor {
         }
         rows
     }
+    /// The rows live preview does not draw at all, so they take up no vertical
+    /// space: the ``` lines of a fenced block the cursor is not inside, and a
+    /// table's `---` delimiter row, which is painted as a rule and has no cell
+    /// to edit. Either comes back as soon as the cursor is on it (or, for a
+    /// fence, anywhere in its block), which is what lets the user keep editing
+    /// the syntax — including typing a new table's delimiter row.
+    pub(super) fn collapsed_rows(
+        &self,
+        selection: Option<(usize, usize)>,
+        tables: &[Table],
+    ) -> Vec<bool> {
+        let line_count = self.buffer.line_count();
+        let mut out = vec![false; line_count];
+        for table in tables {
+            let row = match table.rows.get(table.delimiter) {
+                Some(row) => row.row,
+                None => continue,
+            };
+            if row >= line_count
+                || self.touches(
+                    selection,
+                    self.buffer.line_start(row),
+                    self.buffer.line_end(row),
+                )
+            {
+                continue;
+            }
+            out[row] = true;
+        }
+
+        let Some((_, spans)) = self.style_cache.as_ref() else {
+            return out;
+        };
+        // The scanner emits a `CodeFence` span for the opening and the closing
+        // line of every block, in order, so they pair up as they are walked. An
+        // unterminated block runs to the end of the note.
+        let mut row = 0usize;
+        let mut open: Option<usize> = None;
+        for span in spans {
+            while row < line_count && self.buffer.line_end(row) <= span.start {
+                row += 1;
+            }
+            if span.style != Style::CodeFence {
+                continue;
+            }
+            match open.take() {
+                None => open = Some(row),
+                Some(first) => {
+                    if !self.touches(
+                        selection,
+                        self.buffer.line_start(first),
+                        self.buffer.line_end(row),
+                    ) {
+                        out[first] = true;
+                        out[row] = true;
+                    }
+                }
+            }
+        }
+        if let Some(first) = open.filter(|_| line_count > 0) {
+            let last = line_count - 1;
+            if !self.touches(
+                selection,
+                self.buffer.line_start(first),
+                self.buffer.line_end(last),
+            ) {
+                out[first] = true;
+            }
+        }
+        out
+    }
+
     /// Build this frame's display lines: buffer rows split at the wrap points
     /// gpui computes for the current width. The exact same boundaries are handed
     /// to the buffer, so vim's `j`/`k` step over wrapped rows like neovim's and
@@ -177,6 +257,7 @@ impl MarkdownEditor {
         rows: &[RowStyle],
         table_rows: &[bool],
         pieces: &[Vec<(usize, usize)>],
+        collapsed: &[bool],
     ) -> Vec<DisplayLine> {
         let line_count = self.buffer.line_count();
         let change_id = self.buffer.change_id();
@@ -196,6 +277,19 @@ impl MarkdownEditor {
             // Whether this row is painted with its markers hidden, which is what
             // the wrap cache is keyed on.
             let preview = row_pieces.as_slice() != [(row_start, row_end)];
+            // A collapsed row is not drawn, so it contributes no display line and
+            // the buffer's index space steps over it. It is never cached: whether
+            // a row is collapsed follows the cursor, which the cache key does not
+            // include.
+            if collapsed.get(row).copied().unwrap_or(false) {
+                segments.push(Vec::new());
+                measured.push(CachedRow {
+                    preview,
+                    collapsed: true,
+                    starts: Vec::new(),
+                });
+                continue;
+            }
             // A table row is painted as one grid row and never soft-wraps, so
             // the buffer's display model must agree or j/k and the painted lines
             // fall out of step.
@@ -203,12 +297,13 @@ impl MarkdownEditor {
                 segments.push(starts);
                 measured.push(CachedRow {
                     preview,
+                    collapsed: false,
                     starts: vec![row_start],
                 });
                 continue;
             }
             let cached_row = cached.as_ref().and_then(|rows| rows.get(row));
-            if cached_row.is_some_and(|cached| cached.preview == preview) {
+            if cached_row.is_some_and(|cached| !cached.collapsed && cached.preview == preview) {
                 // Re-validate even a cached boundary against the current row, so
                 // a cache key that ever fails to notice an edit cannot push a
                 // segment past the end of the row.
@@ -241,6 +336,7 @@ impl MarkdownEditor {
             // display line per row.
             measured.push(CachedRow {
                 preview,
+                collapsed: false,
                 starts: starts.clone(),
             });
             segments.push(starts);

@@ -80,6 +80,11 @@ impl Render for MarkdownEditor {
         let buffer_tables = shale_core::table::tables(self.buffer.text());
         let plans = table_view::plans_by_row(self.buffer.text(), &buffer_tables, line_count);
         let table_rows: Vec<bool> = plans.iter().map(|plan| plan.is_some()).collect();
+        // Rows live preview leaves out entirely: the fence lines of a code block
+        // the cursor is not in, and a table's delimiter row. Dropping them from
+        // the display model is what keeps j/k, the scroll position and the ruler
+        // in step with what is on screen.
+        let collapsed = self.collapsed_rows(selection, &buffer_tables);
         // Live preview: every row but the cursor's and the selection's is painted
         // without its markdown markers, and the wrap model has to measure the text
         // that is actually left visible. A table row hides its markers too, but
@@ -110,6 +115,7 @@ impl Render for MarkdownEditor {
                 &row_styles,
                 &table_rows,
                 &row_pieces,
+                &collapsed,
             )
         };
         let cursor_display = self.buffer.display_index_for(cursor);

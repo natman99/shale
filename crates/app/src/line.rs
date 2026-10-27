@@ -303,13 +303,21 @@ impl LineElement {
                 rgb(theme::TABLE_LINE),
             ));
         }
-        if table.delimiter {
-            // The delimiter row is the rule under the header, not its dashes.
-            let y = bounds.top() + px(f32::from(bounds.size.height) / 2.);
+        // The rule under the header: across the delimiter row when live preview
+        // draws that row, and along the header's bottom edge when it collapses
+        // the delimiter row to nothing.
+        let rule_y = if table.delimiter {
+            Some(bounds.top() + px(f32::from(bounds.size.height) / 2.))
+        } else if table.rule_below {
+            Some(bounds.bottom() - px(1.))
+        } else {
+            None
+        };
+        if let Some(y) = rule_y {
             window.paint_quad(fill(
                 Bounds::from_corners(
-                    gpui::point(left, y - px(0.5)),
-                    gpui::point(left + grid_width, y + px(0.5)),
+                    gpui::point(left, y),
+                    gpui::point(left + grid_width, y + px(1.)),
                 ),
                 rgb(theme::TABLE_LINE),
             ));
