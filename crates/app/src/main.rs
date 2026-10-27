@@ -68,6 +68,13 @@ mod acts {
             VimUpperO,
             VimV,
             VimUpperV,
+            VimUpperH,
+            VimUpperJ,
+            VimUpperK,
+            VimUpperL,
+            VimUpperD,
+            VimPipe,
+            VimBackslash,
             VimDot,
             VimEscape,
             Newline,
@@ -433,6 +440,13 @@ fn keybindings() -> Vec<KeyBinding> {
             "shift-o" => VimUpperO,
             "v" => VimV,
             "shift-v" => VimUpperV,
+            // Table cell motions (see `shale_core::table`): the shifted forms
+            // jump columns and rows. They are bound in visual mode too, where
+            // they extend the selection.
+            "shift-h" => VimUpperH,
+            "shift-j" => VimUpperJ,
+            "shift-k" => VimUpperK,
+            "shift-l" => VimUpperL,
             "escape" => VimEscape,
             "1" => VimDigit1,
             "2" => VimDigit2,
@@ -451,12 +465,17 @@ fn keybindings() -> Vec<KeyBinding> {
             "ctrl-shift-v" => PasteText,
         ]);
     }
-    // Normal mode only: `u` is undo here (vim uses it to lowercase in visual
-    // mode), and `enter` is the next-line motion rather than a newline.
+    // Normal mode only: `u` is undo here (vim uses it in visual for
+    // lowercasing), and `enter` is the next-line motion rather than a newline.
+    // The table edits (`DD` deletes a column, `|` and `\` insert one) are
+    // normal-mode commands; in visual mode `D` is the selection operator.
     bind!("vim-normal", [
         "u" => VimU,
         "." => VimDot,
         "enter" => NextLine,
+        "shift-d" => VimUpperD,
+        "|" => VimPipe,
+        "\\" => VimBackslash,
     ]);
     bind!("vim-insert", [
         "escape" => VimEscape,
@@ -675,6 +694,8 @@ mod tests {
             (false, false, "k", "shale_editor::VimK"),
             (false, false, "v", "shale_editor::VimV"),
             (false, true, "v", "shale_editor::VimUpperV"),
+            (false, true, "h", "shale_editor::VimUpperH"),
+            (false, true, "l", "shale_editor::VimUpperL"),
             (false, false, "$", "shale_editor::VimDollar"),
             (true, false, "z", "shale_editor::Undo"),
         ] {
@@ -696,6 +717,35 @@ mod tests {
                     .collect::<Vec<_>>(),
                 vec![action],
                 "visual mode: typed {key} should resolve to {action}"
+            );
+        }
+
+        // The normal-mode-only table edits. A shifted letter arrives as the
+        // lowercase key with the shift modifier; a shifted symbol arrives as the
+        // symbol itself with no shift, so `|` is bound literally.
+        let contexts = vec![gpui::KeyContext::try_from("vim-normal").unwrap()];
+        for (shift, key, action) in [
+            (true, "d", "shale_editor::VimUpperD"),
+            (false, "|", "shale_editor::VimPipe"),
+            (false, "\\", "shale_editor::VimBackslash"),
+        ] {
+            let typed = gpui::Keystroke {
+                modifiers: gpui::Modifiers {
+                    shift,
+                    ..Default::default()
+                },
+                key: key.to_string(),
+                key_char: None,
+            };
+            let (bindings, pending) = keymap.bindings_for_input(&[typed], &contexts);
+            assert!(!pending, "{key} should not leave pending input");
+            assert_eq!(
+                bindings
+                    .iter()
+                    .map(|b| b.action().name())
+                    .collect::<Vec<_>>(),
+                vec![action],
+                "normal mode: typed {key} should resolve to {action}"
             );
         }
     }
@@ -843,6 +893,78 @@ mod tests {
                 assert_eq!(pair[0].1, pair[1].0, "segments must tile the row");
             }
         });
+    }
+
+    /// The table keys have to work through the real keymap, not just the core
+    /// engine: a shifted letter arrives as the lowercase key with the shift
+    /// modifier, and `|` / `\` arrive as the symbols themselves with no shift.
+    #[gpui::test]
+    fn table_edits_through_the_keymap(cx: &mut TestAppContext) {
+        cx.update(|cx| cx.bind_keys(keybindings()));
+
+        let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+        let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+        editor
+            .update(cx, |editor, window, cx| {
+                editor.set_text("| a | b |\n| --- | --- |\n| 1 | 2 |\n".to_string(), cx);
+                let focus = editor.focus_handle(cx);
+                window.focus(&focus, cx);
+            })
+            .unwrap();
+        let text =
+            |cx: &mut VisualTestContext| editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
+
+        cx.simulate_keystrokes("L");
+        assert_eq!(
+            editor
+                .read_with(cx, |editor, _cx| editor.cursor_position())
+                .unwrap(),
+            (0, 6),
+            "shift-L should land on the second column"
+        );
+        cx.simulate_keystrokes("j");
+        assert_eq!(
+            editor
+                .read_with(cx, |editor, _cx| editor.cursor_position())
+                .unwrap(),
+            (1, 8),
+            "j steps to the cell below rather than to the next line's start"
+        );
+
+        // Down to the body row, back to the first column, then drop the row.
+        cx.simulate_keystrokes("j H d d");
+        assert_eq!(text(cx), "| a | b |\n| --- | --- |\n");
+        assert_eq!(
+            editor
+                .read_with(cx, |editor, _cx| editor.cursor_position())
+                .unwrap(),
+            (1, 2),
+            "the cell that took the deleted row's place is selected"
+        );
+
+        cx.simulate_keystrokes("D");
+        assert_eq!(text(cx), "| b |\n| --- |\n", "shift-D drops a column");
+        cx.simulate_keystrokes("|");
+        assert_eq!(text(cx), "| b |  |\n| --- | --- |\n", "a column goes after");
+        cx.simulate_keystrokes("\\");
+        assert_eq!(
+            text(cx),
+            "| b |  |  |\n| --- | --- | --- |\n",
+            "and before, and the delimiter row stays valid"
+        );
+
+        // shift-I empties the cell under the cursor and drops into insert mode.
+        cx.simulate_keystrokes("H shift-i");
+        assert_eq!(
+            editor.read_with(cx, |editor, _cx| editor.mode()).unwrap(),
+            shale_core::vim::Mode::Insert,
+            "shift-I clears the cell and enters insert mode"
+        );
+        assert_eq!(
+            text(cx),
+            "| b |  |  |\n|  | --- | --- |\n",
+            "only the current cell was emptied"
+        );
     }
 
     /// Counts, `$`, and `u` must work through the real keymap, not just the

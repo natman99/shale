@@ -176,6 +176,11 @@ fn content_chars(text: &str, cell: &Cell) -> usize {
 
 /// Every table in `text`, in order.
 pub fn tables(text: &str) -> Vec<Table> {
+    if !text.contains('|') {
+        // No row can be a table row without a pipe, and the editor asks this on
+        // every keystroke.
+        return Vec::new();
+    }
     let lines = line_starts_and_content(text);
     let flags = table_row_flags(&lines);
     let mut out: Vec<Table> = Vec::new();
@@ -217,14 +222,37 @@ pub fn tables(text: &str) -> Vec<Table> {
     out
 }
 
-/// The `(table index, row index, column)` containing `offset`, or `None` when
-/// the cursor is not in a table. This is what the vim engine asks.
-pub fn locate(text: &str, offset: usize) -> Option<(usize, usize, usize)> {
-    let tables = tables(text);
+/// Where the cursor sits inside a table: everything the editor needs to move it
+/// and to edit the table it belongs to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Located {
+    /// Index of the table within the buffer.
+    pub table: usize,
+    /// Buffer row the table starts on, which identifies it again after an edit.
+    pub first_row: usize,
+    /// Row index within the table.
+    pub row: usize,
+    /// Column index within the table.
+    pub column: usize,
+    /// The cell under the cursor.
+    pub cell: Cell,
+}
+
+/// The cell under `offset`, given the buffer's tables, or `None` when the cursor
+/// is not in a table.
+pub fn locate(tables: &[Table], offset: usize) -> Option<Located> {
     for (index, table) in tables.iter().enumerate() {
-        if let Some((row, column)) = table.cell_at(offset) {
-            return Some((index, row, column));
-        }
+        let Some((row, column)) = table.cell_at(offset) else {
+            continue;
+        };
+        let cell = *table.rows[row].cells.get(column)?;
+        return Some(Located {
+            table: index,
+            first_row: table.rows.first()?.row,
+            row,
+            column,
+            cell,
+        });
     }
     None
 }
@@ -381,18 +409,23 @@ fn column_splice(row: &TableRow, cell: &Cell, after: bool, text: &str) -> Option
     }
 }
 
-/// The offset the cursor should land on after an edit: the cell at
-/// `(first_row, row, column)` in the *new* text, clamped so deleting the last
-/// row or column selects the one that took its place. `first_row` is the buffer
-/// row the table started on, which identifies it after the edit; if the table is
-/// gone (its delimiter row was deleted, say) the cursor is left where the edit
-/// put it.
-fn landing(buf: &Buffer, first_row: usize, row: usize, column: usize) -> Option<usize> {
+/// Where the cursor belongs after an edit: the cell at `(first_row, row,
+/// column)` in the *current* text, clamped so deleting the last row or column
+/// selects the one that took its place. `first_row` is the buffer row the table
+/// started on, which identifies it after the edit; if the table is gone (its
+/// delimiter row was deleted, say) this returns `None` and the caller leaves the
+/// cursor where the edit put it.
+pub fn cursor_for(buf: &Buffer, first_row: usize, row: usize, column: usize) -> Option<usize> {
     let table = tables(buf.text())
         .into_iter()
         .find(|t| t.rows.first().is_some_and(|r| r.row == first_row))?;
     let cell = table.cell_clamped(row, column)?;
     Some(cell.cursor())
+}
+
+/// The offset the cursor should land on after an edit.
+fn landing(buf: &Buffer, first_row: usize, row: usize, column: usize) -> Option<usize> {
+    cursor_for(buf, first_row, row, column)
 }
 
 /// Delete the table row at `row_index`, then report where the cursor should go:
@@ -624,9 +657,15 @@ mod tests {
     #[test]
     fn locate_finds_the_cell_under_the_cursor() {
         let text = "prose\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n";
+        let tables = tables(text);
         let cursor = text.find('2').unwrap();
-        assert_eq!(locate(text, cursor), Some((0, 2, 1)));
-        assert_eq!(locate(text, text.find("prose").unwrap()), None);
+        let loc = locate(&tables, cursor).unwrap();
+        assert_eq!(
+            (loc.table, loc.first_row, loc.row, loc.column),
+            (0, 2, 2, 1)
+        );
+        assert_eq!(loc.cell.start, cursor);
+        assert!(locate(&tables, text.find("prose").unwrap()).is_none());
     }
 
     #[test]

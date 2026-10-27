@@ -861,6 +861,15 @@ impl Render for MarkdownEditor {
             .on_action(cx.listener(|this, _: &VimUpperO, _, cx| this.normal(Key::Char('O'), cx)))
             .on_action(cx.listener(|this, _: &VimV, _, cx| this.normal(Key::Char('v'), cx)))
             .on_action(cx.listener(|this, _: &VimUpperV, _, cx| this.normal(Key::Char('V'), cx)))
+            .on_action(cx.listener(|this, _: &VimUpperH, _, cx| this.normal(Key::Char('H'), cx)))
+            .on_action(cx.listener(|this, _: &VimUpperJ, _, cx| this.normal(Key::Char('J'), cx)))
+            .on_action(cx.listener(|this, _: &VimUpperK, _, cx| this.normal(Key::Char('K'), cx)))
+            .on_action(cx.listener(|this, _: &VimUpperL, _, cx| this.normal(Key::Char('L'), cx)))
+            .on_action(cx.listener(|this, _: &VimUpperD, _, cx| this.normal(Key::Char('D'), cx)))
+            .on_action(cx.listener(|this, _: &VimPipe, _, cx| this.normal(Key::Char('|'), cx)))
+            .on_action(
+                cx.listener(|this, _: &VimBackslash, _, cx| this.normal(Key::Char('\\'), cx)),
+            )
             .on_action(cx.listener(|this, _: &VimDot, _, cx| this.normal(Key::Char('.'), cx)))
             // Shared editing keys.
             .on_action(cx.listener(Self::on_escape))

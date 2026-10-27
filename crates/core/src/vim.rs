@@ -5,6 +5,7 @@
 //! [`Vim::handle_insert_key`] is consulted.
 
 use crate::buffer::Buffer;
+use crate::table::{self, Located, Table};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
@@ -265,13 +266,19 @@ impl Vim {
 
     /// The normal-mode state machine: motions, operators and insert transitions.
     fn handle_motion_key(&mut self, key: Key, buf: &mut Buffer) -> Outcome {
+        // The table under the cursor, if any. Parsed per key: the scan is cheap
+        // (it bails out at once when the text has no pipe) and every table edit
+        // below invalidates it anyway.
+        let tables = table::tables(buf.text());
+        let located = table::locate(&tables, buf.cursor());
+
         // A digit extends the count. A bare `0` (with no count in progress) is
         // the line-start motion instead. A digit that is the argument of a
         // half-typed command (`f0`) is a literal, not a count.
         if let Key::Char(c @ '0'..='9') = key {
             if !self.waiting_for_literal() {
                 if c == '0' && self.count.is_none() && self.pending == Pending::None {
-                    buf.line_start_motion();
+                    self.zero_motion(buf);
                     return Outcome::Stay;
                 }
                 self.count = Some(self.count.unwrap_or(0) * 10 + (c as usize - '0' as usize));
@@ -293,6 +300,12 @@ impl Vim {
             };
             let start = buf.cursor();
             buf.find_char(c, forward, inclusive, count);
+            // Inside a cell, a find that would land outside it counts as "not
+            // found": the cursor stays put and an operator is cancelled.
+            if located.is_some_and(|loc| !loc.cell.contains(buf.cursor())) {
+                buf.set_cursor(start);
+                return Outcome::Stay;
+            }
             let Some(op) = op else {
                 return Outcome::Stay;
             };
@@ -389,6 +402,15 @@ impl Vim {
         }
 
         let count = self.count.take().unwrap_or(1);
+        // Inside a cell the table commands come first: `H`/`L` jump columns,
+        // `j`/`k`/`J`/`K` step through cells, and `o`/`I`/`A` act on the cell
+        // rather than the whole row.
+        if let Some(loc) = located {
+            if let Some(outcome) = self.table_command(key, count, &tables, loc, buf) {
+                return outcome;
+            }
+        }
+        let before = buf.cursor();
         match key {
             // Motions
             Key::Char('h') => repeat(count, || buf.move_left()),
@@ -482,7 +504,104 @@ impl Vim {
             Key::Escape => buf.clear_selection(),
             _ => return Outcome::Unhandled,
         }
+        // Inside a cell the ordinary motions must not leave it: one that would
+        // step outside is undone. The column-edge motions stop at the cell's
+        // edge instead of the line's.
+        if let Some(loc) = located {
+            let cell = loc.cell;
+            match key {
+                Key::Char('h' | 'l' | ' ' | 'w' | 'b' | 'e') => {
+                    if !cell.contains(buf.cursor()) {
+                        buf.set_cursor(before);
+                    }
+                }
+                Key::Char('0') => buf.set_cursor(cell.nav_start()),
+                Key::Char('^') => buf.set_cursor(cell.cursor()),
+                Key::Char('$') => {
+                    buf.set_cursor(if cell.start < cell.end {
+                        buf.prev_char_boundary(cell.end)
+                    } else {
+                        cell.nav_start()
+                    });
+                }
+                _ => {}
+            }
+        }
         Outcome::Stay
+    }
+
+    /// The `0` motion: the start of the screen line, or of the cell when the
+    /// cursor is inside a table.
+    fn zero_motion(&self, buf: &mut Buffer) {
+        match table::locate(&table::tables(buf.text()), buf.cursor()) {
+            Some(loc) => buf.set_cursor(loc.cell.nav_start()),
+            None => buf.line_start_motion(),
+        }
+    }
+
+    /// Table commands, consulted before the ordinary motions. Returns `None`
+    /// when the key is not a table command, so its normal binding applies.
+    ///
+    /// `tables` and `loc` describe the buffer as it was when the key arrived; the
+    /// edit helpers re-parse it and reposition the cursor themselves.
+    fn table_command(
+        &mut self,
+        key: Key,
+        count: usize,
+        tables: &[Table],
+        loc: Located,
+        buf: &mut Buffer,
+    ) -> Option<Outcome> {
+        let Key::Char(c) = key else {
+            return None;
+        };
+        let table = tables.get(loc.table)?;
+        let count = count as isize;
+        match c {
+            // Cell-to-cell motions. `h`/`l` stay character-wise inside the cell
+            // and are clamped to it; the shifted forms jump a whole column.
+            // Plain `j`/`k` step through cells, so the cursor never comes to
+            // rest in the gap between rows.
+            'H' => step_cell(table, loc, 0, -count, buf),
+            'L' => step_cell(table, loc, 0, count, buf),
+            'K' | 'k' => step_cell(table, loc, -count, 0, buf),
+            'J' | 'j' => step_cell(table, loc, count, 0, buf),
+            'D' => {
+                // Each delete re-locates the cursor, which can shift the table's
+                // indices, so the table is re-read for every column.
+                for _ in 0..count.max(1) {
+                    let tables = table::tables(buf.text());
+                    let Some(loc) = table::locate(&tables, buf.cursor()) else {
+                        break;
+                    };
+                    table::delete_column(buf, &tables[loc.table], loc.row, loc.column);
+                }
+            }
+            '|' => table::insert_column_after(buf, table, loc.row, loc.column),
+            '\\' => table::insert_column_before(buf, table, loc.row, loc.column),
+            'I' => {
+                // Shift+I empties the cell and puts the cursor in it; outside a
+                // table `I` keeps its vim meaning of row-first-non-blank.
+                buf.delete_range(loc.cell.start, loc.cell.end);
+                buf.set_cursor(loc.cell.start);
+                return Some(Outcome::EnterInsert);
+            }
+            'A' => {
+                // Append at the end of the cell's content rather than the row's.
+                buf.set_cursor(loc.cell.end);
+                return Some(Outcome::EnterInsert);
+            }
+            'o' => {
+                table::insert_row_after(buf, table, loc.row, loc.column);
+                return Some(Outcome::EnterInsert);
+            }
+            'O' => {
+                table::insert_row_before(buf, table, loc.row, loc.column);
+                return Some(Outcome::EnterInsert);
+            }
+            _ => return None,
+        }
+        Some(Outcome::Stay)
     }
 
     /// Visual mode: motions extend the selection, operators act on it.
@@ -492,7 +611,7 @@ impl Vim {
         if let Key::Char(c @ '0'..='9') = key {
             if !self.waiting_for_literal() {
                 if c == '0' && self.count.is_none() {
-                    buf.line_start_motion();
+                    self.zero_motion(buf);
                     return self.reanchor(buf);
                 }
                 self.count = Some(self.count.unwrap_or(0) * 10 + (c as usize - '0' as usize));
@@ -681,6 +800,10 @@ impl Vim {
         key: Key,
         buf: &mut Buffer,
     ) -> Outcome {
+        // Where the cursor sits in a table, if anywhere: a linewise delete
+        // removes rows and must leave the cursor in the cell that took their
+        // place, and a charwise motion must not sweep out of the cell.
+        let located = table::locate(&table::tables(buf.text()), buf.cursor());
         // Linewise forms: the doubled operator, and line-crossing motions.
         let linewise = match key {
             Key::Char(c) if c == op.char() => Some(count),
@@ -698,7 +821,18 @@ impl Vim {
                     });
                     return Outcome::Stay;
                 }
-                Operator::Delete => buf.delete_line(lines),
+                Operator::Delete => {
+                    buf.delete_line(lines);
+                    // `dd` on a table row removes the row; the cell that moved
+                    // up into its place becomes the cursor's cell.
+                    if let Some(loc) = located {
+                        if let Some(offset) =
+                            table::cursor_for(buf, loc.first_row, loc.row, loc.column)
+                        {
+                            buf.set_cursor(offset);
+                        }
+                    }
+                }
                 Operator::Change => {
                     buf.delete_line(lines);
                     return Outcome::EnterInsert;
@@ -750,6 +884,11 @@ impl Vim {
         // of the next word and that character is left alone.
         if matches!(key, Key::Char('$') | Key::Char('e')) && end < buf.text().len() {
             end = buf.next_char_boundary(end);
+        }
+        // Inside a cell the sweep stops at the cell's content edge, so `dw` at
+        // the end of a cell deletes the rest of that cell and not the next one.
+        if let Some(loc) = located {
+            end = end.clamp(loc.cell.nav_start(), loc.cell.end);
         }
         let (lo, hi) = (start.min(end), start.max(end));
         self.apply_range(op, lo, hi, buf)
@@ -830,6 +969,21 @@ fn char_range(buf: &Buffer, offset: usize, count: usize) -> (usize, usize) {
         end = buf.next_char_boundary(end);
     }
     (offset, end)
+}
+
+/// Moves the cursor to the cell `d_row` rows and `d_col` columns away, clamped
+/// inside the table, landing on its first content character. Clamping is what
+/// keeps the cursor from jumping to another table or wandering off the grid when
+/// it is already at an edge.
+fn step_cell(table: &Table, loc: Located, d_row: isize, d_col: isize, buf: &mut Buffer) {
+    let last_row = table.rows.len().saturating_sub(1) as isize;
+    let last_col = table.columns.saturating_sub(1) as isize;
+    let row = (loc.row as isize + d_row).clamp(0, last_row) as usize;
+    let column = (loc.column as isize + d_col).clamp(0, last_col) as usize;
+    if let Some(cell) = table.cell_clamped(row, column) {
+        let at = cell.cursor();
+        buf.set_cursor(at);
+    }
 }
 
 /// UI-independent key identity for the vim engine.
@@ -1409,5 +1563,254 @@ mod tests {
         // An unhandled key must not leave a stale count behind.
         type_keys(&mut vim, "3q", &mut b);
         assert_eq!(vim.count(), None);
+    }
+
+    /// A table with distinct content in every cell, so the cell the cursor is in
+    /// can be read straight off the text.
+    fn table_buf() -> Buffer {
+        Buffer::new(
+            "| a | bb | ccc |\n| --- | --- | --- |\n| 1 | 22 | 333 |\n| 4 | 55 | 666 |\n"
+                .to_string(),
+        )
+    }
+
+    #[test]
+    fn table_cell_motions_step_between_cells() {
+        let mut vim = Vim::new();
+        let mut b = table_buf();
+        b.set_cursor(b.text().find('1').unwrap());
+        type_keys(&mut vim, "L", &mut b);
+        assert_eq!(
+            &b.text()[b.cursor()..b.cursor() + 2],
+            "22",
+            "one column right"
+        );
+        type_keys(&mut vim, "H", &mut b);
+        assert_eq!(&b.text()[b.cursor()..b.cursor() + 1], "1", "back left");
+        type_keys(&mut vim, "j", &mut b);
+        assert_eq!(
+            &b.text()[b.cursor()..b.cursor() + 1],
+            "4",
+            "plain j steps to the cell below"
+        );
+        type_keys(&mut vim, "k", &mut b);
+        assert_eq!(&b.text()[b.cursor()..b.cursor() + 1], "1");
+        // At the bottom of the table `j` stays put rather than wandering off the
+        // grid, and a count jumps that many cells.
+        type_keys(&mut vim, "2j", &mut b);
+        assert_eq!(&b.text()[b.cursor()..b.cursor() + 1], "4", "clamped");
+        b.set_cursor(b.text().find('1').unwrap());
+        type_keys(&mut vim, "2L", &mut b);
+        assert_eq!(&b.text()[b.cursor()..b.cursor() + 3], "333");
+    }
+
+    #[test]
+    fn motions_cannot_escape_a_cell() {
+        let mut vim = Vim::new();
+        let mut b = table_buf();
+        let start = b.text().find('1').unwrap();
+        b.set_cursor(start);
+        // `l` walks the padding and the pipe that closes the cell, then stops:
+        // the next pipe belongs to the cell on the right.
+        type_keys(&mut vim, "llll", &mut b);
+        assert_eq!(
+            &b.text()[b.cursor()..b.cursor() + 1],
+            "|",
+            "held at the cell's closing pipe"
+        );
+        let at_pipe = b.cursor();
+        type_keys(&mut vim, "w", &mut b);
+        assert_eq!(b.cursor(), at_pipe, "w cannot cross into the next cell");
+        // The column edges replace the line edges.
+        b.set_cursor(b.text().find("333").unwrap());
+        type_keys(&mut vim, "0", &mut b);
+        assert_eq!(
+            &b.text()[b.cursor()..b.cursor() + 1],
+            " ",
+            "0 goes to the cell's left edge"
+        );
+        type_keys(&mut vim, "^", &mut b);
+        assert_eq!(
+            &b.text()[b.cursor()..b.cursor() + 1],
+            "3",
+            "^ goes to the first content character"
+        );
+        type_keys(&mut vim, "$", &mut b);
+        assert_eq!(
+            &b.text()[b.cursor()..b.cursor() + 3],
+            "3 |",
+            "$ stops at the cell's last character, not the line's"
+        );
+    }
+
+    #[test]
+    fn find_is_confined_to_the_cell() {
+        let mut vim = Vim::new();
+        let mut b = table_buf();
+        let start = b.text().find('1').unwrap();
+        b.set_cursor(start);
+        // The pipe that closes the cell belongs to it, so `f|` reaches it.
+        type_keys(&mut vim, "f|", &mut b);
+        assert_eq!(&b.text()[b.cursor()..b.cursor() + 1], "|");
+        // A character that only exists past the cell edge counts as not found.
+        b.set_cursor(start);
+        type_keys(&mut vim, "f3", &mut b);
+        assert_eq!(b.cursor(), start, "the find is cancelled");
+    }
+
+    #[test]
+    fn operators_stop_at_the_cell_edge() {
+        let mut vim = Vim::new();
+        let mut b = table_buf();
+        b.set_cursor(b.text().find('1').unwrap());
+        type_keys(&mut vim, "dw", &mut b);
+        assert!(
+            b.text().contains("|  | 22 | 333 |"),
+            "only the cell's content went: {}",
+            b.text()
+        );
+    }
+
+    #[test]
+    fn dd_removes_a_row_and_selects_the_cell_that_took_its_place() {
+        let mut vim = Vim::new();
+        let mut b = table_buf();
+        b.set_cursor(b.text().find("22").unwrap());
+        type_keys(&mut vim, "dd", &mut b);
+        assert_eq!(
+            b.text(),
+            "| a | bb | ccc |\n| --- | --- | --- |\n| 4 | 55 | 666 |\n"
+        );
+        assert_eq!(
+            &b.text()[b.cursor()..b.cursor() + 2],
+            "55",
+            "the row that moved up is selected"
+        );
+    }
+
+    #[test]
+    fn shift_d_removes_a_column() {
+        let mut vim = Vim::new();
+        let mut b = table_buf();
+        b.set_cursor(b.text().find("22").unwrap());
+        type_keys(&mut vim, "D", &mut b);
+        assert_eq!(
+            b.text(),
+            "| a | ccc |\n| --- | --- |\n| 1 | 333 |\n| 4 | 666 |\n"
+        );
+        assert_eq!(
+            &b.text()[b.cursor()..b.cursor() + 3],
+            "333",
+            "the cell that took the column's place"
+        );
+    }
+
+    #[test]
+    fn o_opens_a_table_row_below() {
+        let mut vim = Vim::new();
+        let mut b = table_buf();
+        b.set_cursor(b.text().find('1').unwrap());
+        assert_eq!(
+            vim.handle_normal_key(Key::Char('o'), &mut b),
+            Outcome::EnterInsert
+        );
+        assert_eq!(
+            b.text(),
+            "| a | bb | ccc |\n| --- | --- | --- |\n| 1 | 22 | 333 |\n|  |  |  |\n| 4 | 55 | 666 |\n"
+        );
+        assert_eq!(
+            b.cursor(),
+            b.text().find("|  |  |  |").unwrap() + 1,
+            "the cursor is in the new row"
+        );
+    }
+
+    #[test]
+    fn capital_o_opens_a_table_row_above() {
+        let mut vim = Vim::new();
+        let mut b = table_buf();
+        b.set_cursor(b.text().find('1').unwrap());
+        assert_eq!(
+            vim.handle_normal_key(Key::Char('O'), &mut b),
+            Outcome::EnterInsert
+        );
+        assert_eq!(
+            b.text(),
+            "| a | bb | ccc |\n| --- | --- | --- |\n|  |  |  |\n| 1 | 22 | 333 |\n| 4 | 55 | 666 |\n"
+        );
+    }
+
+    #[test]
+    fn a_row_is_not_opened_between_the_header_and_its_delimiter() {
+        let mut vim = Vim::new();
+        let mut b = table_buf();
+        b.set_cursor(b.text().find(" bb ").unwrap() + 1);
+        vim.handle_normal_key(Key::Char('o'), &mut b);
+        assert_eq!(
+            b.text(),
+            "| a | bb | ccc |\n| --- | --- | --- |\n|  |  |  |\n| 1 | 22 | 333 |\n| 4 | 55 | 666 |\n",
+            "the table stays a table"
+        );
+    }
+
+    #[test]
+    fn shift_i_clears_the_cell_and_enters_insert() {
+        let mut vim = Vim::new();
+        let mut b = table_buf();
+        b.set_cursor(b.text().find("22").unwrap());
+        assert_eq!(
+            vim.handle_normal_key(Key::Char('I'), &mut b),
+            Outcome::EnterInsert
+        );
+        assert!(
+            b.text().contains("| 1 |  | 333 |"),
+            "the cell is empty: {}",
+            b.text()
+        );
+        vim.enter_insert();
+        b.insert("x");
+        assert!(b.text().contains("| 1 | x | 333 |"));
+    }
+
+    #[test]
+    fn capital_a_appends_at_the_end_of_the_cell() {
+        let mut vim = Vim::new();
+        let mut b = table_buf();
+        b.set_cursor(b.text().find('1').unwrap());
+        assert_eq!(
+            vim.handle_normal_key(Key::Char('A'), &mut b),
+            Outcome::EnterInsert
+        );
+        vim.enter_insert();
+        b.insert("9");
+        assert!(b.text().contains("| 19 | 22 | 333 |"));
+    }
+
+    #[test]
+    fn pipe_inserts_a_column_after_and_backslash_before() {
+        let mut vim = Vim::new();
+        let mut b = table_buf();
+        b.set_cursor(b.text().find('1').unwrap());
+        type_keys(&mut vim, "|", &mut b);
+        assert!(b.text().contains("| 1 |  | 22 | 333 |"), "{}", b.text());
+        assert!(
+            b.text().contains("| --- | --- | --- | --- |"),
+            "the delimiter row stays a valid delimiter"
+        );
+        b.set_cursor(b.text().find('4').unwrap());
+        type_keys(&mut vim, "\\", &mut b);
+        assert!(b.text().contains("|  | 4 |  | 55 | 666 |"), "{}", b.text());
+    }
+
+    #[test]
+    fn visual_selection_follows_cell_motions() {
+        let mut vim = Vim::new();
+        let mut b = table_buf();
+        b.set_cursor(b.text().find('1').unwrap());
+        type_keys(&mut vim, "vL", &mut b);
+        let (lo, hi) = vim.selection_range(&b).unwrap();
+        // Charwise visual is inclusive of the character under the cursor, which
+        // landed on the first `2` of the next cell.
+        assert_eq!(&b.text()[lo..hi], "1 | 2");
     }
 }
