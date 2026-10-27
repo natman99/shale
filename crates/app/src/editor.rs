@@ -19,7 +19,7 @@ use shale_core::vim::{Key, Mode, Outcome, Vim};
 use crate::acts::*;
 
 const LINE_HEIGHT: f32 = 20.0;
-const FONT_SIZE: f32 = 14.0;
+pub(crate) const FONT_SIZE: f32 = 14.0;
 
 const BG: u32 = 0x1e1e1e;
 const FG: u32 = 0xd4d4d4;
@@ -122,13 +122,40 @@ impl MarkdownEditor {
         self.buffer.display_line_count()
     }
 
+    /// The width soft wrap was computed against: the scroll container's bounds
+    /// from the previous frame.
+    #[cfg(test)]
+    pub fn wrap_width(&self) -> Pixels {
+        self.scroll_handle.bounds().size.width
+    }
+
+    /// The shaped lines produced by the last paint, with the byte range each one
+    /// covers. Diagnostic aid: compares what is actually painted against the wrap
+    /// model (a different painted font would show up here as a width mismatch).
+    #[cfg(test)]
+    pub fn painted_lines(&self) -> Vec<(usize, usize, Pixels)> {
+        self.hit_lines
+            .iter()
+            .map(|hit| (hit.start, hit.end, hit.line.width()))
+            .collect()
+    }
+
+    /// The byte ranges of the display lines the buffer currently models.
+    #[cfg(test)]
+    pub fn display_ranges(&self) -> Vec<(usize, usize)> {
+        (0..self.buffer.display_line_count())
+            .filter_map(|i| self.buffer.display_range(i))
+            .collect()
+    }
+
     /// Cursor position in display coordinates (wrapped segments counted as
-    /// lines, column measured from the segment start), like a vim ruler.
+    /// lines, column counted in characters from the segment start), like a vim
+    /// ruler.
     pub fn display_position(&self) -> (usize, usize) {
         let cursor = self.buffer.cursor();
         (
             self.buffer.display_index_for(cursor),
-            cursor - self.buffer.display_start(cursor),
+            self.buffer.display_col(cursor),
         )
     }
 
@@ -195,63 +222,61 @@ impl MarkdownEditor {
     }
 
     /// Build this frame's display lines: buffer rows split at the wrap points
-    /// gpui computes for the current width. The same boundaries are handed to
-    /// the buffer, so vim's `j`/`k` step over wrapped rows like neovim's.
+    /// gpui computes for the current width. The exact same boundaries are handed
+    /// to the buffer, so vim's `j`/`k` step over wrapped rows like neovim's and
+    /// the buffer's display-line index space is identical to the painted one (if
+    /// they ever disagreed the cursor would be drawn on the wrong row).
     /// Boundaries are cached until the text or the width changes.
     fn display_lines(&mut self, width: Pixels, wrapper: &mut LineWrapper) -> Vec<DisplayLine> {
         let line_count = self.buffer.line_count();
         let change_id = self.buffer.change_id();
-        let fresh = self
+        let cached = self
             .wrap_cache
             .as_ref()
-            .is_some_and(|(id, w, _)| *id == change_id && *w == width);
+            .filter(|(id, w, _)| *id == change_id && *w == width)
+            .map(|(_, _, segs)| segs.clone());
 
-        let segments: Vec<Vec<usize>> = if fresh {
-            self.wrap_cache.as_ref().unwrap().2.clone()
-        } else {
-            let mut segments: Vec<Vec<usize>> = Vec::with_capacity(line_count);
-            if width > px(0.) {
-                for row in 0..line_count {
-                    let start = self.buffer.line_start(row);
-                    let end = self.buffer.line_end(row);
-                    let text = &self.buffer.text()[start..end];
-                    let mut starts = vec![start];
-                    for boundary in wrapper.wrap_line(
-                        &[LineFragment::text(text)],
-                        width,
-                        IndentAdjustment::NoIndent,
-                    ) {
-                        let ix = start + boundary.ix;
-                        // Boundaries must be strictly inside the row and increasing.
-                        if ix > *starts.last().unwrap() && ix < end {
-                            starts.push(ix);
+        let mut segments: Vec<Vec<usize>> = Vec::with_capacity(line_count);
+        for row in 0..line_count {
+            let row_start = self.buffer.line_start(row);
+            let row_end = self.buffer.line_end(row);
+            let mut starts = vec![row_start];
+            if let Some(cached) = cached.as_ref() {
+                // Re-validate even a cached boundary against the current row, so
+                // a cache key that ever fails to notice an edit cannot push a
+                // segment past the end of the row.
+                if let Some(segs) = cached.get(row) {
+                    for &s in segs {
+                        if s > row_start && s < row_end && s > *starts.last().unwrap() {
+                            starts.push(s);
                         }
                     }
-                    segments.push(starts);
                 }
-            } else {
-                // No measured width yet (first frame): one display line per row.
-                for row in 0..line_count {
-                    segments.push(vec![self.buffer.line_start(row)]);
+            } else if width > px(0.) {
+                let text = &self.buffer.text()[row_start..row_end];
+                for boundary in wrapper.wrap_line(
+                    &[LineFragment::text(text)],
+                    width,
+                    IndentAdjustment::NoIndent,
+                ) {
+                    let s = row_start + boundary.ix;
+                    if s > row_start && s < row_end && s > *starts.last().unwrap() {
+                        starts.push(s);
+                    }
                 }
             }
+            // width == 0 means no measured width yet (the first frame): one
+            // display line per row.
+            segments.push(starts);
+        }
+        if cached.is_none() {
             self.wrap_cache = Some((change_id, width, segments.clone()));
-            segments
-        };
+        }
 
         self.buffer.set_display_segments(segments.clone());
         let mut out = Vec::new();
-        for (row, segs) in segments.iter().enumerate() {
-            let row_start = self.buffer.line_start(row);
+        for (row, starts) in segments.iter().enumerate() {
             let row_end = self.buffer.line_end(row);
-            // Re-validate against the current row bounds: a cached boundary can
-            // be stale if the cache key ever fails to notice an edit.
-            let mut starts = vec![row_start];
-            for &s in segs {
-                if s > row_start && s < row_end && s > *starts.last().unwrap() {
-                    starts.push(s);
-                }
-            }
             for (i, &start) in starts.iter().enumerate() {
                 let end = starts.get(i + 1).copied().unwrap_or(row_end);
                 out.push(DisplayLine { row, start, end });

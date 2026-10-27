@@ -73,9 +73,9 @@ Workspace layout:
   fully unit tested.
 - `crates/app` (`shale` binary): GPUI app (Zed's gpui, tag `v1.25.3`) — file
   tree sidebar, custom line-based editor view with **soft wrap** and vim
-  normal/insert modes (hjkl, w/b/e, 0 ^ $, gg/G, counts on motions and
-  operators, d/c/y + motions, x, p/P, u undo, i/a/I/A/o/O, ctrl+z/ctrl+r,
-  clipboard, mouse click to position), wiki-link styling (resolved tinted blue,
+  normal/insert modes (hjkl, w/b/e, 0 ^ $ — screen-line aware, gg/G, counts on
+  motions and operators, d/c/y + motions, x, p/P, u undo, i/a/I/A/o/O,
+  ctrl-z/ctrl-r/ctrl-y, clipboard, mouse click to position), wiki-link styling (resolved tinted blue,
   unresolved dimmed) and navigation (`gx` on a link in normal mode, ctrl+click),
   status bar (mode, pending count/operator, dirty flag, path, display row:col),
   ctrl+s save.
@@ -145,32 +145,56 @@ Workspace layout:
   frame to catch up. The scroll container's width is definite (viewport minus
   sidebar), so there is no content-driven feedback loop — verified live: 940px
   transient then a stable 1781.6px in a 2042px viewport.
+  **Measurement is exact, verified by test** (`wrap_model_versus_shaped_widths`,
+  `wrap_stays_accurate_for_tabs_and_unicode`): `fc-match monospace` is Noto Sans
+  Mono (8.4px/char at 14px), `LineWrapper`'s per-character sum equals
+  `shape_line().width()` to the last digit, and every painted segment fits the
+  wrap width (widest 1915.2px of 1920px) even with tabs, accents, CJK and emoji.
+  gpui gives one cell per character, so a **character** column is the column the
+  user sees. `display_lines()` now hands the buffer *exactly* the segments it
+  paints (previously the buffer got raw cached segments and the paint re-validated
+  them — two index spaces that could desync the cursor's row); the tests assert
+  the model's ranges equal the painted ranges.
+  Screen vs logical motions (vim's own split): `0`, `^`, `$` (and `d$`, `c$`)
+  are **display-line** motions; `A` and `I` stay **row**-wise
+  (`Buffer::row_first_non_blank` / `row_last_char_motion`). `desired_col` is a
+  character column within the display line, and the ruler reports character
+  columns.
   Still open in this area:
-  - `$`, `0`, `^` are still *logical* line motions; neovim's `$`/`0` are
-    screen-line motions (`g$`/`g0` are the logical ones). Decide and implement.
-  - Columns are byte offsets, so tabs and multi-byte characters mis-measure the
-    desired column; needs display columns (same work as the ruler).
-  - The ruler shows the display row (`display_position()`), which is what vim
-    shows, but the buffer row is no longer visible anywhere.
-- **ctrl+z / ctrl+r still reported dead in the live app** while `u` works and the
-  headless test (`tests::ctrl_z_and_ctrl_r_undo_redo`) passes, so the binding and
-  action path are correct. Zed binds `ctrl-z`/`ctrl-y`/`ctrl+shift+z` on Linux and
-  they work there, so the platform path can deliver these. Diagnostic added:
-  `Workspace` calls `cx.observe_keystrokes` and logs `key`, `modifiers`, resolved
-  `action` and the `contexts` stack at debug level (the `Subscription` must be
-  stored or the observer is dropped). Next step: have the user press ctrl+z and
-  read that line — no line means the keystroke never arrives (compositor/IME), a
-  line with `modifiers { control: true }` and `action = Some("Undo")` means the
-  buffer state is at fault. `ctrl+shift+z` and `ctrl+y` are now also bound to redo.
+  - The buffer row is no longer visible anywhere (the ruler shows the display
+    row, as vim does).
+  - Tabs render as one cell in gpui, so a tab-indented note looks different from
+    vim/neovim; if we want real tab stops the wrap and the column math both need
+    to expand them.
+- **ctrl+letter keys: the keymap used `+` instead of `-`.** Fixed. gpui's
+  keystroke syntax separates modifiers with `-` (`ctrl-z`); `Keystroke::parse(
+  "ctrl+z")` does *not* error, it returns one literal key named `"ctrl+z"` that
+  can never match what the platform delivers. That silently killed **every**
+  ctrl binding: undo/redo, `ctrl-s` save and `ctrl-q` quit. The headless test
+  passed for ages because `simulate_keystrokes("ctrl+z")` parses with the same
+  parser as the binding, so the typo matched itself. `tests::
+  keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
+  keystroke shape (`key: "z"`, `control: true`, `key_char: None`) straight
+  through `Keymap::bindings_for_input`, which is how a keymap mistake gets
+  caught without a live window.
+  Platform facts worth keeping: `keystroke_from_xkb` maps ctrl+letter to the
+  letter (`key_utf32 <= 0x1f` → `+0x40`, lowercased) and sets **no** `key_char`
+  for control characters; `prefer_character_input` is always `false` in
+  `gpui_linux`, so `Window::input_preference()` is always `KeyBindings` and can
+  never be the reason a binding is skipped. A keystroke observer logs
+  `action = None` both when no binding matched *and* when a binding matched but
+  no `on_action` listener consumed it — so "no action" does not by itself mean
+  "no binding".
 - **Undo granularity** is now: one insert session = one step, `cw`/`o` + typing =
   one step, each normal-mode operator = one step. Vim coalesces slightly
   differently; revisit if it feels wrong in practice.
-- **ctrl+z / ctrl+r**: the bindings and actions are proven correct by the
-  headless test (`tests::ctrl_z_and_ctrl_r_undo_redo`); the perceived "does not
-  work" was the per-character undo granularity above. If it ever looks dead in a
-  live window again, `RUST_LOG=shale=debug` prints `undo action` /
-  `undo_depth` / `redo action` / `redo_depth`, which distinguishes "keystroke
-  never arrived" from "nothing on the stack".
+- **j/k across wraps**: the reported "sometimes wildly off" could not be
+  reproduced — the wrap model is provably identical to what is painted (see the
+  soft-wrap bullet), and gpui's `scroll_to_item` only scrolls the minimum to keep
+  the line visible. The two real defects found on the way were the byte-column
+  `desired_col` and the model/paint index spaces, both fixed; the logical `$`/`0`
+  (which jumped to the end of the *row*, several rows down) is the most likely
+  thing the report was describing. Needs a re-test in a live window.
 - **Not implemented yet in vim mode**: visual mode (`v`/`V`) and selection
   operators, `.` repeat, text objects (`iw`, `aw`, `ap`), `f`/`F`/`t`/`T` find
   motions, `0`-column vs display-column subtleties, registers other than the
@@ -178,9 +202,7 @@ Workspace layout:
 - **Cursor model nits**: `Buffer` cursors may sit at `text.len()` (between
   characters) while vim's normal-mode cursor always sits *on* a character, so
   `w` at the end of a buffer can leave the cursor one position past the last
-  character; normal mode should clamp. Columns are byte offsets today, which is
-  wrong for tabs and multi-byte characters and will need to become display
-  columns (same work as soft wrap).
+  character; normal mode should clamp.
 
 System dependency (Linux): `libxkbcommon-x11-devel` (plus fontconfig, freetype,
 x11, xcb, wayland dev packages) and a working Vulkan driver (the Linux renderer
@@ -192,7 +214,8 @@ Next steps, roughly in order:
    Still TODO here: creating a note from an unresolved link, and link preview.
 2. ~~Soft wrap~~ Done (see Open threads). Follow-ups there: screen-line `$`/`0`,
    display columns for tabs/multi-byte text.
-3. Resolve the ctrl+z / redo keystroke question (see Open threads).
+3. ~~Resolve the ctrl+z / redo keystroke question~~ Done (keymap `+` → `-`).
+   Re-test ctrl-z / ctrl-r / ctrl-y and `ctrl-s` in a live window.
 4. Visual mode (`v`/`V`) and selection operators; `.` repeat; text objects
    (`iw`, `ap`); `f`/`t` find motions.
 5. Table-aware motions and manipulation (the table goal): column motions on the

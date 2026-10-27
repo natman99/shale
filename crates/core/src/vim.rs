@@ -215,11 +215,13 @@ impl Vim {
                 return Outcome::EnterInsert;
             }
             Key::Char('I') => {
-                buf.first_non_blank();
+                // `I` is line-wise, unlike `^` (which is screen-line).
+                buf.row_first_non_blank();
                 return Outcome::EnterInsert;
             }
             Key::Char('A') => {
-                buf.line_last_char_motion();
+                // Likewise `A` appends at the end of the whole row.
+                buf.row_last_char_motion();
                 buf.move_right();
                 return Outcome::EnterInsert;
             }
@@ -508,6 +510,38 @@ mod tests {
         assert_eq!(vim.register.as_ref().unwrap().text, "hello world\n");
         type_keys(&mut vim, "jP", &mut b);
         assert_eq!(b.text(), "hello world\nhello world\nsecond line\nthird");
+    }
+
+    /// With soft wrap, `$`, `0` and `^` are screen-line motions (vim's `g$`/
+    /// `g0`/`g^` are the line-wise forms), while `A` and `I` stay line-wise.
+    #[test]
+    fn dollar_and_zero_follow_the_display_line() {
+        let mut b = Buffer::new("aaaa   bbbb cccc".to_string());
+        b.set_display_segments(vec![vec![0, 11]]);
+        let mut v = Vim::new();
+
+        type_keys(&mut v, "$", &mut b);
+        assert_eq!(b.cursor(), 10, "$ stops at the display line end");
+        type_keys(&mut v, "0", &mut b);
+        assert_eq!(b.cursor(), 0, "0 goes to the display line start");
+
+        b.set_cursor(12);
+        assert_eq!(
+            v.handle_normal_key(Key::Char('I'), &mut b),
+            Outcome::EnterInsert
+        );
+        assert_eq!(b.cursor(), 0, "I is line-wise: the row's first non-blank");
+
+        b.set_cursor(0);
+        assert_eq!(
+            v.handle_normal_key(Key::Char('A'), &mut b),
+            Outcome::EnterInsert
+        );
+        assert_eq!(b.cursor(), 16, "A is line-wise: the end of the whole row");
+
+        b.set_cursor(12);
+        type_keys(&mut v, "d$", &mut b);
+        assert_eq!(b.text(), "aaaa   bbbb ", "d$ stops at the display line end");
     }
 
     #[test]

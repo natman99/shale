@@ -632,6 +632,159 @@ mod tests {
         }
     }
 
+    /// Diagnostic: compare the wrap model against what shaping actually
+    /// produces, to see whether painted segments overflow the wrap width.
+    #[gpui::test]
+    fn wrap_model_versus_shaped_widths(cx: &mut TestAppContext) {
+        cx.update(|cx| cx.bind_keys(keybindings()));
+
+        let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+        let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+        editor
+            .update(cx, |editor, window, cx| {
+                editor.set_text(
+                    "The quick brown fox jumps over the lazy dog. ".repeat(20),
+                    cx,
+                );
+                let focus = editor.focus_handle(cx);
+                window.focus(&focus, cx);
+            })
+            .unwrap();
+        for _ in 0..2 {
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+        }
+
+        let (ranges, width, text) = editor
+            .read_with(cx, |editor, _cx| {
+                (
+                    editor.display_ranges(),
+                    editor.wrap_width(),
+                    editor.text(),
+                )
+            })
+            .unwrap();
+        let painted = editor
+            .read_with(cx, |editor, _cx| editor.painted_lines())
+            .unwrap();
+
+        cx.update(|window, _cx| {
+            let ts = window.text_system();
+            let shaped = |s: &str| {
+                let run = gpui::TextRun {
+                    len: s.len(),
+                    font: gpui::font("monospace"),
+                    color: gpui::black().into(),
+                    background_color: None,
+                    underline: None,
+                    strikethrough: None,
+                };
+                ts.shape_line(s.to_string().into(), px(editor::FONT_SIZE), &[run], None)
+                    .width()
+            };
+            println!("wrap width = {width:?}; display lines = {}", ranges.len());
+            println!("painted lines from the last paint ({}):", painted.len());
+            let mut overflow = 0;
+            for (s, e, w) in &painted {
+                let expected = shaped(&text[*s..*e]);
+                if *w > width {
+                    overflow += 1;
+                }
+                let flag = if *w == expected { "ok" } else { "MISMATCH" };
+                println!("  bytes {s}..{e} painted {w:?} vs monospace {expected:?} {flag}");
+            }
+            assert_eq!(overflow, 0, "no painted segment may exceed the wrap width");
+        });
+    }
+
+    /// The wrap model must stay accurate for the text a markdown note actually
+    /// contains: tabs, accents, CJK (which wrap without spaces) and emoji.
+    #[gpui::test]
+    fn wrap_stays_accurate_for_tabs_and_unicode(cx: &mut TestAppContext) {
+        cx.update(|cx| cx.bind_keys(keybindings()));
+
+        let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+        let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+        editor
+            .update(cx, |editor, window, cx| {
+                editor.set_text(
+                    "indented\tcode\tand héllo wörld 你好世界 🎉 emoji ".repeat(30),
+                    cx,
+                );
+                let focus = editor.focus_handle(cx);
+                window.focus(&focus, cx);
+            })
+            .unwrap();
+        for _ in 0..2 {
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+        }
+
+        let (ranges, width, text) = editor
+            .read_with(cx, |editor, _cx| {
+                (
+                    editor.display_ranges(),
+                    editor.wrap_width(),
+                    editor.text(),
+                )
+            })
+            .unwrap();
+        let painted = editor
+            .read_with(cx, |editor, _cx| editor.painted_lines())
+            .unwrap();
+        assert_eq!(ranges.len(), painted.len(), "model and paint agree");
+        // The buffer's display-line index space must be the painted one, or the
+        // cursor and `j`/`k` land on a different row than the user sees.
+        for (model, paint) in ranges.iter().zip(&painted) {
+            assert_eq!(
+                (model.0, model.1),
+                (paint.0, paint.1),
+                "the buffer's display lines must be exactly the painted ones"
+            );
+        }
+
+        cx.update(|window, _cx| {
+            let ts = window.text_system();
+            let shaped = |s: &str| {
+                let run = gpui::TextRun {
+                    len: s.len(),
+                    font: gpui::font("monospace"),
+                    color: gpui::black().into(),
+                    background_color: None,
+                    underline: None,
+                    strikethrough: None,
+                };
+                ts.shape_line(s.to_string().into(), px(editor::FONT_SIZE), &[run], None)
+                    .width()
+            };
+            let mut widest = px(0.);
+            for (i, (s, e, w)) in painted.iter().enumerate() {
+                widest = widest.max(*w);
+                assert!(
+                    *w <= width,
+                    "display line {i} is {w:?} wide, over the {width:?} wrap width"
+                );
+                // The painted line must measure exactly what the wrapper measured
+                // for the same bytes, or the break points drift away from what
+                // the user sees.
+                assert_eq!(
+                    *w,
+                    shaped(&text[*s..*e]),
+                    "display line {i} was painted at a different width than the wrap model measured"
+                );
+            }
+            println!(
+                "{} display lines, widest {widest:?} of {width:?}",
+                painted.len()
+            );
+            // Every character must be reachable: the segments have to tile the row.
+            let ranges2 = ranges.clone();
+            assert_eq!(ranges2.first().unwrap().0, 0);
+            assert_eq!(ranges2.last().unwrap().1, text.len());
+            for pair in ranges2.windows(2) {
+                assert_eq!(pair[0].1, pair[1].0, "segments must tile the row");
+            }
+        });
+    }
+
     /// Counts, `$`, and `u` must work through the real keymap, not just the
     /// core engine's unit tests.
     #[gpui::test]

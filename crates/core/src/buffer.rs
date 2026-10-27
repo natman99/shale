@@ -40,10 +40,12 @@ pub struct Buffer {
     selection: Option<(usize, usize)>,
     undo: Vec<Snapshot>,
     redo: Vec<Snapshot>,
-    /// Byte column the cursor is aiming for on vertical motions, so moving
+    /// Character column the cursor is aiming for on vertical motions, so moving
     /// down onto a short line and back restores the original column (vim).
-    /// Measured from the start of the current *display* line, which is the
-    /// buffer row when nothing wraps.
+    /// Counted in characters (not bytes) from the start of the current *display*
+    /// line, which is the buffer row when nothing wraps: gpui gives one cell to
+    /// every character in our monospace font, so a character column is the
+    /// column the user sees, while a byte column is not.
     desired_col: Option<usize>,
     /// Per buffer row, the absolute byte offsets where wrapped display lines
     /// begin (supplied by the UI, which knows the pixel width). Empty means the
@@ -105,7 +107,7 @@ impl Buffer {
     pub fn set_cursor(&mut self, offset: usize) {
         self.cursor = self.clamp(offset);
         self.selection = None;
-        self.desired_col = Some(self.cursor - self.display_start(self.cursor));
+        self.desired_col = Some(self.display_col(self.cursor));
     }
 
     /// Move the cursor without disturbing the vertical target column, for
@@ -256,6 +258,39 @@ impl Buffer {
         index + within
     }
 
+    /// The byte offset just past the end of the display line containing
+    /// `offset` (the next segment start, or the end of the buffer row).
+    pub fn display_end(&self, offset: usize) -> usize {
+        let offset = self.clamp(offset);
+        let (row, _) = self.row_col(offset);
+        let start = self.display_start(offset);
+        self.segment_starts(row)
+            .iter()
+            .filter(|&&s| s > start)
+            .copied()
+            .next()
+            .unwrap_or_else(|| self.line_end(row))
+    }
+
+    /// The character column of `offset` within its display line.
+    pub fn display_col(&self, offset: usize) -> usize {
+        let offset = self.clamp(offset);
+        let start = self.display_start(offset);
+        self.text[start..offset].chars().count()
+    }
+
+    /// The byte offset `col` characters into `[start, end)`, clamped to `end`.
+    fn offset_for_char_col(&self, start: usize, end: usize, col: usize) -> usize {
+        let mut offset = self.clamp(start).min(end);
+        for _ in 0..col {
+            if offset >= end {
+                break;
+            }
+            offset = self.next_char_boundary(offset);
+        }
+        offset.min(end)
+    }
+
     pub fn row_col(&self, offset: usize) -> (usize, usize) {
         let offset = self.clamp(offset);
         let row = self.text[..offset].matches('\n').count();
@@ -342,17 +377,31 @@ impl Buffer {
         };
         let target = self
             .desired_col
-            .unwrap_or_else(|| self.cursor - self.display_start(self.cursor));
-        let offset = self.clamp(start.saturating_add(target).min(end));
+            .unwrap_or_else(|| self.display_col(self.cursor));
+        let offset = self.offset_for_char_col(start, end, target);
         self.set_cursor_keep_desired(offset);
     }
 
+    /// Move to the first character of the current *display* line (vim `0`,
+    /// which is a screen-line motion when the row wraps).
     pub fn line_start_motion(&mut self) {
-        let (row, _) = self.row_col(self.cursor);
-        self.set_cursor(self.line_start(row));
+        let start = self.display_start(self.cursor);
+        self.set_cursor(start);
     }
 
+    /// Move to the first non-blank of the current *display* line (vim `^`).
     pub fn first_non_blank(&mut self) {
+        let start = self.display_start(self.cursor);
+        let end = self.display_end(self.cursor);
+        let rel = self.text[start..end]
+            .find(|c: char| !c.is_whitespace())
+            .unwrap_or(0);
+        self.set_cursor(start + rel);
+    }
+
+    /// Move to the first non-blank of the whole buffer row, ignoring soft wraps
+    /// (the `I` command, which is line-wise in vim).
+    pub fn row_first_non_blank(&mut self) {
         let (row, _) = self.row_col(self.cursor);
         let start = self.line_start(row);
         let end = self.line_end(row);
@@ -367,9 +416,21 @@ impl Buffer {
         self.set_cursor(self.line_end(row));
     }
 
-    /// Move to the last character of the line (vim `$`), which unlike
-    /// [`Self::line_end_motion`] does not land past the final character.
+    /// Move to the last character of the current *display* line (vim `$`), which
+    /// unlike [`Self::line_end_motion`] does not land past the final character.
     pub fn line_last_char_motion(&mut self) {
+        let start = self.display_start(self.cursor);
+        let end = self.display_end(self.cursor);
+        if end > start {
+            self.set_cursor(self.prev_char_boundary(end));
+        } else {
+            self.set_cursor(start);
+        }
+    }
+
+    /// Move to the last character of the whole buffer row, ignoring soft wraps
+    /// (the `A` command, which is line-wise in vim).
+    pub fn row_last_char_motion(&mut self) {
         let (row, _) = self.row_col(self.cursor);
         let start = self.line_start(row);
         let end = self.line_end(row);
@@ -931,6 +992,60 @@ mod tests {
         assert_eq!(b.cursor(), 13, "clamped to the short row");
         b.move_up();
         assert_eq!(b.cursor(), 9, "and restored when coming back");
+    }
+
+    #[test]
+    fn desired_column_counts_characters_not_bytes() {
+        // 'é' is two bytes and one cell, so a byte column and a character column
+        // disagree from the second character onwards.
+        let mut b = Buffer::new("a\u{e9}\u{e9}\nxy".to_string());
+        // row 0: a(0) \u{e9}(1..3) \u{e9}(3..5), newline at 5; row 1 starts at 6.
+        b.set_cursor(3);
+        assert_eq!(b.display_col(3), 2, "the second \u{e9} is the third cell");
+        assert_eq!(b.desired_col, Some(2));
+
+        b.move_down();
+        assert_eq!(b.cursor(), 8, "two cells into the short row");
+        b.move_up();
+        assert_eq!(b.cursor(), 3, "the cell column is restored, not a byte offset");
+    }
+
+    #[test]
+    fn screen_line_motions_respect_soft_wrap() {
+        // "aaaa   bbbb" wrapped after the first space run, so the second display
+        // line starts with blanks, plus a tab-indented second row.
+        let mut b = Buffer::new("aaaa   bbbb\n\tzz".to_string());
+        b.set_display_segments(vec![vec![0, 5], vec![12]]);
+        assert_eq!(b.display_range(1), Some((5, 11)));
+
+        b.set_cursor(9);
+        b.line_start_motion();
+        assert_eq!(b.cursor(), 5, "0 goes to the display line start");
+
+        b.set_cursor(9);
+        b.line_last_char_motion();
+        assert_eq!(b.cursor(), 10, "$ goes to the display line's last char");
+
+        b.set_cursor(9);
+        b.first_non_blank();
+        assert_eq!(b.cursor(), 7, "^ skips blanks inside the display line");
+
+        b.set_cursor(9);
+        b.row_first_non_blank();
+        assert_eq!(b.cursor(), 0, "the line-wise `I` target ignores the wrap");
+
+        b.set_cursor(9);
+        b.row_last_char_motion();
+        assert_eq!(b.cursor(), 10, "the line-wise `A` target is the row end");
+
+        // On a row's last display line the screen motions are the row bounds.
+        b.set_cursor(13);
+        b.line_last_char_motion();
+        assert_eq!(b.cursor(), 14);
+        b.line_start_motion();
+        assert_eq!(b.cursor(), 12);
+        b.first_non_blank();
+        assert_eq!(b.cursor(), 13, "^ skips the leading tab");
     }
 
     #[test]
