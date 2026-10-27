@@ -1,6 +1,8 @@
 //! Shale: an Obsidian-style markdown editor built on GPUI.
 
 mod editor;
+mod line;
+mod theme;
 mod tree;
 
 use std::collections::HashSet;
@@ -1068,6 +1070,104 @@ mod tests {
         cx.simulate_keystrokes("$ h v l p");
         let text = editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
         assert_eq!(text, "thithi", "`p` should replace the selection");
+    }
+
+    /// Live markdown styling must not disturb the wrap model. Rows painted with
+    /// a wide face (headings, strong, quotes) have to be *measured* with that
+    /// face too, or a painted segment can overflow the wrap width and the break
+    /// points stop matching what the user sees.
+    #[gpui::test]
+    fn styled_markdown_keeps_the_wrap_accurate(cx: &mut TestAppContext) {
+        cx.update(|cx| cx.bind_keys(keybindings()));
+
+        let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+        let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+        let mut note = String::new();
+        for _ in 0..4 {
+            note.push_str("# A heading with **bold** in it, long enough to wrap\n");
+            note.push_str("> a quoted line **with bold** in it, long enough to wrap too\n");
+            note.push_str("- an item with `inline code` and [[Another Note]] and **strong**\n");
+        }
+        editor
+            .update(cx, |editor, window, cx| {
+                editor.set_text(note, cx);
+                let focus = editor.focus_handle(cx);
+                window.focus(&focus, cx);
+            })
+            .unwrap();
+        for _ in 0..2 {
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+        }
+
+        let (ranges, width) = editor
+            .read_with(cx, |editor, _cx| {
+                (editor.display_ranges(), editor.wrap_width())
+            })
+            .unwrap();
+        let painted = editor
+            .read_with(cx, |editor, _cx| editor.painted_lines())
+            .unwrap();
+        assert!(
+            ranges.len() >= 12,
+            "the styled note should wrap into many display lines, got {}",
+            ranges.len()
+        );
+        assert_eq!(ranges.len(), painted.len(), "model and paint agree");
+        for (model, paint) in ranges.iter().zip(&painted) {
+            assert_eq!(
+                (model.0, model.1),
+                (paint.0, paint.1),
+                "the buffer's display lines must be exactly the painted ones"
+            );
+        }
+        for (i, (_, _, w)) in painted.iter().enumerate() {
+            assert!(
+                *w <= width,
+                "styled display line {i} is {w:?} wide, over the {width:?} wrap width"
+            );
+        }
+    }
+
+    /// Styling must not disturb editing: the same vim keys work on a styled
+    /// note, and the style cache has to follow every edit.
+    #[gpui::test]
+    fn editing_a_styled_note(cx: &mut TestAppContext) {
+        cx.update(|cx| cx.bind_keys(keybindings()));
+
+        let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+        let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+        editor
+            .update(cx, |editor, window, cx| {
+                editor.set_text("## Title **bold**\n- [ ] task `code`\n".to_string(), cx);
+                let focus = editor.focus_handle(cx);
+                window.focus(&focus, cx);
+            })
+            .unwrap();
+        for _ in 0..2 {
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+        }
+
+        cx.simulate_keystrokes("j d d");
+        let text = editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
+        assert_eq!(
+            text, "## Title **bold**\n",
+            "`dd` should delete the task line"
+        );
+
+        // `k` first: after deleting the last line the cursor sits on the empty
+        // row the trailing newline leaves behind (vim steps up to the previous
+        // line instead; noted as a cursor-model nit in PROJECT.md).
+        cx.simulate_keystrokes("k 0 i x");
+        let text = editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
+        assert_eq!(text, "x## Title **bold**\n", "`i` should still insert");
+
+        // Painting the edited note must not panic even though the style cache
+        // was rebuilt after the change.
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let painted = editor
+            .read_with(cx, |editor, _cx| editor.painted_lines())
+            .unwrap();
+        assert_eq!(painted.len(), 2, "two display lines after the edit");
     }
 
     /// `.` replays through the real keymap, including a typed insert session.

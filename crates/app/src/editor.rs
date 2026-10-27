@@ -5,28 +5,23 @@ use std::collections::HashSet;
 use std::ops::Range;
 
 use gpui::{
-    div, fill, font, prelude::*, px, relative, rgb, App, Bounds, Context, CursorStyle, Element,
-    ElementId, ElementInputHandler, Entity, EntityInputHandler, EventEmitter, FocusHandle,
-    Focusable, GlobalElementId, IndentAdjustment, InspectorElementId, InteractiveElement,
-    IntoElement, LayoutId, LineFragment, LineWrapper, MouseButton, MouseDownEvent, ParentElement,
-    Pixels, Render, ScrollHandle, ShapedLine, SharedString, Style, Styled, TextRun, UTF16Selection,
-    Window,
+    div, font, prelude::*, px, rgb, App, Bounds, Context, CursorStyle, EntityInputHandler,
+    EventEmitter, FocusHandle, Focusable, IndentAdjustment, InteractiveElement, IntoElement,
+    LineFragment, LineWrapper, MouseButton, MouseDownEvent, ParentElement, Pixels, Render,
+    ScrollHandle, SharedString, Styled, UTF16Selection, Window,
 };
 use shale_core::buffer::Buffer;
 use shale_core::markdown::{extract_wikilinks, WikiLink};
+use shale_core::mdstyle::{style_spans, Style, StyleSpan};
 use shale_core::vim::{Key, Mode, Outcome, Vim};
 
 use crate::acts::*;
+use crate::line::{DisplayLine, HitLine, LineElement};
+use crate::theme;
 
-const LINE_HEIGHT: f32 = 20.0;
-pub(crate) const FONT_SIZE: f32 = 14.0;
-
-const BG: u32 = 0x1e1e1e;
-const FG: u32 = 0xd4d4d4;
-const CURSOR: u32 = 0xaeafad;
-const SELECTION: u32 = 0x264f78;
-const LINK: u32 = 0x7aa6f0;
-const LINK_UNRESOLVED: u32 = 0x7d6f6f;
+// Re-exported so the headless tests can shape text at the same size the editor
+// does.
+pub(crate) use crate::theme::FONT_SIZE;
 
 /// Events the editor emits for the workspace to handle.
 #[derive(Debug, Clone)]
@@ -38,14 +33,20 @@ pub enum EditorEvent {
 impl EventEmitter<EditorEvent> for MarkdownEditor {}
 
 pub struct MarkdownEditor {
-    focus_handle: FocusHandle,
+    /// The editor's focus handle; the line element needs it to register input
+    /// during paint, so it is crate-visible.
+    pub(crate) focus_handle: FocusHandle,
     buffer: Buffer,
     vim: Vim,
     scroll_handle: ScrollHandle,
-    /// Display lines captured during the last paint, for hit-testing.
-    hit_lines: Vec<HitLine>,
+    /// Display lines captured during the last paint, for hit-testing. Written
+    /// by the line element during paint, so it is crate-visible.
+    pub(crate) hit_lines: Vec<HitLine>,
     /// Cached wrap boundaries: (buffer change id, wrap width, per-row starts).
     wrap_cache: Option<(u64, Pixels, Vec<Vec<usize>>)>,
+    /// Markdown style spans for the current text (buffer byte offsets), cached
+    /// until the buffer changes.
+    style_cache: Option<(u64, Vec<StyleSpan>)>,
     /// Wiki-link spans in the current buffer text (buffer byte offsets).
     links: Vec<WikiLink>,
     /// Lowercased note names present in the vault, for resolved/unresolved
@@ -54,7 +55,7 @@ pub struct MarkdownEditor {
     /// Whether the input handler was registered during the current frame's
     /// paint. gpui only routes typed characters to a handler registered while
     /// painting the frame, so exactly one line element does it per frame.
-    input_registered: bool,
+    pub(crate) input_registered: bool,
     dirty: bool,
 }
 
@@ -67,6 +68,7 @@ impl MarkdownEditor {
             scroll_handle: ScrollHandle::default(),
             hit_lines: Vec::new(),
             wrap_cache: None,
+            style_cache: None,
             links: Vec::new(),
             known: HashSet::new(),
             input_registered: false,
@@ -192,6 +194,71 @@ impl MarkdownEditor {
         self.links = extract_wikilinks(self.buffer.text());
     }
 
+    // ----- markdown styling ---------------------------------------------
+
+    /// Recompute the markdown style spans unless the buffer changed since the
+    /// last paint. Called once per frame, before wrapping and painting.
+    fn refresh_styles(&mut self) {
+        let change_id = self.buffer.change_id();
+        if self
+            .style_cache
+            .as_ref()
+            .is_some_and(|(id, _)| *id == change_id)
+        {
+            return;
+        }
+        let spans = style_spans(self.buffer.text());
+        self.style_cache = Some((change_id, spans));
+    }
+
+    /// The style spans covering `start..end`, re-based to line-relative byte
+    /// offsets, in the order the scanner emitted them.
+    fn line_spans(&self, start: usize, end: usize) -> Vec<(usize, usize, Style)> {
+        let Some((_, spans)) = self.style_cache.as_ref() else {
+            return Vec::new();
+        };
+        spans
+            .iter()
+            .filter(|s| s.start < end && s.end > start)
+            .map(|s| {
+                (
+                    s.start.saturating_sub(start),
+                    s.end.min(end).saturating_sub(start),
+                    s.style,
+                )
+            })
+            .collect()
+    }
+
+    /// Which buffer rows contain a span drawn with a wider face (a heading,
+    /// strong or quoted text). Soft wrap has to measure those rows with the same
+    /// face it will paint them with, or the break points drift: measuring with
+    /// the regular face and painting bold makes a line overflow the wrap width.
+    fn wide_rows(&self) -> Vec<bool> {
+        let line_count = self.buffer.line_count();
+        let mut flags = vec![false; line_count];
+        let Some((_, spans)) = self.style_cache.as_ref() else {
+            return flags;
+        };
+        // Both spans and rows are in offset order, so one forward walk is
+        // enough; `row` never moves backwards.
+        let mut row = 0usize;
+        for span in spans {
+            if !theme::RunStyle::for_style(span.style).is_wide() {
+                continue;
+            }
+            while row < line_count && self.buffer.line_end(row) <= span.start {
+                row += 1;
+            }
+            let mut r = row;
+            while r < line_count && self.buffer.line_start(r) < span.end {
+                flags[r] = true;
+                r += 1;
+            }
+        }
+        flags
+    }
+
     /// Whether a link target names a note that exists in the vault.
     fn is_known(&self, target: &str) -> bool {
         let t = target.trim().to_lowercase();
@@ -231,8 +298,16 @@ impl MarkdownEditor {
     /// to the buffer, so vim's `j`/`k` step over wrapped rows like neovim's and
     /// the buffer's display-line index space is identical to the painted one (if
     /// they ever disagreed the cursor would be drawn on the wrong row).
-    /// Boundaries are cached until the text or the width changes.
-    fn display_lines(&mut self, width: Pixels, wrapper: &mut LineWrapper) -> Vec<DisplayLine> {
+    /// Rows that will be painted with a wide face (heading, strong, quote) are
+    /// measured with that face, from `wide`, so their break points match what
+    /// the user sees. Boundaries are cached until the text or the width changes.
+    fn display_lines(
+        &mut self,
+        width: Pixels,
+        regular: &mut LineWrapper,
+        wide: &mut LineWrapper,
+        wide_rows: &[bool],
+    ) -> Vec<DisplayLine> {
         let line_count = self.buffer.line_count();
         let change_id = self.buffer.change_id();
         let cached = self
@@ -259,6 +334,11 @@ impl MarkdownEditor {
                 }
             } else if width > px(0.) {
                 let text = &self.buffer.text()[row_start..row_end];
+                let wrapper: &mut LineWrapper = if wide_rows.get(row).copied().unwrap_or(false) {
+                    &mut *wide
+                } else {
+                    &mut *regular
+                };
                 for boundary in wrapper.wrap_line(
                     &[LineFragment::text(text)],
                     width,
@@ -626,17 +706,20 @@ impl Render for MarkdownEditor {
             _ => self.buffer.selection(),
         };
         self.refresh_links();
+        self.refresh_styles();
         tracing::trace!(lines = line_count, "editor render");
 
         // Soft wrap: the scroll container's width from the previous frame tells
         // us where each row breaks; the buffer gets the same boundaries so j/k
-        // can step across wrapped rows.
+        // can step across wrapped rows. Rows that will be painted with a wide
+        // face are measured with it, so their break points match the paint.
         let wrap_width = self.scroll_handle.bounds().size.width;
+        let wide_rows = self.wide_rows();
         let display_lines = {
-            let mut wrapper = window
-                .text_system()
-                .line_wrapper(font("monospace"), px(FONT_SIZE));
-            self.display_lines(wrap_width, &mut wrapper)
+            let text_system = window.text_system();
+            let mut regular = text_system.line_wrapper(font("monospace"), px(FONT_SIZE));
+            let mut wide = text_system.line_wrapper(font("monospace").bold(), px(FONT_SIZE));
+            self.display_lines(wrap_width, &mut regular, &mut wide, &wide_rows)
         };
         let cursor_display = self.buffer.display_index_for(cursor);
 
@@ -710,9 +793,9 @@ impl Render for MarkdownEditor {
                     .track_scroll(&self.scroll_handle)
                     .font_family("monospace")
                     .text_size(px(FONT_SIZE))
-                    .line_height(px(LINE_HEIGHT))
-                    .bg(rgb(BG))
-                    .text_color(rgb(FG))
+                    .line_height(px(theme::LINE_HEIGHT))
+                    .bg(rgb(theme::BG))
+                    .text_color(rgb(theme::FG))
                     .on_mouse_down(MouseButton::Left, cx.listener(Self::on_click))
                     .children(display_lines.iter().enumerate().map(|(index, dl)| {
                         let text: SharedString =
@@ -752,10 +835,14 @@ impl Render for MarkdownEditor {
                             })
                             .collect();
 
+                        // Markdown style spans restricted to this display line,
+                        // in line-relative byte offsets.
+                        let line_spans = self.line_spans(dl.start, dl.end);
+
                         div()
                             .id(("line", index))
                             .w_full()
-                            .h(px(LINE_HEIGHT))
+                            .h(px(theme::LINE_HEIGHT))
                             .child(LineElement {
                                 editor: cx.entity(),
                                 row: dl.row,
@@ -767,6 +854,7 @@ impl Render for MarkdownEditor {
                                 cursor_col,
                                 insert: self.vim.mode() == Mode::Insert,
                                 links: line_links,
+                                spans: line_spans,
                             })
                     })),
             )
@@ -776,219 +864,5 @@ impl Render for MarkdownEditor {
 impl Focusable for MarkdownEditor {
     fn focus_handle(&self, _: &App) -> FocusHandle {
         self.focus_handle.clone()
-    }
-}
-
-/// One painted row: a segment of a buffer row when the row soft-wraps.
-#[derive(Clone, Copy)]
-struct DisplayLine {
-    row: usize,
-    start: usize,
-    end: usize,
-}
-
-/// A display line captured during paint, for hit-testing and IME placement.
-#[derive(Clone)]
-struct HitLine {
-    index: usize,
-    start: usize,
-    end: usize,
-    line: ShapedLine,
-    bounds: Bounds<Pixels>,
-}
-
-/// One painted line: text, optional selection and cursor quads.
-struct LineElement {
-    editor: Entity<MarkdownEditor>,
-    row: usize,
-    /// Flat display-line index of this row's segment.
-    index: usize,
-    /// Buffer byte offsets this segment covers (`end` is exclusive).
-    start: usize,
-    end: usize,
-    text: SharedString,
-    line_sel: Option<(usize, usize)>,
-    cursor_col: Option<usize>,
-    insert: bool,
-    /// (start, end, resolved) byte spans of wiki-links within `text`.
-    links: Vec<(usize, usize, bool)>,
-}
-
-struct LinePrepaint {
-    line: ShapedLine,
-}
-
-impl IntoElement for LineElement {
-    type Element = Self;
-
-    fn into_element(self) -> Self::Element {
-        self
-    }
-}
-
-impl Element for LineElement {
-    type RequestLayoutState = ();
-    type PrepaintState = LinePrepaint;
-
-    fn id(&self) -> Option<ElementId> {
-        None
-    }
-
-    fn source_location(&self) -> Option<&'static core::panic::Location<'static>> {
-        None
-    }
-
-    fn request_layout(
-        &mut self,
-        _id: Option<&GlobalElementId>,
-        _inspector_id: Option<&InspectorElementId>,
-        window: &mut Window,
-        cx: &mut App,
-    ) -> (LayoutId, Self::RequestLayoutState) {
-        let mut style = Style::default();
-        style.size.width = relative(1.).into();
-        style.size.height = px(LINE_HEIGHT).into();
-        (window.request_layout(style, [], cx), ())
-    }
-
-    fn prepaint(
-        &mut self,
-        _id: Option<&GlobalElementId>,
-        _inspector_id: Option<&InspectorElementId>,
-        _bounds: Bounds<Pixels>,
-        _request_layout: &mut Self::RequestLayoutState,
-        window: &mut Window,
-        _cx: &mut App,
-    ) -> Self::PrepaintState {
-        let style = window.text_style();
-        let font = style.font();
-        let total = self.text.len();
-
-        // One TextRun per wiki-link span (colored) plus the plain text
-        // between them. TextRun lengths are utf-8 byte counts.
-        let mut runs: Vec<TextRun> = Vec::new();
-        let mut pos = 0usize;
-        let plain = |len: usize| TextRun {
-            len,
-            font: font.clone(),
-            color: rgb(FG).into(),
-            background_color: None,
-            underline: None,
-            strikethrough: None,
-        };
-        for &(start, end, resolved) in &self.links {
-            let start = start.min(total);
-            let end = end.clamp(start, total);
-            if end <= pos {
-                continue;
-            }
-            if start > pos {
-                runs.push(plain(start - pos));
-            }
-            runs.push(TextRun {
-                len: end - start,
-                font: font.clone(),
-                color: rgb(if resolved { LINK } else { LINK_UNRESOLVED }).into(),
-                background_color: None,
-                underline: None,
-                strikethrough: None,
-            });
-            pos = end;
-        }
-        if pos < total {
-            runs.push(plain(total - pos));
-        }
-
-        let line = window
-            .text_system()
-            .shape_line(self.text.clone(), px(FONT_SIZE), &runs, None);
-        LinePrepaint { line }
-    }
-
-    fn paint(
-        &mut self,
-        _id: Option<&GlobalElementId>,
-        _inspector_id: Option<&InspectorElementId>,
-        bounds: Bounds<Pixels>,
-        _request_layout: &mut Self::RequestLayoutState,
-        prepaint: &mut Self::PrepaintState,
-        window: &mut Window,
-        cx: &mut App,
-    ) {
-        let line = &prepaint.line;
-
-        // gpui only routes typed characters to an input handler that was
-        // registered during the current frame's paint, so exactly one line
-        // element per frame registers it (with the bounds of the first painted
-        // line, which is also what IME candidate windows anchor to).
-        let register = self.editor.update(cx, |editor, _| {
-            if editor.input_registered {
-                false
-            } else {
-                editor.input_registered = true;
-                true
-            }
-        });
-        if register {
-            let focus_handle = self.editor.read(cx).focus_handle.clone();
-            window.handle_input(
-                &focus_handle,
-                ElementInputHandler::new(bounds, self.editor.clone()),
-                cx,
-            );
-        }
-
-        // Selection quad.
-        if let Some((s, e)) = self.line_sel {
-            let x0 = line.x_for_index(s);
-            let x1 = line.x_for_index(e.max(s + 1));
-            window.paint_quad(fill(
-                Bounds::from_corners(
-                    gpui::point(bounds.left() + x0, bounds.top()),
-                    gpui::point(bounds.left() + x1, bounds.bottom()),
-                ),
-                rgb(SELECTION),
-            ));
-        }
-
-        if let Err(err) = line.paint(
-            bounds.origin,
-            px(LINE_HEIGHT),
-            gpui::TextAlign::default(),
-            None,
-            window,
-            cx,
-        ) {
-            tracing::warn!(row = self.row, "failed to paint line: {err:#}");
-        }
-
-        // Cursor quad.
-        if let Some(col) = self.cursor_col {
-            let x = line.x_for_index(col);
-            let width = if self.insert {
-                px(1.5)
-            } else {
-                let next = line.x_for_index((col + 1).min(self.text.len()));
-                (next - x).max(px(7.))
-            };
-            window.paint_quad(fill(
-                Bounds::from_corners(
-                    gpui::point(bounds.left() + x, bounds.top()),
-                    gpui::point(bounds.left() + x + width, bounds.bottom()),
-                ),
-                rgb(CURSOR),
-            ));
-        }
-
-        // Record for hit-testing.
-        self.editor.update(cx, |editor, _cx| {
-            editor.hit_lines.push(HitLine {
-                index: self.index,
-                start: self.start,
-                end: self.end,
-                line: line.clone(),
-                bounds,
-            });
-        });
     }
 }

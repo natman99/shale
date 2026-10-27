@@ -1,25 +1,28 @@
 # Shale
+
 Shale is an obsidian-style markdown editor with extra developer focused features. Shale is built with GPUI in Rust
 
 ## Goals
+
 - [ ] "Live preview" (obsidian-style) Markdown editor with vim binding support
 - [ ] File tree and interface
 - [ ] Wiki-links
 - [ ] MCP server
 - [ ] Spellcheck and grammar checking using HarperLS. Support for custom language servers.
-- [ ] Near-perfect compatibility with Obsidian vaults 
-- [ ] Image support in notes using Obsidian style 
+- [ ] Near-perfect compatibility with Obsidian vaults
+- [ ] Image support in notes using Obsidian style
 - [ ] Theming support and support for custom themes. Include light and dark themes.
 - [ ] Graph view
 - [ ] Pdf export notes
 - [ ] Tabs
 - [ ] Tiling split view (like Obsidian)
-- [ ] Command pallette
+- [ ] Command pallette (vim `:` and Vscode's `ctrl+shift+p` to open. Vim version supports vim features like `s/x/x` replacement. Fuzzy search for commands)
 - [ ] Note search and full vault search (command pallette, vim `/`)
+- [ ] Templates: save standard notes as templates to be copied in to other notes with a command. Also add a gui picker.
 
 - Config files in TOML
-- Assure any code you reference or copy from online has a commercial permissible licensing 
-- Write unit tests 
+- Assure any code you reference or copy from online has a commercial permissible licensing
+- Write unit tests
 - Regularly commit to a local git repo. You don't need to publish it. Don't override the user's global config, make a local override for a user for yourself.
 - Expand this plan and goals as needed.
 - Assure **proper** support for manipulating tables with vim bindings. No unexpected skipping or jumping around when manipulating tables. Ask the user for expected behavior when designing this.
@@ -27,12 +30,22 @@ Shale is an obsidian-style markdown editor with extra developer focused features
 - Full keyboard support if at all possible. 98% of the app should not require mouse usage. Mouse in the settings menu is fine.
 - Indexing for quick wiki-link look up and resolving.
 - Use GPUI's testing framework for headless testing of the app when possible.
+- Use `gd` for follow the wiki link under the cursor, `gD` to create in the base vault directory if it doesn't exist.
+- Follow the chain of links, opened files, jumps, and edits, `ctrl+o`/`ctrl+i` should properly navigate along the chain like neovim and vim.
+- Preview mode that will support more advanced markdown rendering, and will not have editing.
+- Markdown tasks should support mouse clicks to check, and a "partly complete" icon for `[/]` in preview mode. 
+- Fuzzy search for the file picker
+
+Gui pickers should have a search bar with fuzzy search, but arrow keys + enter can select options manually, or the mouse can.
 
 ## Non-Goals
+
 - Plugins
 
 ### Tech Stack
+
 Keep as much in Rust as possible, no bindings external libraries. Update the tech stack as needed.
+
 - Tokio for async
 - GPUI for UI — **from Zed's repo, tag `v1.25.3`** (`gpui` + `gpui_platform`
   with `wayland`/`x11`/`font-kit`). crates.io `gpui` 0.2.2 is an older tree whose
@@ -42,47 +55,54 @@ Keep as much in Rust as possible, no bindings external libraries. Update the tec
   On Linux the renderer is wgpu (Vulkan), so a Vulkan driver is required.
 - Serde for file parsing
 - You may want to use GPUI kit, a components library for GPUI. Evaluate if it's useful before using.
-https://gpui-kit.com/
+  https://gpui-kit.com/
   Note (evaluated): gpui-kit's crates (`gpui-pre`, `gpui-base`) are a **fork of
   gpui**, so they cannot be mixed with Zed's gpui — a component library would
   have to be built on our own elements. Don't re-litigate this without checking
   the dependency tree.
 
 ### MCP
-Shale has an MCP server with support for reading, writing, and searching vaults. The MCP server should *either* be a separate binary which shares core functionality with a `core` crate in the project, or if speed will be acceptable use the main binary.
+
+Shale has an MCP server with support for reading, writing, and searching vaults. The MCP server should _either_ be a separate binary which shares core functionality with a `core` crate in the project, or if speed will be acceptable use the main binary.
 
 ### Graph View
-The graph view needs to have filter options to hide and show nodes. It should have the option to color nodes based on tags. I want the ability to sort into "constellations" based on the subfolder the note rests in. Add the option to filter a parent folder to then have the constellations be its children. Add 3d and 2d graph views. Graph should have the option to be static, where each note gets it's position from some sort of stable and fast method, and a dynamic physics based graph like Obsidian has. Make sure to handle duplicate note names and other weird edge cases. 
+
+The graph view needs to have filter options to hide and show nodes. It should have the option to color nodes based on tags. I want the ability to sort into "constellations" based on the subfolder the note rests in. Add the option to filter a parent folder to then have the constellations be its children. Add 3d and 2d graph views. Graph should have the option to be static, where each note gets it's position from some sort of stable and fast method, and a dynamic physics based graph like Obsidian has. Make sure to handle duplicate note names and other weird edge cases.
 
 Example of constellations:
 vault /
-  child 1/
-    pie/
-    cake/
-  child 2/
-    child 2 1/
-    child 2 2/
-  note.md
-  note2.md
+child 1/
+pie/
+cake/
+child 2/
+child 2 1/
+child 2 2/
+note.md
+note2.md
 When the constellation filter is set to child 1 it's children, `pie/` and `cake/` should be shown as separate filtered areas.
 
-Also add the ability to have nested constellations shown. 
+Also add the ability to have nested constellations shown.
 
 ## Current status (updated as the project progresses)
 
 Workspace layout:
 - `crates/core` (`shale-core`): vault model (path-traversal safe), wiki-link
   extraction/resolution/backlinks, search, TOML config (`shale.toml` in the
-  vault), text `Buffer` with undo/redo, and the vim mode engine. Pure Rust,
-  fully unit tested.
+  vault), text `Buffer` with undo/redo, the vim mode engine, and `mdstyle` (the
+  presentation-agnostic markdown style scanner). Pure Rust, fully unit tested.
 - `crates/app` (`shale` binary): GPUI app (Zed's gpui, tag `v1.25.3`) — file
   tree sidebar, custom line-based editor view with **soft wrap** and vim
-  normal/insert modes (hjkl, w/b/e, 0 ^ $ — screen-line aware, gg/G, counts on
-  motions and operators, d/c/y + motions, x, p/P, u undo, i/a/I/A/o/O,
-  ctrl-z/ctrl-r/ctrl-y, clipboard, mouse click to position), wiki-link styling (resolved tinted blue,
-  unresolved dimmed) and navigation (`gx` on a link in normal mode, ctrl+click),
-  status bar (mode, pending count/operator, dirty flag, path, display row:col),
-  ctrl+s save.
+  normal/insert/visual modes (hjkl, w/b/e, 0 ^ $ — screen-line aware, gg/G,
+  counts on motions and operators, d/c/y + motions, f/t/F/T, iw/aw/ip/ap, x, p/P,
+  u undo, i/a/I/A/o/O, v/V, `.` repeat, ctrl-z/ctrl-r/ctrl-y, clipboard, mouse
+  click to position), **live markdown styling** (headings, emphasis, code,
+  quotes, lists/tasks, tables, tags, links; resolved wiki-links tinted blue,
+  unresolved dimmed) and link navigation (`gx` on a link in normal mode,
+  ctrl+click), status bar (mode, pending count/operator, dirty flag, path,
+  display row:col), ctrl+s save. Split into `main.rs` (workspace, keymap,
+  actions), `editor.rs` (the view: buffer + vim + wrap model + input), `line.rs`
+  (the `LineElement` that paints one display line, and the run builder),
+  `theme.rs` (the palette and `Style` -> `RunStyle` mapping) and `tree.rs`.
 - `crates/mcp` (`shale-mcp` binary): MCP stdio server exposing list/read/
   write/search/backlinks tools.
 - `refs/` (**gitignored, not shipped**): local copies of the Vim help files
@@ -93,6 +113,7 @@ Workspace layout:
   are specification only — never copy their prose or assets into Shale.
 
 ### GPUI gotchas (learned the hard way — re-read before touching the UI)
+
 - **Never use crates.io `gpui` 0.2.2.** Its Wayland backend requests a
   `wl_surface` frame callback exactly once (at first configure) and then depends
   on the compositor's callback chain; under niri that chain stalls, so the app
@@ -106,7 +127,7 @@ Workspace layout:
 - **Views must register their input handler during paint.** Typed printable
   characters are not keymap actions; gpui hands them to whichever handler was
   registered with `window.handle_input(&focus, ElementInputHandler::new(bounds,
-  entity), cx)` while painting the current frame. Forget it and every character
+entity), cx)` while painting the current frame. Forget it and every character
   is silently dropped while bound keys (enter/backspace/dd/x) keep working —
   exactly the symptom we hit. `LineElement::paint` does this once per frame
   (guarded by `MarkdownEditor::input_registered`, reset in `render`).
@@ -130,22 +151,60 @@ Workspace layout:
   **utf-8 byte** offsets, while the input-handler range methods are utf-16.
 
 ### Testing
+
 - `crates/core`: pure-Rust unit tests (vault, markdown, search, buffer, vim).
 - `crates/app`: headless UI tests via gpui's `test-support` feature
   (`#[gpui::test]` + `VisualTestContext::simulate_keystrokes/simulate_input`),
   which is how input-path regressions get caught without a live window.
 - Manual Wayland checks: `grim` for full-screen, `niri msg action
-  screenshot-window --id <id> --write-to-disk true` for a single window, and
+screenshot-window --id <id> --write-to-disk true` for a single window, and
   `niri msg --json windows` to find the window id.
 
 ### Open threads (write findings here as they come up)
-- **Soft wrap — done.** `Buffer` holds a *display model*: the UI calls
+
+- **Live preview, stage 1 (syntax styling) — done.** `shale_core::mdstyle::
+  style_spans(text)` returns `StyleSpan { start, end, style }` over the whole
+  buffer: absolute byte offsets on character boundaries, sorted by `(start,
+  end)`, with block spans (heading, quote, fenced code) emitted *before* the
+  inline spans inside them so a consumer that applies them in order ends up with
+  the inline style winning. It is line-based and deliberately pragmatic (the
+  subset Obsidian renders, not full CommonMark); fences and inline code spans
+  suppress inline markers; a GFM table is only recognised when a delimiter row
+  containing a pipe is present. The scanner knows nothing about painting —
+  `theme::RunStyle::for_style` is the only place a `Style` becomes colours and
+  fonts, which is also where a TOML theme will hook in.
+  Painting (`line.rs::build_runs`): each display line gets a **per-byte**
+  `Vec<RunStyle>` (default plain, spans applied in order, then the resolved /
+  unresolved wiki-link colour over the top), and adjacent equal styles are
+  coalesced into `gpui::TextRun`s. `TextRun.len` is a utf-8 byte count, so a
+  multi-byte character just contributes several bytes and needs no special
+  handling. **The run lengths must tile the line exactly** — gpui matches runs
+  against glyphs by byte count — which `line::tests::runs_tile_the_line`
+  asserts. Run *backgrounds* (inline code, `==highlight==`, fenced blocks) need
+  a separate `ShapedLine::paint_background` pass before `paint`; `paint` alone
+  only draws glyphs, underline and strikethrough.
+  **Wrap-model agreement (re-check this before changing anything):** bold and
+  italic runs measure wider than the regular face the wrapper uses, so
+  `display_lines` picks the wrapper **per row** — a row containing a heading /
+  strong / quote span is wrapped with `font("monospace").bold()` (`wide_rows()`
+  computes the flags in one forward walk, since spans and rows are both in
+  offset order). Over-measuring is safe (the row just breaks earlier);
+  under-measuring makes a painted segment overflow the wrap width and puts j/k
+  out of step. `tests::styled_markdown_keeps_the_wrap_accurate` holds that
+  invariant, and `tests::editing_a_styled_note` covers the style cache (keyed on
+  `Buffer::change_id`, like the wrap cache) after edits.
+  Deliberately *not* in stage 1: hiding markers, heading font sizes
+  (`shape_line` cannot mix sizes in one line, and per-row sizes would mean
+  per-row fonts in the wrap model too), inline images, callouts, and block-level
+  backgrounds (a fenced block's background currently covers each line's painted
+  text, not the full width). Those are stage 2.
+- **Soft wrap — done.** `Buffer` holds a _display model_: the UI calls
   `Buffer::set_display_segments(rows_of_absolute_byte_starts)` each frame, and
   every vertical motion (`j`/`k`, `desired_col`) works on flat display-line
   indices, so wrapped rows step like neovim and the core stays unit-testable
   without any UI. The app gets break points from
   `window.text_system().line_wrapper(font, size).wrap_line(&[LineFragment::text(
-  row)], width, IndentAdjustment::NoIndent)`, whose `Boundary.ix` is a **byte
+row)], width, IndentAdjustment::NoIndent)`, whose `Boundary.ix` is a **byte
   offset into the row** (add `line_start(row)` for absolute). Boundaries are
   cached per `(buffer change_id, width)`; `Buffer::change_id()` bumps on every
   mutation (including edits inside an undo group — forgetting that produced
@@ -161,7 +220,7 @@ Workspace layout:
   `shape_line().width()` to the last digit, and every painted segment fits the
   wrap width (widest 1915.2px of 1920px) even with tabs, accents, CJK and emoji.
   gpui gives one cell per character, so a **character** column is the column the
-  user sees. `display_lines()` now hands the buffer *exactly* the segments it
+  user sees. `display_lines()` now hands the buffer _exactly_ the segments it
   paints (previously the buffer got raw cached segments and the paint re-validated
   them — two index spaces that could desync the cursor's row); the tests assert
   the model's ranges equal the painted ranges.
@@ -173,7 +232,7 @@ Workspace layout:
   Still open in this area:
   - **j/k is still slightly off in a live window** (user-confirmed after the
     character-column fix). The headless invariants all pass, so the suspect is
-    the *width* the break points are computed from rather than the character
+    the _width_ the break points are computed from rather than the character
     math: `LineWrapper` sums per-character advances while painting uses shaped
     lines, and the width itself is the previous frame's container bounds. Rework
     later: drive the display model from shaped geometry (an x-offset based
@@ -186,12 +245,12 @@ Workspace layout:
     to expand them.
 - **ctrl+letter keys: the keymap used `+` instead of `-`.** Fixed. gpui's
   keystroke syntax separates modifiers with `-` (`ctrl-z`); `Keystroke::parse(
-  "ctrl+z")` does *not* error, it returns one literal key named `"ctrl+z"` that
+"ctrl+z")` does _not_ error, it returns one literal key named `"ctrl+z"` that
   can never match what the platform delivers. That silently killed **every**
   ctrl binding: undo/redo, `ctrl-s` save and `ctrl-q` quit. The headless test
   passed for ages because `simulate_keystrokes("ctrl+z")` parses with the same
   parser as the binding, so the typo matched itself. `tests::
-  keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
+keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   keystroke shape (`key: "z"`, `control: true`, `key_char: None`) straight
   through `Keymap::bindings_for_input`, which is how a keymap mistake gets
   caught without a live window.
@@ -200,7 +259,7 @@ Workspace layout:
   for control characters; `prefer_character_input` is always `false` in
   `gpui_linux`, so `Window::input_preference()` is always `KeyBindings` and can
   never be the reason a binding is skipped. A keystroke observer logs
-  `action = None` both when no binding matched *and* when a binding matched but
+  `action = None` both when no binding matched _and_ when a binding matched but
   no `on_action` listener consumed it — so "no action" does not by itself mean
   "no binding".
 - **Undo granularity** is now: one insert session = one step, `cw`/`o` + typing =
@@ -211,7 +270,7 @@ Workspace layout:
   soft-wrap bullet), and gpui's `scroll_to_item` only scrolls the minimum to keep
   the line visible. The two real defects found on the way were the byte-column
   `desired_col` and the model/paint index spaces, both fixed; the logical `$`/`0`
-  (which jumped to the end of the *row*, several rows down) is the most likely
+  (which jumped to the end of the _row_, several rows down) is the most likely
   thing the report was describing. Needs a re-test in a live window.
 - **Text objects — done** (`iw`/`aw`, `ip`/`ap`, with `d`/`c`/`y` and counts).
   `Buffer::word_object` / `paragraph_object` return the range; the engine holds a
@@ -220,13 +279,13 @@ Workspace layout:
   keymap entries were needed. A count before the scope (`d2aw`) extends the range
   over the following objects. `aw` follows vim's whitespace rule exactly: trailing
   run if there is one, otherwise the leading run (so `daw` on the last word of a
-  line eats the space *before* it), and on whitespace it takes that run plus the
+  line eats the space _before_ it), and on whitespace it takes that run plus the
   word after.
 - **Visual mode — done** (`v` charwise, `V` linewise). Motions extend the
   selection, operators act on it and drop back to normal, `o` swaps the ends,
   `i`/`a` extend it with a text object, `I`/`A` insert at the near/far line,
   `d`/`x`/`c`/`s`/`y`/`p` all work, escape and `v`/`V` exit or switch form.
-  **Selection model**: the buffer keeps `(anchor, head)` where `head` *is* the
+  **Selection model**: the buffer keeps `(anchor, head)` where `head` _is_ the
   cursor, and a charwise visual selection is **inclusive** of the character under
   the cursor (vim's model). `Vim::selection_range(&buffer)` (public) turns that
   into the exclusive byte range used by operators, painting and `ctrl-shift-c`;
@@ -242,8 +301,8 @@ Workspace layout:
   `key: "v"` with `shift: true` (not `key: "V"`).
 - **Motion inclusivity follows vim's docs** (vimhelp.org `motion.txt`, worth
   re-reading before "fixing" anything here): `w`/`b`/`0`/`^`/`f`/`t` are
-  **exclusive**, `$` and `e` are **inclusive**. So `w` lands on the *start of the
-  next word* — not on the gap between words — which is why `dw` deletes the word
+  **exclusive**, `$` and `e` are **inclusive**. So `w` lands on the _start of the
+  next word_ — not on the gap between words — which is why `dw` deletes the word
   plus its trailing space and why `vw` reaches one character into the next word.
   (An attempt to make `w` stop on the gap was tried and reverted: it breaks `d2w`
   and contradicts the docs.) `de` was off by one character and is now inclusive.
@@ -258,7 +317,7 @@ Workspace layout:
   commands that change nothing are not recorded, so `.` after a plain motion is
   `Unhandled`.
   **Binding caveat (this bit us):** a key that is bound in the keymap can also be
-  the *argument* of a half-typed command — `fv` must find a literal `v`, `f.` a
+  the _argument_ of a half-typed command — `fv` must find a literal `v`, `f.` a
   literal period. Unbound characters arrive through `replace_text_in_range`, but
   bound ones arrive as actions, so the engine has to route them: the Find and
   TextObject arms run before the motion match, the digit branch is skipped while
@@ -272,13 +331,16 @@ Workspace layout:
 - **Cursor model nits**: `Buffer` cursors may sit at `text.len()` (between
   characters) while vim's normal-mode cursor always sits *on* a character, so
   `w` at the end of a buffer can leave the cursor one position past the last
-  character; normal mode should clamp.
+  character; normal mode should clamp. Related: `dd` on the last line leaves the
+  cursor on the empty row the trailing newline leaves behind, where vim steps up
+  to the previous line.
 
 System dependency (Linux): `libxkbcommon-x11-devel` (plus fontconfig, freetype,
 x11, xcb, wayland dev packages) and a working Vulkan driver (the Linux renderer
 is wgpu).
 
 Next steps, roughly in order:
+
 1. ~~Wiki-link rendering/highlighting + navigation~~ Done: resolved links tinted,
    unresolved dimmed; `gx` / ctrl+click follow the link under the cursor.
    Still TODO here: creating a note from an unresolved link, and link preview.
@@ -290,7 +352,9 @@ Next steps, roughly in order:
    goal, then live preview.
 5. Table-aware motions and manipulation (the table goal): column motions on the
    pipe and dash characters, adding/removing rows and columns.
-6. Live preview mode (rendered markdown toggle) — pulldown-cmark for parsing.
+6. ~~Live preview mode~~ stage 1 (markdown syntax styling, no hidden characters)
+   is done — see Open threads. Stage 2: hide markers, heading sizes, inline
+   images, callouts, block backgrounds.
 7. Theming (light/dark, TOML theme files).
 8. HarperLS / LSP integration for spellcheck and grammar.
 9. Image display in vaults (gpui image elements).

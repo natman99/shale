@@ -1,6 +1,7 @@
 pub mod buffer;
 pub mod config;
 pub mod markdown;
+pub mod mdstyle;
 pub mod search;
 pub mod vault;
 pub mod vim;
