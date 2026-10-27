@@ -76,6 +76,11 @@ pub struct MarkdownEditor {
     /// paint. gpui only routes typed characters to a handler registered while
     /// painting the frame, so exactly one line element does it per frame.
     pub(crate) input_registered: bool,
+    /// The family the editor is drawn with: what the config asked for until the
+    /// first frame resolves it against the installed fonts.
+    font_family: SharedString,
+    /// Whether `font_family` has been resolved against the system's fonts.
+    font_family_resolved: bool,
     dirty: bool,
 }
 
@@ -92,6 +97,8 @@ impl MarkdownEditor {
             links: Vec::new(),
             known: HashSet::new(),
             input_registered: false,
+            font_family: "monospace".into(),
+            font_family_resolved: false,
             dirty: false,
         }
     }
@@ -100,6 +107,16 @@ impl MarkdownEditor {
     /// links differently from unresolved ones.
     pub fn set_known_links(&mut self, known: HashSet<String>, cx: &mut Context<Self>) {
         self.known = known;
+        cx.notify();
+    }
+
+    /// The font family from the config. Empty means "choose one"; an unknown
+    /// name falls back to the preferred installed monospace families.
+    pub fn set_font_family(&mut self, family: &str, cx: &mut Context<Self>) {
+        if family.is_empty() || self.font_family_resolved {
+            return;
+        }
+        self.font_family = family.into();
         cx.notify();
     }
 
@@ -726,6 +743,35 @@ impl EntityInputHandler for MarkdownEditor {
 
 impl Render for MarkdownEditor {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // Resolve the editor's font family once against the installed fonts.
+        // gpui matches family names literally, so `font("monospace")` on Linux
+        // matches nothing and its fallback stack returns a proportional UI font
+        // that also ignores bold and italic; `pick_mono_family` picks a real
+        // monospace family instead. Logged once because it decides what the user
+        // sees and is the first thing to check when styling looks wrong.
+        if !self.font_family_resolved {
+            self.font_family_resolved = true;
+            let text_system = window.text_system();
+            let available = text_system.all_font_names();
+            let requested = self.font_family.to_string();
+            let chosen = theme::pick_mono_family(&available, &requested);
+            if !available.iter().any(|f| f.eq_ignore_ascii_case(&chosen)) {
+                tracing::warn!(
+                    requested = requested.as_str(),
+                    "no installed monospace font family; text will be drawn with gpui's fallback font",
+                );
+            } else {
+                let regular = text_system.resolve_font(&font(chosen.clone()));
+                let bold = text_system.resolve_font(&font(chosen.clone()).bold());
+                tracing::debug!(
+                    family = chosen.as_str(),
+                    regular_char_width = ?text_system.layout_width(regular, px(FONT_SIZE), 'a'),
+                    bold_char_width = ?text_system.layout_width(bold, px(FONT_SIZE), 'a'),
+                    "editor font family",
+                );
+            }
+            self.font_family = chosen.into();
+        }
         self.hit_lines.clear();
         self.input_registered = false;
         let context = match self.vim.mode() {
@@ -757,11 +803,12 @@ impl Render for MarkdownEditor {
             let text_system = window.text_system();
             // One wrapper per (heading level, regular or wide face), so every
             // row is measured with the face and size it will be painted with.
+            let family = self.font_family.clone();
             let mut wrappers: Vec<LineWrapperHandle> = Vec::with_capacity(theme::SIZES * 2);
             for level in 0..theme::SIZES as u8 {
                 let size = px(theme::font_size(level));
-                wrappers.push(text_system.line_wrapper(font("monospace"), size));
-                wrappers.push(text_system.line_wrapper(font("monospace").bold(), size));
+                wrappers.push(text_system.line_wrapper(font(family.clone()), size));
+                wrappers.push(text_system.line_wrapper(font(family.clone()).bold(), size));
             }
             self.display_lines(wrap_width, &mut wrappers, &row_styles)
         };
@@ -835,7 +882,7 @@ impl Render for MarkdownEditor {
                     .size_full()
                     .overflow_scroll()
                     .track_scroll(&self.scroll_handle)
-                    .font_family("monospace")
+                    .font_family(self.font_family.clone())
                     .text_size(px(FONT_SIZE))
                     .line_height(px(theme::LINE_HEIGHT))
                     .bg(rgb(theme::BG))

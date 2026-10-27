@@ -129,14 +129,19 @@ impl Workspace {
         let editor = cx.new(|cx| MarkdownEditor::new(cx));
         let known = note_keys(&entries);
         editor.update(cx, |editor, cx| editor.set_known_links(known, cx));
+        editor.update(cx, |editor, cx| {
+            editor.set_font_family(&config.appearance.font_family, cx);
+        });
         let editor_events = cx.subscribe(&editor, |ws, _editor, event, cx| match event {
             EditorEvent::FollowLink { target } => ws.follow_link(target, cx),
         });
         // Keybinding bugs on Linux are almost always "what did the platform
-        // actually deliver, and which action did it resolve to", so log both.
+        // actually deliver, and which action did it resolve to", so log both —
+        // at trace level, since this fires for every keystroke and floods the
+        // console at debug. Enable with RUST_LOG=shale=trace.
         // The subscription has to be kept alive or the observer is dropped.
         let keystroke_observer = cx.observe_keystrokes(|_ws, event, _window, _cx| {
-            tracing::debug!(
+            tracing::trace!(
                 key = event.keystroke.key.as_str(),
                 modifiers = ?event.keystroke.modifiers,
                 action = event.action.as_ref().map(|action| action.name()),

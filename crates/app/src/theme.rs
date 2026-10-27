@@ -36,6 +36,41 @@ pub(crate) fn line_height(size: f32) -> f32 {
     size * (LINE_HEIGHT / FONT_SIZE)
 }
 
+/// Monospace families we know how to find, in preference order. Families with
+/// real bold **and** italic faces come first: gpui matches a family name
+/// literally against the installed fonts and never synthesizes a missing face,
+/// so `font("monospace")` on Linux matches nothing and gpui's fallback stack
+/// hands back a proportional UI font that also ignores weight and style. That
+/// is why bold and italic looked identical before the family was resolved.
+pub(crate) const MONO_PREFERENCES: &[&str] = &[
+    "JetBrains Mono",
+    "DejaVu Sans Mono",
+    "Adwaita Mono",
+    "Liberation Mono",
+    "Noto Sans Mono",
+    "Menlo",
+    "SF Mono",
+    "Consolas",
+    "Courier New",
+];
+
+/// The family to draw the editor with: `preferred` when it is installed,
+/// otherwise the first installed [`MONO_PREFERENCES`] entry, otherwise
+/// `preferred` unchanged (which lets the caller log that nothing matched).
+/// Matching ignores case, as fontconfig does.
+pub(crate) fn pick_mono_family(available: &[String], preferred: &str) -> String {
+    let installed =
+        |name: &str| !name.is_empty() && available.iter().any(|f| f.eq_ignore_ascii_case(name));
+    if installed(preferred) {
+        return preferred.to_string();
+    }
+    MONO_PREFERENCES
+        .iter()
+        .find(|name| installed(name))
+        .map(|name| name.to_string())
+        .unwrap_or_else(|| preferred.to_string())
+}
+
 /// Note background.
 pub(crate) const BG: u32 = 0x1e1e1e;
 /// Ordinary note text.
@@ -177,5 +212,36 @@ impl RunStyle {
                 color: None,
             }),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The family choice has to land on something installed *and* able to draw
+    /// bold and italic, because gpui will not synthesize either.
+    #[test]
+    fn picks_an_installed_monospace_family() {
+        let available = vec![
+            "Adwaita Sans".to_string(),
+            "Noto Sans Mono".to_string(),
+            "JetBrains Mono".to_string(),
+        ];
+        // A configured family wins when it exists.
+        assert_eq!(
+            pick_mono_family(&available, "Noto Sans Mono"),
+            "Noto Sans Mono"
+        );
+        // Otherwise the best preference, in preference order.
+        assert_eq!(pick_mono_family(&available, ""), "JetBrains Mono");
+        // Case-insensitive, like fontconfig.
+        assert_eq!(
+            pick_mono_family(&available, "jetbrains mono"),
+            "jetbrains mono"
+        );
+        // Nothing installed: hand back the request so the caller can log it.
+        assert_eq!(pick_mono_family(&[], "Iosevka"), "Iosevka");
+        assert_eq!(pick_mono_family(&[], ""), "");
     }
 }

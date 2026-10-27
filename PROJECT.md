@@ -163,6 +163,27 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
 
 ### Open threads (write findings here as they come up)
 
+- **Font family: `font("monospace")` does not work on Linux.** gpui's Linux text
+  system (`gpui_wgpu::CosmicTextSystem`) matches a family name *literally*
+  against the installed font families, and no family is named `monospace`, so
+  `load_family` finds nothing, `TextSystem::resolve_font` falls through to its
+  built-in `fallback_font_stack`, and the user's system answered **Adwaita Sans**
+  — a proportional UI font. Worse, that fallback path resolves the *fallback*
+  font, so the requested `weight` and `style` are dropped: `font(...).bold()` and
+  `.italic()` returned the same `FontId` as regular text, which is why bold and
+  italic looked identical. Fix: `theme::pick_mono_family` matches the config's
+  `appearance.font_family` (empty = auto) against
+  `window.text_system().all_font_names()` and falls back to a preference list of
+  real monospace families, ordered so families with genuine bold **and** italic
+  faces come first (JetBrains Mono, DejaVu Sans Mono, Adwaita Mono, …) — gpui
+  never synthesizes a missing face, and Noto Sans Mono (the usual fontconfig
+  `monospace`) has **no italic**, so italic emphasis would still be invisible if
+  it were picked first. The resolved family is used for the text style *and* the
+  line wrappers, and is logged once at debug (`editor font family family=…`);
+  if nothing matches, a warning says text will use gpui's fallback. Verified
+  live: JetBrains Mono, and bold/italic are now clearly drawn. Note that for a
+  monospace family the bold and regular advances are identical (8.4px at 14pt),
+  so a width comparison cannot detect bold — check pixels, not metrics.
 - **Live preview, stage 1 (syntax styling) — done.** `shale_core::mdstyle::
   style_spans(text)` returns `StyleSpan { start, end, style }` over the whole
   buffer: absolute byte offsets on character boundaries, sorted by `(start,
@@ -249,6 +270,10 @@ row)], width, IndentAdjustment::NoIndent)`, whose `Boundary.ix` is a **byte
     later: drive the display model from shaped geometry (an x-offset based
     desired column resolved with `closest_index_for_x`, Zed-style) instead of
     character counts, and take the wrap width from the current frame's layout.
+    **Big suspect found since:** the editor was not being drawn in a monospace
+    font at all (see the font bullet below), so character columns were not
+    visual columns. Re-test j/k now that the family resolves to a real mono font
+    before doing the shaped-geometry rework.
   - The buffer row is no longer visible anywhere (the ruler shows the display
     row, as vim does).
   - Tabs render as one cell in gpui, so a tab-indented note looks different from
@@ -272,7 +297,9 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   never be the reason a binding is skipped. A keystroke observer logs
   `action = None` both when no binding matched _and_ when a binding matched but
   no `on_action` listener consumed it — so "no action" does not by itself mean
-  "no binding".
+  "no binding". That observer now logs at **trace** (it fires for every
+  keystroke and flooded the console at debug): use `RUST_LOG=shale=trace` when a
+  keybinding needs diagnosing, and keep it off for normal runs.
 - **Undo granularity** is now: one insert session = one step, `cw`/`o` + typing =
   one step, each normal-mode operator = one step. Vim coalesces slightly
   differently; revisit if it feels wrong in practice.
@@ -366,7 +393,18 @@ Next steps, roughly in order:
 6. ~~Live preview mode~~ stage 1 (markdown syntax styling, heading sizes and
    code-block backgrounds, no hidden characters) is done — see Open threads.
    Stage 2: hide markers, inline images, callouts.
-7. Theming (light/dark, TOML theme files).
-8. HarperLS / LSP integration for spellcheck and grammar.
-9. Image display in vaults (gpui image elements).
-10. File tree: new/rename/delete, file watching.
+7. Theming (light/dark, TOML theme files). `theme.rs` is the palette and
+   `appearance.font_family` in `shale.toml` already picks the editor's font;
+   `appearance.font_size` is still not wired up (the editor shapes at
+   `theme::FONT_SIZE`).
+8. Editor bindings round: **list / task / quote continuation on Enter.** Inside
+   a `-`/`*`/`+` bullet, a numbered item, a task (`- [ ]`) or a `>` quote,
+   pressing Enter should insert the same marker on the new line (Obsidian's
+   behaviour), and pressing Enter again on a marker-only line should remove that
+   empty marker instead of adding a second one. Needs the marker text inserted in
+   insert mode (so it lands in the same undo group and `.` replay), and the
+   continuation should follow the line's indent. Task lines should insert an
+   empty `- [ ]` regardless of whether the previous one was checked.
+9. HarperLS / LSP integration for spellcheck and grammar.
+10. Image display in vaults (gpui image elements).
+11. File tree: new/rename/delete, file watching.

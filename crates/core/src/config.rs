@@ -40,6 +40,11 @@ impl Default for EditorConfig {
 pub struct AppearanceConfig {
     /// UI font size in points.
     pub font_size: f32,
+    /// Font family for the editor. Empty means "pick a monospace family that is
+    /// actually installed" (see the app's `theme::pick_mono_family`): on Linux a
+    /// family name is matched literally, so the generic name `monospace` matches
+    /// no family and the platform falls back to a proportional UI font.
+    pub font_family: String,
     /// Live preview (render markdown while editing).
     pub live_preview: bool,
 }
@@ -48,6 +53,7 @@ impl Default for AppearanceConfig {
     fn default() -> Self {
         Self {
             font_size: 14.0,
+            font_family: String::new(),
             live_preview: true,
         }
     }
@@ -82,6 +88,7 @@ mod tests {
         assert!(cfg.editor.line_wrap);
         assert!(cfg.appearance.live_preview);
         assert_eq!(cfg.appearance.font_size, 14.0);
+        assert_eq!(cfg.appearance.font_family, "");
     }
 
     #[test]
@@ -94,11 +101,13 @@ show_file_tree = false
 
 [appearance]
 font_size = 16.5
+font_family = "Iosevka"
 live_preview = false
 "#;
         let cfg = Config::from_toml(toml).unwrap();
         assert!(!cfg.editor.vim_mode);
         assert_eq!(cfg.appearance.font_size, 16.5);
+        assert_eq!(cfg.appearance.font_family, "Iosevka");
     }
 
     #[test]
