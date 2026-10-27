@@ -13,6 +13,28 @@ use shale_core::mdstyle::Style;
 pub(crate) const LINE_HEIGHT: f32 = 20.0;
 /// Text size the editor shapes and wraps at.
 pub(crate) const FONT_SIZE: f32 = 14.0;
+/// Heading levels 1..=6 plus body text (level 0): how many text sizes, and so
+/// how many line wrappers, a frame may need.
+pub(crate) const SIZES: usize = 7;
+
+/// The text size a heading level is drawn at (level 0 is body text).
+pub(crate) fn font_size(level: u8) -> f32 {
+    match level {
+        1 => 22.0,
+        2 => 19.0,
+        3 => 17.0,
+        4 => 16.0,
+        5 => 15.0,
+        // Level 6 headings are body-sized but still bold.
+        _ => FONT_SIZE,
+    }
+}
+
+/// The height of a display line drawn at `size`, keeping the body line's
+/// leading ratio so wrapped text does not crowd.
+pub(crate) fn line_height(size: f32) -> f32 {
+    size * (LINE_HEIGHT / FONT_SIZE)
+}
 
 /// Note background.
 pub(crate) const BG: u32 = 0x1e1e1e;
@@ -103,6 +125,7 @@ impl RunStyle {
             Style::Strike => run.strikethrough = true,
             Style::Highlight => run.background = Some(HIGHLIGHT_BG),
             Style::Code => run.background = Some(CODE_BG),
+            Style::CodeBlock => run.background = Some(CODE_BLOCK_BG),
             Style::CodeFence => {
                 run.color = DIM;
                 run.background = Some(CODE_BLOCK_BG);

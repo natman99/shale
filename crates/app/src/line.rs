@@ -13,7 +13,7 @@ use gpui::{
 use shale_core::mdstyle::Style;
 
 use crate::editor::MarkdownEditor;
-use crate::theme::{RunStyle, CURSOR, FONT_SIZE, LINE_HEIGHT, LINK, LINK_UNRESOLVED, SELECTION};
+use crate::theme::{self, RunStyle, CURSOR, LINK, LINK_UNRESOLVED, SELECTION};
 
 /// One painted row: a segment of a buffer row when the row soft-wraps.
 #[derive(Clone, Copy)]
@@ -24,6 +24,8 @@ pub(crate) struct DisplayLine {
     pub(crate) start: usize,
     /// End of the segment, exclusive.
     pub(crate) end: usize,
+    /// Text size this segment is shaped and wrapped at (headings are larger).
+    pub(crate) size: f32,
 }
 
 /// A display line captured during paint, for hit-testing and IME placement.
@@ -59,6 +61,11 @@ pub(crate) struct LineElement {
     /// (start, end, style) markdown spans within `text`, in the order the
     /// scanner emitted them (block spans first, so later spans win).
     pub(crate) spans: Vec<(usize, usize, Style)>,
+    /// Text size to shape and paint at; the row's height follows it.
+    pub(crate) size: f32,
+    /// Whether the row belongs to a fenced code block, whose background spans
+    /// the full width of the editor rather than just its text.
+    pub(crate) block: bool,
 }
 
 pub(crate) struct LinePrepaint {
@@ -144,7 +151,7 @@ impl Element for LineElement {
     ) -> (LayoutId, Self::RequestLayoutState) {
         let mut style = ElementStyle::default();
         style.size.width = relative(1.).into();
-        style.size.height = px(LINE_HEIGHT).into();
+        style.size.height = px(theme::line_height(self.size)).into();
         (window.request_layout(style, [], cx), ())
     }
 
@@ -161,7 +168,7 @@ impl Element for LineElement {
         let runs = build_runs(&self.text, &self.spans, &self.links, &font);
         let line = window
             .text_system()
-            .shape_line(self.text.clone(), px(FONT_SIZE), &runs, None);
+            .shape_line(self.text.clone(), px(self.size), &runs, None);
         LinePrepaint { line }
     }
 
@@ -198,6 +205,11 @@ impl Element for LineElement {
             );
         }
 
+        // A fenced block's background covers the whole line, not just its text.
+        if self.block {
+            window.paint_quad(fill(bounds, rgb(theme::CODE_BLOCK_BG)));
+        }
+
         // Selection quad.
         if let Some((s, e)) = self.line_sel {
             let x0 = line.x_for_index(s);
@@ -211,11 +223,11 @@ impl Element for LineElement {
             ));
         }
 
-        // Run backgrounds (inline code, highlights, fenced blocks) are a
-        // separate pass over the decoration runs, painted under the glyphs.
+        // Run backgrounds (inline code and highlights) are a separate pass over
+        // the decoration runs, painted under the glyphs.
         if let Err(err) = line.paint_background(
             bounds.origin,
-            px(LINE_HEIGHT),
+            px(theme::line_height(self.size)),
             gpui::TextAlign::default(),
             None,
             window,
@@ -226,7 +238,7 @@ impl Element for LineElement {
 
         if let Err(err) = line.paint(
             bounds.origin,
-            px(LINE_HEIGHT),
+            px(theme::line_height(self.size)),
             gpui::TextAlign::default(),
             None,
             window,

@@ -1128,6 +1128,51 @@ mod tests {
         }
     }
 
+    /// Headings are painted at a larger size, and their rows have to be
+    /// *wrapped* at that size too, or a long heading's break points would not
+    /// match what is on screen.
+    #[gpui::test]
+    fn headings_are_painted_larger(cx: &mut TestAppContext) {
+        cx.update(|cx| cx.bind_keys(keybindings()));
+
+        let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+        let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+        editor
+            .update(cx, |editor, window, cx| {
+                editor.set_text("# Heading text here\nBody text here xx\n".to_string(), cx);
+                let focus = editor.focus_handle(cx);
+                window.focus(&focus, cx);
+            })
+            .unwrap();
+        for _ in 0..2 {
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+        }
+
+        let painted = editor
+            .read_with(cx, |editor, _cx| editor.painted_lines())
+            .unwrap();
+        let heights = editor
+            .read_with(cx, |editor, _cx| editor.painted_heights())
+            .unwrap();
+        assert_eq!(
+            painted.len(),
+            3,
+            "three display lines (the trailing newline leaves an empty row)"
+        );
+        assert!(
+            painted[0].2 > painted[1].2,
+            "the heading line ({:?}) should be painted wider than the body line ({:?})",
+            painted[0].2,
+            painted[1].2
+        );
+        assert!(
+            heights[0] > heights[1],
+            "the heading row ({:?}) should be taller than the body row ({:?})",
+            heights[0],
+            heights[1]
+        );
+    }
+
     /// Styling must not disturb editing: the same vim keys work on a styled
     /// note, and the style cache has to follow every edit.
     #[gpui::test]

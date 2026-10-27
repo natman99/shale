@@ -19,6 +19,7 @@ Shale is an obsidian-style markdown editor with extra developer focused features
 - [ ] Command pallette (vim `:` and Vscode's `ctrl+shift+p` to open. Vim version supports vim features like `s/x/x` replacement. Fuzzy search for commands)
 - [ ] Note search and full vault search (command pallette, vim `/`)
 - [ ] Templates: save standard notes as templates to be copied in to other notes with a command. Also add a gui picker.
+- [ ] "Raw" mode (disables syntax highlighting and markdown rendering)
 
 - Config files in TOML
 - Assure any code you reference or copy from online has a commercial permissible licensing
@@ -193,11 +194,21 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
   out of step. `tests::styled_markdown_keeps_the_wrap_accurate` holds that
   invariant, and `tests::editing_a_styled_note` covers the style cache (keyed on
   `Buffer::change_id`, like the wrap cache) after edits.
-  Deliberately *not* in stage 1: hiding markers, heading font sizes
-  (`shape_line` cannot mix sizes in one line, and per-row sizes would mean
-  per-row fonts in the wrap model too), inline images, callouts, and block-level
-  backgrounds (a fenced block's background currently covers each line's painted
-  text, not the full width). Those are stage 2.
+  **Sizes and blocks (added on top of stage 1):** heading rows are painted
+  larger (`theme::font_size(level)`, and `line_height(size)` keeps the body
+  line's leading ratio, so a display line's height follows its size). Because
+  wrapping must agree with the paint, `row_styles()` computes one `RowStyle`
+  per buffer row — `wide` (a face wider than regular), `heading` (the largest
+  level on the row) and `block` (inside a fenced block) — and the frame builds
+  one `LineWrapper` per (level, wide) pair, indexed by `wrapper_index`. A fenced
+  block's background is a full-width quad painted by the line element rather
+  than a run background, so it reads as a block; `mdstyle` therefore distinguishes
+  `Style::CodeBlock` (fenced content) from `Style::Code` (inline spans).
+  `tests::headings_are_painted_larger` checks a heading row is both wider and
+  taller than a body row.
+  Deliberately *not* done yet (stage 2): hiding markers, inline images, callouts,
+  and any per-run font size (`shape_line` takes one size per line, which is why
+  sizes are per display line, not per run).
 - **Soft wrap — done.** `Buffer` holds a _display model_: the UI calls
   `Buffer::set_display_segments(rows_of_absolute_byte_starts)` each frame, and
   every vertical motion (`j`/`k`, `desired_col`) works on flat display-line
@@ -352,9 +363,9 @@ Next steps, roughly in order:
    goal, then live preview.
 5. Table-aware motions and manipulation (the table goal): column motions on the
    pipe and dash characters, adding/removing rows and columns.
-6. ~~Live preview mode~~ stage 1 (markdown syntax styling, no hidden characters)
-   is done — see Open threads. Stage 2: hide markers, heading sizes, inline
-   images, callouts, block backgrounds.
+6. ~~Live preview mode~~ stage 1 (markdown syntax styling, heading sizes and
+   code-block backgrounds, no hidden characters) is done — see Open threads.
+   Stage 2: hide markers, inline images, callouts.
 7. Theming (light/dark, TOML theme files).
 8. HarperLS / LSP integration for spellcheck and grammar.
 9. Image display in vaults (gpui image elements).

@@ -38,8 +38,10 @@ pub enum Style {
     Strike,
     /// `==highlight==` content.
     Highlight,
-    /// A code span (backticks included) or a fenced block's content.
+    /// A code span (backticks included).
     Code,
+    /// The content of a fenced code block (one span per line).
+    CodeBlock,
     /// The opening/closing fence line of a code block.
     CodeFence,
     /// The text of a `[text](url)` or `![[link]]`.
@@ -188,7 +190,7 @@ fn scan_line(
             out.push(StyleSpan {
                 start: base,
                 end: line_end,
-                style: Style::Code,
+                style: Style::CodeBlock,
             });
         }
         return;
@@ -723,7 +725,7 @@ mod tests {
         assert!(spans(text, Style::Strong).is_empty());
 
         let fenced = "```\nlet x = **y**;\n```";
-        assert_eq!(texts(fenced, Style::Code), vec!["let x = **y**;"]);
+        assert_eq!(texts(fenced, Style::CodeBlock), vec!["let x = **y**;"]);
         assert_eq!(texts(fenced, Style::CodeFence), vec!["```", "```"]);
         assert!(spans(fenced, Style::Strong).is_empty());
     }

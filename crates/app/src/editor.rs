@@ -7,7 +7,7 @@ use std::ops::Range;
 use gpui::{
     div, font, prelude::*, px, rgb, App, Bounds, Context, CursorStyle, EntityInputHandler,
     EventEmitter, FocusHandle, Focusable, IndentAdjustment, InteractiveElement, IntoElement,
-    LineFragment, LineWrapper, MouseButton, MouseDownEvent, ParentElement, Pixels, Render,
+    LineFragment, LineWrapperHandle, MouseButton, MouseDownEvent, ParentElement, Pixels, Render,
     ScrollHandle, SharedString, Styled, UTF16Selection, Window,
 };
 use shale_core::buffer::Buffer;
@@ -28,6 +28,26 @@ pub(crate) use crate::theme::FONT_SIZE;
 pub enum EditorEvent {
     /// The user asked to follow the wiki-link to `target`.
     FollowLink { target: String },
+}
+
+/// How a buffer row will be presented, derived from its markdown style spans.
+/// The wrap model has to measure a row with the face and size it will be painted
+/// with, or the break points stop matching what the user sees.
+#[derive(Clone, Copy, Default)]
+struct RowStyle {
+    /// The row is painted with a face wider than the regular one (a heading,
+    /// strong or quoted text).
+    wide: bool,
+    /// The largest heading level on the row; 0 is body text.
+    heading: u8,
+    /// The row belongs to a fenced code block, which gets a full-width
+    /// background.
+    block: bool,
+}
+
+/// Which line wrapper a row needs: one per heading level, regular and wide face.
+fn wrapper_index(row: RowStyle) -> usize {
+    row.heading as usize * 2 + usize::from(row.wide)
 }
 
 impl EventEmitter<EditorEvent> for MarkdownEditor {}
@@ -150,6 +170,16 @@ impl MarkdownEditor {
             .collect()
     }
 
+    /// The height each display line was painted at, which follows its text size
+    /// (headings are taller).
+    #[cfg(test)]
+    pub fn painted_heights(&self) -> Vec<Pixels> {
+        self.hit_lines
+            .iter()
+            .map(|hit| hit.bounds.size.height)
+            .collect()
+    }
+
     /// Cursor position in display coordinates (wrapped segments counted as
     /// lines, column counted in characters from the segment start), like a vim
     /// ruler.
@@ -230,33 +260,38 @@ impl MarkdownEditor {
             .collect()
     }
 
-    /// Which buffer rows contain a span drawn with a wider face (a heading,
-    /// strong or quoted text). Soft wrap has to measure those rows with the same
-    /// face it will paint them with, or the break points drift: measuring with
-    /// the regular face and painting bold makes a line overflow the wrap width.
-    fn wide_rows(&self) -> Vec<bool> {
+    /// Per-buffer-row presentation facts the wrap model needs, gathered from the
+    /// style spans in one pass (spans and rows are both in offset order, so a
+    /// single forward walk is enough).
+    fn row_styles(&self) -> Vec<RowStyle> {
         let line_count = self.buffer.line_count();
-        let mut flags = vec![false; line_count];
+        let mut rows = vec![RowStyle::default(); line_count];
         let Some((_, spans)) = self.style_cache.as_ref() else {
-            return flags;
+            return rows;
         };
-        // Both spans and rows are in offset order, so one forward walk is
-        // enough; `row` never moves backwards.
         let mut row = 0usize;
         for span in spans {
-            if !theme::RunStyle::for_style(span.style).is_wide() {
-                continue;
-            }
             while row < line_count && self.buffer.line_end(row) <= span.start {
                 row += 1;
             }
+            let style = theme::RunStyle::for_style(span.style);
+            let wide = style.is_wide();
+            let heading = match span.style {
+                Style::Heading { level } => level,
+                Style::HeadingMarker => 1,
+                _ => 0,
+            };
+            let block = matches!(span.style, Style::CodeBlock | Style::CodeFence);
             let mut r = row;
             while r < line_count && self.buffer.line_start(r) < span.end {
-                flags[r] = true;
+                let row = &mut rows[r];
+                row.wide |= wide;
+                row.heading = row.heading.max(heading);
+                row.block |= block;
                 r += 1;
             }
         }
-        flags
+        rows
     }
 
     /// Whether a link target names a note that exists in the vault.
@@ -298,15 +333,15 @@ impl MarkdownEditor {
     /// to the buffer, so vim's `j`/`k` step over wrapped rows like neovim's and
     /// the buffer's display-line index space is identical to the painted one (if
     /// they ever disagreed the cursor would be drawn on the wrong row).
-    /// Rows that will be painted with a wide face (heading, strong, quote) are
-    /// measured with that face, from `wide`, so their break points match what
-    /// the user sees. Boundaries are cached until the text or the width changes.
+    /// A row is measured with the face and size it will be painted with —
+    /// `wrappers` holds one line wrapper per (heading level, wide or not), which
+    /// is what keeps break points matching the paint. Boundaries are cached until
+    /// the text or the width changes.
     fn display_lines(
         &mut self,
         width: Pixels,
-        regular: &mut LineWrapper,
-        wide: &mut LineWrapper,
-        wide_rows: &[bool],
+        wrappers: &mut [LineWrapperHandle],
+        rows: &[RowStyle],
     ) -> Vec<DisplayLine> {
         let line_count = self.buffer.line_count();
         let change_id = self.buffer.change_id();
@@ -334,11 +369,8 @@ impl MarkdownEditor {
                 }
             } else if width > px(0.) {
                 let text = &self.buffer.text()[row_start..row_end];
-                let wrapper: &mut LineWrapper = if wide_rows.get(row).copied().unwrap_or(false) {
-                    &mut *wide
-                } else {
-                    &mut *regular
-                };
+                let row_style = rows.get(row).copied().unwrap_or_default();
+                let wrapper = &mut wrappers[wrapper_index(row_style)];
                 for boundary in wrapper.wrap_line(
                     &[LineFragment::text(text)],
                     width,
@@ -362,9 +394,15 @@ impl MarkdownEditor {
         let mut out = Vec::new();
         for (row, starts) in segments.iter().enumerate() {
             let row_end = self.buffer.line_end(row);
+            let size = theme::font_size(rows.get(row).copied().unwrap_or_default().heading);
             for (i, &start) in starts.iter().enumerate() {
                 let end = starts.get(i + 1).copied().unwrap_or(row_end);
-                out.push(DisplayLine { row, start, end });
+                out.push(DisplayLine {
+                    row,
+                    start,
+                    end,
+                    size,
+                });
             }
         }
         out
@@ -714,12 +752,18 @@ impl Render for MarkdownEditor {
         // can step across wrapped rows. Rows that will be painted with a wide
         // face are measured with it, so their break points match the paint.
         let wrap_width = self.scroll_handle.bounds().size.width;
-        let wide_rows = self.wide_rows();
+        let row_styles = self.row_styles();
         let display_lines = {
             let text_system = window.text_system();
-            let mut regular = text_system.line_wrapper(font("monospace"), px(FONT_SIZE));
-            let mut wide = text_system.line_wrapper(font("monospace").bold(), px(FONT_SIZE));
-            self.display_lines(wrap_width, &mut regular, &mut wide, &wide_rows)
+            // One wrapper per (heading level, regular or wide face), so every
+            // row is measured with the face and size it will be painted with.
+            let mut wrappers: Vec<LineWrapperHandle> = Vec::with_capacity(theme::SIZES * 2);
+            for level in 0..theme::SIZES as u8 {
+                let size = px(theme::font_size(level));
+                wrappers.push(text_system.line_wrapper(font("monospace"), size));
+                wrappers.push(text_system.line_wrapper(font("monospace").bold(), size));
+            }
+            self.display_lines(wrap_width, &mut wrappers, &row_styles)
         };
         let cursor_display = self.buffer.display_index_for(cursor);
 
@@ -838,11 +882,14 @@ impl Render for MarkdownEditor {
                         // Markdown style spans restricted to this display line,
                         // in line-relative byte offsets.
                         let line_spans = self.line_spans(dl.start, dl.end);
+                        // A fenced block's background spans the full width, so
+                        // the element paints it as a quad rather than a run.
+                        let block = row_styles.get(dl.row).copied().unwrap_or_default().block;
 
                         div()
                             .id(("line", index))
                             .w_full()
-                            .h(px(theme::LINE_HEIGHT))
+                            .h(px(theme::line_height(dl.size)))
                             .child(LineElement {
                                 editor: cx.entity(),
                                 row: dl.row,
@@ -855,6 +902,8 @@ impl Render for MarkdownEditor {
                                 insert: self.vim.mode() == Mode::Insert,
                                 links: line_links,
                                 spans: line_spans,
+                                size: dl.size,
+                                block,
                             })
                     })),
             )
