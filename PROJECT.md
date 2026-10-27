@@ -100,9 +100,11 @@ Workspace layout:
 - `crates/core` (`shale-core`): vault model (path-traversal safe), wiki-link
   extraction/resolution/backlinks, search, TOML config (`shale.toml` in the
   vault), text `Buffer` with undo/redo, the vim mode engine, `mdstyle` (the
-  presentation-agnostic markdown style scanner), `mdlayout` (which markdown
-  markers live preview hides, and the visible pieces that remain) and `table`
-  (the table model: cells, cell lookup, row/column editing and moving —
+  presentation-agnostic markdown style scanner, split into `mdstyle/mod.rs` for
+  the vocabulary and the line walk, `mdstyle/block.rs` for what a line *is* and
+  `mdstyle/inline.rs` for emphasis/links/tags inside it), `mdlayout` (which
+  markdown markers live preview hides, and the visible pieces that remain) and
+  `table` (the table model: cells, cell lookup, row/column editing and moving —
   `table/mod.rs` is the model, `table/edit.rs` the splices). Pure Rust, fully
   unit tested.
 - `crates/app` (`shale` binary): GPUI app (Zed's gpui, tag `v1.25.3`) — file
@@ -121,9 +123,10 @@ Workspace layout:
   the frame and the key context, `actions.rs` the key handlers, `input.rs` the
   IME/paste/click surface), `line.rs` (the `LineElement` that paints one display
   line, and the run builder), `preview.rs` (the painted form of a display line and
-  the buffer <-> painted-offset map), `table_view.rs` (the table grid geometry:
-  column widths and cell offsets, in character cells), `theme.rs` (the palette and
-  `Style` -> `RunStyle` mapping) and `tree.rs`.
+  the buffer <-> painted-offset map), `image.rs` (resolving an embed target to a
+  vault attachment and sizing the picture), `table_view.rs` (the table grid
+  geometry: column widths and cell offsets, in character cells), `theme.rs` (the
+  palette and `Style` -> `RunStyle` mapping) and `tree.rs`.
 - `crates/mcp` (`shale-mcp` binary): MCP stdio server exposing list/read/
   write/search/backlinks tools.
 - `refs/` (**gitignored, not shipped**): local copies of the Vim help files
@@ -184,8 +187,8 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
   text (a scanner bug can allocate until the OOM killer takes the editor down —
   see the table postmortem). Build parallelism is capped in `.cargo/config.toml`
   at the user's request because a full-parallel build stalled the editor.
-  Current peak RSS of the test binaries: core 4 MB, app 19 MB, mcp 3 MB. The app
-  binary's *address space* (not RSS) exceeds 600 MB because of gpui/wgpu
+  Current peak RSS of the test binaries: core 4.5 MB, app 29 MB, mcp 3.5 MB. The
+  app binary's *address space* (not RSS) exceeds 600 MB because of gpui/wgpu
   reservations, so use a 1 GB cap or more there.
 
 ### Open threads (write findings here as they come up)
@@ -234,8 +237,60 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
   revisit: `table_view::column_widths` still measures the *raw* content, so a cell
   containing markers gets a slightly wide column; measuring the painted text is part
   of the wide-glyph/display-column rework.
-  **Still stage 2:** inline images, callouts (`> [!note]`), and hiding the fence
-  lines of a code block.
+  **Done since (see the stage 2b bullet below): callouts, the fence lines of a
+  code block, and inline images.**
+
+- **Live preview stage 2b — callouts, collapsed rows, inline images — done.**
+  - **Callouts** (`> [!warning] Watch out`). `mdstyle` gained `CalloutKind`
+    (Obsidian's types plus its aliases: `caution`→Warning, `faq`→Question, …,
+    and `Other` for anything it does not know) and two styles:
+    `Style::Callout { kind }`, one span per line of the box, and
+    `Style::CalloutTitle { kind }` for the header. A callout is a blockquote
+    whose first line opens with `[!name]` (an optional `-`/`+` fold marker) and
+    it runs until the first line that is not part of a quote. `[!` and `]` are
+    emitted as `Punctuation`, so live preview hides them like any other syntax,
+    but **the type name is kept and painted as the title** — Obsidian capitalises
+    it ("Note"), we show the buffer's own bytes, which is what keeps the painted
+    text mappable to buffer offsets. Painting: `RowStyle.callout` carries the
+    kind, `theme::callout_accent(kind)` picks the colour, and `LineElement` draws
+    a full-width `CALLOUT_BG` quad plus a 2 px accent bar on the line's left edge
+    (`a_callout_is_painted_as_a_box` checks the box follows the block and that the
+    header's brackets come back on the cursor's row).
+  - **Collapsed rows.** `Buffer::set_display_segments` now distinguishes a row
+    with **no entry** (one unwrapped line) from a row with an **empty vec**, which
+    means the UI does not draw it at all: it contributes no display line, so
+    `display_line_count`, `display_range`, `display_index_for` and the vertical
+    motions step over it, and an offset inside it resolves to the line after
+    (`buffer::tests::a_collapsed_row_takes_no_display_line`).
+    `MarkdownEditor::collapsed_rows` marks two kinds: the ``` lines of a fenced
+    block the cursor is not inside, and a table's `---` delimiter row. Both come
+    back the moment the cursor is on them (for a fence, anywhere in its block),
+    which is what lets the user still type a new table's delimiter row or edit a
+    fence. Consequence for tables: with the delimiter row gone, the rule under
+    the header is painted along the header row's bottom edge
+    (`TablePaint::rule_below`), so a table no longer shows an empty band under its
+    header. The wrap cache gained `collapsed` and `no_wrap` flags so a cached
+    measurement is never reused for a row whose state changed.
+  - **Inline images.** `markdown::line_image_embed` recognises a row that is
+    *nothing but* an embed — `![[att.png]]`, `![[att.png|300]]`,
+    `![[att.png|300x200]]`, `![alt](path =300x200 "title")` — and returns the
+    target plus any size suffix. `Vault::list_attachments` (everything that is
+    not a `.md`) and `Vault::resolve_attachment` (exact path → case-insensitive
+    path → file name or stem, shortest path winning) do the Obsidian-style name
+    lookup. `crates/app/src/image.rs` turns those into a per-row `ImagePlan`, and
+    `fit_size` sizes the picture: the note's size suffix or the file's own size,
+    scaled down to the editor's width and `MAX_HEIGHT` (600 px), never enlarged.
+    The editor is given the vault and its attachments with
+    `MarkdownEditor::set_vault`; each frame it asks gpui with
+    `window.use_asset::<ImgResourceLoader>(Resource::Path(..))` (which decodes in
+    the background and redraws when the file arrives) and `LineElement` paints it
+    with `window::paint_image`. An image row never soft-wraps, its display line
+    is as tall as the picture, and its painted text is empty with an identity
+    `PieceMap`, so clicking the picture puts the cursor on the row and the source
+    comes back. Verified live: `![[demo.png|300]]` in the demo vault draws the
+    320×180 png 300 px wide.
+    Still open: an embed inside a paragraph (only whole-row embeds are drawn as
+    images), and a `|alias` suffix on an embed is read as "no size".
 
 - **Tables — done: model, editing, and the grid widget.**
   `shale_core::table` holds the model (`table/mod.rs`: parsing, cell lookup,
@@ -580,9 +635,14 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   `AGENTS.md`, so they are now directories: `editor/{mod,wrap,render,actions,input}.rs`
   (a submodule can reach `MarkdownEditor`'s private state because they are all
   descendants of `editor`; anything one sibling calls on another is `pub(super)`)
-  and `tests/{mod,keys,paint}.rs`. Largest files now: `main.rs` 570, `line.rs` 722,
-  `tests/paint.rs` 512. Keep an eye on `line.rs` — it holds the element, the run
-  builder and the table grid paint, and is the next candidate to split.
+  and `tests/{mod,keys,paint}.rs`. `mdstyle.rs` passed it too and is now
+  `mdstyle/{mod,block,inline}.rs` (450 / 398 / 277): `mod.rs` holds `Style`,
+  `CalloutKind`, `StyleSpan`, the line walk and the tests, `block.rs` classifies
+  each line, `inline.rs` styles the text inside it. Largest files now: `vim.rs`
+  2074, `buffer.rs` 1554, `line.rs` 815, `tests/paint.rs` 648, `main.rs` 585.
+  `vim.rs` and `buffer.rs` are still over the rule — split them the next time
+  either one is touched; `line.rs` (the element, the run builder and the table
+  grid paint) is the next candidate after those.
 
 System dependency (Linux): `libxkbcommon-x11-devel` (plus fontconfig, freetype,
 x11, xcb, wayland dev packages) and a working Vulkan driver (the Linux renderer
@@ -607,9 +667,13 @@ Next steps, roughly in order:
    scrolling for a table wider than the window, wide-glyph column widths, and
    live confirmation of the motions by the user.
 6. ~~Live preview mode~~ stage 1 (markdown syntax styling, heading sizes and
-   code-block backgrounds) and stage 2a (hiding the markers of a row the cursor is
-   not on, including inside table cells) are done — see Open threads. Stage 2
-   remaining: inline images and callouts.
+   code-block backgrounds), stage 2a (hiding the markers of a row the cursor is
+   not on, including inside table cells) and stage 2b (callouts, collapsing a
+   code block's fence lines and a table's delimiter row out of the display model,
+   and whole-row image embeds) are done — see Open threads. What is left here:
+   images embedded inside a paragraph, horizontal scrolling for a table wider
+   than the window, wide-glyph column widths, and the shaped-geometry display
+   columns that would also settle j/k accuracy.
 7. Theming (light/dark, TOML theme files). `theme.rs` is the palette and
    `appearance.font_family` in `shale.toml` already picks the editor's font;
    `appearance.font_size` is still not wired up (the editor shapes at
