@@ -32,6 +32,11 @@ mod acts {
             VimW,
             VimB,
             VimE,
+            VimF,
+            VimUpperF,
+            VimT,
+            VimUpperT,
+            VimSpace,
             VimZero,
             VimCaret,
             VimDollar,
@@ -389,6 +394,11 @@ fn keybindings() -> Vec<KeyBinding> {
         "w" => VimW,
         "b" => VimB,
         "e" => VimE,
+        "f" => VimF,
+        "shift-f" => VimUpperF,
+        "t" => VimT,
+        "shift-t" => VimUpperT,
+        "space" => VimSpace,
         "0" => VimZero,
         "^" => VimCaret,
         "$" => VimDollar,
@@ -625,7 +635,10 @@ mod tests {
             let (bindings, pending) = keymap.bindings_for_input(&[typed], &contexts);
             assert!(!pending, "{key} should not leave pending input");
             assert_eq!(
-                bindings.iter().map(|b| b.action().name()).collect::<Vec<_>>(),
+                bindings
+                    .iter()
+                    .map(|b| b.action().name())
+                    .collect::<Vec<_>>(),
                 vec![action],
                 "typed {key} (control {control}) should resolve to {action}"
             );
@@ -656,11 +669,7 @@ mod tests {
 
         let (ranges, width, text) = editor
             .read_with(cx, |editor, _cx| {
-                (
-                    editor.display_ranges(),
-                    editor.wrap_width(),
-                    editor.text(),
-                )
+                (editor.display_ranges(), editor.wrap_width(), editor.text())
             })
             .unwrap();
         let painted = editor
@@ -720,11 +729,7 @@ mod tests {
 
         let (ranges, width, text) = editor
             .read_with(cx, |editor, _cx| {
-                (
-                    editor.display_ranges(),
-                    editor.wrap_width(),
-                    editor.text(),
-                )
+                (editor.display_ranges(), editor.wrap_width(), editor.text())
             })
             .unwrap();
         let painted = editor
@@ -829,6 +834,45 @@ mod tests {
         cx.simulate_keystrokes("ctrl-z ctrl-y");
         let text = editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
         assert_eq!(text, "abcstart", "ctrl-y should redo");
+    }
+
+    /// `f`/`t` and space must work through the real keymap: space is both vim's
+    /// `l` alias and the argument of `f `.
+    #[gpui::test]
+    fn normal_mode_find_motions(cx: &mut TestAppContext) {
+        cx.update(|cx| cx.bind_keys(keybindings()));
+
+        let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+        let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+        editor
+            .update(cx, |editor, window, cx| {
+                editor.set_text("one two three four\nsecond line".to_string(), cx);
+                let focus = editor.focus_handle(cx);
+                window.focus(&focus, cx);
+            })
+            .unwrap();
+
+        cx.simulate_keystrokes("0 f r");
+        let pos = editor
+            .read_with(cx, |editor, _cx| editor.cursor_position())
+            .unwrap();
+        assert_eq!(pos, (0, 10), "`fr` should land on the r of three");
+
+        cx.simulate_keystrokes("0 f space");
+        let pos = editor
+            .read_with(cx, |editor, _cx| editor.cursor_position())
+            .unwrap();
+        assert_eq!(pos, (0, 3), "`f ` should land on the first space");
+
+        cx.simulate_keystrokes("0 2 space");
+        let pos = editor
+            .read_with(cx, |editor, _cx| editor.cursor_position())
+            .unwrap();
+        assert_eq!(pos, (0, 2), "space should move right like `l`");
+
+        cx.simulate_keystrokes("0 d f r");
+        let text = editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
+        assert_eq!(text, "ee four\nsecond line", "`dfr` deletes through the r");
     }
 
     #[gpui::test]

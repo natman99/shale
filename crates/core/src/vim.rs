@@ -40,6 +40,14 @@ enum Pending {
     Operator { op: Operator, count: usize },
     /// `g` typed, waiting for a second `g` or `x`.
     Goto { count: usize },
+    /// `f`/`t`/`F`/`T` typed, waiting for the character to find. `op` is set for
+    /// `dfw`-style commands, so the operator resumes once the search resolves.
+    Find {
+        op: Option<Operator>,
+        count: usize,
+        forward: bool,
+        inclusive: bool,
+    },
 }
 
 /// What the UI should do after a normal-mode key was handled.
@@ -100,8 +108,32 @@ impl Vim {
     pub fn pending_operator(&self) -> Option<char> {
         match self.pending {
             Pending::Operator { op, .. } => Some(op.char()),
+            Pending::Find { op: Some(op), .. } => Some(op.char()),
             _ => None,
         }
+    }
+
+    /// The half-typed motion that is still waiting for its argument (`f`, `t`,
+    /// `F`, `T`), for the status bar.
+    pub fn pending_motion(&self) -> Option<char> {
+        match self.pending {
+            Pending::Find {
+                forward, inclusive, ..
+            } => Some(match (forward, inclusive) {
+                (true, true) => 'f',
+                (true, false) => 't',
+                (false, true) => 'F',
+                (false, false) => 'T',
+            }),
+            _ => None,
+        }
+    }
+
+    /// Whether the engine is waiting for a literal character argument (`f`/`t`
+    /// and friends). Those keys are not bound in the keymap, so the UI feeds
+    /// them in through the input handler instead.
+    pub fn waiting_for_literal(&self) -> bool {
+        matches!(self.pending, Pending::Find { .. })
     }
 
     pub fn enter_insert(&mut self) {
@@ -140,6 +172,45 @@ impl Vim {
             return Outcome::Stay;
         }
 
+        // A find is waiting for its character.
+        if let Pending::Find {
+            op,
+            count,
+            forward,
+            inclusive,
+        } = self.pending
+        {
+            self.pending = Pending::None;
+            let Key::Char(c) = key else {
+                return Outcome::Unhandled;
+            };
+            let start = buf.cursor();
+            buf.find_char(c, forward, inclusive, count);
+            let Some(op) = op else {
+                return Outcome::Stay;
+            };
+            let end = buf.cursor();
+            if start == end {
+                // Nothing found: the operator is cancelled, as in vim.
+                return Outcome::Stay;
+            }
+            let (lo, hi) = if end > start {
+                // A forward `f` lands *on* the character, which the operator
+                // must include.
+                (
+                    start,
+                    if inclusive {
+                        buf.next_char_boundary(end)
+                    } else {
+                        end
+                    },
+                )
+            } else {
+                (end, start)
+            };
+            return self.apply_range(op, lo, hi, buf);
+        }
+
         // An operator in progress consumes the next key as its motion.
         if let Pending::Operator { op, count } = self.pending {
             self.pending = Pending::None;
@@ -172,9 +243,21 @@ impl Vim {
             Key::Char('j') => repeat(count, || buf.move_down()),
             Key::Char('k') => repeat(count, || buf.move_up()),
             Key::Char('l') => repeat(count, || buf.move_right_stay_on_line()),
+            // Vim binds space to the same motion as `l`; as the argument of
+            // `f `/`t ` it arrives through the pending find instead.
+            Key::Char(' ') => repeat(count, || buf.move_right_stay_on_line()),
             Key::Char('w') => repeat(count, || buf.word_forward()),
             Key::Char('b') => repeat(count, || buf.word_backward()),
             Key::Char('e') => repeat(count, || buf.word_end()),
+            Key::Char('f') | Key::Char('F') | Key::Char('t') | Key::Char('T') => {
+                self.pending = Pending::Find {
+                    op: None,
+                    count,
+                    forward: matches!(key, Key::Char('f') | Key::Char('t')),
+                    inclusive: matches!(key, Key::Char('f') | Key::Char('F')),
+                };
+                return Outcome::Stay;
+            }
             Key::Char('^') => buf.first_non_blank(),
             Key::Char('$') => buf.line_last_char_motion(),
             Key::Char('G') => {
@@ -283,10 +366,21 @@ impl Vim {
             Key::Char('b') => repeat(count, || buf.word_backward()),
             Key::Char('h') => repeat(count, || buf.move_left()),
             Key::Char('l') => repeat(count, || buf.move_right_stay_on_line()),
+            Key::Char(' ') => repeat(count, || buf.move_right_stay_on_line()),
             Key::Char('0') => buf.line_start_motion(),
             Key::Char('^') => buf.first_non_blank(),
             Key::Char('$') => buf.line_last_char_motion(),
             Key::Char('G') => buf.goto_line(count.saturating_sub(1)),
+            Key::Char('f') | Key::Char('F') | Key::Char('t') | Key::Char('T') => {
+                // The operator waits for the search character, e.g. `dfw`.
+                self.pending = Pending::Find {
+                    op: Some(op),
+                    count,
+                    forward: matches!(key, Key::Char('f') | Key::Char('t')),
+                    inclusive: matches!(key, Key::Char('f') | Key::Char('F')),
+                };
+                return Outcome::Stay;
+            }
             _ => {
                 // Unknown motion: cancel the operator rather than guessing.
                 return Outcome::Unhandled;
@@ -298,6 +392,11 @@ impl Vim {
             end = buf.next_char_boundary(end);
         }
         let (lo, hi) = (start.min(end), start.max(end));
+        self.apply_range(op, lo, hi, buf)
+    }
+
+    /// Apply `op` to the byte range `[lo, hi)`.
+    fn apply_range(&mut self, op: Operator, lo: usize, hi: usize, buf: &mut Buffer) -> Outcome {
         match op {
             Operator::Yank => {
                 self.register = Some(Register {
@@ -542,6 +641,53 @@ mod tests {
         b.set_cursor(12);
         type_keys(&mut v, "d$", &mut b);
         assert_eq!(b.text(), "aaaa   bbbb ", "d$ stops at the display line end");
+    }
+
+    /// `f`/`t`/`F`/`T` as motions and as operator arguments.
+    #[test]
+    fn find_motions_and_operators() {
+        let mut v = Vim::new();
+
+        let mut b = buf(); // "hello world\nsecond line\nthird"
+        type_keys(&mut v, "fo", &mut b);
+        assert_eq!(b.cursor(), 4, "f lands on the character");
+        type_keys(&mut v, "fo", &mut b);
+        assert_eq!(b.cursor(), 7, "and the next one on the second press");
+        type_keys(&mut v, "2fo", &mut b);
+        assert_eq!(b.cursor(), 7, "no third o on the row, so nothing moves");
+
+        let mut b = buf();
+        type_keys(&mut v, "dfo", &mut b);
+        assert_eq!(
+            b.text(),
+            " world\nsecond line\nthird",
+            "dfo includes the found character"
+        );
+
+        let mut b = buf();
+        type_keys(&mut v, "dto", &mut b);
+        assert_eq!(
+            b.text(),
+            "lo world\nsecond line\nthird",
+            "dto stops before the found character"
+        );
+
+        let mut b = buf();
+        b.set_cursor(10);
+        type_keys(&mut v, "dFw", &mut b);
+        assert_eq!(
+            b.text(),
+            "hello d\nsecond line\nthird",
+            "dFw deletes back to the match"
+        );
+
+        let mut b = buf();
+        type_keys(&mut v, "dzq", &mut b);
+        assert_eq!(
+            b.text(),
+            "hello world\nsecond line\nthird",
+            "a find that fails cancels the operator"
+        );
     }
 
     #[test]

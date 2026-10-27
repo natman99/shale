@@ -159,7 +159,7 @@ impl MarkdownEditor {
         )
     }
 
-    /// Status-bar hint for a half-typed command, e.g. `3d` or `2`.
+    /// Status-bar hint for a half-typed command, e.g. `3d`, `2` or `df`.
     pub fn pending_hint(&self) -> String {
         let count = self.vim.count().map(|c| c.to_string()).unwrap_or_default();
         let op = self
@@ -167,10 +167,15 @@ impl MarkdownEditor {
             .pending_operator()
             .map(|c| c.to_string())
             .unwrap_or_default();
-        if count.is_empty() && op.is_empty() {
+        let motion = self
+            .vim
+            .pending_motion()
+            .map(|c| c.to_string())
+            .unwrap_or_default();
+        if count.is_empty() && op.is_empty() && motion.is_empty() {
             String::new()
         } else {
-            format!(" {count}{op}")
+            format!(" {count}{op}{motion}")
         }
     }
 
@@ -521,8 +526,17 @@ impl EntityInputHandler for MarkdownEditor {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        // Normal mode swallows all typed input.
+        // Normal mode swallows typed input, except for the literal argument of
+        // a half-typed command (`fr`, `diw`): unbound characters never become
+        // actions, they arrive here.
         if self.vim.mode() == Mode::Normal {
+            if self.vim.waiting_for_literal() {
+                if let Some(c) = new_text.chars().next() {
+                    if new_text.chars().count() == 1 {
+                        self.normal(Key::Char(c), cx);
+                    }
+                }
+            }
             return;
         }
         if let Some(range) = range_utf16 {
@@ -619,6 +633,11 @@ impl Render for MarkdownEditor {
             .on_action(cx.listener(|this, _: &VimW, _, cx| this.normal(Key::Char('w'), cx)))
             .on_action(cx.listener(|this, _: &VimB, _, cx| this.normal(Key::Char('b'), cx)))
             .on_action(cx.listener(|this, _: &VimE, _, cx| this.normal(Key::Char('e'), cx)))
+            .on_action(cx.listener(|this, _: &VimF, _, cx| this.normal(Key::Char('f'), cx)))
+            .on_action(cx.listener(|this, _: &VimUpperF, _, cx| this.normal(Key::Char('F'), cx)))
+            .on_action(cx.listener(|this, _: &VimT, _, cx| this.normal(Key::Char('t'), cx)))
+            .on_action(cx.listener(|this, _: &VimUpperT, _, cx| this.normal(Key::Char('T'), cx)))
+            .on_action(cx.listener(|this, _: &VimSpace, _, cx| this.normal(Key::Char(' '), cx)))
             .on_action(cx.listener(|this, _: &VimZero, _, cx| this.normal(Key::Char('0'), cx)))
             .on_action(cx.listener(|this, _: &VimCaret, _, cx| this.normal(Key::Char('^'), cx)))
             .on_action(cx.listener(|this, _: &VimDollar, _, cx| this.normal(Key::Char('$'), cx)))

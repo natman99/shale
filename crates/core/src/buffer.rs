@@ -554,6 +554,59 @@ impl Buffer {
         self.set_cursor(self.prev_char_boundary(end));
     }
 
+    /// Move to the `count`-th occurrence of `c` on the current row: vim's `f`
+    /// (forward, lands on it), `t` (forward, stops just before it), `F` and `T`
+    /// (backwards). A character that is not on the rest of the row leaves the
+    /// cursor where it is, as in vim.
+    pub fn find_char(&mut self, c: char, forward: bool, inclusive: bool, count: usize) {
+        let (row, _) = self.row_col(self.cursor);
+        let row_start = self.line_start(row);
+        let row_end = self.line_end(row);
+        let mut remaining = count.max(1);
+        let mut found = None;
+
+        if forward {
+            let mut i = self.next_char_boundary(self.cursor);
+            while i < row_end {
+                if self.text[i..].starts_with(c) {
+                    remaining -= 1;
+                    if remaining == 0 {
+                        found = Some(i);
+                        break;
+                    }
+                }
+                i = self.next_char_boundary(i);
+            }
+        } else {
+            let mut i = self.prev_char_boundary(self.cursor);
+            loop {
+                if i < row_start || i >= self.cursor {
+                    break;
+                }
+                if self.text[i..].starts_with(c) {
+                    remaining -= 1;
+                    if remaining == 0 {
+                        found = Some(i);
+                        break;
+                    }
+                }
+                if i == row_start {
+                    break;
+                }
+                i = self.prev_char_boundary(i);
+            }
+        }
+
+        let Some(found) = found else { return };
+        let target = match (forward, inclusive) {
+            (true, true) | (false, true) => found,
+            // `t` stops on the character before the match, `T` just after it.
+            (true, false) => self.prev_char_boundary(found),
+            (false, false) => self.next_char_boundary(found),
+        };
+        self.set_cursor(target);
+    }
+
     fn char_at(&self, i: usize) -> Option<char> {
         self.text[i..].chars().next()
     }
@@ -934,6 +987,46 @@ mod tests {
         assert_eq!(b.cursor(), 0);
     }
 
+    /// `f`/`t`/`F`/`T` search within the row only, and leave the cursor alone
+    /// when the character is not there.
+    #[test]
+    fn find_char_motions() {
+        let mut b = buf(); // "hello world\nsecond line\nthird"
+        b.set_cursor(0);
+        b.find_char('o', true, true, 1);
+        assert_eq!(b.cursor(), 4, "f lands on the character");
+        b.find_char('o', true, true, 1);
+        assert_eq!(b.cursor(), 7, "a second f finds the next one");
+        b.find_char('z', true, true, 1);
+        assert_eq!(b.cursor(), 7, "a missing character leaves the cursor alone");
+
+        b.set_cursor(0);
+        b.find_char('o', true, false, 1);
+        assert_eq!(b.cursor(), 3, "t stops before the character");
+
+        b.set_cursor(7);
+        b.find_char('w', false, true, 1);
+        assert_eq!(b.cursor(), 6, "F searches backwards");
+        b.set_cursor(7);
+        b.find_char('w', false, false, 1);
+        assert_eq!(
+            b.cursor(),
+            7,
+            "T stops just after it, which is where we were"
+        );
+        b.set_cursor(10);
+        b.find_char('e', false, false, 1);
+        assert_eq!(b.cursor(), 2, "T lands after the match");
+
+        b.set_cursor(0);
+        b.find_char('o', true, true, 2);
+        assert_eq!(b.cursor(), 7, "2f finds the second occurrence");
+
+        b.set_cursor(8);
+        b.find_char('s', true, true, 1);
+        assert_eq!(b.cursor(), 8, "the search stops at the end of the row");
+    }
+
     /// `$` is the last character of the line, not past it.
     #[test]
     fn dollar_is_last_char() {
@@ -1007,7 +1100,11 @@ mod tests {
         b.move_down();
         assert_eq!(b.cursor(), 8, "two cells into the short row");
         b.move_up();
-        assert_eq!(b.cursor(), 3, "the cell column is restored, not a byte offset");
+        assert_eq!(
+            b.cursor(),
+            3,
+            "the cell column is restored, not a byte offset"
+        );
     }
 
     #[test]
