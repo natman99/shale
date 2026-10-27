@@ -20,6 +20,7 @@ Shale is an obsidian-style markdown editor with extra developer focused features
 - [ ] Note search and full vault search (command pallette, vim `/`)
 - [ ] Templates: save standard notes as templates to be copied in to other notes with a command. Also add a gui picker.
 - [ ] "Raw" mode (disables syntax highlighting and markdown rendering)
+- [ ] "Database" tables (Obsidian bases) see below
 
 - Config files in TOML
 - Assure any code you reference or copy from online has a commercial permissible licensing
@@ -83,6 +84,13 @@ note2.md
 When the constellation filter is set to child 1 it's children, `pie/` and `cake/` should be shown as separate filtered areas.
 
 Also add the ability to have nested constellations shown.
+
+### Database 
+Persist metadata about notes to a local sqlite DB. This, along with other vault metadata, should be kept in a `.shale` directory in the vault. Store modification and creation date, tags, names, and whatever else is relevant as the project continues. When Obsidian properties are added, these should be stored as well. Use incremental updating of the DB. When the app is launched, a background thread should go and check for modified files that weren't persisted (due to an external editor, etc) and update the vault in the background. This background thread should then end and further updates will be done as notes are updated.
+
+The user will be able to write in line SQL queries (heavily sanitized, read only) that will then be used to create in line rendered tables based on vault contents. Query results should be cached when possible. For now, modifying information in these tables is not required. Just list the matching notes and data with the option to go to the note like wikilinks.
+
+**Note:** The DB remains an extra feature. The plain text notes are the source of truth always. If you need to persist note contents to the DB (for user searching or whatever else) that's okay, but it will never be the primary source of information.
 
 ## Current status (updated as the project progresses)
 
