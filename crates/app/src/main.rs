@@ -369,9 +369,12 @@ fn push_node(
 }
 
 fn keybindings() -> Vec<KeyBinding> {
+    // gpui's keystroke syntax separates modifiers with `-`, not `+`: `ctrl-z`.
+    // A `+` is not a separator, so "ctrl+z" parses as one literal key named
+    // "ctrl+z" that can never match anything the platform delivers.
     let mut keys = vec![
-        KeyBinding::new("ctrl+s", Save, None),
-        KeyBinding::new("ctrl+q", Quit, None),
+        KeyBinding::new("ctrl-s", Save, None),
+        KeyBinding::new("ctrl-q", Quit, None),
     ];
     macro_rules! bind {
         ($ctx:expr, [ $( $key:literal => $action:ident ),* $(,)? ]) => {
@@ -415,12 +418,12 @@ fn keybindings() -> Vec<KeyBinding> {
         "shift-o" => VimUpperO,
         "escape" => VimEscape,
         "enter" => NextLine,
-        "ctrl+z" => Undo,
-        "ctrl+r" => Redo,
-        "ctrl+shift+z" => Redo,
-        "ctrl+y" => Redo,
-        "ctrl+shift+c" => CopyText,
-        "ctrl+shift+v" => PasteText,
+        "ctrl-z" => Undo,
+        "ctrl-r" => Redo,
+        "ctrl-shift-z" => Redo,
+        "ctrl-y" => Redo,
+        "ctrl-shift-c" => CopyText,
+        "ctrl-shift-v" => PasteText,
     ]);
     bind!("vim-insert", [
         "escape" => VimEscape,
@@ -431,12 +434,12 @@ fn keybindings() -> Vec<KeyBinding> {
         "right" => MoveRight,
         "up" => MoveUp,
         "down" => MoveDown,
-        "ctrl+z" => Undo,
-        "ctrl+r" => Redo,
-        "ctrl+shift+z" => Redo,
-        "ctrl+y" => Redo,
-        "ctrl+shift+c" => CopyText,
-        "ctrl+shift+v" => PasteText,
+        "ctrl-z" => Undo,
+        "ctrl-r" => Redo,
+        "ctrl-shift-z" => Redo,
+        "ctrl-y" => Redo,
+        "ctrl-shift-c" => CopyText,
+        "ctrl-shift-v" => PasteText,
     ]);
     keys
 }
@@ -591,6 +594,44 @@ mod tests {
         );
     }
 
+    /// The Linux platform delivers ctrl+z as `key = "z"` with the control
+    /// modifier and *no* `key_char` (control characters are filtered out of
+    /// `key_char` by `keystroke_from_xkb`). Check that our keymap really matches
+    /// that shape, independent of any window or focus state. This is the test
+    /// that catches modifier syntax mistakes: `simulate_keystrokes("ctrl+z")`
+    /// parses through the same parser as the binding, so a typo like `+`
+    /// matches itself and looks fine.
+    #[test]
+    fn keymap_matches_the_linux_keystroke_shape() {
+        let keymap = gpui::Keymap::new(keybindings());
+        let contexts = vec![gpui::KeyContext::try_from("vim-normal").unwrap()];
+        for (control, key, action) in [
+            (true, "z", "shale_editor::Undo"),
+            (true, "r", "shale_editor::Redo"),
+            (true, "y", "shale_editor::Redo"),
+            (true, "s", "shale::Save"),
+            (false, "k", "shale_editor::VimK"),
+            (false, "$", "shale_editor::VimDollar"),
+            (false, "^", "shale_editor::VimCaret"),
+        ] {
+            let typed = gpui::Keystroke {
+                modifiers: gpui::Modifiers {
+                    control,
+                    ..Default::default()
+                },
+                key: key.to_string(),
+                key_char: None,
+            };
+            let (bindings, pending) = keymap.bindings_for_input(&[typed], &contexts);
+            assert!(!pending, "{key} should not leave pending input");
+            assert_eq!(
+                bindings.iter().map(|b| b.action().name()).collect::<Vec<_>>(),
+                vec![action],
+                "typed {key} (control {control}) should resolve to {action}"
+            );
+        }
+    }
+
     /// Counts, `$`, and `u` must work through the real keymap, not just the
     /// core engine's unit tests.
     #[gpui::test]
@@ -615,13 +656,26 @@ mod tests {
             "abcstart"
         );
 
-        cx.simulate_keystrokes("ctrl+z");
+        // `ctrl-z` (dashes) is what the platform actually delivers: key "z" with
+        // the control modifier. `ctrl+z` would parse as one literal key and
+        // match a `ctrl+z` binding, hiding the mistake.
+        cx.simulate_keystrokes("ctrl-z");
         let text = editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
-        assert_eq!(text, "start", "ctrl+z should undo");
+        assert_eq!(text, "start", "ctrl-z should undo");
 
-        cx.simulate_keystrokes("ctrl+r");
+        cx.simulate_keystrokes("ctrl-r");
         let text = editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
-        assert_eq!(text, "abcstart", "ctrl+r should redo");
+        assert_eq!(text, "abcstart", "ctrl-r should redo");
+
+        // ctrl+shift+z and ctrl+y are redo aliases too.
+        cx.simulate_keystrokes("ctrl-z");
+        cx.simulate_keystrokes("ctrl-shift-z");
+        let text = editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
+        assert_eq!(text, "abcstart", "ctrl-shift-z should redo");
+
+        cx.simulate_keystrokes("ctrl-z ctrl-y");
+        let text = editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
+        assert_eq!(text, "abcstart", "ctrl-y should redo");
     }
 
     #[gpui::test]
