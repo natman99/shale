@@ -48,6 +48,13 @@ enum Pending {
         forward: bool,
         inclusive: bool,
     },
+    /// `i` or `a` typed after an operator, waiting for the object's scope (`w`
+    /// or `p`). `op` is `None` for the bare `iw` motion, used from visual mode.
+    TextObject {
+        op: Option<Operator>,
+        count: usize,
+        around: bool,
+    },
 }
 
 /// What the UI should do after a normal-mode key was handled.
@@ -109,6 +116,7 @@ impl Vim {
         match self.pending {
             Pending::Operator { op, .. } => Some(op.char()),
             Pending::Find { op: Some(op), .. } => Some(op.char()),
+            Pending::TextObject { op: Some(op), .. } => Some(op.char()),
             _ => None,
         }
     }
@@ -125,6 +133,7 @@ impl Vim {
                 (false, true) => 'F',
                 (false, false) => 'T',
             }),
+            Pending::TextObject { around, .. } => Some(if around { 'a' } else { 'i' }),
             _ => None,
         }
     }
@@ -133,7 +142,10 @@ impl Vim {
     /// and friends). Those keys are not bound in the keymap, so the UI feeds
     /// them in through the input handler instead.
     pub fn waiting_for_literal(&self) -> bool {
-        matches!(self.pending, Pending::Find { .. })
+        matches!(
+            self.pending,
+            Pending::Find { .. } | Pending::TextObject { .. }
+        )
     }
 
     pub fn enter_insert(&mut self) {
@@ -207,6 +219,41 @@ impl Vim {
                 )
             } else {
                 (end, start)
+            };
+            return self.apply_range(op, lo, hi, buf);
+        }
+
+        // A text object is waiting for its scope: `diw`, `dap`, `2aw`.
+        if let Pending::TextObject { op, count, around } = self.pending {
+            self.pending = Pending::None;
+            let Key::Char(scope @ ('w' | 'p')) = key else {
+                return Outcome::Unhandled;
+            };
+            let inner = !around;
+            let (lo, mut hi) = Self::object_range(buf, buf.cursor(), scope, inner);
+            // A count typed before the object extends it over the following
+            // objects, as `d2aw` does; the gap between them is absorbed so the
+            // sweep stays contiguous.
+            for _ in 1..count {
+                let mut at = hi;
+                while at < buf.text().len()
+                    && buf.text()[at..]
+                        .chars()
+                        .next()
+                        .is_some_and(|c| c.is_whitespace())
+                {
+                    at = buf.next_char_boundary(at);
+                }
+                let (_, next_hi) = Self::object_range(buf, at, scope, inner);
+                if next_hi <= hi {
+                    break;
+                }
+                hi = next_hi;
+            }
+            let Some(op) = op else {
+                // Bare `iw`/`ip`: a motion, not an operator.
+                buf.set_cursor(lo);
+                return Outcome::Stay;
             };
             return self.apply_range(op, lo, hi, buf);
         }
@@ -325,6 +372,14 @@ impl Vim {
     }
 
     /// Apply `op` over `count` repetitions of the motion `key`.
+    /// The range of the text object with the given scope under `offset`.
+    fn object_range(buf: &Buffer, offset: usize, scope: char, inner: bool) -> (usize, usize) {
+        match scope {
+            'p' => buf.paragraph_object(offset, inner),
+            _ => buf.word_object(offset, inner),
+        }
+    }
+
     fn apply_operator(
         &mut self,
         op: Operator,
@@ -378,6 +433,15 @@ impl Vim {
                     count,
                     forward: matches!(key, Key::Char('f') | Key::Char('t')),
                     inclusive: matches!(key, Key::Char('f') | Key::Char('F')),
+                };
+                return Outcome::Stay;
+            }
+            Key::Char('i') | Key::Char('a') => {
+                // The operator waits for the object's scope, e.g. `diw`.
+                self.pending = Pending::TextObject {
+                    op: Some(op),
+                    count,
+                    around: key == Key::Char('a'),
                 };
                 return Outcome::Stay;
             }
@@ -644,6 +708,75 @@ mod tests {
     }
 
     /// `f`/`t`/`F`/`T` as motions and as operator arguments.
+    /// `iw`/`aw` and `ip`/`ap`: the operator waits for the object's scope, then
+    /// acts on the range under the cursor.
+    #[test]
+    fn text_objects() {
+        let mut v = Vim::new();
+
+        let mut b = buf(); // "hello world\nsecond line\nthird"
+        type_keys(&mut v, "diw", &mut b);
+        assert_eq!(b.text(), " world\nsecond line\nthird", "diw");
+
+        let mut b = buf();
+        type_keys(&mut v, "daw", &mut b);
+        assert_eq!(b.text(), "world\nsecond line\nthird", "daw");
+
+        let mut b = buf();
+        b.set_cursor(6);
+        type_keys(&mut v, "daw", &mut b);
+        assert_eq!(
+            b.text(),
+            "hello\nsecond line\nthird",
+            "daw falls back to the leading space at a line end"
+        );
+
+        let mut b = buf();
+        b.set_cursor(12);
+        type_keys(&mut v, "ci", &mut b);
+        assert_eq!(
+            v.handle_normal_key(Key::Char('w'), &mut b),
+            Outcome::EnterInsert,
+            "ciw leaves the cursor ready for typing"
+        );
+        assert_eq!(b.text(), "hello world\n line\nthird");
+
+        let mut b = buf();
+        type_keys(&mut v, "yiw", &mut b);
+        assert_eq!(
+            v.register.as_ref().unwrap().text,
+            "hello",
+            "a charwise yank of a word"
+        );
+        assert!(!v.register.as_ref().unwrap().linewise, "and not linewise");
+
+        // A count before the object extends it over the next one.
+        let mut b = buf();
+        type_keys(&mut v, "d2aw", &mut b);
+        assert_eq!(b.text(), "\nsecond line\nthird", "d2aw takes both words");
+
+        let mut b = Buffer::new("one\ntwo\n\nthree\n\n\nfour".to_string());
+        type_keys(&mut v, "cip", &mut b);
+        assert_eq!(b.text(), "\n\nthree\n\n\nfour", "cip keeps the break");
+
+        let mut b = Buffer::new("one\ntwo\n\nthree\n\n\nfour".to_string());
+        type_keys(&mut v, "cap", &mut b);
+        assert_eq!(b.text(), "three\n\n\nfour", "cap swallows the blanks");
+
+        let mut b = Buffer::new("one\ntwo\n\nthree\n\n\nfour".to_string());
+        b.set_cursor(9);
+        type_keys(&mut v, "yip", &mut b);
+        assert_eq!(v.register.as_ref().unwrap().text, "three");
+
+        let mut b = buf();
+        type_keys(&mut v, "dij", &mut b);
+        assert_eq!(
+            b.text(),
+            "hello world\nsecond line\nthird",
+            "an unknown scope cancels the operator"
+        );
+    }
+
     #[test]
     fn find_motions_and_operators() {
         let mut v = Vim::new();

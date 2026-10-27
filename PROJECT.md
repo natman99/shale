@@ -45,7 +45,7 @@ https://gpui-kit.com/
   the dependency tree.
 
 ### MCP
-Shale has an MCP server with support for reading, writing, and searching vaults. The MCP server should *either* be a separate binary which shares core functionality with a `common` crate in the project, or if speed will be acceptable use the main binary.
+Shale has an MCP server with support for reading, writing, and searching vaults. The MCP server should *either* be a separate binary which shares core functionality with a `core` crate in the project, or if speed will be acceptable use the main binary.
 
 ### Graph View
 The graph view needs to have filter options to hide and show nodes. It should have the option to color nodes based on tags. I want the ability to sort into "constellations" based on the subfolder the note rests in. Add the option to filter a parent folder to then have the constellations be its children. Add 3d and 2d graph views. Graph should have the option to be static, where each note gets it's position from some sort of stable and fast method, and a dynamic physics based graph like Obsidian has. Make sure to handle duplicate note names and other weird edge cases. 
@@ -161,6 +161,14 @@ Workspace layout:
   character column within the display line, and the ruler reports character
   columns.
   Still open in this area:
+  - **j/k is still slightly off in a live window** (user-confirmed after the
+    character-column fix). The headless invariants all pass, so the suspect is
+    the *width* the break points are computed from rather than the character
+    math: `LineWrapper` sums per-character advances while painting uses shaped
+    lines, and the width itself is the previous frame's container bounds. Rework
+    later: drive the display model from shaped geometry (an x-offset based
+    desired column resolved with `closest_index_for_x`, Zed-style) instead of
+    character counts, and take the wrap width from the current frame's layout.
   - The buffer row is no longer visible anywhere (the ruler shows the display
     row, as vim does).
   - Tabs render as one cell in gpui, so a tab-indented note looks different from
@@ -195,10 +203,17 @@ Workspace layout:
   `desired_col` and the model/paint index spaces, both fixed; the logical `$`/`0`
   (which jumped to the end of the *row*, several rows down) is the most likely
   thing the report was describing. Needs a re-test in a live window.
+- **Text objects — done** (`iw`/`aw`, `ip`/`ap`, with `d`/`c`/`y` and counts).
+  `Buffer::word_object` / `paragraph_object` return the range; the engine holds a
+  half-typed `Pending::TextObject { op, count, around }` so the operator resumes
+  when the scope key arrives. `i`/`a` are already bound (`VimI`/`VimA`), so no new
+  keymap entries were needed. A count before the scope (`d2aw`) extends the range
+  over the following objects. `aw` follows vim's whitespace rule exactly: trailing
+  run if there is one, otherwise the leading run (so `daw` on the last word of a
+  line eats the space *before* it), and on whitespace it takes that run plus the
+  word after.
 - **Not implemented yet in vim mode**: visual mode (`v`/`V`) and selection
-  operators, `.` repeat, text objects (`iw`, `aw`, `ap`), `f`/`F`/`t`/`T` find
-  motions, `0`-column vs display-column subtleties, registers other than the
-  unnamed one.
+  operators, `.` repeat, registers other than the unnamed one.
 - **Cursor model nits**: `Buffer` cursors may sit at `text.len()` (between
   characters) while vim's normal-mode cursor always sits *on* a character, so
   `w` at the end of a buffer can leave the cursor one position past the last
@@ -216,8 +231,8 @@ Next steps, roughly in order:
    display columns for tabs/multi-byte text.
 3. ~~Resolve the ctrl+z / redo keystroke question~~ Done (keymap `+` → `-`).
    Re-test ctrl-z / ctrl-r / ctrl-y and `ctrl-s` in a live window.
-4. Visual mode (`v`/`V`) and selection operators; `.` repeat; text objects
-   (`iw`, `ap`); `f`/`t` find motions.
+4. Visual mode (`v`/`V`) and selection operators; `.` repeat. ~~Text objects
+   (`iw`, `ap`)~~ and ~~`f`/`t` find motions~~ are done (see Open threads).
 5. Table-aware motions and manipulation (the table goal): column motions on the
    pipe and dash characters, adding/removing rows and columns.
 6. Live preview mode (rendered markdown toggle) — pulldown-cmark for parsing.

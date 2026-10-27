@@ -607,6 +607,115 @@ impl Buffer {
         self.set_cursor(target);
     }
 
+    /// The byte range of the class run (word / punctuation / whitespace) that
+    /// contains `i`. Runs never cross a newline, since `\n` is its own class.
+    fn run_of(&self, i: usize) -> (usize, usize) {
+        let Some(cls) = self.char_at(i).map(class_of) else {
+            return (i, i);
+        };
+        let end = self.skip_run(i, cls);
+        let mut start = i;
+        while start > 0 && self.prev_char(start).map(class_of) == Some(cls) {
+            start = self.prev_char_boundary(start);
+        }
+        (start, end)
+    }
+
+    /// The word text object under `offset` (vim `iw` / `aw`). `inner` is the run
+    /// itself; `around` also takes the surrounding whitespace, preferring the
+    /// trailing run and falling back to the leading one, the way `aw` does. On
+    /// whitespace, `around` takes that whitespace plus the word after it.
+    pub fn word_object(&self, offset: usize, inner: bool) -> (usize, usize) {
+        let offset = self.clamp(offset);
+        let (row, _) = self.row_col(offset);
+        let row_end = self.line_end(row);
+        if offset >= row_end {
+            // Sitting on the line break: the break itself is the object.
+            return (offset, self.next_char_boundary(offset).min(offset + 1));
+        }
+        let (start, end) = self.run_of(offset);
+        if inner {
+            return (start, end);
+        }
+        let cls = class_of(self.char_at(offset).unwrap());
+        if cls == WordClass::Whitespace {
+            let after = self
+                .skip_run(end, WordClass::Word)
+                .max(self.skip_run(end, WordClass::Punct));
+            let after = if after > end { after } else { end };
+            return (start, after.max(end));
+        }
+        // Trailing whitespace, if the run is followed by any.
+        let ws_end = self.skip_run(end, WordClass::Whitespace);
+        if ws_end > end {
+            return (start, ws_end);
+        }
+        // Otherwise leading whitespace.
+        let mut ws_start = start;
+        while ws_start > 0 && self.prev_char(ws_start).map(class_of) == Some(WordClass::Whitespace)
+        {
+            ws_start = self.prev_char_boundary(ws_start);
+        }
+        (ws_start, end)
+    }
+
+    /// The paragraph text object containing `offset` (vim `ip` / `ap`): a
+    /// maximal run of non-blank lines. `around` adds the following blank lines
+    /// (or the preceding ones when there are none after).
+    pub fn paragraph_object(&self, offset: usize, inner: bool) -> (usize, usize) {
+        let (row, _) = self.row_col(offset);
+        let last_row = self.line_count() - 1;
+        let blank = |r: usize| {
+            self.text[self.line_start(r)..self.line_end(r)]
+                .trim()
+                .is_empty()
+        };
+        let on_blank = blank(row);
+
+        let mut first = row;
+        while first > 0 && blank(first - 1) == on_blank {
+            first -= 1;
+        }
+        let mut last = row;
+        while last < last_row && blank(last + 1) == on_blank {
+            last += 1;
+        }
+
+        let include_break = |end: usize| if end < self.text.len() { end + 1 } else { end };
+        let mut start = self.line_start(first);
+        let mut end = if on_blank {
+            include_break(self.line_end(last))
+        } else {
+            self.line_end(last)
+        };
+        if inner || on_blank {
+            return (start, end);
+        }
+
+        // `ap`: swallow the blank lines after the paragraph, including the break
+        // that ends it.
+        let mut next = last + 1;
+        let plain_end = end;
+        end = include_break(end);
+        while next <= last_row && blank(next) {
+            end = include_break(self.line_end(next));
+            next += 1;
+        }
+        if end == plain_end {
+            // Nothing after: take the blank lines before it instead.
+            let mut prev = first;
+            while prev > 0 && blank(prev - 1) {
+                prev -= 1;
+            }
+            if prev < first {
+                start = self.line_start(prev);
+            } else {
+                start = start.saturating_sub(1); // the break that ends the previous paragraph
+            }
+        }
+        (start, end)
+    }
+
     fn char_at(&self, i: usize) -> Option<char> {
         self.text[i..].chars().next()
     }
@@ -985,6 +1094,86 @@ mod tests {
         assert_eq!(b.cursor(), 7);
         b.word_backward(); // 'next' -> 'end'
         assert_eq!(b.cursor(), 0);
+    }
+
+    #[test]
+    fn word_text_objects() {
+        let b = buf(); // "hello world\nsecond line\nthird"
+        assert_eq!(
+            b.word_object(0, true),
+            (0, 5),
+            "iw is the run under the cursor"
+        );
+        assert_eq!(
+            b.word_object(3, true),
+            (0, 5),
+            "from anywhere inside the word"
+        );
+        assert_eq!(
+            b.word_object(0, false),
+            (0, 6),
+            "aw takes the trailing space"
+        );
+        assert_eq!(
+            b.word_object(10, false),
+            (5, 11),
+            "and the leading one at the row end"
+        );
+        assert_eq!(b.word_object(5, true), (5, 6), "the space is its own run");
+        assert_eq!(
+            b.word_object(5, false),
+            (5, 11),
+            "aw on whitespace takes the word after"
+        );
+
+        let b = Buffer::new("a.b".to_string());
+        assert_eq!(
+            b.word_object(1, true),
+            (1, 2),
+            "punctuation is its own word"
+        );
+        assert_eq!(
+            b.word_object(0, false),
+            (0, 1),
+            "aw does not span a run that is not whitespace"
+        );
+    }
+
+    #[test]
+    fn paragraph_text_objects() {
+        let b = Buffer::new("one\ntwo\n\nthree\n\n\nfour".to_string());
+        // rows: one(0) two(4) blank(8) three(9) blank(15) blank(16) four(17)
+        assert_eq!(
+            b.paragraph_object(0, true),
+            (0, 7),
+            "a run of non-blank lines"
+        );
+        assert_eq!(b.paragraph_object(5, true), (0, 7), "from any line in it");
+        assert_eq!(
+            b.paragraph_object(9, true),
+            (9, 14),
+            "a lone line is a paragraph"
+        );
+        assert_eq!(
+            b.paragraph_object(8, true),
+            (8, 9),
+            "a blank line is its own object"
+        );
+        assert_eq!(
+            b.paragraph_object(0, false),
+            (0, 9),
+            "ap swallows the blank line after"
+        );
+        assert_eq!(
+            b.paragraph_object(9, false),
+            (9, 17),
+            "ap swallows every blank line after"
+        );
+        assert_eq!(
+            b.paragraph_object(17, false),
+            (15, 21),
+            "ap takes the blank lines before when nothing follows"
+        );
     }
 
     /// `f`/`t`/`F`/`T` search within the row only, and leave the cursor alone

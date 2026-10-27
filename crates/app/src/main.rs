@@ -926,4 +926,51 @@ mod tests {
         let text = editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
         assert_eq!(text, "Xtwo three four\nsecond line");
     }
+
+    /// Text objects through the real keymap: `i`/`a` are bound actions and the
+    /// scope key arrives as the following keystroke.
+    #[gpui::test]
+    fn normal_mode_text_objects(cx: &mut TestAppContext) {
+        cx.update(|cx| cx.bind_keys(keybindings()));
+
+        let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+        let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+        editor
+            .update(cx, |editor, window, cx| {
+                editor.set_text("one two three\n\nnext para".to_string(), cx);
+                let focus = editor.focus_handle(cx);
+                window.focus(&focus, cx);
+            })
+            .unwrap();
+
+        cx.simulate_keystrokes("0 d i w");
+        let text = editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
+        assert_eq!(
+            text, " two three\n\nnext para",
+            "`diw` should delete just the word"
+        );
+
+        // A fresh buffer, so each form is checked from the same starting point.
+        editor
+            .update(cx, |editor, _window, cx| {
+                editor.set_text("one two three\n\nnext para".to_string(), cx);
+            })
+            .unwrap();
+        cx.simulate_keystrokes("escape 0 d a w");
+        let text = editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
+        assert_eq!(
+            text, "two three\n\nnext para",
+            "`daw` should delete the trailing space too"
+        );
+
+        cx.simulate_keystrokes("escape 0 c i p");
+        let text = editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
+        assert_eq!(
+            text, "\n\nnext para",
+            "`cip` should delete the whole paragraph"
+        );
+        cx.simulate_input("X");
+        let text = editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
+        assert_eq!(text, "X\n\nnext para", "`cip` should enter insert mode");
+    }
 }
