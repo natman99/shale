@@ -174,6 +174,9 @@ impl RunStyle {
                 run.color = DIM;
                 run.underline = true;
             }
+            // The hidden half of `[[target|alias]]`: drawn dimly only while the
+            // row is being edited (see `shale_core::mdlayout`).
+            Style::LinkTarget => run.color = DIM,
             // The editor overrides the colour of wiki-link spans with
             // resolved/unresolved colours, so this is only the fallback.
             Style::WikiLink | Style::WikiEmbed => run.color = LINK,

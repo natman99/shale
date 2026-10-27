@@ -90,8 +90,10 @@ Workspace layout:
 - `crates/core` (`shale-core`): vault model (path-traversal safe), wiki-link
   extraction/resolution/backlinks, search, TOML config (`shale.toml` in the
   vault), text `Buffer` with undo/redo, the vim mode engine, `mdstyle` (the
-  presentation-agnostic markdown style scanner) and `table` (the table model:
-  cells, cell lookup, row/column editing). Pure Rust, fully unit tested.
+  presentation-agnostic markdown style scanner), `mdlayout` (which markdown
+  markers live preview hides, and the visible pieces that remain) and `table`
+  (the table model: cells, cell lookup, row/column editing). Pure Rust, fully
+  unit tested.
 - `crates/app` (`shale` binary): GPUI app (Zed's gpui, tag `v1.25.3`) — file
   tree sidebar, custom line-based editor view with **soft wrap** and vim
   normal/insert/visual modes (hjkl, w/b/e, 0 ^ $ — screen-line aware, gg/G,
@@ -99,14 +101,15 @@ Workspace layout:
   u undo, i/a/I/A/o/O, v/V, `.` repeat, ctrl-z/ctrl-r/ctrl-y, clipboard, mouse
   click to position), **live markdown styling** (headings, emphasis, code,
   quotes, lists/tasks, tables, tags, links; resolved wiki-links tinted blue,
-  unresolved dimmed) and link navigation (`gx` on a link in normal mode,
-  ctrl+click), status bar (mode, pending count/operator, dirty flag, path,
-  display row:col), ctrl+s save. Split into `main.rs` (workspace, keymap,
-  actions), `editor.rs` (the view: buffer + vim + wrap model + input), `line.rs`
-  (the `LineElement` that paints one display line, and the run builder),
-  `table_view.rs` (the table grid geometry: column widths and cell offsets, in
-  character cells), `theme.rs` (the palette and `Style` -> `RunStyle` mapping)
-  and `tree.rs`.
+  unresolved dimmed) with **live preview** hiding the markers of a row the cursor
+  is not on, and link navigation (`gx` on a link in normal mode, ctrl+click),
+  status bar (mode, pending count/operator, dirty flag, path, display row:col),
+  ctrl+s save. Split into `main.rs` (workspace, keymap, actions), `editor.rs`
+  (the view: buffer + vim + wrap model + input), `line.rs` (the `LineElement`
+  that paints one display line, and the run builder), `preview.rs` (the painted
+  form of a display line and the buffer <-> painted-offset map), `table_view.rs`
+  (the table grid geometry: column widths and cell offsets, in character cells),
+  `theme.rs` (the palette and `Style` -> `RunStyle` mapping) and `tree.rs`.
 - `crates/mcp` (`shale-mcp` binary): MCP stdio server exposing list/read/
   write/search/backlinks tools.
 - `refs/` (**gitignored, not shipped**): local copies of the Vim help files
@@ -169,6 +172,51 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
   at the user's request because a full-parallel build stalled the editor.
 
 ### Open threads (write findings here as they come up)
+
+- **Live preview stage 2a — the markers are hidden.**
+  `shale_core::mdlayout` answers the two questions the paint needs:
+  `hidden_ranges` (which bytes of a row to leave unpainted) and `visible_pieces`
+  (which remain). `is_marker` hides a heading's `#` (and the space after it, so a
+  heading is not indented), a blockquote's `>` (but *not* its space, which is what
+  leaves the quote visibly indented), every `Style::Punctuation` — emphasis
+  delimiters, a code span's backticks, a link's brackets, an escaped marker's
+  backslash — plus `LinkUrl` and the new `LinkTarget`, the `target|` of an aliased
+  wiki-link. Deliberately kept: list bullets and numbers, task checkboxes, `#tags`,
+  thematic breaks and the ``` fence lines (the only sign of where a block starts).
+  `mdstyle` had to change to make that expressible: the backticks of a code span
+  and the brackets of a wiki-link are now `Punctuation` spans *outside* the
+  content, and `[[target|alias]]` reports the alias as the link. So the note reads
+  `Welcome` rather than `[[Welcome]]`, and `an aliased link` rather than
+  `[[alias|an aliased link]]`.
+  **The rule:** a row is active — its markers stay visible — when the cursor is in
+  it or the selection touches it; every other row is painted as its reader sees it.
+  That is Obsidian's behaviour and it is what keeps the syntax editable. Hiding is
+  only a paint decision: the buffer, the undo history and the file keep every
+  byte, and `live_preview_hides_markers_off_the_cursor_row` asserts both halves.
+  **Two coordinate spaces.** A painted line is no longer one contiguous buffer
+  range, so `preview::PieceMap` (`buffer start, buffer end, painted index`) is the
+  only way between them. `LineLayout::build` makes the painted string from a
+  display line's pieces; `rebase_spans`/`rebase_links` clip the scanner's spans
+  onto it (a span across a hidden marker becomes two, in order, so the scanner's
+  "later span wins" rule still holds); and every `HitSegment` carries a map, which
+  is what keeps `x_for_offset`/`offset_for_x` — clicks, IME placement, the cursor
+  and selection quads — exact. A hidden marker's offset resolves to the character
+  after it, so clicking where the `**` used to be lands on the word
+  (`a_click_lands_on_visible_text`).
+  **Wrap model:** `display_lines` wraps the *visible* text and maps each
+  `Boundary.ix` back through `offset_for_visible_index`, so a break can never fall
+  inside a hidden range; a break exactly at a piece seam belongs to the piece that
+  follows, which leaves the hidden gap on the line above. The wrap cache is now
+  per row and keyed on whether that row's markers were hidden, so moving the
+  cursor re-wraps only the two rows whose state changed rather than the note.
+  **Tables:** the grid paint still receives the raw row (it decides what of it to
+  draw) but builds each cell from the row's hidden ranges, so a cell shows
+  `Welcome`, not `[[Welcome]]` (`a_table_cell_hides_its_markers`). Consequence to
+  revisit: `table_view::column_widths` still measures the *raw* content, so a cell
+  containing markers gets a slightly wide column; measuring the painted text is part
+  of the wide-glyph/display-column rework.
+  **Still stage 2:** inline images, callouts (`> [!note]`), and hiding the fence
+  lines of a code block.
 
 - **Tables — done: model, editing, and the grid widget.**
   `shale_core::table` holds the model; `mdstyle::table_row_flags` and
@@ -472,8 +520,9 @@ Next steps, roughly in order:
    Open threads). Follow-ups: horizontal scrolling for a table wider than the
    window, and wide-glyph column widths.
 6. ~~Live preview mode~~ stage 1 (markdown syntax styling, heading sizes and
-   code-block backgrounds, no hidden characters) is done — see Open threads.
-   Stage 2: hide markers, inline images, callouts.
+   code-block backgrounds) and stage 2a (hiding the markers of a row the cursor is
+   not on, including inside table cells) are done — see Open threads. Stage 2
+   remaining: inline images and callouts.
 7. Theming (light/dark, TOML theme files). `theme.rs` is the palette and
    `appearance.font_family` in `shale.toml` already picks the editor's font;
    `appearance.font_size` is still not wired up (the editor shapes at

@@ -2,6 +2,7 @@
 
 mod editor;
 mod line;
+mod preview;
 mod table_view;
 mod theme;
 mod tree;
@@ -1007,6 +1008,140 @@ mod tests {
                     vec![2, 2, 2, 1, 1],
                     "each table row paints one piece per column"
                 );
+            })
+            .unwrap();
+    }
+
+    /// A table cell is painted by the grid rather than as markdown, but a row the
+    /// cursor is not on still hides its markers: the user sees `Welcome`, not
+    /// `[[Welcome]]`.
+    #[gpui::test]
+    fn a_table_cell_hides_its_markers(cx: &mut TestAppContext) {
+        cx.update(|cx| cx.bind_keys(keybindings()));
+
+        let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+        let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+        editor
+            .update(cx, |editor, window, cx| {
+                editor.set_text(
+                    "| Note | Links to |\n| ---- | ---- |\n| [[Welcome]] | **bold** |\n"
+                        .to_string(),
+                    cx,
+                );
+                let focus = editor.focus_handle(cx);
+                window.focus(&focus, cx);
+            })
+            .unwrap();
+        for _ in 0..2 {
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+        }
+
+        editor
+            .update(cx, |editor, _window, _cx| {
+                let pieces = editor.painted_pieces();
+                assert_eq!(
+                    pieces[0],
+                    vec!["Note", "Links to"],
+                    "the cursor's own row keeps its syntax"
+                );
+                assert_eq!(
+                    pieces[2],
+                    vec!["Welcome", "bold"],
+                    "the grid hides the pipes and live preview hides the markers"
+                );
+            })
+            .unwrap();
+    }
+
+    /// Live preview: a row the cursor is not on is painted without its markdown
+    /// markers, the cursor's row keeps them, and the buffer never changes.
+    #[gpui::test]
+    fn live_preview_hides_markers_off_the_cursor_row(cx: &mut TestAppContext) {
+        cx.update(|cx| cx.bind_keys(keybindings()));
+
+        let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+        let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+        editor
+            .update(cx, |editor, window, cx| {
+                editor.set_text("# Heading\n\nSome **bold** and [[Note]].\n".to_string(), cx);
+                let focus = editor.focus_handle(cx);
+                window.focus(&focus, cx);
+            })
+            .unwrap();
+        for _ in 0..2 {
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+        }
+
+        // The cursor sits at the start of row 0, so that row still shows its
+        // syntax and the rows around it read as their reader will see them.
+        let painted = editor
+            .read_with(cx, |editor, _cx| editor.painted_text())
+            .unwrap();
+        assert_eq!(
+            painted[0], "# Heading",
+            "the cursor's own row keeps its markers"
+        );
+        assert_eq!(
+            painted[2], "Some bold and Note.",
+            "an inactive row is painted without its markers"
+        );
+
+        // Moving the cursor flips which row shows its syntax.
+        cx.simulate_keystrokes("j j");
+        let (painted, text) = editor
+            .read_with(cx, |editor, _cx| (editor.painted_text(), editor.text()))
+            .unwrap();
+        assert_eq!(
+            painted[0], "Heading",
+            "the row the cursor left has its markers hidden now"
+        );
+        assert_eq!(
+            painted[2], "Some **bold** and [[Note]].",
+            "the row the cursor is on shows its markers"
+        );
+        assert_eq!(
+            text, "# Heading\n\nSome **bold** and [[Note]].\n",
+            "hiding markers is a paint decision: the note keeps every byte"
+        );
+    }
+
+    /// A click on a row whose markers are hidden has to land on the visible
+    /// character rather than on syntax that is not drawn, and the cursor and
+    /// selection quads have to be drawn where the text actually is.
+    #[gpui::test]
+    fn a_click_lands_on_visible_text(cx: &mut TestAppContext) {
+        cx.update(|cx| cx.bind_keys(keybindings()));
+
+        let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+        let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+        editor
+            .update(cx, |editor, window, cx| {
+                editor.set_text("first line\n\na **b** c\n".to_string(), cx);
+                let focus = editor.focus_handle(cx);
+                window.focus(&focus, cx);
+            })
+            .unwrap();
+        for _ in 0..2 {
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+        }
+
+        // Row 2 is `a **b** c` painted as `a b c`: the `b` is at buffer offset 16
+        // and the hidden `**` before it at 14.
+        editor
+            .update(cx, |editor, _window, _cx| {
+                assert_eq!(editor.painted_text()[2], "a b c");
+                let at_marker = editor.x_for_offset(2, 14).unwrap();
+                assert_eq!(
+                    editor.offset_at_x(2, at_marker),
+                    Some(16),
+                    "clicking the gap where the hidden markers were lands on the `b`"
+                );
+                // A visible character round-trips exactly.
+                let at_b = editor.x_for_offset(2, 16).unwrap();
+                assert_eq!(editor.offset_at_x(2, at_b), Some(16));
+                // The hidden markers occupy no room: both ends of the gap are the
+                // same x, which is where the `b` is drawn.
+                assert_eq!(at_marker, editor.x_for_offset(2, 15).unwrap());
             })
             .unwrap();
     }

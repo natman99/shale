@@ -5,6 +5,11 @@
 //! A "display line" is a segment of a buffer row: soft wrap splits a long row
 //! into several of these, and each one is painted and measured separately.
 //!
+//! Live preview hides the markdown syntax of a row the cursor is not on, so the
+//! painted string is generally *not* one contiguous range of the buffer: the
+//! [`PieceMap`] it is painted from is what keeps clicks, the cursor quad and the
+//! IME anchored to the right bytes.
+//!
 //! A row that belongs to a markdown table is the exception: it is never wrapped
 //! and its source pipes and dashes are not painted. Instead each cell's content
 //! is drawn at its column's offset (see [`crate::table_view`]) with grid lines
@@ -21,6 +26,7 @@ use gpui::{
 use shale_core::mdstyle::Style;
 
 use crate::editor::MarkdownEditor;
+use crate::preview::PieceMap;
 use crate::table_view::TablePaint;
 use crate::theme::{self, RunStyle, CURSOR, LINK, LINK_UNRESOLVED, SELECTION};
 
@@ -41,14 +47,14 @@ pub(crate) struct DisplayLine {
 /// cell of a table row.
 #[derive(Clone)]
 pub(crate) struct HitSegment {
-    /// First buffer byte of the segment's text.
-    pub(crate) start: usize,
-    /// End of the segment's text, exclusive.
-    pub(crate) end: usize,
     /// Where the segment was painted, measured from the line's left edge.
     pub(crate) x: Pixels,
     /// The shaped text, which answers x <-> byte-index questions.
     pub(crate) line: ShapedLine,
+    /// Which bytes of the note this segment's text came from: one piece for a
+    /// table cell, and more than one when live preview hid markers in the middle
+    /// of a row.
+    pub(crate) map: PieceMap,
 }
 
 /// A display line captured during paint, for hit-testing and IME placement.
@@ -74,16 +80,21 @@ pub(crate) struct HitLine {
 
 impl HitLine {
     /// The segment that owns a buffer offset: the one whose text covers it, or
-    /// else the last one to its left. A table's padding and pipes sit between
-    /// cells, so they resolve to the cell on their left.
+    /// else the last one to its left. A table's padding and pipes, and a hidden
+    /// markdown marker, sit between pieces, so they resolve to the piece on
+    /// their left.
     fn segment_index_for(&self, offset: usize) -> usize {
         self.segments
             .iter()
-            .position(|s| s.start <= offset && offset <= s.end)
+            .position(|s| s.map.covers(offset))
             // Nothing covers it (a click past the end of the line): the last
             // segment that starts before it, or the first one if the line is
             // empty.
-            .or_else(|| self.segments.iter().rposition(|s| s.start <= offset))
+            .or_else(|| {
+                self.segments
+                    .iter()
+                    .rposition(|s| s.map.first_offset().is_some_and(|start| start <= offset))
+            })
             .unwrap_or(0)
     }
 
@@ -93,7 +104,7 @@ impl HitLine {
     pub(crate) fn x_for_offset(&self, offset: usize) -> Pixels {
         let offset = offset.clamp(self.start, self.end);
         let segment = &self.segments[self.segment_index_for(offset)];
-        let column = offset.saturating_sub(segment.start);
+        let column = segment.map.index_for_offset(offset);
         segment.x + segment.line.x_for_index(column)
     }
 
@@ -102,7 +113,10 @@ impl HitLine {
         let index = self.segments.iter().rposition(|s| s.x <= x).unwrap_or(0);
         let segment = &self.segments[index];
         let column = segment.line.closest_index_for_x(x - segment.x);
-        (segment.start + column).min(segment.end).max(segment.start)
+        segment
+            .map
+            .offset_for_index(column)
+            .clamp(self.start, self.end)
     }
 }
 
@@ -115,14 +129,27 @@ pub(crate) struct LineElement {
     /// Buffer byte offsets this segment covers (`end` is exclusive).
     pub(crate) start: usize,
     pub(crate) end: usize,
+    /// The text actually painted: `start..end` with any hidden markers left out.
     pub(crate) text: SharedString,
+    /// Which bytes of the note `text` came from, so an x can be turned back into
+    /// a buffer offset. Identity for a table row, whose `text` is the raw row:
+    /// the grid paint hides the markers itself, cell by cell, from `hidden`.
+    pub(crate) map: PieceMap,
+    /// The markdown markers hidden on this row, as buffer ranges. Empty for an
+    /// ordinary row, where they are already left out of `text`; a table row needs
+    /// them because the grid paint builds each cell's text on its own.
+    pub(crate) hidden: Vec<(usize, usize)>,
+    /// Selection within the painted text, as painted-string byte indices.
     pub(crate) line_sel: Option<(usize, usize)>,
+    /// The cursor, as a painted-string byte index.
     pub(crate) cursor_col: Option<usize>,
     pub(crate) insert: bool,
-    /// (start, end, resolved) byte spans of wiki-links within `text`.
+    /// (start, end, resolved) **buffer** byte spans of wiki-links overlapping
+    /// this display line.
     pub(crate) links: Vec<(usize, usize, bool)>,
-    /// (start, end, style) markdown spans within `text`, in the order the
-    /// scanner emitted them (block spans first, so later spans win).
+    /// (start, end, style) **buffer** byte markdown spans overlapping this
+    /// display line, in the order the scanner emitted them (block spans first,
+    /// so later spans win). Re-based onto the painted text before shaping.
     pub(crate) spans: Vec<(usize, usize, Style)>,
     /// Text size to shape and paint at; the row's height follows it.
     pub(crate) size: f32,
@@ -140,9 +167,19 @@ pub(crate) struct LineElement {
 pub(crate) struct LinePrepaint {
     /// The whole line's shaped text, for an ordinary row.
     line: Option<ShapedLine>,
-    /// One shaped line per cell, for a table row. The delimiter row's cells are
-    /// empty: its dashes are replaced by a rule.
-    cells: Vec<ShapedLine>,
+    /// One entry per cell, for a table row. The delimiter row's cells are empty:
+    /// its dashes are replaced by a rule.
+    cells: Vec<CellShaped>,
+}
+
+/// One table cell as it is painted: its shaped text, and the buffer ranges that
+/// text came from, which the cursor quad, the selection and hit-testing all need.
+#[derive(Clone)]
+pub(crate) struct CellShaped {
+    /// The cell's content, with any hidden markers left out.
+    line: ShapedLine,
+    /// The pieces of `line`.
+    map: PieceMap,
 }
 
 /// Build the `TextRun`s that paint `text`.
@@ -195,26 +232,15 @@ fn build_runs(
     runs
 }
 
-/// The markdown spans and wiki-links that fall inside one table cell, clipped to
-/// it and re-based onto the cell's own text. All the offsets in and out are
-/// line-relative byte offsets.
+/// The markdown spans and wiki-links that overlap one table cell, clipped to it
+/// and re-based onto the cell's painted text. The spans in are buffer offsets;
+/// `map` describes the text they are being mapped onto.
 fn cell_styles(
     spans: &[(usize, usize, Style)],
     links: &[(usize, usize, bool)],
-    start: usize,
-    end: usize,
+    map: &PieceMap,
 ) -> (Vec<(usize, usize, Style)>, Vec<(usize, usize, bool)>) {
-    let cell_spans = spans
-        .iter()
-        .filter(|(s, e, _)| *s < end && *e > start)
-        .map(|&(s, e, style)| (s.max(start) - start, e.min(end) - start, style))
-        .collect();
-    let cell_links = links
-        .iter()
-        .filter(|(s, e, _)| *s < end && *e > start)
-        .map(|&(s, e, resolved)| (s.max(start) - start, e.min(end) - start, resolved))
-        .collect();
-    (cell_spans, cell_links)
+    (map.rebase_spans(spans), map.rebase_links(links))
 }
 
 impl LineElement {
@@ -274,13 +300,18 @@ impl LineElement {
 
         for (cell, shaped) in table.cells.iter().zip(prepaint.cells.iter()) {
             let x = left + self.cell_x(cell.x);
-            // The selection is line-relative, so the cell's bounds have to be
-            // too before they can be intersected with it.
+            // The selection is relative to the start of the painted line, and a
+            // table row's line is the raw row, so it can be turned back into
+            // buffer offsets and mapped into the cell's own painted text.
             if let Some((s, e)) = self.line_sel {
                 let (lo, hi) = (s.max(cell.start - self.start), e.min(cell.end - self.start));
                 if hi > lo {
-                    let x0 = x + shaped.x_for_index(lo - (cell.start - self.start));
-                    let x1 = x + shaped.x_for_index(hi - (cell.start - self.start));
+                    let x0 = x + shaped
+                        .line
+                        .x_for_index(shaped.map.index_for_offset(self.start + lo));
+                    let x1 = x + shaped
+                        .line
+                        .x_for_index(shaped.map.index_for_offset(self.start + hi));
                     window.paint_quad(fill(
                         Bounds::from_corners(
                             gpui::point(x0, bounds.top()),
@@ -293,7 +324,7 @@ impl LineElement {
             if table.delimiter {
                 continue;
             }
-            if let Err(err) = shaped.paint_background(
+            if let Err(err) = shaped.line.paint_background(
                 gpui::point(x, bounds.top()),
                 px(theme::line_height(self.size)),
                 gpui::TextAlign::default(),
@@ -303,7 +334,7 @@ impl LineElement {
             ) {
                 tracing::warn!(row = self.row, "failed to paint cell background: {err:#}");
             }
-            if let Err(err) = shaped.paint(
+            if let Err(err) = shaped.line.paint(
                 gpui::point(x, bounds.top()),
                 px(theme::line_height(self.size)),
                 gpui::TextAlign::default(),
@@ -325,16 +356,17 @@ impl LineElement {
                     .position(|c| c.column == cell.column)
                     .and_then(|i| prepaint.cells.get(i))
                     .cloned()
-                    .unwrap_or_else(|| {
-                        window.text_system().shape_line(
+                    .unwrap_or_else(|| CellShaped {
+                        line: window.text_system().shape_line(
                             SharedString::from(""),
                             px(self.size),
                             &[],
                             None,
-                        )
+                        ),
+                        map: PieceMap::identity(cell.start, cell.end),
                     });
-                let index = col.saturating_sub(cell.start - self.start);
-                let x = left + self.cell_x(cell.x) + shaped.x_for_index(index);
+                let index = shaped.map.index_for_offset(self.start + col);
+                let x = left + self.cell_x(cell.x) + shaped.line.x_for_index(index);
                 let width = if self.insert {
                     px(1.5)
                 } else {
@@ -397,7 +429,14 @@ impl Element for LineElement {
         let text_system = window.text_system();
         let base_font = font(self.editor.read(cx).font_family());
         let Some(table) = self.table.clone() else {
-            let runs = build_runs(&self.text, &self.spans, &self.links, &base_font);
+            // The spans are buffer offsets and the runs are painted-text offsets,
+            // so they are clipped to the painted pieces and re-based first.
+            let runs = build_runs(
+                &self.text,
+                &self.map.rebase_spans(&self.spans),
+                &self.map.rebase_links(&self.links),
+                &base_font,
+            );
             let line = text_system.shape_line(self.text.clone(), px(self.size), &runs, None);
             return LinePrepaint {
                 line: Some(line),
@@ -406,26 +445,42 @@ impl Element for LineElement {
         };
         // A table row is shaped cell by cell, each with only the styles that
         // fall inside it, because the cells are painted at column offsets rather
-        // than as one string.
+        // than as one string. A cell's text leaves out the row's hidden markers,
+        // exactly as an ordinary row's does.
         let text = self.text.to_string();
         let cells = table
             .cells
             .iter()
             .map(|cell| {
+                let pieces =
+                    shale_core::mdlayout::visible_pieces(cell.start, cell.end, &self.hidden);
+                let map = PieceMap::from_pieces(&pieces);
                 if table.delimiter {
-                    return text_system.shape_line(
-                        SharedString::from(""),
-                        px(self.size),
-                        &build_runs("", &[], &[], &base_font),
-                        None,
-                    );
+                    return CellShaped {
+                        line: text_system.shape_line(
+                            SharedString::from(""),
+                            px(self.size),
+                            &build_runs("", &[], &[], &base_font),
+                            None,
+                        ),
+                        map,
+                    };
                 }
-                let start = cell.start - self.start;
-                let end = cell.end - self.start;
-                let slice = &text[start..end];
-                let (spans, links) = cell_styles(&self.spans, &self.links, start, end);
-                let runs = build_runs(slice, &spans, &links, &base_font);
-                text_system.shape_line(SharedString::from(slice), px(self.size), &runs, None)
+                let painted: String = pieces
+                    .iter()
+                    .map(|&(s, e)| &text[s - self.start..e - self.start])
+                    .collect();
+                let (spans, links) = cell_styles(&self.spans, &self.links, &map);
+                let runs = build_runs(&painted, &spans, &links, &base_font);
+                CellShaped {
+                    line: text_system.shape_line(
+                        SharedString::from(painted),
+                        px(self.size),
+                        &runs,
+                        None,
+                    ),
+                    map,
+                }
             })
             .collect();
         LinePrepaint { line: None, cells }
@@ -476,10 +531,9 @@ impl Element for LineElement {
                 .iter()
                 .zip(prepaint.cells.iter())
                 .map(|(cell, shaped)| HitSegment {
-                    start: cell.start,
-                    end: cell.end,
                     x: self.cell_x(cell.x),
-                    line: shaped.clone(),
+                    line: shaped.line.clone(),
+                    map: shaped.map.clone(),
                 })
                 .collect();
             self.paint_table(bounds, prepaint, &table, window, cx);
@@ -490,10 +544,9 @@ impl Element for LineElement {
                 .expect("an ordinary line is shaped in prepaint");
             width = line.width();
             segments = vec![HitSegment {
-                start: self.start,
-                end: self.end,
                 x: px(0.),
                 line: line.clone(),
+                map: self.map.clone(),
             }];
 
             // Selection quad.
@@ -638,15 +691,32 @@ mod tests {
     }
 
     /// A cell only sees the styles that fall inside it, re-based onto its own
-    /// text: a bold span that starts in another column must not leak in, and one
-    /// that starts inside must not be clipped away.
+    /// painted text: a bold span that starts in another column must not leak in,
+    /// and one that starts inside must not be clipped away.
     #[test]
     fn cell_styles_clip_and_rebase() {
-        // The line is `| **a** | b |`: the strong span covers bytes 2..7.
+        // The line is `| **a** | b |`: the strong span covers bytes 2..7 and the
+        // first cell's content is bytes 1..7.
         let spans = vec![(2, 7, Style::Strong)];
         let links = vec![(12, 18, true)];
-        let (cell_spans, cell_links) = cell_styles(&spans, &links, 1, 7);
+        let map = PieceMap::from_pieces(&[(1, 7)]);
+        let (cell_spans, cell_links) = cell_styles(&spans, &links, &map);
         assert_eq!(cell_spans, vec![(1, 6, Style::Strong)]);
         assert!(cell_links.is_empty(), "a link in another cell is dropped");
+    }
+
+    /// A cell whose markers are hidden is painted from the pieces that are left,
+    /// so its spans have to be re-based onto those pieces rather than onto the
+    /// cell's raw content.
+    #[test]
+    fn cell_styles_follow_the_hidden_markers() {
+        // The cell's content is bytes 10..17, `**a** b`, with both `**` hidden.
+        let map = PieceMap::from_pieces(&[(12, 13), (15, 17)]);
+        let (cell_spans, _) = cell_styles(&[(10, 15, Style::Strong)], &[], &map);
+        assert_eq!(
+            cell_spans,
+            vec![(0, 1, Style::Strong)],
+            "the span follows the painted `a`"
+        );
     }
 }

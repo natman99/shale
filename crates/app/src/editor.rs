@@ -12,11 +12,13 @@ use gpui::{
 };
 use shale_core::buffer::Buffer;
 use shale_core::markdown::{extract_wikilinks, WikiLink};
+use shale_core::mdlayout;
 use shale_core::mdstyle::{style_spans, Style, StyleSpan};
 use shale_core::vim::{Key, Mode, Outcome, Vim};
 
 use crate::acts::*;
 use crate::line::{DisplayLine, HitLine, LineElement};
+use crate::preview::{offset_for_visible_index, LineLayout, PieceMap};
 use crate::table_view;
 use crate::theme;
 
@@ -51,6 +53,18 @@ fn wrapper_index(row: RowStyle) -> usize {
     row.heading as usize * 2 + usize::from(row.wide)
 }
 
+/// Cached soft-wrap boundaries for one buffer row, together with the live-preview
+/// state they were measured in. Hiding a row's markers changes what has to fit,
+/// so a row is only re-wrapped when that flag changes rather than every time the
+/// cursor moves.
+struct CachedRow {
+    /// Whether the row's markdown markers were hidden when it was measured.
+    preview: bool,
+    /// Absolute byte offsets where the row's display lines start, beginning with
+    /// the row itself.
+    starts: Vec<usize>,
+}
+
 impl EventEmitter<EditorEvent> for MarkdownEditor {}
 
 pub struct MarkdownEditor {
@@ -63,8 +77,9 @@ pub struct MarkdownEditor {
     /// Display lines captured during the last paint, for hit-testing. Written
     /// by the line element during paint, so it is crate-visible.
     pub(crate) hit_lines: Vec<HitLine>,
-    /// Cached wrap boundaries: (buffer change id, wrap width, per-row starts).
-    wrap_cache: Option<(u64, Pixels, Vec<Vec<usize>>)>,
+    /// Cached wrap boundaries: (buffer change id, wrap width, per-row starts and
+    /// the live-preview state they were measured in).
+    wrap_cache: Option<(u64, Pixels, Vec<CachedRow>)>,
     /// Markdown style spans for the current text (buffer byte offsets), cached
     /// until the buffer changes.
     style_cache: Option<(u64, Vec<StyleSpan>)>,
@@ -196,12 +211,57 @@ impl MarkdownEditor {
             .collect()
     }
 
+    /// The text each display line was painted with: the buffer's text with
+    /// live-preview markers left out. This is how the preview tests see what the
+    /// user would see.
+    #[cfg(test)]
+    pub fn painted_text(&self) -> Vec<String> {
+        self.painted_pieces()
+            .into_iter()
+            .map(|pieces| pieces.concat())
+            .collect()
+    }
+
+    /// The painted text of every display line, one entry per painted piece: one
+    /// for an ordinary line, one per cell for a table row.
+    #[cfg(test)]
+    pub fn painted_pieces(&self) -> Vec<Vec<String>> {
+        self.hit_lines
+            .iter()
+            .map(|hit| {
+                hit.segments
+                    .iter()
+                    .map(|segment| segment.line.text.to_string())
+                    .collect()
+            })
+            .collect()
+    }
+
     /// The byte ranges of the display lines the buffer currently models.
     #[cfg(test)]
     pub fn display_ranges(&self) -> Vec<(usize, usize)> {
         (0..self.buffer.display_line_count())
             .filter_map(|i| self.buffer.display_range(i))
             .collect()
+    }
+
+    /// Where a buffer offset is drawn on display line `index`, measured from that
+    /// line's left edge. Test aid for the live-preview piece mapping.
+    #[cfg(test)]
+    pub fn x_for_offset(&self, index: usize, offset: usize) -> Option<Pixels> {
+        self.hit_lines
+            .iter()
+            .find(|hit| hit.index == index)
+            .map(|hit| hit.x_for_offset(offset))
+    }
+
+    /// The buffer offset a click at `x` on display line `index` lands on.
+    #[cfg(test)]
+    pub fn offset_at_x(&self, index: usize, x: Pixels) -> Option<usize> {
+        self.hit_lines
+            .iter()
+            .find(|hit| hit.index == index)
+            .map(|hit| hit.offset_for_x(x))
     }
 
     /// The height each display line was painted at, which follows its text size
@@ -275,20 +335,74 @@ impl MarkdownEditor {
         self.style_cache = Some((change_id, spans));
     }
 
-    /// The style spans covering `start..end`, re-based to line-relative byte
-    /// offsets, in the order the scanner emitted them.
-    fn line_spans(&self, start: usize, end: usize) -> Vec<(usize, usize, Style)> {
+    /// The style spans overlapping `start..end`, clipped to it as absolute
+    /// buffer offsets, in the order the scanner emitted them.
+    fn spans_in(&self, start: usize, end: usize) -> Vec<(usize, usize, Style)> {
         let Some((_, spans)) = self.style_cache.as_ref() else {
             return Vec::new();
         };
         spans
             .iter()
             .filter(|s| s.start < end && s.end > start)
-            .map(|s| {
-                (
-                    s.start.saturating_sub(start),
-                    s.end.min(end).saturating_sub(start),
-                    s.style,
+            .map(|s| (s.start.max(start), s.end.min(end), s.style))
+            .collect()
+    }
+
+    /// The markdown markers hidden on each buffer row, as merged buffer ranges:
+    /// empty on the cursor's row, on a selected row, and on a row with no
+    /// markers. Obsidian's live preview rule, and what lets the user see and edit
+    /// the syntax of the line they are working on.
+    fn hidden_markers(&self, selection: Option<(usize, usize)>) -> Vec<Vec<(usize, usize)>> {
+        let line_count = self.buffer.line_count();
+        let cursor = self.buffer.cursor();
+        let Some((_, spans)) = self.style_cache.as_ref() else {
+            return vec![Vec::new(); line_count];
+        };
+        let mut out = Vec::with_capacity(line_count);
+        // Spans and rows are both in offset order, so one forward walk finds the
+        // spans that touch each row.
+        let mut first = 0usize;
+        for row in 0..line_count {
+            let row_start = self.buffer.line_start(row);
+            let row_end = self.buffer.line_end(row);
+            let active = (cursor >= row_start && cursor <= row_end)
+                || selection
+                    .map(|(a, h)| {
+                        let (lo, hi) = (a.min(h), a.max(h));
+                        hi >= row_start && lo <= row_end
+                    })
+                    .unwrap_or(false);
+            if active {
+                out.push(Vec::new());
+                continue;
+            }
+            while first < spans.len() && spans[first].end <= row_start {
+                first += 1;
+            }
+            let touching: Vec<StyleSpan> = spans[first..]
+                .iter()
+                .take_while(|s| s.start < row_end)
+                .copied()
+                .collect();
+            out.push(mdlayout::hidden_ranges(
+                self.buffer.text(),
+                &touching,
+                row_start,
+                row_end,
+            ));
+        }
+        out
+    }
+
+    /// The visible pieces of every buffer row: the row minus its hidden markers.
+    /// A row with nothing hidden is one piece, painted as the buffer holds it.
+    fn row_pieces(&self, hidden: &[Vec<(usize, usize)>]) -> Vec<Vec<(usize, usize)>> {
+        (0..self.buffer.line_count())
+            .map(|row| {
+                mdlayout::visible_pieces(
+                    self.buffer.line_start(row),
+                    self.buffer.line_end(row),
+                    hidden.get(row).map(|h| h.as_slice()).unwrap_or(&[]),
                 )
             })
             .collect()
@@ -367,16 +481,20 @@ impl MarkdownEditor {
     /// to the buffer, so vim's `j`/`k` step over wrapped rows like neovim's and
     /// the buffer's display-line index space is identical to the painted one (if
     /// they ever disagreed the cursor would be drawn on the wrong row).
+    ///
     /// A row is measured with the face and size it will be painted with —
     /// `wrappers` holds one line wrapper per (heading level, wide or not), which
-    /// is what keeps break points matching the paint. Boundaries are cached until
-    /// the text or the width changes.
+    /// is what keeps break points matching the paint — and against the text live
+    /// preview actually leaves visible (`pieces[row]`), so hidden markers do not
+    /// take up room. Boundaries are cached until the text, the width, or a row's
+    /// live-preview state changes.
     fn display_lines(
         &mut self,
         width: Pixels,
         wrappers: &mut [LineWrapperHandle],
         rows: &[RowStyle],
         table_rows: &[bool],
+        pieces: &[Vec<(usize, usize)>],
     ) -> Vec<DisplayLine> {
         let line_count = self.buffer.line_count();
         let change_id = self.buffer.change_id();
@@ -384,41 +502,54 @@ impl MarkdownEditor {
             .wrap_cache
             .as_ref()
             .filter(|(id, w, _)| *id == change_id && *w == width)
-            .map(|(_, _, segs)| segs.clone());
+            .map(|(_, _, rows)| rows);
 
         let mut segments: Vec<Vec<usize>> = Vec::with_capacity(line_count);
+        let mut measured: Vec<CachedRow> = Vec::with_capacity(line_count);
         for row in 0..line_count {
             let row_start = self.buffer.line_start(row);
             let row_end = self.buffer.line_end(row);
             let mut starts = vec![row_start];
+            let row_pieces = pieces.get(row).cloned().unwrap_or_default();
+            // Whether this row is painted with its markers hidden, which is what
+            // the wrap cache is keyed on.
+            let preview = row_pieces.as_slice() != [(row_start, row_end)];
             // A table row is painted as one grid row and never soft-wraps, so
             // the buffer's display model must agree or j/k and the painted lines
             // fall out of step.
             if table_rows.get(row).copied().unwrap_or(false) {
                 segments.push(starts);
+                measured.push(CachedRow {
+                    preview,
+                    starts: vec![row_start],
+                });
                 continue;
             }
-            if let Some(cached) = cached.as_ref() {
+            let cached_row = cached.as_ref().and_then(|rows| rows.get(row));
+            if cached_row.is_some_and(|cached| cached.preview == preview) {
                 // Re-validate even a cached boundary against the current row, so
                 // a cache key that ever fails to notice an edit cannot push a
                 // segment past the end of the row.
-                if let Some(segs) = cached.get(row) {
-                    for &s in segs {
-                        if s > row_start && s < row_end && s > *starts.last().unwrap() {
-                            starts.push(s);
-                        }
+                for &s in &cached_row.expect("checked above").starts {
+                    if s > row_start && s < row_end && s > *starts.last().unwrap() {
+                        starts.push(s);
                     }
                 }
             } else if width > px(0.) {
-                let text = &self.buffer.text()[row_start..row_end];
+                // The wrapper sees the painted text, and its break points are
+                // mapped back onto buffer offsets in the visible pieces.
+                let visible: String = row_pieces
+                    .iter()
+                    .map(|&(s, e)| &self.buffer.text()[s..e])
+                    .collect();
                 let row_style = rows.get(row).copied().unwrap_or_default();
                 let wrapper = &mut wrappers[wrapper_index(row_style)];
                 for boundary in wrapper.wrap_line(
-                    &[LineFragment::text(text)],
+                    &[LineFragment::text(&visible)],
                     width,
                     IndentAdjustment::NoIndent,
                 ) {
-                    let s = row_start + boundary.ix;
+                    let s = offset_for_visible_index(&row_pieces, boundary.ix);
                     if s > row_start && s < row_end && s > *starts.last().unwrap() {
                         starts.push(s);
                     }
@@ -426,10 +557,14 @@ impl MarkdownEditor {
             }
             // width == 0 means no measured width yet (the first frame): one
             // display line per row.
+            measured.push(CachedRow {
+                preview,
+                starts: starts.clone(),
+            });
             segments.push(starts);
         }
         if cached.is_none() {
-            self.wrap_cache = Some((change_id, width, segments.clone()));
+            self.wrap_cache = Some((change_id, width, measured));
         }
 
         self.buffer.set_display_segments(segments.clone());
@@ -828,6 +963,12 @@ impl Render for MarkdownEditor {
         let buffer_tables = shale_core::table::tables(self.buffer.text());
         let plans = table_view::plans_by_row(self.buffer.text(), &buffer_tables, line_count);
         let table_rows: Vec<bool> = plans.iter().map(|plan| plan.is_some()).collect();
+        // Live preview: every row but the cursor's and the selection's is painted
+        // without its markdown markers, and the wrap model has to measure the text
+        // that is actually left visible. A table row hides its markers too, but
+        // the grid paint applies them cell by cell.
+        let hidden = self.hidden_markers(selection);
+        let row_pieces = self.row_pieces(&hidden);
         // One character cell of the resolved face, which is what turns the grid's
         // character geometry into pixels.
         let char_width = {
@@ -846,7 +987,13 @@ impl Render for MarkdownEditor {
                 wrappers.push(text_system.line_wrapper(font(family.clone()), size));
                 wrappers.push(text_system.line_wrapper(font(family.clone()).bold(), size));
             }
-            self.display_lines(wrap_width, &mut wrappers, &row_styles, &table_rows)
+            self.display_lines(
+                wrap_width,
+                &mut wrappers,
+                &row_styles,
+                &table_rows,
+                &row_pieces,
+            )
         };
         let cursor_display = self.buffer.display_index_for(cursor);
 
@@ -934,46 +1081,69 @@ impl Render for MarkdownEditor {
                     .text_color(rgb(theme::FG))
                     .on_mouse_down(MouseButton::Left, cx.listener(Self::on_click))
                     .children(display_lines.iter().enumerate().map(|(index, dl)| {
-                        let text: SharedString =
-                            self.buffer.text()[dl.start..dl.end].to_string().into();
+                        let table = plans.get(dl.row).cloned().flatten();
+                        // The visible pieces of this display line: the row's
+                        // pieces clipped to it, which is the whole line when no
+                        // markers were hidden.
+                        let line_pieces: Vec<(usize, usize)> = row_pieces
+                            .get(dl.row)
+                            .map(|pieces| {
+                                pieces
+                                    .iter()
+                                    .map(|&(s, e)| (s.max(dl.start), e.min(dl.end)))
+                                    .filter(|&(s, e)| e > s)
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+                        // A table row is painted as a grid, which decides what of
+                        // the row to draw, so it gets the raw row and applies the
+                        // hidden ranges itself cell by cell.
+                        let layout = if table.is_some() {
+                            LineLayout {
+                                text: self.buffer.text()[dl.start..dl.end].to_string().into(),
+                                map: PieceMap::identity(dl.start, dl.end),
+                            }
+                        } else {
+                            LineLayout::build(self.buffer.text(), &line_pieces)
+                        };
 
-                        // Selection restricted to this display line.
+                        // Selection restricted to this display line, as indices
+                        // into the painted text.
                         let line_sel = selection.and_then(|(a, h)| {
                             let (lo, hi) = (a.min(h), a.max(h));
                             if hi <= dl.start || lo >= dl.end {
                                 return None;
                             }
-                            let s = lo.saturating_sub(dl.start);
-                            let e = hi.min(dl.end).saturating_sub(dl.start);
-                            Some((s, e))
+                            let s = layout.map.index_for_offset(lo);
+                            let e = layout.map.index_for_offset(hi);
+                            (e > s).then_some((s, e))
                         });
                         // Cursor on this display line (insert mode draws a full
-                        // bar; normal mode highlights the char under it).
-                        let cursor_col = if cursor_display == index {
-                            Some(cursor - dl.start)
-                        } else {
-                            None
-                        };
+                        // bar; normal mode highlights the char under it). The
+                        // cursor's own row always keeps its markers, so the index
+                        // lands on a real character.
+                        let cursor_col =
+                            (cursor_display == index).then(|| layout.map.index_for_offset(cursor));
 
-                        // Wiki-link spans restricted to this display line, in
-                        // line-relative byte offsets, with whether they
-                        // resolve to an existing note.
+                        // Wiki-link spans overlapping this display line, as
+                        // absolute buffer offsets, with whether they resolve to an
+                        // existing note.
                         let line_links: Vec<(usize, usize, bool)> = self
                             .links
                             .iter()
                             .filter(|l| l.start < dl.end && l.end > dl.start)
                             .map(|l| {
                                 (
-                                    l.start.saturating_sub(dl.start),
-                                    l.end.min(dl.end).saturating_sub(dl.start),
+                                    l.start.max(dl.start),
+                                    l.end.min(dl.end),
                                     self.is_known(&l.target),
                                 )
                             })
                             .collect();
 
-                        // Markdown style spans restricted to this display line,
-                        // in line-relative byte offsets.
-                        let line_spans = self.line_spans(dl.start, dl.end);
+                        // Markdown style spans overlapping this display line, as
+                        // absolute buffer offsets.
+                        let line_spans = self.spans_in(dl.start, dl.end);
                         // A fenced block's background spans the full width, so
                         // the element paints it as a quad rather than a run.
                         let block = row_styles.get(dl.row).copied().unwrap_or_default().block;
@@ -988,7 +1158,9 @@ impl Render for MarkdownEditor {
                                 index,
                                 start: dl.start,
                                 end: dl.end,
-                                text,
+                                text: layout.text,
+                                map: layout.map,
+                                hidden: hidden.get(dl.row).cloned().unwrap_or_default(),
                                 line_sel,
                                 cursor_col,
                                 insert: self.vim.mode() == Mode::Insert,
@@ -996,7 +1168,7 @@ impl Render for MarkdownEditor {
                                 spans: line_spans,
                                 size: dl.size,
                                 block,
-                                table: plans.get(dl.row).cloned().flatten(),
+                                table,
                                 char_width,
                             })
                     })),
