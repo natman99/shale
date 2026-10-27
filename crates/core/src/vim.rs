@@ -10,6 +10,16 @@ use crate::buffer::Buffer;
 pub enum Mode {
     Normal,
     Insert,
+    /// Characterwise visual selection (`v`).
+    Visual,
+    /// Linewise visual selection (`V`).
+    VisualLine,
+}
+
+impl Mode {
+    pub fn is_visual(self) -> bool {
+        matches!(self, Mode::Visual | Mode::VisualLine)
+    }
 }
 
 /// A normal-mode operator waiting for a motion (`d`, `c`, `y`).
@@ -171,17 +181,28 @@ impl Vim {
         false
     }
 
-    /// Handle a key press while in normal mode.
+    /// Handle a key press while in normal or visual mode.
     pub fn handle_normal_key(&mut self, key: Key, buf: &mut Buffer) -> Outcome {
+        if self.mode.is_visual() {
+            return self.handle_visual_key(key, buf);
+        }
+        self.handle_motion_key(key, buf)
+    }
+
+    /// The normal-mode state machine: motions, operators and insert transitions.
+    fn handle_motion_key(&mut self, key: Key, buf: &mut Buffer) -> Outcome {
         // A digit extends the count. A bare `0` (with no count in progress) is
-        // the line-start motion instead.
+        // the line-start motion instead. A digit that is the argument of a
+        // half-typed command (`f0`) is a literal, not a count.
         if let Key::Char(c @ '0'..='9') = key {
-            if c == '0' && self.count.is_none() && self.pending == Pending::None {
-                buf.line_start_motion();
+            if !self.waiting_for_literal() {
+                if c == '0' && self.count.is_none() && self.pending == Pending::None {
+                    buf.line_start_motion();
+                    return Outcome::Stay;
+                }
+                self.count = Some(self.count.unwrap_or(0) * 10 + (c as usize - '0' as usize));
                 return Outcome::Stay;
             }
-            self.count = Some(self.count.unwrap_or(0) * 10 + (c as usize - '0' as usize));
-            return Outcome::Stay;
         }
 
         // A find is waiting for its character.
@@ -251,8 +272,18 @@ impl Vim {
                 hi = next_hi;
             }
             let Some(op) = op else {
-                // Bare `iw`/`ip`: a motion, not an operator.
-                buf.set_cursor(lo);
+                // Bare `iw`/`ip`: a motion. In visual mode it *is* the
+                // selection; in normal mode it just moves the cursor.
+                if self.mode.is_visual() {
+                    let head = if hi > lo {
+                        buf.prev_char_boundary(hi)
+                    } else {
+                        lo
+                    };
+                    buf.set_selection(lo, head);
+                } else {
+                    buf.set_cursor(lo);
+                }
                 return Outcome::Stay;
             };
             return self.apply_range(op, lo, hi, buf);
@@ -338,6 +369,15 @@ impl Vim {
             }
             Key::Char('p') => self.paste(true, buf),
             Key::Char('P') => self.paste(false, buf),
+            // Visual mode entry
+            Key::Char('v') => {
+                self.enter_visual(false, buf);
+                return Outcome::Stay;
+            }
+            Key::Char('V') => {
+                self.enter_visual(true, buf);
+                return Outcome::Stay;
+            }
             // Insert transitions
             Key::Char('i') => return Outcome::EnterInsert,
             Key::Char('a') => {
@@ -371,15 +411,186 @@ impl Vim {
         Outcome::Stay
     }
 
-    /// Apply `op` over `count` repetitions of the motion `key`.
-    /// The range of the text object with the given scope under `offset`.
-    fn object_range(buf: &Buffer, offset: usize, scope: char, inner: bool) -> (usize, usize) {
-        match scope {
-            'p' => buf.paragraph_object(offset, inner),
-            _ => buf.word_object(offset, inner),
+    /// Visual mode: motions extend the selection, operators act on it.
+    fn handle_visual_key(&mut self, key: Key, buf: &mut Buffer) -> Outcome {
+        // A digit extends the count, unless it is the argument of a half-typed
+        // command (`f0`).
+        if let Key::Char(c @ '0'..='9') = key {
+            if !self.waiting_for_literal() {
+                if c == '0' && self.count.is_none() {
+                    buf.line_start_motion();
+                    return self.reanchor(buf);
+                }
+                self.count = Some(self.count.unwrap_or(0) * 10 + (c as usize - '0' as usize));
+                return Outcome::Stay;
+            }
+        }
+
+        match key {
+            Key::Escape => {
+                self.exit_visual(buf);
+                Outcome::Stay
+            }
+            // `v` switches charwise <-> linewise; typing the form the mode
+            // already has ends the selection.
+            Key::Char('v') | Key::Char('V') => {
+                let line_wise = key == Key::Char('V');
+                if self.mode == Mode::Visual && line_wise {
+                    self.enter_visual(true, buf);
+                } else if self.mode == Mode::VisualLine && !line_wise {
+                    self.enter_visual(false, buf);
+                } else {
+                    self.exit_visual(buf);
+                }
+                Outcome::Stay
+            }
+            // `o` jumps to the other end of the selection.
+            Key::Char('o') | Key::Char('O') => {
+                if let Some((a, h)) = buf.selection() {
+                    buf.set_selection(h, a);
+                }
+                Outcome::Stay
+            }
+            // `i`/`a` start a text object, which extends the selection.
+            Key::Char('i') | Key::Char('a') => {
+                let count = self.count.take().unwrap_or(1);
+                self.pending = Pending::TextObject {
+                    op: None,
+                    count,
+                    around: key == Key::Char('a'),
+                };
+                Outcome::Stay
+            }
+            // `I`/`A` insert at the first non-blank / last character of the
+            // selection's near and far lines.
+            Key::Char('I') | Key::Char('A') => {
+                let Some((lo, hi)) = self.selection_range(buf) else {
+                    return Outcome::Unhandled;
+                };
+                self.mode = Mode::Normal;
+                buf.clear_selection();
+                if key == Key::Char('I') {
+                    buf.set_cursor(lo);
+                    buf.row_first_non_blank();
+                } else {
+                    buf.set_cursor(hi.saturating_sub(1));
+                    buf.row_last_char_motion();
+                    buf.move_right();
+                }
+                Outcome::EnterInsert
+            }
+            // Operators apply to the selection itself.
+            Key::Char('d')
+            | Key::Char('x')
+            | Key::Char('c')
+            | Key::Char('s')
+            | Key::Char('y')
+            | Key::Char('p') => {
+                let Some((lo, hi)) = self.selection_range(buf) else {
+                    return Outcome::Unhandled;
+                };
+                let linewise = self.mode == Mode::VisualLine;
+                let text = buf.text()[lo..hi].to_string();
+                self.exit_visual(buf);
+                match key {
+                    Key::Char('y') => self.register = Some(Register { text, linewise }),
+                    Key::Char('p') => {
+                        buf.delete_range(lo, hi);
+                        let reg = self.register.clone().map(|r| r.text).unwrap_or_default();
+                        buf.insert_at(lo, &reg);
+                    }
+                    Key::Char('c') | Key::Char('s') => {
+                        self.register = Some(Register { text, linewise });
+                        buf.delete_range(lo, hi);
+                        return Outcome::EnterInsert;
+                    }
+                    _ => {
+                        self.register = Some(Register { text, linewise });
+                        buf.delete_range(lo, hi);
+                    }
+                }
+                Outcome::Stay
+            }
+            // Everything else is a motion. Motions measure from the cursor, so
+            // the selection is cleared first and then re-anchored where it was.
+            _ => {
+                let anchor = buf.selection().map(|(a, _)| a);
+                buf.clear_selection();
+                let outcome = self.handle_motion_key(key, buf);
+                // A text object sets its own selection; a plain motion only
+                // moves the head.
+                if buf.selection().is_none() {
+                    if let Some(anchor) = anchor {
+                        buf.set_selection(anchor, buf.cursor());
+                    }
+                }
+                outcome
+            }
         }
     }
 
+    /// Enter visual mode: `v` starts the selection at the cursor, `V` takes
+    /// whole lines.
+    fn enter_visual(&mut self, line_wise: bool, buf: &mut Buffer) {
+        self.pending = Pending::None;
+        self.count = None;
+        self.mode = if line_wise {
+            Mode::VisualLine
+        } else {
+            Mode::Visual
+        };
+        let cursor = buf.cursor();
+        if line_wise {
+            let row = buf.row_col(cursor).0;
+            buf.set_selection(buf.line_start(row), buf.line_end(row));
+        } else {
+            buf.set_selection(cursor, cursor);
+        }
+    }
+
+    /// Leave visual mode, leaving the cursor on the selection's far end.
+    fn exit_visual(&mut self, buf: &mut Buffer) {
+        self.mode = Mode::Normal;
+        self.pending = Pending::None;
+        self.count = None;
+        buf.clear_selection();
+    }
+
+    /// The byte range `[lo, hi)` a visual selection covers. Charwise visual is
+    /// *inclusive* of the character under the cursor, so the end sits one
+    /// character past the head; linewise takes whole lines, line breaks
+    /// included.
+    pub fn selection_range(&self, buf: &Buffer) -> Option<(usize, usize)> {
+        let (anchor, head) = buf.selection()?;
+        let (lo, hi) = (anchor.min(head), anchor.max(head));
+        if self.mode == Mode::VisualLine {
+            let end = buf.line_end(buf.row_col(hi).0);
+            let end = if end < buf.text().len() {
+                buf.next_char_boundary(end)
+            } else {
+                end
+            };
+            Some((buf.line_start(buf.row_col(lo).0), end))
+        } else {
+            let end = if hi < buf.text().len() {
+                buf.next_char_boundary(hi)
+            } else {
+                buf.text().len()
+            };
+            Some((lo, end))
+        }
+    }
+
+    /// After a motion in visual mode the anchor stays put and the head follows
+    /// the cursor.
+    fn reanchor(&self, buf: &mut Buffer) -> Outcome {
+        if let Some((anchor, _)) = buf.selection() {
+            buf.set_selection(anchor, buf.cursor());
+        }
+        Outcome::Stay
+    }
+
+    /// Apply `op` over `count` repetitions of the motion `key`.
     fn apply_operator(
         &mut self,
         op: Operator,
@@ -451,12 +662,22 @@ impl Vim {
             }
         }
         let mut end = buf.cursor();
-        // `$` lands on the last character, which the operator must include.
-        if key == Key::Char('$') {
+        // `$` and `e` are inclusive motions: they land *on* a character, which
+        // the operator must include. `w` is exclusive, so it stops at the start
+        // of the next word and that character is left alone.
+        if matches!(key, Key::Char('$') | Key::Char('e')) && end < buf.text().len() {
             end = buf.next_char_boundary(end);
         }
         let (lo, hi) = (start.min(end), start.max(end));
         self.apply_range(op, lo, hi, buf)
+    }
+
+    /// The range of the text object with the given scope under `offset`.
+    fn object_range(buf: &Buffer, offset: usize, scope: char, inner: bool) -> (usize, usize) {
+        match scope {
+            'p' => buf.paragraph_object(offset, inner),
+            _ => buf.word_object(offset, inner),
+        }
     }
 
     /// Apply `op` to the byte range `[lo, hi)`.
@@ -710,6 +931,134 @@ mod tests {
     /// `f`/`t`/`F`/`T` as motions and as operator arguments.
     /// `iw`/`aw` and `ip`/`ap`: the operator waits for the object's scope, then
     /// acts on the range under the cursor.
+    /// Visual mode: motions extend the selection, operators act on it, and a
+    /// charwise selection is inclusive of the character under the cursor.
+    #[test]
+    fn visual_mode() {
+        let mut v = Vim::new();
+        let mut b = buf(); // "hello world\nsecond line\nthird"
+        type_keys(&mut v, "vll", &mut b);
+        assert_eq!(v.mode(), Mode::Visual);
+        assert_eq!(b.selection(), Some((0, 2)));
+        assert_eq!(v.selection_range(&b), Some((0, 3)), "inclusive of the head");
+        type_keys(&mut v, "d", &mut b);
+        assert_eq!(b.text(), "lo world\nsecond line\nthird");
+        assert_eq!(v.mode(), Mode::Normal, "the operator ends the selection");
+        assert_eq!(b.selection(), None);
+
+        // A word motion is exclusive, so the selection reaches into the next
+        // word, exactly as vim's `vw` does.
+        v = Vim::new();
+        let mut b = buf();
+        type_keys(&mut v, "vw", &mut b);
+        assert_eq!(v.selection_range(&b), Some((0, 7)));
+        type_keys(&mut v, "y", &mut b);
+        assert_eq!(v.register.as_ref().unwrap().text, "hello w");
+
+        // `o` jumps to the other end of the selection.
+        v = Vim::new();
+        let mut b = buf();
+        type_keys(&mut v, "vll", &mut b);
+        assert_eq!(b.cursor(), 2);
+        type_keys(&mut v, "o", &mut b);
+        assert_eq!(b.cursor(), 0);
+        assert_eq!(b.selection(), Some((2, 0)));
+
+        // `h` past the anchor flips the selection to the other side, as vim's
+        // does.
+        v = Vim::new();
+        let mut b = buf();
+        b.set_cursor(6);
+        type_keys(&mut v, "vh", &mut b);
+        assert_eq!(v.selection_range(&b), Some((5, 7)), "the space and the w");
+
+        // Counts extend visual motions.
+        v = Vim::new();
+        let mut b = buf();
+        type_keys(&mut v, "v2l", &mut b);
+        assert_eq!(b.selection(), Some((0, 2)));
+
+        // A text object selects the object itself.
+        v = Vim::new();
+        let mut b = buf();
+        b.set_cursor(7);
+        type_keys(&mut v, "viw", &mut b);
+        assert_eq!(
+            v.selection_range(&b),
+            Some((6, 11)),
+            "iw selects the word under the cursor"
+        );
+
+        // `I` and `A` insert at the near and far ends of the selection's lines.
+        v = Vim::new();
+        let mut b = buf();
+        type_keys(&mut v, "vl", &mut b);
+        assert_eq!(
+            v.handle_normal_key(Key::Char('I'), &mut b),
+            Outcome::EnterInsert
+        );
+        assert_eq!(b.cursor(), 0);
+        assert_eq!(b.selection(), None);
+
+        v = Vim::new();
+        let mut b = buf();
+        type_keys(&mut v, "vl", &mut b);
+        assert_eq!(
+            v.handle_normal_key(Key::Char('A'), &mut b),
+            Outcome::EnterInsert
+        );
+        assert_eq!(b.cursor(), 11, "`A` goes to the end of the line");
+
+        // `v` again exits, and `V` switches the selection to linewise.
+        v = Vim::new();
+        let mut b = buf();
+        type_keys(&mut v, "vlv", &mut b);
+        assert_eq!(v.mode(), Mode::Normal);
+        assert_eq!(b.selection(), None);
+
+        v = Vim::new();
+        let mut b = buf();
+        type_keys(&mut v, "vV", &mut b);
+        assert_eq!(v.mode(), Mode::VisualLine);
+
+        v = Vim::new();
+        let mut b = buf();
+        type_keys(&mut v, "vl", &mut b);
+        v.handle_normal_key(Key::Escape, &mut b);
+        assert_eq!(v.mode(), Mode::Normal);
+        assert_eq!(b.selection(), None);
+    }
+
+    /// Linewise visual (`V`): whole lines, line breaks included.
+    #[test]
+    fn visual_line_mode() {
+        let mut v = Vim::new();
+        let mut b = buf();
+        type_keys(&mut v, "V", &mut b);
+        assert_eq!(v.mode(), Mode::VisualLine);
+        assert_eq!(v.selection_range(&b), Some((0, 12)), "one whole line");
+
+        v = Vim::new();
+        let mut b = buf();
+        type_keys(&mut v, "Vj", &mut b);
+        assert_eq!(v.selection_range(&b), Some((0, 24)), "two whole lines");
+        type_keys(&mut v, "d", &mut b);
+        assert_eq!(b.text(), "third");
+
+        // `V` + yank + paste duplicates the line.
+        v = Vim::new();
+        let mut b = buf();
+        type_keys(&mut v, "Vyp", &mut b);
+        assert_eq!(b.text(), "hello world\nhello world\nsecond line\nthird");
+        assert!(v.register.as_ref().unwrap().linewise);
+
+        // `c` on a linewise selection deletes and enters insert.
+        v = Vim::new();
+        let mut b = buf();
+        type_keys(&mut v, "Vc", &mut b);
+        assert_eq!(b.text(), "second line\nthird");
+    }
+
     #[test]
     fn text_objects() {
         let mut v = Vim::new();

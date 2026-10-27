@@ -330,12 +330,13 @@ impl MarkdownEditor {
 
     fn on_escape(&mut self, _: &VimEscape, _window: &mut Window, cx: &mut Context<Self>) {
         self.vim.enter_normal();
+        self.buffer.clear_selection();
         self.buffer.end_undo_group();
         cx.notify();
     }
 
     fn on_newline(&mut self, _: &Newline, _window: &mut Window, cx: &mut Context<Self>) {
-        if self.vim.mode() == Mode::Normal {
+        if self.vim.mode() != Mode::Insert {
             return;
         }
         self.buffer.insert("\n");
@@ -407,9 +408,14 @@ impl MarkdownEditor {
     }
 
     fn on_copy(&mut self, _: &CopyText, _window: &mut Window, cx: &mut Context<Self>) {
-        if let Some((a, h)) = self.buffer.selection() {
-            let text = self.buffer.text()[a.min(h)..a.max(h)].to_string();
-            cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
+        let range = match self.vim.mode() {
+            Mode::Visual | Mode::VisualLine => self.vim.selection_range(&self.buffer),
+            _ => self.buffer.selection().map(|(a, h)| (a.min(h), a.max(h))),
+        };
+        if let Some((a, h)) = range {
+            cx.write_to_clipboard(gpui::ClipboardItem::new_string(
+                self.buffer.text()[a..h].to_string(),
+            ));
         }
     }
 
@@ -444,7 +450,13 @@ impl MarkdownEditor {
                     return;
                 }
             }
-            self.buffer.set_cursor(offset);
+            // A click in visual mode extends the selection from its anchor.
+            match (self.vim.mode(), self.buffer.selection()) {
+                (Mode::Visual | Mode::VisualLine, Some((anchor, _))) => {
+                    self.buffer.set_selection(anchor, offset)
+                }
+                _ => self.buffer.set_cursor(offset),
+            }
             cx.notify();
         }
     }
@@ -526,10 +538,10 @@ impl EntityInputHandler for MarkdownEditor {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        // Normal mode swallows typed input, except for the literal argument of
-        // a half-typed command (`fr`, `diw`): unbound characters never become
-        // actions, they arrive here.
-        if self.vim.mode() == Mode::Normal {
+        // Normal and visual mode swallow typed input, except for the literal
+        // argument of a half-typed command (`fr`, `diw`): unbound characters
+        // never become actions, they arrive here.
+        if self.vim.mode() != Mode::Insert {
             if self.vim.waiting_for_literal() {
                 if let Some(c) = new_text.chars().next() {
                     if new_text.chars().count() == 1 {
@@ -596,15 +608,21 @@ impl Render for MarkdownEditor {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.hit_lines.clear();
         self.input_registered = false;
-        let context = if self.vim.mode() == Mode::Insert {
-            "vim-insert"
-        } else {
-            "vim-normal"
+        let context = match self.vim.mode() {
+            Mode::Insert => "vim-insert",
+            Mode::Visual | Mode::VisualLine => "vim-visual",
+            Mode::Normal => "vim-normal",
         };
 
         let line_count = self.buffer.line_count();
         let cursor = self.buffer.cursor();
-        let selection = self.buffer.selection();
+        // In visual mode the buffer keeps (anchor, head) with the head *on* the
+        // last selected character, so the painted range comes from the engine,
+        // which knows whether the selection is charwise or linewise.
+        let selection = match self.vim.mode() {
+            Mode::Visual | Mode::VisualLine => self.vim.selection_range(&self.buffer),
+            _ => self.buffer.selection(),
+        };
         self.refresh_links();
         tracing::trace!(lines = line_count, "editor render");
 
@@ -665,6 +683,8 @@ impl Render for MarkdownEditor {
             .on_action(cx.listener(|this, _: &VimUpperA, _, cx| this.normal(Key::Char('A'), cx)))
             .on_action(cx.listener(|this, _: &VimO, _, cx| this.normal(Key::Char('o'), cx)))
             .on_action(cx.listener(|this, _: &VimUpperO, _, cx| this.normal(Key::Char('O'), cx)))
+            .on_action(cx.listener(|this, _: &VimV, _, cx| this.normal(Key::Char('v'), cx)))
+            .on_action(cx.listener(|this, _: &VimUpperV, _, cx| this.normal(Key::Char('V'), cx)))
             // Shared editing keys.
             .on_action(cx.listener(Self::on_escape))
             .on_action(cx.listener(Self::on_newline))

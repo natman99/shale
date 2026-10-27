@@ -64,6 +64,8 @@ mod acts {
             VimUpperA,
             VimO,
             VimUpperO,
+            VimV,
+            VimUpperV,
             VimEscape,
             Newline,
             NextLine,
@@ -234,6 +236,8 @@ impl Render for Workspace {
         let mode_str = match mode {
             shale_core::vim::Mode::Normal => "NORMAL",
             shale_core::vim::Mode::Insert => "INSERT",
+            shale_core::vim::Mode::Visual => "VISUAL",
+            shale_core::vim::Mode::VisualLine => "V-LINE",
         };
         let dirty = if self.editor.read(cx).is_dirty() {
             "●"
@@ -386,54 +390,64 @@ fn keybindings() -> Vec<KeyBinding> {
             $( keys.push(KeyBinding::new($key, $action, Some($ctx))); )*
         };
     }
+    // Motions and operators are bound in both normal and visual mode; the vim
+    // engine decides what each key means for the current mode.
+    for context in ["vim-normal", "vim-visual"] {
+        bind!(context, [
+            "h" => VimH,
+            "j" => VimJ,
+            "k" => VimK,
+            "l" => VimL,
+            "w" => VimW,
+            "b" => VimB,
+            "e" => VimE,
+            "f" => VimF,
+            "shift-f" => VimUpperF,
+            "t" => VimT,
+            "shift-t" => VimUpperT,
+            "space" => VimSpace,
+            "0" => VimZero,
+            "^" => VimCaret,
+            "$" => VimDollar,
+            "g" => VimG,
+            "shift-g" => VimUpperG,
+            "d" => VimD,
+            "c" => VimC,
+            "y" => VimY,
+            "p" => VimP,
+            "shift-p" => VimUpperP,
+            "x" => VimX,
+            "i" => VimI,
+            "shift-i" => VimUpperI,
+            "a" => VimA,
+            "shift-a" => VimUpperA,
+            "o" => VimO,
+            "shift-o" => VimUpperO,
+            "v" => VimV,
+            "shift-v" => VimUpperV,
+            "escape" => VimEscape,
+            "1" => VimDigit1,
+            "2" => VimDigit2,
+            "3" => VimDigit3,
+            "4" => VimDigit4,
+            "5" => VimDigit5,
+            "6" => VimDigit6,
+            "7" => VimDigit7,
+            "8" => VimDigit8,
+            "9" => VimDigit9,
+            "ctrl-z" => Undo,
+            "ctrl-r" => Redo,
+            "ctrl-shift-z" => Redo,
+            "ctrl-y" => Redo,
+            "ctrl-shift-c" => CopyText,
+            "ctrl-shift-v" => PasteText,
+        ]);
+    }
+    // Normal mode only: `u` is undo here (vim uses it to lowercase in visual
+    // mode), and `enter` is the next-line motion rather than a newline.
     bind!("vim-normal", [
-        "h" => VimH,
-        "j" => VimJ,
-        "k" => VimK,
-        "l" => VimL,
-        "w" => VimW,
-        "b" => VimB,
-        "e" => VimE,
-        "f" => VimF,
-        "shift-f" => VimUpperF,
-        "t" => VimT,
-        "shift-t" => VimUpperT,
-        "space" => VimSpace,
-        "0" => VimZero,
-        "^" => VimCaret,
-        "$" => VimDollar,
-        "g" => VimG,
-        "shift-g" => VimUpperG,
-        "d" => VimD,
-        "c" => VimC,
-        "y" => VimY,
-        "p" => VimP,
-        "shift-p" => VimUpperP,
         "u" => VimU,
-        "1" => VimDigit1,
-        "2" => VimDigit2,
-        "3" => VimDigit3,
-        "4" => VimDigit4,
-        "5" => VimDigit5,
-        "6" => VimDigit6,
-        "7" => VimDigit7,
-        "8" => VimDigit8,
-        "9" => VimDigit9,
-        "x" => VimX,
-        "i" => VimI,
-        "shift-i" => VimUpperI,
-        "a" => VimA,
-        "shift-a" => VimUpperA,
-        "o" => VimO,
-        "shift-o" => VimUpperO,
-        "escape" => VimEscape,
         "enter" => NextLine,
-        "ctrl-z" => Undo,
-        "ctrl-r" => Redo,
-        "ctrl-shift-z" => Redo,
-        "ctrl-y" => Redo,
-        "ctrl-shift-c" => CopyText,
-        "ctrl-shift-v" => PasteText,
     ]);
     bind!("vim-insert", [
         "escape" => VimEscape,
@@ -641,6 +655,37 @@ mod tests {
                     .collect::<Vec<_>>(),
                 vec![action],
                 "typed {key} (control {control}) should resolve to {action}"
+            );
+        }
+
+        // The visual context has to carry the same bindings, or the keys stop
+        // working the moment `v` is typed.
+        let contexts = vec![gpui::KeyContext::try_from("vim-visual").unwrap()];
+        for (control, shift, key, action) in [
+            (false, false, "k", "shale_editor::VimK"),
+            (false, false, "v", "shale_editor::VimV"),
+            (false, true, "v", "shale_editor::VimUpperV"),
+            (false, false, "$", "shale_editor::VimDollar"),
+            (true, false, "z", "shale_editor::Undo"),
+        ] {
+            let typed = gpui::Keystroke {
+                modifiers: gpui::Modifiers {
+                    control,
+                    shift,
+                    ..Default::default()
+                },
+                key: key.to_string(),
+                key_char: None,
+            };
+            let (bindings, pending) = keymap.bindings_for_input(&[typed], &contexts);
+            assert!(!pending, "{key} should not leave pending input");
+            assert_eq!(
+                bindings
+                    .iter()
+                    .map(|b| b.action().name())
+                    .collect::<Vec<_>>(),
+                vec![action],
+                "visual mode: typed {key} should resolve to {action}"
             );
         }
     }
@@ -972,5 +1017,53 @@ mod tests {
         cx.simulate_input("X");
         let text = editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
         assert_eq!(text, "X\n\nnext para", "`cip` should enter insert mode");
+    }
+
+    /// Visual mode through the real keymap: the `vim-visual` context has to
+    /// carry the motion bindings, and operators act on the selection.
+    #[gpui::test]
+    fn visual_mode_selection_and_operators(cx: &mut TestAppContext) {
+        cx.update(|cx| cx.bind_keys(keybindings()));
+
+        let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+        let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+        editor
+            .update(cx, |editor, window, cx| {
+                editor.set_text("one two three\nsecond para\nthird".to_string(), cx);
+                let focus = editor.focus_handle(cx);
+                window.focus(&focus, cx);
+            })
+            .unwrap();
+
+        cx.simulate_keystrokes("v l l");
+        let mode = editor.read_with(cx, |editor, _cx| editor.mode()).unwrap();
+        assert_eq!(
+            mode,
+            shale_core::vim::Mode::Visual,
+            "`v` should enter visual mode"
+        );
+
+        cx.simulate_keystrokes("d");
+        let (mode, text) = editor
+            .read_with(cx, |editor, _cx| (editor.mode(), editor.text()))
+            .unwrap();
+        assert_eq!(
+            text, " two three\nsecond para\nthird",
+            "`d` should delete the selection"
+        );
+        assert_eq!(mode, shale_core::vim::Mode::Normal, "and leave visual mode");
+
+        // Linewise visual: `V` + `j` + `d` removes two whole lines.
+        cx.simulate_keystrokes("escape shift-v j d");
+        let text = editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
+        assert_eq!(text, "third", "`Vjd` should delete two lines");
+
+        // `y` + `p` in visual swaps the selection for the register.
+        cx.simulate_keystrokes("escape 0 v l l y");
+        let text = editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
+        assert_eq!(text, "third", "yanking leaves the text alone");
+        cx.simulate_keystrokes("$ h v l p");
+        let text = editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
+        assert_eq!(text, "thithi", "`p` should replace the selection");
     }
 }

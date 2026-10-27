@@ -8,10 +8,14 @@ Shale is an obsidian-style markdown editor with extra developer focused features
 - [ ] MCP server
 - [ ] Spellcheck and grammar checking using HarperLS. Support for custom language servers.
 - [ ] Near-perfect compatibility with Obsidian vaults 
-- [ ] Image support in vaults
+- [ ] Image support in notes using Obsidian style 
 - [ ] Theming support and support for custom themes. Include light and dark themes.
 - [ ] Graph view
 - [ ] Pdf export notes
+- [ ] Tabs
+- [ ] Tiling split view (like Obsidian)
+- [ ] Command pallette
+- [ ] Note search and full vault search
 
 - Config files in TOML
 - Assure any code you reference or copy from online has a commercial permissible licensing 
@@ -212,8 +216,35 @@ Workspace layout:
   run if there is one, otherwise the leading run (so `daw` on the last word of a
   line eats the space *before* it), and on whitespace it takes that run plus the
   word after.
-- **Not implemented yet in vim mode**: visual mode (`v`/`V`) and selection
-  operators, `.` repeat, registers other than the unnamed one.
+- **Visual mode — done** (`v` charwise, `V` linewise). Motions extend the
+  selection, operators act on it and drop back to normal, `o` swaps the ends,
+  `i`/`a` extend it with a text object, `I`/`A` insert at the near/far line,
+  `d`/`x`/`c`/`s`/`y`/`p` all work, escape and `v`/`V` exit or switch form.
+  **Selection model**: the buffer keeps `(anchor, head)` where `head` *is* the
+  cursor, and a charwise visual selection is **inclusive** of the character under
+  the cursor (vim's model). `Vim::selection_range(&buffer)` (public) turns that
+  into the exclusive byte range used by operators, painting and `ctrl-shift-c`;
+  the editor paints from it rather than from `buffer.selection()`, which would
+  paint one character short. Motions run with the selection **cleared** (they
+  measure from the cursor, and `move_left`/`move_right` would otherwise jump to
+  the anchor) and are then re-anchored; a text object sets its own selection and
+  must not be re-anchored.
+  The `vim-visual` **key context needs the motion bindings**: `keybindings()` now
+  binds the shared list for `["vim-normal", "vim-visual"]` and keeps `u` (undo) and
+  `enter` normal-only, since vim uses `u` in visual for lowercasing. The keymap
+  regression test checks the visual context too; the platform's shape for `V` is
+  `key: "v"` with `shift: true` (not `key: "V"`).
+- **Motion inclusivity follows vim's docs** (vimhelp.org `motion.txt`, worth
+  re-reading before "fixing" anything here): `w`/`b`/`0`/`^`/`f`/`t` are
+  **exclusive**, `$` and `e` are **inclusive**. So `w` lands on the *start of the
+  next word* — not on the gap between words — which is why `dw` deletes the word
+  plus its trailing space and why `vw` reaches one character into the next word.
+  (An attempt to make `w` stop on the gap was tried and reverted: it breaks `d2w`
+  and contradicts the docs.) `de` was off by one character and is now inclusive.
+- **Not implemented yet in vim mode**: `.` repeat, `gv`, `C`/`S` in visual,
+  repeating a text object in visual to extend it, blockwise `ctrl-v`, the
+  case/replace operators (`~`, `u`, `r`) in visual, registers other than the
+  unnamed one.
 - **Cursor model nits**: `Buffer` cursors may sit at `text.len()` (between
   characters) while vim's normal-mode cursor always sits *on* a character, so
   `w` at the end of a buffer can leave the cursor one position past the last
@@ -231,8 +262,8 @@ Next steps, roughly in order:
    display columns for tabs/multi-byte text.
 3. ~~Resolve the ctrl+z / redo keystroke question~~ Done (keymap `+` → `-`).
    Re-test ctrl-z / ctrl-r / ctrl-y and `ctrl-s` in a live window.
-4. Visual mode (`v`/`V`) and selection operators; `.` repeat. ~~Text objects
-   (`iw`, `ap`)~~ and ~~`f`/`t` find motions~~ are done (see Open threads).
+4. ~~Visual mode (`v`/`V`) and selection operators~~ done. Next here: `.`
+   repeat, then the table goal.
 5. Table-aware motions and manipulation (the table goal): column motions on the
    pipe and dash characters, adding/removing rows and columns.
 6. Live preview mode (rendered markdown toggle) — pulldown-cmark for parsing.

@@ -470,9 +470,11 @@ impl Buffer {
     /// (alphanumeric + `_`), punctuation runs, and whitespace. `w` consumes the
     /// current run (unless it is whitespace) and then any whitespace, landing on
     /// the start of the next run — crossing line boundaries like vim does.
+    /// Vim's `w`: an exclusive motion to the start of the next word, skipping
+    /// the gap after the current one. `e` is the inclusive form.
     pub fn word_forward(&mut self) {
         let len = self.text.len();
-        let mut i = self.cursor;
+        let mut i = self.clamp(self.cursor);
         if i >= len {
             return;
         }
@@ -745,7 +747,7 @@ impl Buffer {
         i
     }
 
-    fn prev_char_boundary(&self, offset: usize) -> usize {
+    pub(crate) fn prev_char_boundary(&self, offset: usize) -> usize {
         let mut o = self.clamp(offset).saturating_sub(1);
         while o > 0 && !self.text.is_char_boundary(o) {
             o -= 1;
