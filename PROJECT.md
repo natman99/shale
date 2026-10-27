@@ -89,8 +89,9 @@ Also add the ability to have nested constellations shown.
 Workspace layout:
 - `crates/core` (`shale-core`): vault model (path-traversal safe), wiki-link
   extraction/resolution/backlinks, search, TOML config (`shale.toml` in the
-  vault), text `Buffer` with undo/redo, the vim mode engine, and `mdstyle` (the
-  presentation-agnostic markdown style scanner). Pure Rust, fully unit tested.
+  vault), text `Buffer` with undo/redo, the vim mode engine, `mdstyle` (the
+  presentation-agnostic markdown style scanner) and `table` (the table model:
+  cells, cell lookup, row/column editing). Pure Rust, fully unit tested.
 - `crates/app` (`shale` binary): GPUI app (Zed's gpui, tag `v1.25.3`) — file
   tree sidebar, custom line-based editor view with **soft wrap** and vim
   normal/insert/visual modes (hjkl, w/b/e, 0 ^ $ — screen-line aware, gg/G,
@@ -103,7 +104,9 @@ Workspace layout:
   display row:col), ctrl+s save. Split into `main.rs` (workspace, keymap,
   actions), `editor.rs` (the view: buffer + vim + wrap model + input), `line.rs`
   (the `LineElement` that paints one display line, and the run builder),
-  `theme.rs` (the palette and `Style` -> `RunStyle` mapping) and `tree.rs`.
+  `table_view.rs` (the table grid geometry: column widths and cell offsets, in
+  character cells), `theme.rs` (the palette and `Style` -> `RunStyle` mapping)
+  and `tree.rs`.
 - `crates/mcp` (`shale-mcp` binary): MCP stdio server exposing list/read/
   write/search/backlinks tools.
 - `refs/` (**gitignored, not shipped**): local copies of the Vim help files
@@ -159,9 +162,85 @@ entity), cx)` while painting the current frame. Forget it and every character
   which is how input-path regressions get caught without a live window.
 - Manual Wayland checks: `grim` for full-screen, `niri msg action
 screenshot-window --id <id> --write-to-disk true` for a single window, and
-  `niri msg --json windows` to find the window id.
+`niri msg --json windows` to find the window id.
+- Run the test binaries under `ulimit -v` when working on anything that scans
+  text (a scanner bug can allocate until the OOM killer takes the editor down —
+  see the table postmortem). Build parallelism is capped in `.cargo/config.toml`
+  at the user's request because a full-parallel build stalled the editor.
 
 ### Open threads (write findings here as they come up)
+
+- **Tables — done: model, editing, and the grid widget.**
+  `shale_core::table` holds the model; `mdstyle::table_row_flags` and
+  `mdstyle::is_table_delimiter_row` are public so the styler and the editor ask
+  the same question and can never disagree about which lines are a table. A
+  `Table` is `rows` + `columns` + the index of the delimiter row. Each `Cell`
+  carries three ranges: the **content** (`start..end`, padding and pipes out),
+  the **region** between the pipes (`span_start..span_end`, padding in) and the
+  **pipes** (`open_pipe` / `close_pipe`). Navigation uses the pipes: the pipe
+  that *closes* a cell belongs to that cell, the pipe that *opens* it belongs to
+  the cell on its left, so every offset in a row resolves to exactly one column
+  (`every_offset_in_a_table_row_resolves_to_a_cell`). That total ownership is
+  what prevents the "weird skipping around" the user has seen in other apps.
+  Ragged rows get synthetic empty cells (`Cell::is_synthetic`) so the column
+  count never varies between rows. Edits **splice** rather than rewrite: dropping
+  a column removes exactly that cell's region plus its closing pipe, inserting
+  one adds `  |` (or ` --- |` on the delimiter row, which keeps the row a valid
+  delimiter), so a hand-aligned table stays aligned where the user left it.
+  Every edit re-positions the cursor through `landing()`, which re-identifies the
+  table by the buffer row it starts on and clamps the requested `(row, column)`:
+  deleting the last row or column selects the cell that took its place, and if
+  the table itself is gone (its delimiter row was deleted) the cursor is left
+  where the edit put it rather than jumping to some other table.
+  **Postmortem — this cost the user an OOM kill.** The first cell scanner pushed
+  a boundary for every `|` but never advanced past it, so *any* line containing a
+  pipe looped forever allocating until the kernel killed the editor at 20 GB. The
+  fix is one `i += 1`; `table::tests::a_row_of_only_pipes_terminates` is the
+  regression test. Run these binaries under `ulimit -v` when touching this area —
+  peak RSS afterwards: core 4 MB, app 22 MB, mcp 3 MB.
+  **Bindings (implemented in the vim engine + keymap):** `Shift+H`/`Shift+L`
+  column left/right, `Shift+J`/`Shift+K` row down/up, `dd` delete row, `DD`
+  (`shift-d`) delete column, `Shift+I` empty the cell and insert, `o`/`O` insert
+  an empty row below/above, `|` insert a column after, `\` insert a column
+  before. Plain `j`/`k` inside a table step **cell to cell** in the same column,
+  which is what the user asked for after other apps skipped around; `A` appends
+  at the cell's end rather than the row's. The ordinary motions are clamped to
+  the cell: `h l w b e` are undone if they would step outside, `0 ^ $` use the
+  cell's edges, a find that would land outside counts as "not found" (so `f|`
+  works — the closing pipe belongs to the cell — and `d3x`-style sweeps stop at
+  the content edge). `H/J/K/L` are bound in the visual context too, where they
+  extend the selection; `D`, `|` and `\` are normal-mode only, since `D` in
+  visual is the selection operator. **Caveat:** `D` is not `d$` yet (it was
+  unbound before), so if we want vim's `D` it needs a different key or a
+  table/non-table split. As with every new bound key, the half-typed-command
+  path was checked: `f|`, `f\`, `fH` arrive through the pending-find arm, which
+  runs before the table match.
+  **Painting.** A table row is *not* painted as markdown: `table_view::plans_by_row`
+  turns each table into a grid in **character cells** (the widest content per
+  column plus a one-cell gutter on each side), and `LineElement` paints each
+  cell's content at its column offset with vertical rules on every boundary and a
+  shaded header row; the delimiter row's dashes are hidden and drawn as a
+  horizontal rule. Consequences worth remembering:
+  - A table row **never soft-wraps** (`display_lines` gives it one segment), so
+    the buffer's display model and the paint stay in step;
+    `a_table_is_painted_cell_by_cell` asserts one display line per row and one
+    painted piece per cell.
+  - Because the painted text is no longer one string, a painted line is recorded
+    as `HitSegment`s (one per cell, or one for an ordinary row) and every x <->
+    offset question goes through `HitLine::x_for_offset` / `offset_for_x`. The
+    cursor and selection quads are computed per cell.
+  - Geometry is in character cells, so it is exact for the monospace family the
+    editor resolves but not for wide glyphs (CJK/emoji) — the same limitation as
+    the tab/display-column work above.
+  - A table wider than the window overflows: there is no horizontal scroll yet
+    (`HitLine::width` is kept for exactly that).
+  - Verified live (screenshot of `examples/demo-vault/Markdown Tour.md`): aligned
+    columns, grid rules, shaded header, no visible pipes or dashes, and the
+    wiki-link and tag styling still applied inside cells. The cursor landing in a
+    cell still needs a check by the user (no key-injection tool is installed).
+
+  `column_widths` counts characters, not display cells, so CJK/emoji columns
+  will not line up until the tab/width rework noted above.
 
 - **Font family: `font("monospace")` does not work on Linux.** gpui's Linux text
   system (`gpui_wgpu::CosmicTextSystem`) matches a family name *literally*
@@ -388,8 +467,10 @@ Next steps, roughly in order:
    Re-test ctrl-z / ctrl-r / ctrl-y and `ctrl-s` in a live window.
 4. ~~Visual mode~~ and ~~`.` repeat~~ done (see Open threads). Next: the table
    goal, then live preview.
-5. Table-aware motions and manipulation (the table goal): column motions on the
-   pipe and dash characters, adding/removing rows and columns.
+5. ~~Table-aware motions and manipulation (the table goal)~~ Done: the model, the
+   row/column edits, the cell-aware motions, the keymap and the grid widget (see
+   Open threads). Follow-ups: horizontal scrolling for a table wider than the
+   window, and wide-glyph column widths.
 6. ~~Live preview mode~~ stage 1 (markdown syntax styling, heading sizes and
    code-block backgrounds, no hidden characters) is done — see Open threads.
    Stage 2: hide markers, inline images, callouts.

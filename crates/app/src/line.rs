@@ -4,15 +4,24 @@
 //!
 //! A "display line" is a segment of a buffer row: soft wrap splits a long row
 //! into several of these, and each one is painted and measured separately.
+//!
+//! A row that belongs to a markdown table is the exception: it is never wrapped
+//! and its source pipes and dashes are not painted. Instead each cell's content
+//! is drawn at its column's offset (see [`crate::table_view`]) with grid lines
+//! between the columns, so the user sees a table. Because the painted text is no
+//! longer one contiguous string, a painted line is recorded as a list of
+//! [`HitSegment`]s — one for an ordinary row, one per cell for a table row — and
+//! every x <-> offset question is answered against them.
 
 use gpui::{
-    fill, px, relative, rgb, App, Bounds, Element, ElementId, ElementInputHandler, Entity, Font,
-    GlobalElementId, InspectorElementId, IntoElement, LayoutId, Pixels, ShapedLine, SharedString,
-    Style as ElementStyle, TextRun, Window,
+    fill, font, px, relative, rgb, App, Bounds, Element, ElementId, ElementInputHandler, Entity,
+    Font, GlobalElementId, InspectorElementId, IntoElement, LayoutId, Pixels, ShapedLine,
+    SharedString, Style as ElementStyle, TextRun, Window,
 };
 use shale_core::mdstyle::Style;
 
 use crate::editor::MarkdownEditor;
+use crate::table_view::TablePaint;
 use crate::theme::{self, RunStyle, CURSOR, LINK, LINK_UNRESOLVED, SELECTION};
 
 /// One painted row: a segment of a buffer row when the row soft-wraps.
@@ -28,6 +37,20 @@ pub(crate) struct DisplayLine {
     pub(crate) size: f32,
 }
 
+/// One painted piece of a display line: the whole row for ordinary text, or one
+/// cell of a table row.
+#[derive(Clone)]
+pub(crate) struct HitSegment {
+    /// First buffer byte of the segment's text.
+    pub(crate) start: usize,
+    /// End of the segment's text, exclusive.
+    pub(crate) end: usize,
+    /// Where the segment was painted, measured from the line's left edge.
+    pub(crate) x: Pixels,
+    /// The shaped text, which answers x <-> byte-index questions.
+    pub(crate) line: ShapedLine,
+}
+
 /// A display line captured during paint, for hit-testing and IME placement.
 #[derive(Clone)]
 pub(crate) struct HitLine {
@@ -37,13 +60,53 @@ pub(crate) struct HitLine {
     pub(crate) start: usize,
     /// End of the segment, exclusive.
     pub(crate) end: usize,
-    /// The shaped line, which answers x <-> byte-index questions.
-    pub(crate) line: ShapedLine,
+    /// The painted pieces, left to right: one for an ordinary row, one per cell
+    /// for a table row.
+    pub(crate) segments: Vec<HitSegment>,
+    /// How wide the painted line is. Not read yet: it is what horizontal
+    /// scrolling (for a table wider than the window) will need, and it is what
+    /// the wrap-accuracy diagnostics compare against.
+    #[allow(dead_code)]
+    pub(crate) width: Pixels,
     /// Where it was painted.
     pub(crate) bounds: Bounds<Pixels>,
 }
 
-/// One painted line: text, optional selection and cursor quads.
+impl HitLine {
+    /// The segment that owns a buffer offset: the one whose text covers it, or
+    /// else the last one to its left. A table's padding and pipes sit between
+    /// cells, so they resolve to the cell on their left.
+    fn segment_index_for(&self, offset: usize) -> usize {
+        self.segments
+            .iter()
+            .position(|s| s.start <= offset && offset <= s.end)
+            // Nothing covers it (a click past the end of the line): the last
+            // segment that starts before it, or the first one if the line is
+            // empty.
+            .or_else(|| self.segments.iter().rposition(|s| s.start <= offset))
+            .unwrap_or(0)
+    }
+
+    /// The x of a buffer offset, measured from this line's left edge. The offset
+    /// is clamped into the line, because a caller (IME bounds, for one) may ask
+    /// for a position just past its end.
+    pub(crate) fn x_for_offset(&self, offset: usize) -> Pixels {
+        let offset = offset.clamp(self.start, self.end);
+        let segment = &self.segments[self.segment_index_for(offset)];
+        let column = offset.saturating_sub(segment.start);
+        segment.x + segment.line.x_for_index(column)
+    }
+
+    /// The buffer offset closest to an x measured from this line's left edge.
+    pub(crate) fn offset_for_x(&self, x: Pixels) -> usize {
+        let index = self.segments.iter().rposition(|s| s.x <= x).unwrap_or(0);
+        let segment = &self.segments[index];
+        let column = segment.line.closest_index_for_x(x - segment.x);
+        (segment.start + column).min(segment.end).max(segment.start)
+    }
+}
+
+/// One line: text, optional selection and cursor quads.
 pub(crate) struct LineElement {
     pub(crate) editor: Entity<MarkdownEditor>,
     pub(crate) row: usize,
@@ -66,10 +129,20 @@ pub(crate) struct LineElement {
     /// Whether the row belongs to a fenced code block, whose background spans
     /// the full width of the editor rather than just its text.
     pub(crate) block: bool,
+    /// Set when this row is a table row: the grid to paint instead of the raw
+    /// markdown, whose pipes and dashes are then hidden.
+    pub(crate) table: Option<TablePaint>,
+    /// The width of one character cell, which turns the grid's character
+    /// geometry into pixels.
+    pub(crate) char_width: Pixels,
 }
 
 pub(crate) struct LinePrepaint {
-    line: ShapedLine,
+    /// The whole line's shaped text, for an ordinary row.
+    line: Option<ShapedLine>,
+    /// One shaped line per cell, for a table row. The delimiter row's cells are
+    /// empty: its dashes are replaced by a rule.
+    cells: Vec<ShapedLine>,
 }
 
 /// Build the `TextRun`s that paint `text`.
@@ -122,6 +195,163 @@ fn build_runs(
     runs
 }
 
+/// The markdown spans and wiki-links that fall inside one table cell, clipped to
+/// it and re-based onto the cell's own text. All the offsets in and out are
+/// line-relative byte offsets.
+fn cell_styles(
+    spans: &[(usize, usize, Style)],
+    links: &[(usize, usize, bool)],
+    start: usize,
+    end: usize,
+) -> (Vec<(usize, usize, Style)>, Vec<(usize, usize, bool)>) {
+    let cell_spans = spans
+        .iter()
+        .filter(|(s, e, _)| *s < end && *e > start)
+        .map(|&(s, e, style)| (s.max(start) - start, e.min(end) - start, style))
+        .collect();
+    let cell_links = links
+        .iter()
+        .filter(|(s, e, _)| *s < end && *e > start)
+        .map(|&(s, e, resolved)| (s.max(start) - start, e.min(end) - start, resolved))
+        .collect();
+    (cell_spans, cell_links)
+}
+
+impl LineElement {
+    /// The x of a cell's content, measured from the line's left edge.
+    fn cell_x(&self, cell_x: usize) -> Pixels {
+        px(cell_x as f32 * f32::from(self.char_width))
+    }
+
+    /// Paints one row of a table: the header's background, the grid lines, the
+    /// delimiter's rule, then each cell's text with its own selection and cursor
+    /// quads.
+    fn paint_table(
+        &self,
+        bounds: Bounds<Pixels>,
+        prepaint: &LinePrepaint,
+        table: &TablePaint,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        let left = bounds.left();
+        let grid_width = px(table.total as f32 * f32::from(self.char_width));
+
+        // The header row is shaded so the table reads as a table even before
+        // the rules are drawn.
+        if table.header {
+            window.paint_quad(fill(
+                Bounds::from_corners(
+                    gpui::point(left, bounds.top()),
+                    gpui::point(left + grid_width, bounds.bottom()),
+                ),
+                rgb(theme::TABLE_HEADER_BG),
+            ));
+        }
+        // A vertical rule on every row, at each column boundary, so the columns
+        // line up across the whole table.
+        for boundary in &table.boundaries {
+            let x = left + self.cell_x(*boundary);
+            window.paint_quad(fill(
+                Bounds::from_corners(
+                    gpui::point(x - px(0.5), bounds.top()),
+                    gpui::point(x + px(0.5), bounds.bottom()),
+                ),
+                rgb(theme::TABLE_LINE),
+            ));
+        }
+        if table.delimiter {
+            // The delimiter row is the rule under the header, not its dashes.
+            let y = bounds.top() + px(f32::from(bounds.size.height) / 2.);
+            window.paint_quad(fill(
+                Bounds::from_corners(
+                    gpui::point(left, y - px(0.5)),
+                    gpui::point(left + grid_width, y + px(0.5)),
+                ),
+                rgb(theme::TABLE_LINE),
+            ));
+        }
+
+        for (cell, shaped) in table.cells.iter().zip(prepaint.cells.iter()) {
+            let x = left + self.cell_x(cell.x);
+            // The selection is line-relative, so the cell's bounds have to be
+            // too before they can be intersected with it.
+            if let Some((s, e)) = self.line_sel {
+                let (lo, hi) = (s.max(cell.start - self.start), e.min(cell.end - self.start));
+                if hi > lo {
+                    let x0 = x + shaped.x_for_index(lo - (cell.start - self.start));
+                    let x1 = x + shaped.x_for_index(hi - (cell.start - self.start));
+                    window.paint_quad(fill(
+                        Bounds::from_corners(
+                            gpui::point(x0, bounds.top()),
+                            gpui::point(x1.max(x0 + px(1.)), bounds.bottom()),
+                        ),
+                        rgb(SELECTION),
+                    ));
+                }
+            }
+            if table.delimiter {
+                continue;
+            }
+            if let Err(err) = shaped.paint_background(
+                gpui::point(x, bounds.top()),
+                px(theme::line_height(self.size)),
+                gpui::TextAlign::default(),
+                None,
+                window,
+                cx,
+            ) {
+                tracing::warn!(row = self.row, "failed to paint cell background: {err:#}");
+            }
+            if let Err(err) = shaped.paint(
+                gpui::point(x, bounds.top()),
+                px(theme::line_height(self.size)),
+                gpui::TextAlign::default(),
+                None,
+                window,
+                cx,
+            ) {
+                tracing::warn!(row = self.row, "failed to paint cell: {err:#}");
+            }
+        }
+
+        // The cursor sits on a cell, which the grid geometry places exactly.
+        if let Some(col) = self.cursor_col {
+            let offset = self.start + col;
+            if let Some(cell) = table.cell_for(offset) {
+                let shaped = table
+                    .cells
+                    .iter()
+                    .position(|c| c.column == cell.column)
+                    .and_then(|i| prepaint.cells.get(i))
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        window.text_system().shape_line(
+                            SharedString::from(""),
+                            px(self.size),
+                            &[],
+                            None,
+                        )
+                    });
+                let index = col.saturating_sub(cell.start - self.start);
+                let x = left + self.cell_x(cell.x) + shaped.x_for_index(index);
+                let width = if self.insert {
+                    px(1.5)
+                } else {
+                    self.char_width.max(px(7.))
+                };
+                window.paint_quad(fill(
+                    Bounds::from_corners(
+                        gpui::point(x, bounds.top()),
+                        gpui::point(x + width, bounds.bottom()),
+                    ),
+                    rgb(CURSOR),
+                ));
+            }
+        }
+    }
+}
+
 impl IntoElement for LineElement {
     type Element = Self;
 
@@ -162,14 +392,43 @@ impl Element for LineElement {
         _bounds: Bounds<Pixels>,
         _request_layout: &mut Self::RequestLayoutState,
         window: &mut Window,
-        _cx: &mut App,
+        cx: &mut App,
     ) -> Self::PrepaintState {
-        let font = window.text_style().font();
-        let runs = build_runs(&self.text, &self.spans, &self.links, &font);
-        let line = window
-            .text_system()
-            .shape_line(self.text.clone(), px(self.size), &runs, None);
-        LinePrepaint { line }
+        let text_system = window.text_system();
+        let base_font = font(self.editor.read(cx).font_family());
+        let Some(table) = self.table.clone() else {
+            let runs = build_runs(&self.text, &self.spans, &self.links, &base_font);
+            let line = text_system.shape_line(self.text.clone(), px(self.size), &runs, None);
+            return LinePrepaint {
+                line: Some(line),
+                cells: Vec::new(),
+            };
+        };
+        // A table row is shaped cell by cell, each with only the styles that
+        // fall inside it, because the cells are painted at column offsets rather
+        // than as one string.
+        let text = self.text.to_string();
+        let cells = table
+            .cells
+            .iter()
+            .map(|cell| {
+                if table.delimiter {
+                    return text_system.shape_line(
+                        SharedString::from(""),
+                        px(self.size),
+                        &build_runs("", &[], &[], &base_font),
+                        None,
+                    );
+                }
+                let start = cell.start - self.start;
+                let end = cell.end - self.start;
+                let slice = &text[start..end];
+                let (spans, links) = cell_styles(&self.spans, &self.links, start, end);
+                let runs = build_runs(slice, &spans, &links, &base_font);
+                text_system.shape_line(SharedString::from(slice), px(self.size), &runs, None)
+            })
+            .collect();
+        LinePrepaint { line: None, cells }
     }
 
     fn paint(
@@ -182,8 +441,6 @@ impl Element for LineElement {
         window: &mut Window,
         cx: &mut App,
     ) {
-        let line = &prepaint.line;
-
         // gpui only routes typed characters to an input handler that was
         // registered during the current frame's paint, so exactly one line
         // element per frame registers it (with the bounds of the first painted
@@ -210,59 +467,89 @@ impl Element for LineElement {
             window.paint_quad(fill(bounds, rgb(theme::CODE_BLOCK_BG)));
         }
 
-        // Selection quad.
-        if let Some((s, e)) = self.line_sel {
-            let x0 = line.x_for_index(s);
-            let x1 = line.x_for_index(e.max(s + 1));
-            window.paint_quad(fill(
-                Bounds::from_corners(
-                    gpui::point(bounds.left() + x0, bounds.top()),
-                    gpui::point(bounds.left() + x1, bounds.bottom()),
-                ),
-                rgb(SELECTION),
-            ));
-        }
+        let width;
+        let segments: Vec<HitSegment>;
+        if let Some(table) = self.table.clone() {
+            width = px(table.total as f32 * f32::from(self.char_width));
+            segments = table
+                .cells
+                .iter()
+                .zip(prepaint.cells.iter())
+                .map(|(cell, shaped)| HitSegment {
+                    start: cell.start,
+                    end: cell.end,
+                    x: self.cell_x(cell.x),
+                    line: shaped.clone(),
+                })
+                .collect();
+            self.paint_table(bounds, prepaint, &table, window, cx);
+        } else {
+            let line = prepaint
+                .line
+                .as_ref()
+                .expect("an ordinary line is shaped in prepaint");
+            width = line.width();
+            segments = vec![HitSegment {
+                start: self.start,
+                end: self.end,
+                x: px(0.),
+                line: line.clone(),
+            }];
 
-        // Run backgrounds (inline code and highlights) are a separate pass over
-        // the decoration runs, painted under the glyphs.
-        if let Err(err) = line.paint_background(
-            bounds.origin,
-            px(theme::line_height(self.size)),
-            gpui::TextAlign::default(),
-            None,
-            window,
-            cx,
-        ) {
-            tracing::warn!(row = self.row, "failed to paint line background: {err:#}");
-        }
+            // Selection quad.
+            if let Some((s, e)) = self.line_sel {
+                let x0 = line.x_for_index(s);
+                let x1 = line.x_for_index(e.max(s + 1));
+                window.paint_quad(fill(
+                    Bounds::from_corners(
+                        gpui::point(bounds.left() + x0, bounds.top()),
+                        gpui::point(bounds.left() + x1, bounds.bottom()),
+                    ),
+                    rgb(SELECTION),
+                ));
+            }
 
-        if let Err(err) = line.paint(
-            bounds.origin,
-            px(theme::line_height(self.size)),
-            gpui::TextAlign::default(),
-            None,
-            window,
-            cx,
-        ) {
-            tracing::warn!(row = self.row, "failed to paint line: {err:#}");
-        }
+            // Run backgrounds (inline code and highlights) are a separate pass
+            // over the decoration runs, painted under the glyphs.
+            if let Err(err) = line.paint_background(
+                bounds.origin,
+                px(theme::line_height(self.size)),
+                gpui::TextAlign::default(),
+                None,
+                window,
+                cx,
+            ) {
+                tracing::warn!(row = self.row, "failed to paint line background: {err:#}");
+            }
 
-        // Cursor quad.
-        if let Some(col) = self.cursor_col {
-            let x = line.x_for_index(col);
-            let width = if self.insert {
-                px(1.5)
-            } else {
-                let next = line.x_for_index((col + 1).min(self.text.len()));
-                (next - x).max(px(7.))
-            };
-            window.paint_quad(fill(
-                Bounds::from_corners(
-                    gpui::point(bounds.left() + x, bounds.top()),
-                    gpui::point(bounds.left() + x + width, bounds.bottom()),
-                ),
-                rgb(CURSOR),
-            ));
+            if let Err(err) = line.paint(
+                bounds.origin,
+                px(theme::line_height(self.size)),
+                gpui::TextAlign::default(),
+                None,
+                window,
+                cx,
+            ) {
+                tracing::warn!(row = self.row, "failed to paint line: {err:#}");
+            }
+
+            // Cursor quad.
+            if let Some(col) = self.cursor_col {
+                let x = line.x_for_index(col);
+                let cursor_width = if self.insert {
+                    px(1.5)
+                } else {
+                    let next = line.x_for_index((col + 1).min(self.text.len()));
+                    (next - x).max(px(7.))
+                };
+                window.paint_quad(fill(
+                    Bounds::from_corners(
+                        gpui::point(bounds.left() + x, bounds.top()),
+                        gpui::point(bounds.left() + x + cursor_width, bounds.bottom()),
+                    ),
+                    rgb(CURSOR),
+                ));
+            }
         }
 
         // Record for hit-testing.
@@ -271,7 +558,8 @@ impl Element for LineElement {
                 index: self.index,
                 start: self.start,
                 end: self.end,
-                line: line.clone(),
+                segments,
+                width,
                 bounds,
             });
         });
@@ -347,5 +635,18 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// A cell only sees the styles that fall inside it, re-based onto its own
+    /// text: a bold span that starts in another column must not leak in, and one
+    /// that starts inside must not be clipped away.
+    #[test]
+    fn cell_styles_clip_and_rebase() {
+        // The line is `| **a** | b |`: the strong span covers bytes 2..7.
+        let spans = vec![(2, 7, Style::Strong)];
+        let links = vec![(12, 18, true)];
+        let (cell_spans, cell_links) = cell_styles(&spans, &links, 1, 7);
+        assert_eq!(cell_spans, vec![(1, 6, Style::Strong)]);
+        assert!(cell_links.is_empty(), "a link in another cell is dropped");
     }
 }

@@ -2,6 +2,7 @@
 
 mod editor;
 mod line;
+mod table_view;
 mod theme;
 mod tree;
 
@@ -965,6 +966,49 @@ mod tests {
             "| b |  |  |\n|  | --- | --- |\n",
             "only the current cell was emptied"
         );
+    }
+
+    /// A table is painted as a grid: one display line per row (never soft-wrapped,
+    /// however wide it is) and one painted piece per cell, so the buffer's display
+    /// model and the paint stay in step.
+    #[gpui::test]
+    fn a_table_is_painted_cell_by_cell(cx: &mut TestAppContext) {
+        cx.update(|cx| cx.bind_keys(keybindings()));
+
+        let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+        let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+        let wide = "x".repeat(200);
+        editor
+            .update(cx, |editor, window, cx| {
+                editor.set_text(
+                    format!("| a | {wide} |\n| --- | --- |\n| 1 | 2 |\nplain line\n"),
+                    cx,
+                );
+                let focus = editor.focus_handle(cx);
+                window.focus(&focus, cx);
+            })
+            .unwrap();
+        for _ in 0..2 {
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+        }
+
+        editor
+            .update(cx, |editor, _window, _cx| {
+                // The 200-character cell is far wider than the window, but a
+                // table row is one grid row: wrapping it would put j/k out of
+                // step with what is painted.
+                assert_eq!(
+                    editor.display_line_count(),
+                    5,
+                    "three table rows, the plain line, and the trailing empty row"
+                );
+                assert_eq!(
+                    editor.painted_segments(),
+                    vec![2, 2, 2, 1, 1],
+                    "each table row paints one piece per column"
+                );
+            })
+            .unwrap();
     }
 
     /// Counts, `$`, and `u` must work through the real keymap, not just the

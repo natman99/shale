@@ -17,6 +17,7 @@ use shale_core::vim::{Key, Mode, Outcome, Vim};
 
 use crate::acts::*;
 use crate::line::{DisplayLine, HitLine, LineElement};
+use crate::table_view;
 use crate::theme;
 
 // Re-exported so the headless tests can shape text at the same size the editor
@@ -124,6 +125,12 @@ impl MarkdownEditor {
         self.buffer.text().to_string()
     }
 
+    /// The font family the editor resolves for painting, which the line element
+    /// needs to shape text with the same face the wrappers measured.
+    pub(crate) fn font_family(&self) -> SharedString {
+        self.font_family.clone()
+    }
+
     pub fn set_text(&mut self, text: String, cx: &mut Context<Self>) {
         self.buffer.set_text(text);
         self.vim.enter_normal();
@@ -175,7 +182,17 @@ impl MarkdownEditor {
     pub fn painted_lines(&self) -> Vec<(usize, usize, Pixels)> {
         self.hit_lines
             .iter()
-            .map(|hit| (hit.start, hit.end, hit.line.width()))
+            .map(|hit| (hit.start, hit.end, hit.width))
+            .collect()
+    }
+
+    /// How many painted pieces each display line has: one for ordinary text, one
+    /// per cell for a table row. Diagnostic aid for the grid paint path.
+    #[cfg(test)]
+    pub fn painted_segments(&self) -> Vec<usize> {
+        self.hit_lines
+            .iter()
+            .map(|hit| hit.segments.len())
             .collect()
     }
 
@@ -359,6 +376,7 @@ impl MarkdownEditor {
         width: Pixels,
         wrappers: &mut [LineWrapperHandle],
         rows: &[RowStyle],
+        table_rows: &[bool],
     ) -> Vec<DisplayLine> {
         let line_count = self.buffer.line_count();
         let change_id = self.buffer.change_id();
@@ -373,6 +391,13 @@ impl MarkdownEditor {
             let row_start = self.buffer.line_start(row);
             let row_end = self.buffer.line_end(row);
             let mut starts = vec![row_start];
+            // A table row is painted as one grid row and never soft-wraps, so
+            // the buffer's display model must agree or j/k and the painted lines
+            // fall out of step.
+            if table_rows.get(row).copied().unwrap_or(false) {
+                segments.push(starts);
+                continue;
+            }
             if let Some(cached) = cached.as_ref() {
                 // Re-validate even a cached boundary against the current row, so
                 // a cache key that ever fails to notice an edit cannot push a
@@ -578,8 +603,7 @@ impl MarkdownEditor {
             }
         }
         if let Some(hit) = best {
-            let col = hit.line.closest_index_for_x(x - hit.bounds.left());
-            let offset = (hit.start + col).min(hit.end);
+            let offset = hit.offset_for_x(x - hit.bounds.left());
             if event.modifiers.control {
                 self.refresh_links();
                 if self.link_at(offset).is_some() {
@@ -718,7 +742,7 @@ impl EntityInputHandler for MarkdownEditor {
         let start = self.offset_from_utf16(range_utf16.start);
         let index = self.buffer.display_index_for(start);
         let hit = self.hit_lines.iter().find(|h| h.index == index)?;
-        let x = hit.line.x_for_index(start - hit.start);
+        let x = hit.x_for_offset(start);
         Some(Bounds::from_corners(
             gpui::point(hit.bounds.left() + x, hit.bounds.top()),
             gpui::point(hit.bounds.left() + x + px(8.), hit.bounds.bottom()),
@@ -735,8 +759,7 @@ impl EntityInputHandler for MarkdownEditor {
             .hit_lines
             .iter()
             .find(|h| h.bounds.top() <= point.y && point.y < h.bounds.bottom())?;
-        let col = hit.line.closest_index_for_x(point.x - hit.bounds.left());
-        let offset = (hit.start + col).min(hit.end);
+        let offset = hit.offset_for_x(point.x - hit.bounds.left());
         Some(self.offset_to_utf16(offset))
     }
 }
@@ -799,6 +822,19 @@ impl Render for MarkdownEditor {
         // face are measured with it, so their break points match the paint.
         let wrap_width = self.scroll_handle.bounds().size.width;
         let row_styles = self.row_styles();
+        // Tables are painted as aligned grids instead of raw markdown: one plan
+        // per buffer row, and a row that has one never soft-wraps, which the wrap
+        // model has to be told about so it agrees with the paint.
+        let buffer_tables = shale_core::table::tables(self.buffer.text());
+        let plans = table_view::plans_by_row(self.buffer.text(), &buffer_tables, line_count);
+        let table_rows: Vec<bool> = plans.iter().map(|plan| plan.is_some()).collect();
+        // One character cell of the resolved face, which is what turns the grid's
+        // character geometry into pixels.
+        let char_width = {
+            let text_system = window.text_system();
+            let font_id = text_system.resolve_font(&font(self.font_family.clone()));
+            text_system.layout_width(font_id, px(FONT_SIZE), 'a')
+        };
         let display_lines = {
             let text_system = window.text_system();
             // One wrapper per (heading level, regular or wide face), so every
@@ -810,7 +846,7 @@ impl Render for MarkdownEditor {
                 wrappers.push(text_system.line_wrapper(font(family.clone()), size));
                 wrappers.push(text_system.line_wrapper(font(family.clone()).bold(), size));
             }
-            self.display_lines(wrap_width, &mut wrappers, &row_styles)
+            self.display_lines(wrap_width, &mut wrappers, &row_styles, &table_rows)
         };
         let cursor_display = self.buffer.display_index_for(cursor);
 
@@ -960,6 +996,8 @@ impl Render for MarkdownEditor {
                                 spans: line_spans,
                                 size: dl.size,
                                 block,
+                                table: plans.get(dl.row).cloned().flatten(),
+                                char_width,
                             })
                     })),
             )

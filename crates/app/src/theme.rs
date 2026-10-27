@@ -99,6 +99,10 @@ pub(crate) const CODE_BG: u32 = 0x2f2f2f;
 pub(crate) const CODE_BLOCK_BG: u32 = 0x262626;
 /// Background of `==highlighted==` text.
 pub(crate) const HIGHLIGHT_BG: u32 = 0x4a3f1f;
+/// The grid lines drawn around table cells, in place of the source pipes.
+pub(crate) const TABLE_LINE: u32 = 0x3f3f46;
+/// Background of a table's header row.
+pub(crate) const TABLE_HEADER_BG: u32 = 0x2a2a2e;
 
 /// How a run of text is drawn, resolved from a markdown [`Style`].
 ///
