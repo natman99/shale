@@ -163,7 +163,7 @@ impl Workspace {
             Ok(palette) => palette,
             Err(err) => {
                 tracing::warn!("could not load the configured theme: {err:#}");
-                Palette::DARK
+                Palette::DEFAULT
             }
         };
         let palette = Rc::new(palette);

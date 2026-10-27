@@ -7,9 +7,11 @@ line_wrap = true
 show_file_tree = true
 
 [appearance]
-# The palette: "dark" or "light", or the name of a file in
-# .shale/themes/<name>.toml. A theme file starts from one of the built-ins
-# (`base = "light"`) and overrides only the colours it cares about, by role:
+# The palette: a built-in ("dark", "light", or a Catppuccin flavour - "latte",
+# "frappe", "macchiato", "mocha", also spelled "catppuccin-mocha"), or the name
+# of a file in .shale/themes/<name>.toml. The default is "mocha". A theme file
+# starts from one of the built-ins (`base = "light"`) and overrides only the
+# colours it cares about, by role:
 #
 #   base = "dark"
 #   bg = "#282828"
@@ -17,7 +19,7 @@ show_file_tree = true
 #   link = "#83a598"
 #
 # The full list of role names is the field list of `shale_core::theme::Palette`.
-theme = "dark"
+theme = "mocha"
 # Body text size in points; headings and line heights are scaled from it.
 font_size = 14.0
 # Empty means "pick a monospace family that is actually installed".

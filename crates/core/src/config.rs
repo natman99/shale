@@ -3,6 +3,8 @@ use std::path::Path;
 use anyhow::Context as _;
 use serde::{Deserialize, Serialize};
 
+use crate::theme::Palette;
+
 /// Top-level Shale configuration, loaded from `shale.toml` in the vault
 /// (all fields optional; defaults apply when absent).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -38,8 +40,10 @@ impl Default for EditorConfig {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AppearanceConfig {
-    /// The palette the editor draws with: `dark` or `light`, or the name of a
-    /// `<vault>/.shale/themes/<name>.toml` file (see [`crate::theme`]).
+    /// The palette the editor draws with: a built-in (`dark`, `light`, or a
+    /// Catppuccin flavour — `latte`, `frappe`, `macchiato`, `mocha`), or the name
+    /// of a `<vault>/.shale/themes/<name>.toml` file (see [`crate::theme`]).
+    /// The default is [`Palette::DEFAULT_NAME`].
     pub theme: String,
     /// UI font size in points.
     pub font_size: f32,
@@ -55,7 +59,7 @@ pub struct AppearanceConfig {
 impl Default for AppearanceConfig {
     fn default() -> Self {
         Self {
-            theme: "dark".to_string(),
+            theme: Palette::DEFAULT_NAME.to_string(),
             font_size: 14.0,
             font_family: String::new(),
             live_preview: true,
@@ -93,7 +97,7 @@ mod tests {
         assert!(cfg.appearance.live_preview);
         assert_eq!(cfg.appearance.font_size, 14.0);
         assert_eq!(cfg.appearance.font_family, "");
-        assert_eq!(cfg.appearance.theme, "dark");
+        assert_eq!(cfg.appearance.theme, Palette::DEFAULT_NAME);
     }
 
     #[test]

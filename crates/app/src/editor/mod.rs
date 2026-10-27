@@ -107,7 +107,9 @@ impl MarkdownEditor {
             input_registered: false,
             font_family: "monospace".into(),
             font_family_resolved: false,
-            palette: Rc::new(Palette::DARK),
+            // Until the vault's `appearance.theme` is applied, the default
+            // palette, so a frame painted before then is not a surprise.
+            palette: Rc::new(Palette::DEFAULT),
             font_size: DEFAULT_FONT_SIZE,
             dirty: false,
         }

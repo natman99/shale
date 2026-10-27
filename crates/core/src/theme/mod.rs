@@ -1,14 +1,16 @@
 //! The editor's colour palette and the theme files that change it.
 //!
 //! Every colour the editor draws lives here rather than at each paint site, so
-//! theming is a data problem: a [`Palette`] is a bag of 0xRRGGBB integers, the
-//! two built-in themes are two values of it, and a theme file is a partial
-//! override of one. Painting (which needs gpui types) stays in the app and just
-//! reads the palette it is given.
+//! theming is a data problem: a [`Palette`] is a bag of 0xRRGGBB integers, each
+//! built-in theme is one value of it, and a theme file is a partial override of
+//! one. Painting (which needs gpui types) stays in the app and just reads the
+//! palette it is given.
 //!
-//! A theme is named in `shale.toml` as `appearance.theme`. The names `dark` and
-//! `light` are built in; any other name is looked up as
-//! `<vault>/.shale/themes/<name>.toml`, which may start from either built-in
+//! A theme is named in `shale.toml` as `appearance.theme`. The built-in names
+//! are `dark` and `light` plus the four Catppuccin flavours (`latte`, `frappe`,
+//! `macchiato`, `mocha`, each also spelled with a `catppuccin-` prefix); the
+//! default is `mocha`. Any other name is looked up as
+//! `<vault>/.shale/themes/<name>.toml`, which may start from any built-in
 //! (`base = "light"`) and override the keys it cares about:
 //!
 //! ```toml
@@ -24,6 +26,9 @@ use anyhow::{bail, Context as _};
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::mdstyle::CalloutKind;
+
+/// The Catppuccin flavours, as palettes built from the upstream palette file.
+pub mod catppuccin;
 
 /// The directory under the vault root where theme files live.
 pub const THEME_DIR: &str = ".shale/themes";
@@ -162,11 +167,32 @@ impl Palette {
         callout_danger: 0xc03c3c,
     };
 
-    /// The built-in palettes, by (lowercase) name.
-    pub const BUILT_INS: &[(&str, Palette)] = &[("dark", Self::DARK), ("light", Self::LIGHT)];
+    /// The palette a vault gets when it names none: Catppuccin Mocha, the
+    /// darkest flavour and the one most people mean when they say Catppuccin.
+    pub const DEFAULT: Palette = catppuccin::MOCHA;
+
+    /// [`Self::DEFAULT`] under the name `appearance.theme` asks for, so the
+    /// config default, the loader and the app's fallback cannot drift apart.
+    pub const DEFAULT_NAME: &'static str = "mocha";
+
+    /// The built-in palettes, by (lowercase) name: Shale's own two and the four
+    /// Catppuccin flavours.
+    pub const BUILT_INS: &[(&str, Palette)] = &[
+        ("dark", Self::DARK),
+        ("light", Self::LIGHT),
+        ("latte", catppuccin::LATTE),
+        ("frappe", catppuccin::FRAPPE),
+        ("macchiato", catppuccin::MACCHIATO),
+        ("mocha", catppuccin::MOCHA),
+    ];
 
     /// A built-in palette by name, or `None` for anything else.
+    ///
+    /// The Catppuccin flavours are found by their own names (`mocha`) and also
+    /// with a `catppuccin-` prefix, since that is the name a reader who has
+    /// never seen Shale's config is most likely to guess.
     pub fn built_in(name: &str) -> Option<Palette> {
+        let name = without_flavour_prefix(name);
         Self::BUILT_INS
             .iter()
             .find(|(n, _)| name.eq_ignore_ascii_case(n))
@@ -267,8 +293,9 @@ impl Palette {
 /// A theme file: `<vault>/.shale/themes/<name>.toml`.
 ///
 /// Every colour is optional; the palette it starts from is `base` (default
-/// `dark`). Unknown keys are rejected so a typo is a message rather than a
-/// colour that silently stays default.
+/// [`Palette::DEFAULT_NAME`], the same palette `appearance.theme` starts from).
+/// Unknown keys are rejected so a typo is a message rather than a colour that
+/// silently stays default.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ThemeFile {
@@ -372,6 +399,17 @@ impl ThemeFile {
     }
 }
 
+/// `name` with a case-insensitive `catppuccin-` prefix removed, so that
+/// `catppuccin-mocha` and `mocha` name the same built-in palette.
+fn without_flavour_prefix(name: &str) -> &str {
+    const PREFIX: &str = "catppuccin-";
+    if name.len() > PREFIX.len() && name[..PREFIX.len()].eq_ignore_ascii_case(PREFIX) {
+        &name[PREFIX.len()..]
+    } else {
+        name
+    }
+}
+
 /// `#rrggbb` (the `#` optional) as a 0xRRGGBB integer.
 fn parse_color(text: &str) -> anyhow::Result<u32> {
     let hex = text.trim().trim_start_matches('#');
@@ -396,22 +434,37 @@ where
 
 /// The palette a vault asks for.
 ///
-/// `name` (from `appearance.theme`) is a built-in — `dark` or `light` — or the
-/// stem of `<vault>/.shale/themes/<name>.toml`, whose `base` says which built-in
-/// to start from. An unknown name is an error, which lets the caller tell the
-/// user their theme was not found instead of quietly drawing the default.
+/// `name` (from `appearance.theme`) is a built-in — `dark`, `light`, or one of
+/// the Catppuccin flavours — or the stem of `<vault>/.shale/themes/<name>.toml`,
+/// whose `base` says which built-in to start from. An empty name is
+/// [`Palette::DEFAULT_NAME`]. An unknown name is an error, which lets the caller
+/// tell the user their theme was not found instead of quietly drawing the
+/// default.
 pub fn palette_for(vault_root: &Path, name: &str) -> anyhow::Result<Palette> {
     let name = name.trim();
-    let name = if name.is_empty() { "dark" } else { name };
+    let name = if name.is_empty() {
+        Palette::DEFAULT_NAME
+    } else {
+        name
+    };
     if let Some(palette) = Palette::built_in(name) {
         return Ok(palette);
     }
     let path = ThemeFile::path(vault_root, name);
-    let text = std::fs::read_to_string(&path)
-        .with_context(|| format!("theme {name:?} is not a built-in and no {}", path.display()))?;
+    let text = std::fs::read_to_string(&path).with_context(|| {
+        format!(
+            "theme {name:?} is not a built-in ({}) and no {}",
+            Palette::BUILT_INS
+                .iter()
+                .map(|(n, _)| *n)
+                .collect::<Vec<_>>()
+                .join(", "),
+            path.display(),
+        )
+    })?;
     let theme =
         ThemeFile::from_toml(&text).with_context(|| format!("parsing theme {}", path.display()))?;
-    let base = theme.base.as_deref().unwrap_or("dark");
+    let base = theme.base.as_deref().unwrap_or(Palette::DEFAULT_NAME);
     let base = Palette::built_in(base)
         .with_context(|| format!("unknown theme base {base:?} in {}", path.display()))?;
     Ok(base.apply(&theme))
@@ -456,8 +509,14 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         assert_eq!(palette_for(dir.path(), "dark").unwrap(), Palette::DARK);
         assert_eq!(palette_for(dir.path(), "Light").unwrap(), Palette::LIGHT);
-        // No name at all is the default palette.
-        assert_eq!(palette_for(dir.path(), "").unwrap(), Palette::DARK);
+        // No name at all is the default palette, which is a flavour rather than
+        // Shale's own dark value.
+        assert_eq!(palette_for(dir.path(), "").unwrap(), Palette::DEFAULT);
+        assert_eq!(Palette::DEFAULT, catppuccin::MOCHA);
+        assert_eq!(
+            Palette::built_in(Palette::DEFAULT_NAME),
+            Some(Palette::DEFAULT)
+        );
         // An unknown name with no file is an error the caller can report.
         assert!(palette_for(dir.path(), "gruvbox").is_err());
 
@@ -472,14 +531,25 @@ mod tests {
         assert!(palette_for(dir.path(), "gruvbox").is_err());
     }
 
-    /// Rough relative luminance (Rec. 709 weights), which is all the contrast
-    /// check below needs: it is here to catch a theme whose text matches its
+    /// WCAG relative luminance: the sRGB channels linearized and combined with
+    /// the Rec. 709 weights. The channels have to be linearized first; weighting
+    /// the raw 0-1 values (the obvious shortcut) under-reports mid-tone contrast
+    /// badly enough to fail a palette that is perfectly readable — Catppuccin
+    /// Latte's text on its own background is 7:1, which the shortcut calls 2.7:1.
+    /// This is still only here to catch a theme whose text matches its
     /// background, not to certify a palette.
     fn luminance(rgb: u32) -> f32 {
-        let r = ((rgb >> 16) & 0xff) as f32 / 255.0;
-        let g = ((rgb >> 8) & 0xff) as f32 / 255.0;
-        let b = (rgb & 0xff) as f32 / 255.0;
-        0.2126 * r + 0.7152 * g + 0.0722 * b
+        let channel = |byte: u32| {
+            let c = byte as f32 / 255.0;
+            if c <= 0.04045 {
+                c / 12.92
+            } else {
+                ((c + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.2126 * channel((rgb >> 16) & 0xff)
+            + 0.7152 * channel((rgb >> 8) & 0xff)
+            + 0.0722 * channel(rgb & 0xff)
     }
 
     /// The WCAG contrast ratio of two colours: 1 is identical, 21 is black on
@@ -497,7 +567,7 @@ mod tests {
     /// (syntax markers, unresolved links, quoted text).
     #[test]
     fn the_built_in_palettes_are_readable() {
-        for palette in [Palette::DARK, Palette::LIGHT] {
+        for (name, palette) in Palette::BUILT_INS {
             for (role, colour, floor) in [
                 ("note text", palette.fg, 4.5),
                 ("heading text", palette.heading, 4.5),
@@ -509,12 +579,12 @@ mod tests {
             ] {
                 assert!(
                     contrast(palette.bg, colour) > floor,
-                    "{role} is too faint on the note background",
+                    "{name}: {role} is too faint on the note background",
                 );
             }
             assert!(
                 contrast(palette.ui_status_bg, palette.fg) > 4.5,
-                "the status bar draws the note's foreground colour",
+                "{name}: the status bar draws the note's foreground colour",
             );
         }
         assert_ne!(Palette::DARK.bg, Palette::LIGHT.bg);
@@ -527,5 +597,46 @@ mod tests {
         );
         assert_eq!(dark.callout_accent(CalloutKind::Quote), dark.quote);
         assert_eq!(dark.callout_accent(CalloutKind::Other), dark.accent);
+    }
+
+    /// The Catppuccin flavours are selectable by name, by their `catppuccin-`
+    /// prefixed alias, and as the `base` of a theme file, so a Catppuccin user
+    /// can pick a flavour or tune one without leaving the palette they know.
+    #[test]
+    fn the_catppuccin_flavours_are_built_ins() {
+        let dir = tempfile::tempdir().unwrap();
+        for (name, palette) in catppuccin::FLAVORS {
+            assert_eq!(Palette::built_in(name), Some(*palette));
+            assert_eq!(
+                Palette::built_in(&format!("catppuccin-{name}")),
+                Some(*palette)
+            );
+            // Case does not matter, and the alias works through the loader too.
+            let upper = name.to_uppercase();
+            assert_eq!(palette_for(dir.path(), &upper).unwrap(), *palette);
+            assert_eq!(
+                palette_for(dir.path(), &format!("Catppuccin-{upper}")).unwrap(),
+                *palette
+            );
+        }
+        // The flavours are the four upstream ones, lightest first, and they are
+        // distinct palettes rather than one palette copied four times.
+        assert_eq!(
+            catppuccin::FLAVORS.len(),
+            Palette::BUILT_INS.len() - 2,
+            "every flavour is a built-in and nothing else was added"
+        );
+        assert_eq!(catppuccin::FLAVORS[0].0, "latte");
+        assert_eq!(catppuccin::FLAVORS[3].0, "mocha");
+        assert_eq!(catppuccin::MOCHA.bg, 0x1e1e2e);
+        assert_eq!(catppuccin::LATTE.bg, 0xeff1f5);
+
+        // A flavour is a legal `base`, so a theme file can be a small edit to it.
+        let path = ThemeFile::path(dir.path(), "mocha-warm");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "base = \"mocha\"\nbg = \"#1e1e28\"\n").unwrap();
+        let out = palette_for(dir.path(), "mocha-warm").unwrap();
+        assert_eq!(out.bg, 0x1e1e28);
+        assert_eq!(out.link, catppuccin::MOCHA.link, "the rest is Mocha");
     }
 }

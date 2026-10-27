@@ -106,9 +106,14 @@ Workspace layout:
   markdown markers live preview hides, and the visible pieces that remain),
   `table` (the table model: cells, cell lookup, row/column editing and moving —
   `table/mod.rs` is the model, `table/edit.rs` the splices) and `theme` (the
-  colour palette as data: the `Palette` roles, the built-in dark and light
-  values, the `<vault>/.shale/themes/<name>.toml` loader and the callout accents
-  derived from them). Pure Rust, fully unit tested.
+  colour palette as data: the `Palette` roles, the built-in values — `dark`,
+  `light` and the four Catppuccin flavours, the last in `theme/catppuccin.rs` —
+  the `<vault>/.shale/themes/<name>.toml` loader and the callout accents derived
+  from them). The Catppuccin hexes are verbatim from `palette.json` v1.8.0 of
+  https://github.com/catppuccin/palette (**MIT**, so copying them into this
+  Apache-2.0 crate is fine) and the role mapping follows Catppuccin's own style
+  guide, https://github.com/catppuccin/catppuccin/blob/main/docs/style-guide.md.
+  Pure Rust, fully unit tested.
 - `crates/app` (`shale` binary): GPUI app (Zed's gpui, tag `v1.25.3`) — file
   tree sidebar, custom line-based editor view with **soft wrap** and vim
   normal/insert/visual modes (hjkl, w/b/e, 0 ^ $ — screen-line aware, gg/G,
@@ -119,9 +124,11 @@ Workspace layout:
   unresolved dimmed) with **live preview** hiding the markers of a row the cursor
   is not on, and link navigation (`gx` on a link in normal mode, ctrl+click),
   status bar (mode, pending count/operator, dirty flag, path, display row:col),
-  **theming** (`appearance.theme` selects the built-in dark/light palette or a
-  `<vault>/.shale/themes/<name>.toml` file, and `appearance.font_size` sizes the
-  text),
+  **theming** (`appearance.theme` selects a built-in palette — Shale's own `dark`
+  and `light`, or one of the four Catppuccin flavours (`latte`, `frappe`,
+  `macchiato`, `mocha`, also spelled with a `catppuccin-` prefix), default
+  `mocha` — or a `<vault>/.shale/themes/<name>.toml` file, and
+  `appearance.font_size` sizes the text),
   ctrl+s save. Split into `main.rs` (workspace, keymap, actions) with its
   headless tests in `tests/` (`keys.rs`, `paint.rs`), `editor/` (the view: `mod.rs`
   holds the state and accessors, `wrap.rs` the display model, `render.rs` builds
@@ -669,16 +676,19 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
 
 - **Theming — done (first pass).** Colours are data, not paint sites.
   `shale_core::theme::Palette` is one struct of 0xRRGGBB *roles* (`bg`, `fg`,
-  `dim`, `link`, `table_line`, `callout_warning`, `ui_status_bg`, …) with two
-  built-in values, `Palette::DARK` and `Palette::LIGHT`; `callout_accent(kind)`
+  `dim`, `link`, `table_line`, `callout_warning`, `ui_status_bg`, …) with six
+  built-in values — `Palette::DARK`, `Palette::LIGHT` and the four Catppuccin
+  flavours, which live in `theme/catppuccin.rs` — and `Palette::DEFAULT` (Mocha)
+  is what a vault that names no theme gets; `callout_accent(kind)`
   reads its colours off the palette, so a theme can retune one callout type
   without touching the rest. `appearance.theme` in `shale.toml` names a built-in
   or a `<vault>/.shale/themes/<name>.toml` file, which sets `base` and overrides
   only the roles it cares about (`bg = "#282828"`); unknown keys and malformed
   colours are errors, and a theme that cannot be found or parsed is logged and
-  falls back to dark rather than stopping the editor. `theme::palette_for` does
-  the resolution, `Workspace::new` calls it once and shares the `Rc<Palette>`
-  with the editor, which hands it to every `LineElement`.
+  falls back to `Palette::DEFAULT` rather than stopping the editor.
+  `theme::palette_for` does the resolution, `Workspace::new` calls it once and
+  shares the `Rc<Palette>` with the editor, which hands it to every
+  `LineElement`.
   - **The app's `theme.rs` no longer holds colours.** It owns the parts that
     need gpui: `RunStyle::for_style(style, &palette)` / `RunStyle::plain(&palette)`
     (the single place a markdown `Style` becomes a painted run) and the text
@@ -697,6 +707,26 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
     `gruvbox.toml` (`base = "dark"` plus `bg`/`fg`/`link`/`ui_bg`/`table_line`/
     `callout_warning`) at `font_size = 18` — the note, sidebar, table grid and
     callout bar all followed, and the headings scaled with the base size.
+  - **Catppuccin added (2026-10-27).** The four flavours are built in, their
+    hexes verbatim from `palette.json` v1.8.0 of `catppuccin/palette` (**MIT**,
+    hence copyable into this Apache-2.0 crate), and every role is filled from
+    Catppuccin's own style guide (`docs/style-guide.md` in `catppuccin/catppuccin`):
+    Base/Mantle/Crust for the panes, Text for body and headings, Rosewater for the
+    cursor, Blue for links and tags, Overlay 1 for the dim markers, Subtext 0 for
+    quotes, the Surfaces for code/table/hover backgrounds, Yellow/Peach/Red for the
+    warning/failure/danger callouts. `selection` and `highlight_bg` are the guide's
+    accent-over-Base opacities composited to a flat colour, because a `Palette` has
+    no alpha. Flavours resolve by name and with a `catppuccin-` prefix, and are
+    legal `base` values in a theme file. **The default theme is now `mocha`**
+    (`Palette::DEFAULT` / `Palette::DEFAULT_NAME`, used by the config default,
+    `palette_for`, the editor's initial palette and the load-failure fallback).
+    - The built-in contrast test now walks `Palette::BUILT_INS` instead of the two
+      originals, and its `luminance` helper is real WCAG relative luminance (the
+      sRGB channels linearized before weighting). The old shortcut weighted the raw
+      0-1 channels and under-reported mid-tones so badly that Catppuccin Frappé's
+      text scored 3.4:1 where it is really 8.1:1; the floors are unchanged.
+    - **Next: a theme picker.** Not started — the user is specifying what they want
+      from it first. Today a theme change means editing `shale.toml` and restarting.
   - **Not done here**: no way to change the theme at runtime (restart to pick one
     up), no per-role preview UI, and the palette has no entry for syntax
     highlighting inside fenced code (which is the tree-sitter goal anyway).
