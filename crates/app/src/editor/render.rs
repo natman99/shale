@@ -276,6 +276,10 @@ impl Render for MarkdownEditor {
                         // cursor's nor the selection's.
                         let rule = row_styles.get(dl.row).copied().unwrap_or_default().rule
                             && hidden.get(dl.row).is_some_and(|r| !r.is_empty());
+                        // A callout row gets a box painted behind its text, in the
+                        // colour of its type; the markers stay visible on the row the
+                        // cursor is on, exactly as with other markdown syntax.
+                        let callout = row_styles.get(dl.row).copied().unwrap_or_default().callout;
 
                         div()
                             .id(("line", index))
@@ -298,6 +302,7 @@ impl Render for MarkdownEditor {
                                 size: dl.size,
                                 block,
                                 rule,
+                                callout,
                                 table,
                                 char_width,
                             })

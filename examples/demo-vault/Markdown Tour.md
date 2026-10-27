@@ -18,6 +18,14 @@ Live-preview styling, one construct per line. Links: [[Welcome]], [[Another Note
 
 > A quoted line, drawn dim and italic, with **bold** inside it.
 
+## Callouts
+
+> [!info] A callout with a title
+> The quote markers and the `[!info]` header are hidden, and the box
+> spans every line of the block.
+
+> [!warning]- A folded callout shows its type name as its title.
+
 ## Table
 
 | Note | Links to |

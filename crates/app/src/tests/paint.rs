@@ -364,6 +364,58 @@ fn a_thematic_break_is_painted_as_a_rule(cx: &mut TestAppContext) {
     assert!(rules.is_empty(), "no rule while the dashes are visible");
 }
 
+/// A callout is painted as a box that covers every row of the block, with its
+/// `>` markers and `[!type]` header hidden on the rows the cursor is not on.
+#[gpui::test]
+fn a_callout_is_painted_as_a_box(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.bind_keys(keybindings()));
+
+    let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+    let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+    editor
+        .update(cx, |editor, window, cx| {
+            editor.set_text(
+                "> [!warning] Watch out\n> mind the gap\n\nplain\n".to_string(),
+                cx,
+            );
+            let focus = editor.focus_handle(cx);
+            window.focus(&focus, cx);
+        })
+        .unwrap();
+    for _ in 0..2 {
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+    }
+
+    // The cursor starts on the title row, whose syntax stays visible so it can
+    // be edited, while the body row is already painted as its reader sees it.
+    let (painted, boxes) = editor
+        .read_with(cx, |editor, _cx| {
+            (editor.painted_text(), editor.painted_callouts())
+        })
+        .unwrap();
+    assert_eq!(painted[0], "> [!warning] Watch out");
+    assert_eq!(painted[1], " mind the gap");
+    assert_eq!(
+        boxes,
+        vec![0, 1],
+        "both rows of the block get the box, and no row outside it"
+    );
+
+    // With the cursor below the block, the header's brackets are hidden but the
+    // type name is kept: it is the box's title.
+    cx.simulate_keystrokes("j j");
+    let (painted, boxes) = editor
+        .read_with(cx, |editor, _cx| {
+            (editor.painted_text(), editor.painted_callouts())
+        })
+        .unwrap();
+    assert_eq!(
+        painted[0], " warning Watch out",
+        "the quote markers and the header's brackets are hidden"
+    );
+    assert_eq!(boxes, vec![0, 1]);
+}
+
 /// A click on a row whose markers are hidden has to land on the visible
 /// character rather than on syntax that is not drawn, and the cursor and
 /// selection quads have to be drawn where the text actually is.

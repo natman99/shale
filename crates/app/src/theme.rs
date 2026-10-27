@@ -7,7 +7,7 @@
 //! the parser and the presentation separate.
 
 use gpui::{px, rgb, Font, StrikethroughStyle, TextRun, UnderlineStyle};
-use shale_core::mdstyle::Style;
+use shale_core::mdstyle::{CalloutKind, Style};
 
 /// Height of one display line, in pixels.
 pub(crate) const LINE_HEIGHT: f32 = 20.0;
@@ -103,6 +103,26 @@ pub(crate) const HIGHLIGHT_BG: u32 = 0x4a3f1f;
 pub(crate) const TABLE_LINE: u32 = 0x3f3f46;
 /// Background of a table's header row.
 pub(crate) const TABLE_HEADER_BG: u32 = 0x2a2a2e;
+/// Background of an Obsidian callout's box, which spans the editor like a
+/// fenced block's does.
+pub(crate) const CALLOUT_BG: u32 = 0x252a33;
+
+/// The accent colour of a callout: its left bar and its title. Obsidian colours
+/// each callout type, and treats an unknown type like a note.
+pub(crate) fn callout_accent(kind: CalloutKind) -> u32 {
+    match kind {
+        CalloutKind::Note => 0x8ca0b3,
+        CalloutKind::Info | CalloutKind::Todo => LINK,
+        CalloutKind::Abstract | CalloutKind::Example => 0x6fc7c2,
+        CalloutKind::Tip | CalloutKind::Success => TAG,
+        CalloutKind::Question => 0xc586c0,
+        CalloutKind::Warning => 0xe0a55e,
+        CalloutKind::Failure => 0xe07a5e,
+        CalloutKind::Danger | CalloutKind::Bug => 0xe05e5e,
+        CalloutKind::Quote => QUOTE,
+        CalloutKind::Other => ACCENT,
+    }
+}
 
 /// How a run of text is drawn, resolved from a markdown [`Style`].
 ///
@@ -181,6 +201,13 @@ impl RunStyle {
             // resolved/unresolved colours, so this is only the fallback.
             Style::WikiLink | Style::WikiEmbed => run.color = LINK,
             Style::Tag => run.color = TAG,
+            // The box itself is painted by the line element (a background quad
+            // and an accent bar), so its text stays ordinary.
+            Style::Callout { .. } => {}
+            Style::CalloutTitle { kind } => {
+                run.color = callout_accent(kind);
+                run.bold = true;
+            }
             Style::TablePipe | Style::TableRule | Style::Rule => run.color = DIM,
             Style::Punctuation => run.color = DIM,
         }

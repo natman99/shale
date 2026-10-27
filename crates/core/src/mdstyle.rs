@@ -57,6 +57,11 @@ pub enum Style {
     WikiEmbed,
     /// A `#tag`.
     Tag,
+    /// One line of an Obsidian callout (`> [!note] Title`), covering the line's
+    /// content. The kind decides the accent colour the UI draws the box with.
+    Callout { kind: CalloutKind },
+    /// A callout's title line: its type name and any custom title.
+    CalloutTitle { kind: CalloutKind },
     /// A `|` separating table cells.
     TablePipe,
     /// A table's `---` delimiter row.
@@ -65,6 +70,54 @@ pub enum Style {
     Rule,
     /// Syntax punctuation to draw dimly: brackets, delimiters, backticks.
     Punctuation,
+}
+
+/// The kind of an Obsidian callout, from the name in `[!name]`.
+///
+/// Obsidian ships a fixed set of callout types, each with its own colour, and
+/// treats anything else as a plain "note" box; the aliases it accepts are
+/// folded onto the same variants here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CalloutKind {
+    Note,
+    Abstract,
+    Info,
+    Todo,
+    Tip,
+    Success,
+    Question,
+    Warning,
+    Failure,
+    Danger,
+    Bug,
+    Example,
+    Quote,
+    /// A type Obsidian does not know: drawn like a note, but the name is the
+    /// reader's only clue.
+    Other,
+}
+
+impl CalloutKind {
+    /// The kind a callout header names, case-insensitively, following Obsidian's
+    /// alias table (`faq` is `question`, `caution` is `danger`, and so on).
+    pub fn from_name(name: &str) -> Self {
+        match name.to_ascii_lowercase().as_str() {
+            "note" => Self::Note,
+            "abstract" | "summary" | "tldr" => Self::Abstract,
+            "info" => Self::Info,
+            "todo" => Self::Todo,
+            "tip" | "hint" | "important" => Self::Tip,
+            "success" | "check" | "done" | "positive" => Self::Success,
+            "question" | "help" | "faq" => Self::Question,
+            "warning" | "caution" | "attention" => Self::Warning,
+            "failure" | "fail" | "missing" => Self::Failure,
+            "danger" | "error" => Self::Danger,
+            "bug" => Self::Bug,
+            "example" => Self::Example,
+            "quote" | "cite" => Self::Quote,
+            _ => Self::Other,
+        }
+    }
 }
 
 /// A range of source that shares a [`Style`].
@@ -91,11 +144,15 @@ pub fn style_spans(text: &str) -> Vec<StyleSpan> {
 
     let mut out: Vec<StyleSpan> = Vec::new();
     let mut fence: Option<(u8, usize)> = None;
+    // The kind of the callout whose body the previous line belonged to, if any:
+    // a callout runs until the first line that is not part of a blockquote.
+    let mut callout: Option<CalloutKind> = None;
     for (index, (line_start, content)) in lines.iter().enumerate() {
         scan_line(
             *line_start,
             content,
             &mut fence,
+            &mut callout,
             table_rows[index],
             &mut out,
         );
@@ -175,11 +232,18 @@ fn scan_line(
     base: usize,
     content: &str,
     fence: &mut Option<(u8, usize)>,
+    callout: &mut Option<CalloutKind>,
     in_table: bool,
     out: &mut Vec<StyleSpan>,
 ) {
     let line_end = base + content.len();
     let trimmed = content.trim_start();
+
+    // Anything that is not a blockquote line ends the callout that was open
+    // (including a blank line, a fence, or ordinary text).
+    if !trimmed.starts_with('>') {
+        *callout = None;
+    }
 
     // Inside a fenced block: everything is code until the closing fence.
     if let Some((fc, flen)) = *fence {
@@ -290,13 +354,76 @@ fn scan_line(
                 i += 1;
             }
         }
-        if i < line_end {
+        let content_start = i;
+        // A callout is a blockquote whose first line opens with `[!type]`; the
+        // blockquote lines that follow it are the same box, so they inherit its
+        // kind. Only the line that opens the callout has a header.
+        let header = if callout.is_none() {
+            callout_header(text_from(content, content_start - base))
+        } else {
+            None
+        };
+        let kind = match (*callout, header) {
+            (Some(kind), _) => kind,
+            (None, Some((kind, ..))) => kind,
+            (None, None) => {
+                // An ordinary blockquote.
+                if content_start < line_end {
+                    out.push(StyleSpan {
+                        start: content_start,
+                        end: line_end,
+                        style: Style::Quote,
+                    });
+                    inline_spans(content_start, text_from(content, content_start - base), out);
+                }
+                return;
+            }
+        };
+        *callout = Some(kind);
+        out.push(StyleSpan {
+            start: base,
+            end: line_end,
+            style: Style::Callout { kind },
+        });
+        let title_start = match header {
+            Some((_, name_end, header_end, title)) => {
+                // `[!` and `]` are syntax the reader should not see; the type
+                // name and the custom title are the callout's heading.
+                out.push(StyleSpan {
+                    start: content_start,
+                    end: content_start + 2,
+                    style: Style::Punctuation,
+                });
+                out.push(StyleSpan {
+                    start: content_start + 2,
+                    end: content_start + name_end,
+                    style: Style::CalloutTitle { kind },
+                });
+                if header_end > name_end {
+                    out.push(StyleSpan {
+                        start: content_start + name_end,
+                        end: content_start + header_end,
+                        style: Style::Punctuation,
+                    });
+                }
+                Some(content_start + title)
+            }
+            // A body line of the callout: ordinary text on the box's
+            // background, with no title styling.
+            None => {
+                if content_start < line_end {
+                    inline_spans(content_start, text_from(content, content_start - base), out);
+                }
+                None
+            }
+        };
+        if let Some(title_start) = title_start.filter(|&start| start < line_end) {
             out.push(StyleSpan {
-                start: i,
+                start: title_start,
                 end: line_end,
-                style: Style::Quote,
+                style: Style::CalloutTitle { kind },
             });
-            inline_spans(i, text_from(content, i - base), out);
+            inline_spans(title_start, text_from(content, title_start - base), out);
         }
         return;
     }
@@ -340,6 +467,44 @@ fn scan_line(
 /// character boundary.
 fn text_from(content: &str, offset: usize) -> &str {
     &content[offset..]
+}
+
+/// The `[!type]` header that opens a callout, matched against the text after a
+/// blockquote's `>` markers.
+///
+/// Returns the callout's [`CalloutKind`], the end of its type name, the end of
+/// the whole header (the `]` plus Obsidian's optional `-`/`+` fold marker) and
+/// where the custom title begins — all byte offsets from the start of `rest`,
+/// each on a character boundary. A header must be `[!` followed by a bare word,
+/// so `[! a note]` or `[!note!]` stay ordinary quote text.
+fn callout_header(rest: &str) -> Option<(CalloutKind, usize, usize, usize)> {
+    let body = rest.strip_prefix("[!")?;
+    let close = body.find(']')?;
+    let name = &body[..close];
+    if name.is_empty()
+        || !name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'/')
+    {
+        return None;
+    }
+    // `body` starts two bytes into `rest`, at the `[!`.
+    let name_end = 2 + close;
+    let mut header_end = name_end + 1;
+    if rest[header_end..].starts_with(['-', '+']) {
+        header_end += 1;
+    }
+    let title_start = if rest[header_end..].starts_with(' ') {
+        header_end + 1
+    } else {
+        header_end
+    };
+    Some((
+        CalloutKind::from_name(name),
+        name_end,
+        header_end,
+        title_start,
+    ))
 }
 
 /// `---` / `1.` / `+` list markers, including their trailing whitespace.
@@ -790,6 +955,81 @@ mod tests {
             texts(text, Style::TaskMark { done: false }),
             vec!["[ ]"],
             "and the unchecked one"
+        );
+    }
+
+    #[test]
+    fn callouts_are_a_styled_blockquote() {
+        let text = "> [!warning] Watch out\n> mind the **gap**\n\nplain";
+        assert_eq!(
+            texts(
+                text,
+                Style::Callout {
+                    kind: CalloutKind::Warning
+                }
+            ),
+            vec!["> [!warning] Watch out", "> mind the **gap**"],
+            "the box covers both lines and stops at the blank one"
+        );
+        assert_eq!(
+            texts(
+                text,
+                Style::CalloutTitle {
+                    kind: CalloutKind::Warning
+                }
+            ),
+            vec!["warning", "Watch out"],
+            "the type name and the custom title are the box's heading"
+        );
+        assert_eq!(
+            texts(text, Style::Punctuation),
+            vec!["[!", "]", "**", "**"],
+            "the header's brackets are hidden syntax, the type name is not"
+        );
+        assert!(
+            texts(text, Style::Quote).is_empty(),
+            "a callout is not drawn as quote text"
+        );
+        assert_eq!(texts(text, Style::Strong), vec!["gap"]);
+    }
+
+    #[test]
+    fn callout_kinds_and_fold_markers() {
+        let text = "> [!todo]-\n> body";
+        assert_eq!(
+            texts(text, Style::Punctuation),
+            vec!["[!", "]-"],
+            "the fold marker is syntax too"
+        );
+        assert_eq!(
+            spans(
+                text,
+                Style::CalloutTitle {
+                    kind: CalloutKind::Todo
+                }
+            ),
+            vec![(4, 8)],
+            "a callout with no title has only its type name, which starts after `[!`"
+        );
+        // Obsidian's aliases name the same box.
+        assert_eq!(CalloutKind::from_name("CAUTION"), CalloutKind::Warning);
+        assert_eq!(CalloutKind::from_name("faq"), CalloutKind::Question);
+        assert_eq!(CalloutKind::from_name("thing"), CalloutKind::Other);
+    }
+
+    #[test]
+    fn a_quote_that_is_not_a_callout_stays_a_quote() {
+        let text = "> [! not a callout]\n> [note] plain";
+        assert!(spans(
+            text,
+            Style::Callout {
+                kind: CalloutKind::Note
+            }
+        )
+        .is_empty());
+        assert_eq!(
+            texts(text, Style::Quote),
+            vec!["[! not a callout]", "[note] plain"]
         );
     }
 

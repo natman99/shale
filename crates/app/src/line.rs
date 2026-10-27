@@ -23,7 +23,7 @@ use gpui::{
     Font, GlobalElementId, InspectorElementId, IntoElement, LayoutId, Pixels, ShapedLine,
     SharedString, Style as ElementStyle, TextRun, Window,
 };
-use shale_core::mdstyle::Style;
+use shale_core::mdstyle::{CalloutKind, Style};
 
 use crate::editor::MarkdownEditor;
 use crate::preview::PieceMap;
@@ -81,6 +81,11 @@ pub(crate) struct HitLine {
     /// tests check, and what horizontal scrolling will need alongside `width`.
     #[allow(dead_code)]
     pub(crate) rule: bool,
+    /// Whether the line was painted inside a callout's box. Not read by the
+    /// editor (the box is a quad, not text), but it is what the preview tests
+    /// check.
+    #[allow(dead_code)]
+    pub(crate) callout: bool,
 }
 
 impl HitLine {
@@ -164,6 +169,10 @@ pub(crate) struct LineElement {
     /// Whether the row is a thematic break whose dashes live preview hid: the
     /// element draws a rule across its width in their place.
     pub(crate) rule: bool,
+    /// Set when the row belongs to an Obsidian callout: the element paints a
+    /// box behind the line and an accent bar on its left edge, in the colour
+    /// that matches the callout's type.
+    pub(crate) callout: Option<CalloutKind>,
     /// Set when this row is a table row: the grid to paint instead of the raw
     /// markdown, whose pipes and dashes are then hidden.
     pub(crate) table: Option<TablePaint>,
@@ -530,6 +539,21 @@ impl Element for LineElement {
             window.paint_quad(fill(bounds, rgb(theme::CODE_BLOCK_BG)));
         }
 
+        // A callout is a box: a background across the whole line and an accent
+        // bar on its left edge in the colour of its type. The `>` markers and
+        // the `[!type]` header are hidden by live preview, so what is left of
+        // the line reads as the box's content.
+        if let Some(kind) = self.callout {
+            window.paint_quad(fill(bounds, rgb(theme::CALLOUT_BG)));
+            window.paint_quad(fill(
+                Bounds::from_corners(
+                    gpui::point(bounds.left(), bounds.top()),
+                    gpui::point(bounds.left() + px(2.), bounds.bottom()),
+                ),
+                rgb(theme::callout_accent(kind)),
+            ));
+        }
+
         // A thematic break is a rule across the editor, not the dashes the file
         // holds: `prepaint` shaped an empty line because live preview hid them,
         // and they come back on the row the cursor is on.
@@ -637,6 +661,7 @@ impl Element for LineElement {
                 width,
                 bounds,
                 rule: self.rule,
+                callout: self.callout.is_some(),
             });
         });
     }

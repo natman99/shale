@@ -8,7 +8,7 @@
 
 use gpui::{px, IndentAdjustment, LineFragment, LineWrapperHandle, Pixels};
 use shale_core::mdlayout;
-use shale_core::mdstyle::{Style, StyleSpan};
+use shale_core::mdstyle::{CalloutKind, Style, StyleSpan};
 
 use crate::line::DisplayLine;
 use crate::preview::offset_for_visible_index;
@@ -32,6 +32,9 @@ pub(super) struct RowStyle {
     /// The row is a thematic break (`---`, `***`, `___`), which is drawn as a
     /// rule across the editor instead of as its dashes.
     pub(super) rule: bool,
+    /// The row is part of an Obsidian callout (`> [!note]`), whose box the line
+    /// element paints behind the text. The kind decides the accent colour.
+    pub(super) callout: Option<CalloutKind>,
 }
 
 /// Which line wrapper a row needs: one per heading level, regular and wide face.
@@ -136,6 +139,10 @@ impl MarkdownEditor {
             };
             let block = matches!(span.style, Style::CodeBlock | Style::CodeFence);
             let rule = span.style == Style::Rule;
+            let callout = match span.style {
+                Style::Callout { kind } => Some(kind),
+                _ => None,
+            };
             let mut r = row;
             while r < line_count && self.buffer.line_start(r) < span.end {
                 let row = &mut rows[r];
@@ -143,6 +150,9 @@ impl MarkdownEditor {
                 row.heading = row.heading.max(heading);
                 row.block |= block;
                 row.rule |= rule;
+                if callout.is_some() {
+                    row.callout = callout;
+                }
                 r += 1;
             }
         }

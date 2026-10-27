@@ -261,6 +261,18 @@ impl MarkdownEditor {
             .collect()
     }
 
+    /// The display lines painted inside a callout's box (background and accent
+    /// bar), which is how the paint tests check that the box follows the block.
+    #[cfg(test)]
+    pub fn painted_callouts(&self) -> Vec<usize> {
+        self.hit_lines
+            .iter()
+            .enumerate()
+            .filter(|(_, hit)| hit.callout)
+            .map(|(index, _)| index)
+            .collect()
+    }
+
     /// Cursor position in display coordinates (wrapped segments counted as
     /// lines, column counted in characters from the segment start), like a vim
     /// ruler.
