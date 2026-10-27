@@ -249,6 +249,18 @@ impl MarkdownEditor {
             .collect()
     }
 
+    /// The display lines that were painted as a thematic break's rule rather
+    /// than as text.
+    #[cfg(test)]
+    pub fn painted_rules(&self) -> Vec<usize> {
+        self.hit_lines
+            .iter()
+            .enumerate()
+            .filter(|(_, hit)| hit.rule)
+            .map(|(index, _)| index)
+            .collect()
+    }
+
     /// Cursor position in display coordinates (wrapped segments counted as
     /// lines, column counted in characters from the segment start), like a vim
     /// ruler.

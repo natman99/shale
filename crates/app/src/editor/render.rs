@@ -270,6 +270,12 @@ impl Render for MarkdownEditor {
                         // A fenced block's background spans the full width, so
                         // the element paints it as a quad rather than a run.
                         let block = row_styles.get(dl.row).copied().unwrap_or_default().block;
+                        // A thematic break is drawn as a rule across the line in
+                        // place of its dashes — but only when live preview hid
+                        // them, which is exactly when the row is neither the
+                        // cursor's nor the selection's.
+                        let rule = row_styles.get(dl.row).copied().unwrap_or_default().rule
+                            && hidden.get(dl.row).is_some_and(|r| !r.is_empty());
 
                         div()
                             .id(("line", index))
@@ -291,6 +297,7 @@ impl Render for MarkdownEditor {
                                 spans: line_spans,
                                 size: dl.size,
                                 block,
+                                rule,
                                 table,
                                 char_width,
                             })

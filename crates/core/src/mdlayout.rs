@@ -19,10 +19,13 @@ use crate::mdstyle::{Style, StyleSpan};
 /// Whether a style is markdown syntax rather than content, and so hidden in
 /// live preview.
 ///
-/// Deliberately *not* hidden: list bullets and numbers, task checkboxes, `#tags`
-/// and thematic breaks, all of which Obsidian keeps on screen, and the fenced
-/// block's ``` lines, which are the only sign of where the block starts and
-/// ends.
+/// Deliberately *not* hidden: list bullets and numbers, task checkboxes and
+/// `#tags`, all of which Obsidian keeps on screen, and the fenced block's ```
+/// lines, which are the only sign of where the block starts and ends.
+///
+/// A thematic break's dashes *are* hidden, because the editor draws the row as a
+/// rule across its width instead of painting `---`; the dashes come back on the
+/// row the cursor is on, which is where they can be edited.
 pub fn is_marker(style: Style) -> bool {
     matches!(
         style,
@@ -31,6 +34,7 @@ pub fn is_marker(style: Style) -> bool {
             | Style::Punctuation
             | Style::LinkUrl
             | Style::LinkTarget
+            | Style::Rule
     )
 }
 
@@ -179,8 +183,16 @@ mod tests {
         assert_eq!(shown("1. a number"), "1. a number");
         assert_eq!(shown("- [x] done"), "- [x] done");
         assert_eq!(shown("a #tag here"), "a #tag here");
-        assert_eq!(shown("---"), "---");
         assert_eq!(shown("```"), "```");
+    }
+
+    #[test]
+    fn a_thematic_break_leaves_nothing_to_paint() {
+        // Its dashes are hidden because the editor draws a rule in their place;
+        // the caller keeps them visible on the row the cursor is on.
+        assert_eq!(shown("---"), "");
+        assert_eq!(shown("***"), "");
+        assert_eq!(shown("- - -"), "");
     }
 
     #[test]

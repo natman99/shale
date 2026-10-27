@@ -76,6 +76,11 @@ pub(crate) struct HitLine {
     pub(crate) width: Pixels,
     /// Where it was painted.
     pub(crate) bounds: Bounds<Pixels>,
+    /// Whether the line was painted as a thematic break's rule. Not read by the
+    /// editor itself — the rule is a quad, not text — but it is what the preview
+    /// tests check, and what horizontal scrolling will need alongside `width`.
+    #[allow(dead_code)]
+    pub(crate) rule: bool,
 }
 
 impl HitLine {
@@ -156,6 +161,9 @@ pub(crate) struct LineElement {
     /// Whether the row belongs to a fenced code block, whose background spans
     /// the full width of the editor rather than just its text.
     pub(crate) block: bool,
+    /// Whether the row is a thematic break whose dashes live preview hid: the
+    /// element draws a rule across its width in their place.
+    pub(crate) rule: bool,
     /// Set when this row is a table row: the grid to paint instead of the raw
     /// markdown, whose pipes and dashes are then hidden.
     pub(crate) table: Option<TablePaint>,
@@ -522,6 +530,20 @@ impl Element for LineElement {
             window.paint_quad(fill(bounds, rgb(theme::CODE_BLOCK_BG)));
         }
 
+        // A thematic break is a rule across the editor, not the dashes the file
+        // holds: `prepaint` shaped an empty line because live preview hid them,
+        // and they come back on the row the cursor is on.
+        if self.rule {
+            let y = bounds.top() + px(f32::from(bounds.size.height) / 2.);
+            window.paint_quad(fill(
+                Bounds::from_corners(
+                    gpui::point(bounds.left(), y - px(0.5)),
+                    gpui::point(bounds.right(), y + px(0.5)),
+                ),
+                rgb(theme::TABLE_LINE),
+            ));
+        }
+
         let width;
         let segments: Vec<HitSegment>;
         if let Some(table) = self.table.clone() {
@@ -614,6 +636,7 @@ impl Element for LineElement {
                 segments,
                 width,
                 bounds,
+                rule: self.rule,
             });
         });
     }

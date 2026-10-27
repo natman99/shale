@@ -29,6 +29,9 @@ pub(super) struct RowStyle {
     /// The row belongs to a fenced code block, which gets a full-width
     /// background.
     pub(super) block: bool,
+    /// The row is a thematic break (`---`, `***`, `___`), which is drawn as a
+    /// rule across the editor instead of as its dashes.
+    pub(super) rule: bool,
 }
 
 /// Which line wrapper a row needs: one per heading level, regular and wide face.
@@ -132,12 +135,14 @@ impl MarkdownEditor {
                 _ => 0,
             };
             let block = matches!(span.style, Style::CodeBlock | Style::CodeFence);
+            let rule = span.style == Style::Rule;
             let mut r = row;
             while r < line_count && self.buffer.line_start(r) < span.end {
                 let row = &mut rows[r];
                 row.wide |= wide;
                 row.heading = row.heading.max(heading);
                 row.block |= block;
+                row.rule |= rule;
                 r += 1;
             }
         }

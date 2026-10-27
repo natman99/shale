@@ -326,6 +326,44 @@ fn live_preview_hides_markers_off_the_cursor_row(cx: &mut TestAppContext) {
     );
 }
 
+/// A thematic break is drawn as a rule across the editor rather than as the
+/// dashes the file holds, and the dashes come back on the row the cursor is on.
+#[gpui::test]
+fn a_thematic_break_is_painted_as_a_rule(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.bind_keys(keybindings()));
+
+    let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+    let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+    editor
+        .update(cx, |editor, window, cx| {
+            editor.set_text("above\n\n---\n\nbelow\n".to_string(), cx);
+            let focus = editor.focus_handle(cx);
+            window.focus(&focus, cx);
+        })
+        .unwrap();
+    for _ in 0..2 {
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+    }
+
+    let (painted, rules) = editor
+        .read_with(cx, |editor, _cx| {
+            (editor.painted_text(), editor.painted_rules())
+        })
+        .unwrap();
+    assert_eq!(painted[2], "", "the dashes themselves are not painted");
+    assert_eq!(rules, vec![2], "the row is painted as a rule instead");
+
+    // The cursor's own row shows its syntax again, so it can be edited.
+    cx.simulate_keystrokes("j j");
+    let (painted, rules) = editor
+        .read_with(cx, |editor, _cx| {
+            (editor.painted_text(), editor.painted_rules())
+        })
+        .unwrap();
+    assert_eq!(painted[2], "---", "the cursor's row shows its dashes");
+    assert!(rules.is_empty(), "no rule while the dashes are visible");
+}
+
 /// A click on a row whose markers are hidden has to land on the visible
 /// character rather than on syntax that is not drawn, and the cursor and
 /// selection quads have to be drawn where the text actually is.
