@@ -34,11 +34,25 @@ impl MarkdownEditor {
             }
         }
         if let Some(hit) = best {
+            let local_x = x - hit.bounds.left();
+            // A click on a folded heading's marker opens the section again (or
+            // closes it while it is open) instead of moving the cursor.
+            if hit
+                .fold_marker
+                .as_ref()
+                .is_some_and(|m| m.x <= local_x && local_x <= m.x + m.line.width())
+            {
+                let row = self.buffer.row_col(hit.start).0;
+                self.buffer.fold_toggle_at(row);
+                self.ensure_cursor_visible();
+                cx.notify();
+                return;
+            }
             // A table's rule line is painted on the edge of a row that is, so a
             // click there already belongs to that row; the delimiter row it
             // stands for has no display line of its own unless the cursor is on
             // it or on the header, in which case clicking its text is correct.
-            let offset = hit.offset_for_x(x - hit.bounds.left());
+            let offset = hit.offset_for_x(local_x);
             if event.modifiers.control {
                 self.refresh_links();
                 if self.link_at(offset).is_some() {

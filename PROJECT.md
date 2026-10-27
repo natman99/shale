@@ -105,7 +105,9 @@ Workspace layout:
   `mdstyle/inline.rs` for emphasis/links/tags inside it), `mdlayout` (which
   markdown markers live preview hides, and the visible pieces that remain),
   `table` (the table model: cells, cell lookup, row/column editing and moving —
-  `table/mod.rs` is the model, `table/edit.rs` the splices) and `theme` (the
+  `table/mod.rs` is the model, `table/edit.rs` the splices), `fold` (the foldable
+  regions of a note — a heading and the rows it owns — the closed-fold set keyed
+  on heading text, and the per-row display effect of that set) and `theme` (the
   colour palette as data: the `Palette` roles, the built-in values — `dark`,
   `light` and the four Catppuccin flavours, the last in `theme/catppuccin.rs` —
   the `<vault>/.shale/themes/<name>.toml` loader and the callout accents derived
@@ -122,7 +124,9 @@ Workspace layout:
   click to position), **live markdown styling** (headings, emphasis, code,
   quotes, lists/tasks, tables, tags, links; resolved wiki-links tinted blue,
   unresolved dimmed) with **live preview** hiding the markers of a row the cursor
-  is not on, and link navigation (`gx` on a link in normal mode, ctrl+click),
+  is not on, **heading-section folding** (`za`/`zc`/`zo`/`zd`/`zM`/`zR`, or a click
+  on the `⋯ n more lines` marker a folded heading carries), and link navigation
+  (`gx` on a link in normal mode, ctrl+click),
   status bar (mode, pending count/operator, dirty flag, path, display row:col),
   **theming** (`appearance.theme` selects a built-in palette — Shale's own `dark`
   and `light`, or one of the four Catppuccin flavours (`latte`, `frappe`,
@@ -201,9 +205,13 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
   text (a scanner bug can allocate until the OOM killer takes the editor down —
   see the table postmortem). Build parallelism is capped in `.cargo/config.toml`
   at the user's request because a full-parallel build stalled the editor.
-  Current peak RSS of the test binaries: core 4.5 MB, app 29 MB, mcp 3.5 MB. The
-  app binary's *address space* (not RSS) exceeds 600 MB because of gpui/wgpu
-  reservations, so use a 1 GB cap or more there.
+  Current peak RSS of the test binaries: core 5.4 MB, app 30 MB, mcp 3.5 MB. The
+  app binary's *address space* (not RSS) is far larger because of gpui/wgpu
+  reservations, and it now needs **4 GB or more** — a 1 GB cap makes it die in an
+  80-byte allocation. Build with `cargo test --workspace --no-run`, then run each
+  `target/debug/deps/<name>-<hash>` binary under `sh -c 'ulimit -v N; /usr/bin/
+  time -v ./binary'`; never wrap `cargo test` itself, and re-derive the hashes
+  after a rebuild.
 
 ### Open threads (write findings here as they come up)
 
@@ -731,6 +739,53 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
     up), no per-role preview UI, and the palette has no entry for syntax
     highlighting inside fenced code (which is the tree-sitter goal anyway).
 
+- **Folding (heading sections) — done (2026-10-27).** `shale_core::fold` answers
+  the two questions the view needs: `fold_regions(text)` (a heading owns every row
+  below it until the next heading of its own level or a shallower one, so regions
+  nest; a `#` inside a fenced block is not a heading because the region scan goes
+  through `mdstyle`'s spans) and `fold_view(regions, state, line_count)`, which
+  turns the closed regions into per-row `collapsed` flags plus a `marker` count on
+  the row that opens each fold.
+  - **Folds live on the `Buffer`, next to `display_segments`, because both are
+    view state.** The vim engine runs the commands (`za` toggle, `zc` close, `zo`
+    open, `zd` remove, `zM` close all, `zR`/`zE` open all — `Pending::Fold` in the
+    engine, and the command letter arrives through the action that key is already
+    bound to, so only `shift-r`/`shift-m`/`shift-e` needed new bindings) and the
+    display model reads the result. `Buffer::fold_view` is ORed into the rows live
+    preview already hides, so a folded row takes no display line and `j`/`k`, the
+    ruler, `ensure_cursor_visible` and the wrap cache all follow for free. That is
+    the whole integration, and the buffer's text never changes.
+  - **A fold is keyed on its heading's text, not its row or offset** (`FoldKey
+    { text, ordinal }`, the ordinal telling repeated headings apart). Rows and
+    offsets both move when the user types; the heading's text does not, so a fold
+    survives edits anywhere else in the note and disappears if the heading itself
+    is renamed or deleted. `set_text` (opening another note) clears them.
+  - **A closed fold never hides the cursor.** `Buffer::clamp_cursor_out_of_folds`
+    walks the cursor up to the heading that opens the innermost fold covering it,
+    then repeats outward, so `zM` from the middle of a note lands on the outermost
+    heading. Without that, `display_index_for(cursor)` would point at a row that
+    has no display line at all.
+  - **The marker is painted, not spliced into the text.** `LineElement { fold:
+    Some(n) }` shapes `⋯ n more lines` as its own `ShapedLine` in prepaint and
+    paints it after the row's text in `palette.dim`, because the marker has no byte
+    in the buffer and must not enter the `PieceMap` that maps clicks and the IME
+    back to offsets. It goes on the row's *last* display line, so a wrapped heading
+    gets one marker. `HitLine::fold_marker` records where it was drawn and a click
+    inside it toggles the fold (`input::on_click` checks it before the text
+    hit-test) — the only pointer affordance, since there is no fold gutter.
+  - **`zd` and `zE` coincide with `zo` and `zR`** here: a fold is a closed region
+    derived from the headings, not a stored definition, so opening it *is* removing
+    it. Remember that if fold state is ever saved and restored per note.
+  - Verified live: `# Welcome` in the demo vault folded to
+    `Welcome ⋯ 9 more lines` with the rest of the note gone. `za`/`j`/`k`/`zM`/
+    `zR` and the marker click are covered headlessly (`tests/keys.rs`,
+    `tests/paint.rs::a_folded_heading_is_marked_and_clickable`, which clicks
+    through `simulate_click`).
+  - **Not done here**: folding fenced blocks, callouts and tables (the region model
+    is not heading-specific — `level` is the only field that knows about headings —
+    so those are additive), fold state per note on disk, `zz`/`zt`/`zb` scroll
+    commands, and `zn`/`zi` (enable/disable folding).
+
 - **Module sizes.** `editor.rs` and `main.rs` both passed the 1000-line mark in
   `AGENTS.md`, so they are now directories: `editor/{mod,wrap,render,actions,input}.rs`
   (a submodule can reach `MarkdownEditor`'s private state because they are all
@@ -739,10 +794,11 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   `mdstyle/{mod,block,inline}.rs` (450 / 398 / 277): `mod.rs` holds `Style`,
   `CalloutKind`, `StyleSpan`, the line walk and the tests, `block.rs` classifies
   each line, `inline.rs` styles the text inside it. Largest files now: `vim.rs`
-  2109, `buffer.rs` 1554, `line.rs` 822, `tests/paint.rs` 717, `main.rs` 620,
-  `core/theme.rs` 531. `vim.rs` and `buffer.rs` are still over the rule — split
-  them the next time either one is touched; `line.rs` (the element, the run
-  builder and the table grid paint) is the next candidate after those.
+  2219, `buffer.rs` 1786, `line.rs` 897, `tests/paint.rs` 772, `tests/keys.rs`
+  713, `core/theme/mod.rs` 642, `main.rs` 632. `vim.rs` and `buffer.rs` are still
+  over the rule — split them the next time either one is touched; `line.rs` (the
+  element, the run builder and the table grid paint) is the next candidate after
+  those.
 
 System dependency (Linux): `libxkbcommon-x11-devel` (plus fontconfig, freetype,
 x11, xcb, wayland dev packages) and a working Vulkan driver (the Linux renderer
@@ -774,21 +830,11 @@ Next steps, roughly in order:
    images embedded inside a paragraph, horizontal scrolling for a table wider
    than the window, wide-glyph column widths, and the shaped-geometry display
    columns that would also settle j/k accuracy.
-7. **Folding (header sections).** Collapse a heading's section to one line the
-   cursor steps over, later extended to fenced blocks, callouts and tables. The
-   display model is the right place and most of the machinery exists: a row
-   marked collapsed already takes no display line (`Buffer::set_display_segments`
-   distinguishes "no entry" from an empty vec), and
-   `MarkdownEditor::collapsed_rows` is where the per-frame decision is made, so a
-   fold is a set of rows marked collapsed plus a marker on the heading row that
-   keeps it visible and clickable. What it needs: a fold level per row (the
-   heading scan in the `mdstyle` line walk already knows the levels), a per-buffer
-   set of folded headings that survives edits (key it on the heading's offset
-   range and recompute when the text changes), the keybindings (`za` toggle, `zc`
-   close, `zo` open, `zR`/`zM` all, `zd`/`zE` remove a fold — all new contexts in
-   the keymap), and keeping the display-line count in step for `j`/`k`, the status
-   bar's row:col and the scroll position. Folding is view state: the buffer text
-   must never change.
+7. ~~Folding (header sections)~~ Done — see Open threads. `shale_core::fold` holds
+   the regions and the closed-fold set, `Buffer::fold_view` turns them into the
+   rows the display model drops, and `za`/`zc`/`zo`/`zd`/`zM`/`zR` plus a click on
+   the marker drive it. Follow-ups: fold fenced blocks, callouts and tables too;
+   keep fold state per note across sessions; `zz`/`zt`/`zb` scroll commands.
 8. ~~Theming (light/dark, TOML theme files)~~ Done — see Open threads. The
    palette is `shale_core::theme::Palette`, `appearance.theme` selects it, and
    `appearance.font_size` is wired through the editor. Follow-ups: switching

@@ -86,7 +86,16 @@ impl Render for MarkdownEditor {
         // on it or on the header above it). Dropping them from the display model
         // is what keeps j/k, the scroll position and the ruler in step with what
         // is on screen.
-        let collapsed = self.collapsed_rows(selection, &buffer_tables);
+        let mut collapsed = self.collapsed_rows(selection, &buffer_tables);
+        // Folding: a closed section's rows take no display line at all, exactly
+        // like a hidden fence line, which is what keeps j/k, the ruler and the
+        // scroll position in step with what is on screen. The text is untouched.
+        let folds = self.buffer.fold_view();
+        for (row, hidden) in collapsed.iter_mut().enumerate() {
+            if folds.collapsed.get(row).is_some_and(|c| *c) {
+                *hidden = true;
+            }
+        }
         let plans =
             table_view::plans_by_row(self.buffer.text(), &buffer_tables, line_count, &collapsed);
         let table_rows: Vec<bool> = plans.iter().map(|plan| plan.is_some()).collect();
@@ -240,6 +249,13 @@ impl Render for MarkdownEditor {
             .on_action(cx.listener(|this, _: &VimAltJ, _, cx| this.normal(Key::AltChar('j'), cx)))
             .on_action(cx.listener(|this, _: &VimAltK, _, cx| this.normal(Key::AltChar('k'), cx)))
             .on_action(cx.listener(|this, _: &VimAltL, _, cx| this.normal(Key::AltChar('l'), cx)))
+            // Folding. `z` opens the command and the engine reads the second key,
+            // so `za`/`zc`/`zo`/`zd` arrive through the actions those keys already
+            // have; only the shifted command letters need bindings of their own.
+            .on_action(cx.listener(|this, _: &VimZ, _, cx| this.normal(Key::Char('z'), cx)))
+            .on_action(cx.listener(|this, _: &VimUpperR, _, cx| this.normal(Key::Char('R'), cx)))
+            .on_action(cx.listener(|this, _: &VimUpperM, _, cx| this.normal(Key::Char('M'), cx)))
+            .on_action(cx.listener(|this, _: &VimUpperE, _, cx| this.normal(Key::Char('E'), cx)))
             .on_action(cx.listener(|this, _: &VimDot, _, cx| this.normal(Key::Char('.'), cx)))
             // Shared editing keys.
             .on_action(cx.listener(Self::on_escape))
@@ -355,6 +371,16 @@ impl Render for MarkdownEditor {
                         // colour of its type; the markers stay visible on the row the
                         // cursor is on, exactly as with other markdown syntax.
                         let callout = row_styles.get(dl.row).copied().unwrap_or_default().callout;
+                        // A heading whose section is folded shut carries a marker
+                        // with the number of hidden rows, on the row's last
+                        // display line (a wrapped heading gets one marker, not one
+                        // per segment).
+                        let fold = folds
+                            .marker
+                            .get(dl.row)
+                            .copied()
+                            .flatten()
+                            .filter(|_| dl.end == self.buffer.line_end(dl.row));
                         // An embedded image makes its display line as tall as the
                         // picture; every other line follows its text size.
                         let height = image
@@ -388,6 +414,7 @@ impl Render for MarkdownEditor {
                                 image,
                                 char_width,
                                 palette: Rc::clone(&self.palette),
+                                fold,
                             })
                     })),
             )

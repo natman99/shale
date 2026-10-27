@@ -605,3 +605,109 @@ fn dot_repeats_the_last_change(cx: &mut TestAppContext) {
         "and stays in normal mode"
     );
 }
+
+/// Folding is display state: `za` takes a section's rows out of the display
+/// model, `j` steps over them, `zM`/`zR` do it to every section, and the note's
+/// text never changes.
+#[gpui::test]
+fn folding_a_section_steps_over_its_rows(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.bind_keys(keybindings()));
+
+    let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+    let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+    editor
+        .update(cx, |editor, window, cx| {
+            editor.set_text("# Top\none\ntwo\n# Other\nlast".to_string(), cx);
+            let focus = editor.focus_handle(cx);
+            window.focus(&focus, cx);
+        })
+        .unwrap();
+    for _ in 0..2 {
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+    }
+    let lines = editor
+        .read_with(cx, |editor, _cx| editor.display_line_count())
+        .unwrap();
+    assert_eq!(lines, 5, "every row is drawn before anything is folded");
+
+    cx.simulate_keystrokes("z a");
+    let (lines, painted, text) = editor
+        .read_with(cx, |editor, _cx| {
+            (
+                editor.display_line_count(),
+                editor.painted_text(),
+                editor.text(),
+            )
+        })
+        .unwrap();
+    assert_eq!(lines, 3, "`one` and `two` are folded away");
+    assert_eq!(
+        painted[1], "Other",
+        "the next heading moves up (and live preview hides its `#`)"
+    );
+    assert_eq!(
+        text, "# Top\none\ntwo\n# Other\nlast",
+        "a fold never touches the text"
+    );
+
+    // `j` from the heading goes to the next visible row, not into the fold.
+    cx.simulate_keystrokes("j");
+    let pos = editor
+        .read_with(cx, |editor, _cx| editor.cursor_position())
+        .unwrap();
+    assert_eq!(pos, (3, 0), "j lands on `# Other`, past the hidden rows");
+
+    // `k` comes back to the heading, and `za` opens the section again.
+    cx.simulate_keystrokes("k z a");
+    let lines = editor
+        .read_with(cx, |editor, _cx| editor.display_line_count())
+        .unwrap();
+    assert_eq!(lines, 5, "za again opens the section");
+
+    // `zM` closes every section, `zR` opens them all again.
+    cx.simulate_keystrokes("g g z M");
+    let lines = editor
+        .read_with(cx, |editor, _cx| editor.display_line_count())
+        .unwrap();
+    assert_eq!(lines, 2, "both headings keep their row, their bodies go");
+    cx.simulate_keystrokes("z R");
+    let lines = editor
+        .read_with(cx, |editor, _cx| editor.display_line_count())
+        .unwrap();
+    assert_eq!(lines, 5);
+}
+
+/// A fold command on a row with no section around it does nothing, and a bare
+/// `z` waits for its command letter without touching the buffer.
+#[gpui::test]
+fn a_fold_command_needs_a_section_under_the_cursor(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.bind_keys(keybindings()));
+
+    let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+    let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+    editor
+        .update(cx, |editor, window, cx| {
+            editor.set_text("no headings\nhere".to_string(), cx);
+            let focus = editor.focus_handle(cx);
+            window.focus(&focus, cx);
+        })
+        .unwrap();
+    for _ in 0..2 {
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+    }
+
+    cx.simulate_keystrokes("z");
+    let hint = editor
+        .read_with(cx, |editor, _cx| editor.pending_hint())
+        .unwrap();
+    assert_eq!(hint, " z", "the status bar shows the half-typed command");
+    cx.simulate_keystrokes("escape");
+    cx.simulate_keystrokes("z a");
+    let (lines, painted) = editor
+        .read_with(cx, |editor, _cx| {
+            (editor.display_line_count(), editor.painted_fold_markers())
+        })
+        .unwrap();
+    assert_eq!(lines, 2);
+    assert!(painted.is_empty(), "nothing is folded");
+}

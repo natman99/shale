@@ -1,6 +1,8 @@
 //! A small text buffer with cursor/selection and undo, designed for
 //! markdown notes (whole-file `String` storage is fine at this scale).
 
+use crate::fold;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Snapshot {
     text: String,
@@ -51,6 +53,13 @@ pub struct Buffer {
     /// begin (supplied by the UI, which knows the pixel width). Empty means the
     /// row is a single display line.
     display_segments: Vec<Vec<usize>>,
+    /// Which heading sections the user has folded shut. View state like
+    /// `display_segments`: it changes what is drawn, never the text.
+    folds: fold::FoldState,
+    /// The foldable regions of the current text, cached until the text changes
+    /// (they are derived from the markdown scan, so recomputing them per key
+    /// press would be wasteful).
+    fold_cache: Option<(u64, Vec<fold::FoldRegion>)>,
     /// True while insert-mode edits are being coalesced into one undo step.
     group_open: bool,
     /// Bumped on every mutation, so the UI can cache per-text computations
@@ -74,6 +83,8 @@ impl Buffer {
             redo: Vec::new(),
             desired_col: None,
             display_segments: Vec::new(),
+            folds: fold::FoldState::default(),
+            fold_cache: None,
             group_open: false,
             change_id: 0,
         }
@@ -91,6 +102,10 @@ impl Buffer {
         self.selection = None;
         self.desired_col = None;
         self.display_segments = Vec::new();
+        // Another note, another set of folds: they are keyed on heading text, so
+        // carrying them over would fold unrelated rows.
+        self.folds.clear();
+        self.fold_cache = None;
         self.group_open = false;
         self.change_id += 1;
         self.cursor = self.clamp(self.cursor);
@@ -185,6 +200,153 @@ impl Buffer {
             text.push('\n');
         }
         text
+    }
+
+    // ----- folding ------------------------------------------------------
+
+    /// The foldable regions of the current text, recomputed when the text
+    /// changed. A region is a heading and the rows it owns.
+    pub fn fold_regions(&mut self) -> &[fold::FoldRegion] {
+        let change_id = self.change_id;
+        if self
+            .fold_cache
+            .as_ref()
+            .is_none_or(|(id, _)| *id != change_id)
+        {
+            self.fold_cache = Some((change_id, fold::fold_regions(&self.text)));
+        }
+        &self.fold_cache.as_ref().expect("just filled").1
+    }
+
+    /// The innermost region that contains `row` — a heading row is inside its
+    /// own region — which is the section the cursor is in.
+    pub fn fold_containing(&mut self, row: usize) -> Option<fold::FoldRegion> {
+        self.fold_regions()
+            // Regions are in buffer order, so the last one containing `row` is
+            // the one that opens deepest into it.
+            .iter()
+            .rfind(|region| region.start_row <= row && row <= region.end_row)
+            .cloned()
+    }
+
+    /// The regions that are closed right now, in buffer order.
+    pub fn closed_regions(&mut self) -> Vec<fold::FoldRegion> {
+        let state = self.folds.clone();
+        self.fold_regions()
+            .iter()
+            .filter(|region| state.is_closed(region))
+            .cloned()
+            .collect()
+    }
+
+    /// Whether any fold is closed, which lets the UI skip [`Self::fold_view`]
+    /// for the common case of a note with no folds.
+    pub fn has_closed_folds(&self) -> bool {
+        self.folds.any_closed()
+    }
+
+    /// How the closed folds change the display model: which buffer rows take no
+    /// display line, and how many rows each folded heading hides (what the UI
+    /// paints as its marker). The UI ORs `collapsed` into the rows live preview
+    /// already hides, so `j`/`k`, the ruler and the scroll position follow.
+    pub fn fold_view(&mut self) -> fold::FoldView {
+        let regions = self.fold_regions().to_vec();
+        fold::fold_view(&regions, &self.folds, self.line_count())
+    }
+
+    /// `za`: close the section the cursor is in, or open it if it is closed.
+    pub fn fold_toggle_at(&mut self, row: usize) {
+        let Some(region) = self.fold_containing(row) else {
+            return;
+        };
+        if self.folds.is_closed(&region) {
+            self.folds.open(&region);
+        } else {
+            self.folds.close(&region);
+            self.clamp_cursor_out_of_folds();
+        }
+    }
+
+    /// `zc`: close the section the cursor is in.
+    pub fn fold_close_at(&mut self, row: usize) {
+        let Some(region) = self.fold_containing(row) else {
+            return;
+        };
+        self.folds.close(&region);
+        self.clamp_cursor_out_of_folds();
+    }
+
+    /// `zo`: open the section the cursor is in.
+    pub fn fold_open_at(&mut self, row: usize) {
+        let Some(region) = self.fold_containing(row) else {
+            return;
+        };
+        self.folds.open(&region);
+    }
+
+    /// `zM`: close every section in the note.
+    pub fn fold_close_all(&mut self) {
+        let regions = self.fold_regions().to_vec();
+        self.folds.close_all(&regions);
+        self.clamp_cursor_out_of_folds();
+    }
+
+    /// `zR`, and vim's `zE`: open every section. The two coincide here because
+    /// a fold is a closed region rather than a stored definition — once the rows
+    /// are visible again there is nothing left to remove.
+    pub fn fold_open_all(&mut self) {
+        self.folds.open_all();
+    }
+
+    /// `za` at the cursor's row.
+    pub fn fold_toggle(&mut self) {
+        let row = self.cursor_row();
+        self.fold_toggle_at(row);
+    }
+
+    /// `zc` at the cursor's row.
+    pub fn fold_close(&mut self) {
+        let row = self.cursor_row();
+        self.fold_close_at(row);
+    }
+
+    /// `zo` at the cursor's row.
+    pub fn fold_open(&mut self) {
+        let row = self.cursor_row();
+        self.fold_open_at(row);
+    }
+
+    /// The buffer row the cursor is on.
+    fn cursor_row(&self) -> usize {
+        self.row_col(self.cursor).0
+    }
+
+    /// A closed fold must never hide the cursor: put it on the heading that
+    /// opens the innermost fold covering it, then walk outward until the row it
+    /// lands on is drawn. Each step moves strictly upwards, so this terminates.
+    fn clamp_cursor_out_of_folds(&mut self) {
+        loop {
+            let row = self.cursor_row();
+            if !self
+                .fold_view()
+                .collapsed
+                .get(row)
+                .is_some_and(|hidden| *hidden)
+            {
+                return;
+            }
+            let Some(start) = self
+                .closed_regions()
+                .iter()
+                .filter(|region| region.hides(row))
+                .map(|region| region.start_row)
+                .next_back()
+            else {
+                return;
+            };
+            self.set_cursor(self.line_start(start));
+            self.row_first_non_blank();
+        }
     }
 
     // ----- display lines (soft wrap) ------------------------------------
@@ -1550,5 +1712,75 @@ mod tests {
         b2.open_line_above(2);
         assert_eq!(b2.text(), "a\n\n\nb");
         assert_eq!(b2.cursor(), 2);
+    }
+
+    // ----- folding ------------------------------------------------------
+
+    #[test]
+    fn folding_a_section_hides_its_rows_from_the_display_model() {
+        let mut b = Buffer::new("# Top\nintro\n## Sub\nbody\ndeep\n".to_string());
+        b.goto_line(3); // `body`, inside `## Sub`
+        assert!(!b.has_closed_folds());
+        b.fold_toggle();
+        assert!(b.has_closed_folds());
+        let view = b.fold_view();
+        assert_eq!(
+            view.collapsed,
+            vec![false, false, false, true, true, true],
+            "the rows under `## Sub` go, and the heading row stays"
+        );
+        assert_eq!(view.marker[2], Some(3));
+        assert_eq!(
+            b.row_col(b.cursor()).0,
+            2,
+            "the cursor rides up to the heading that opens the fold"
+        );
+        b.fold_toggle();
+        assert!(!b.has_closed_folds());
+        assert!(b.fold_view().collapsed.iter().all(|c| !c));
+    }
+
+    #[test]
+    fn a_fold_follows_its_heading_through_an_edit() {
+        let mut b = Buffer::new("# Top\nintro\n## Sub\nbody\n".to_string());
+        b.goto_line(2);
+        b.fold_close();
+        // A fold is keyed on its heading's text, so an edit anywhere else (here,
+        // one that pushes every row down) leaves it closed on the same heading.
+        b.set_cursor(0);
+        b.insert("More title.\n");
+        let view = b.fold_view();
+        assert_eq!(view.marker[3], Some(2), "`## Sub` moved down a row");
+        assert!(view.collapsed[4], "the body row is still hidden");
+    }
+
+    #[test]
+    fn closing_every_fold_lands_on_a_visible_heading() {
+        let mut b = Buffer::new("# Top\nintro\n## Sub\nbody\n".to_string());
+        b.goto_line(4); // `body`, inside both sections
+        b.fold_close_all();
+        assert_eq!(
+            b.row_col(b.cursor()).0,
+            0,
+            "the cursor walks out to the outer heading"
+        );
+        let view = b.fold_view();
+        assert_eq!(view.marker[0], Some(4));
+        assert_eq!(
+            view.marker[2], None,
+            "the nested fold has no visible row to carry a marker"
+        );
+        b.fold_open_all();
+        assert!(!b.has_closed_folds());
+    }
+
+    #[test]
+    fn loading_another_note_forgets_folds() {
+        let mut b = Buffer::new("# Top\nintro\n".to_string());
+        b.goto_line(0);
+        b.fold_close();
+        assert!(b.has_closed_folds());
+        b.set_text("# Top\nintro\n".to_string());
+        assert!(!b.has_closed_folds());
     }
 }

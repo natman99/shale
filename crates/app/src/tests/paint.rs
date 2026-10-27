@@ -573,6 +573,61 @@ fn a_click_lands_on_visible_text(cx: &mut TestAppContext) {
         .unwrap();
 }
 
+/// A folded heading carries a marker saying how many rows it hides, and clicking
+/// the marker opens the section again instead of moving the cursor.
+#[gpui::test]
+fn a_folded_heading_is_marked_and_clickable(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.bind_keys(keybindings()));
+
+    let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+    let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+    editor
+        .update(cx, |editor, window, cx| {
+            editor.set_text("# Top\none\ntwo\n# Other".to_string(), cx);
+            let focus = editor.focus_handle(cx);
+            window.focus(&focus, cx);
+        })
+        .unwrap();
+    for _ in 0..2 {
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+    }
+
+    cx.simulate_keystrokes("z a");
+    let (markers, painted) = editor
+        .read_with(cx, |editor, _cx| {
+            (editor.painted_fold_markers(), editor.painted_text())
+        })
+        .unwrap();
+    assert_eq!(
+        markers,
+        vec![(0, " ⋯ 2 more lines".to_string())],
+        "the heading row carries the count"
+    );
+    // The marker is not buffer text, so it is painted beside the row rather than
+    // spliced into it: the painted line is still exactly the row.
+    assert_eq!(painted[0], "# Top");
+
+    let (index, x0, x1) = editor
+        .read_with(cx, |editor, _cx| editor.fold_marker_bounds())
+        .unwrap()
+        .remove(0);
+    assert_eq!(index, 0);
+    assert!(x1 > x0, "the marker is wide enough to click");
+    let (top, bottom) = editor
+        .read_with(cx, |editor, _cx| editor.hit_line_edges(0))
+        .unwrap()
+        .unwrap();
+
+    cx.simulate_click(
+        gpui::point((x0 + x1) / 2., (top + bottom) / 2.),
+        gpui::Modifiers::none(),
+    );
+    let lines = editor
+        .read_with(cx, |editor, _cx| editor.display_line_count())
+        .unwrap();
+    assert_eq!(lines, 4, "clicking the marker opened the section");
+}
+
 /// Live markdown styling must not disturb the wrap model. Rows painted with
 /// a wide face (headings, strong, quotes) have to be *measured* with that
 /// face too, or a painted segment can overflow the wrap width and the break

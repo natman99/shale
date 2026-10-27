@@ -66,6 +66,10 @@ enum Pending {
         count: usize,
         around: bool,
     },
+    /// `z` typed, waiting for a fold command (`za`, `zc`, `zo`, `zd`, `zM`,
+    /// `zR`). A fold changes what is drawn rather than the text, so no count is
+    /// carried along.
+    Fold,
 }
 
 /// What the UI should do after a normal-mode key was handled.
@@ -162,6 +166,7 @@ impl Vim {
                 (false, false) => 'T',
             }),
             Pending::TextObject { around, .. } => Some(if around { 'a' } else { 'i' }),
+            Pending::Fold => Some('z'),
             _ => None,
         }
     }
@@ -401,6 +406,29 @@ impl Vim {
             };
         }
 
+        // A fold command: `z` plus the command letter. The second key arrives
+        // through the action it is already bound to (`a`, `c`, `o`, `d`) or one
+        // added for the shifted forms, so the engine only has to interpret it.
+        if let Pending::Fold = self.pending {
+            self.pending = Pending::None;
+            let Key::Char(c) = key else {
+                return Outcome::Unhandled;
+            };
+            match c {
+                'a' => buf.fold_toggle(),
+                'c' => buf.fold_close(),
+                'o' => buf.fold_open(),
+                // `zd` removes the fold the cursor is on. A fold is a closed
+                // region here, not a stored definition, so that is the same as
+                // opening it.
+                'd' => buf.fold_open(),
+                'M' => buf.fold_close_all(),
+                'R' | 'E' => buf.fold_open_all(),
+                _ => return Outcome::Unhandled,
+            }
+            return Outcome::Stay;
+        }
+
         let count = self.count.take().unwrap_or(1);
         // `alt+hjkl` moves a whole row or column of the table the cursor is in.
         // Outside a table the keys do nothing, so they stay unhandled.
@@ -465,6 +493,10 @@ impl Vim {
             }
             Key::Char('g') => {
                 self.pending = Pending::Goto { count };
+                return Outcome::Stay;
+            }
+            Key::Char('z') => {
+                self.pending = Pending::Fold;
                 return Outcome::Stay;
             }
             // Operators
@@ -2105,5 +2137,83 @@ mod tests {
         // Charwise visual is inclusive of the character under the cursor, which
         // landed on the first `2` of the next cell.
         assert_eq!(&b.text()[lo..hi], "1 | 2");
+    }
+
+    // ----- folding ------------------------------------------------------
+
+    fn note_buf() -> Buffer {
+        Buffer::new("# Top\nintro\n## Sub\nbody\ndeep\n# Other\ntail\n".to_string())
+    }
+
+    #[test]
+    fn za_folds_and_unfolds_the_section_the_cursor_is_in() {
+        let mut vim = Vim::new();
+        let mut b = note_buf();
+        b.goto_line(3); // `body`, inside `## Sub`
+        type_keys(&mut vim, "za", &mut b);
+        let view = b.fold_view();
+        assert_eq!(
+            view.marker[2],
+            Some(2),
+            "the innermost section around the cursor closed"
+        );
+        assert_eq!(b.row_col(b.cursor()).0, 2);
+        assert_eq!(b.text(), note_buf().text(), "a fold never touches the text");
+        type_keys(&mut vim, "za", &mut b);
+        assert!(!b.has_closed_folds());
+    }
+
+    #[test]
+    fn zc_zo_and_zd_close_and_open_a_fold() {
+        let mut vim = Vim::new();
+        let mut b = note_buf();
+        b.goto_line(0);
+        type_keys(&mut vim, "zc", &mut b);
+        assert_eq!(b.fold_view().marker[0], Some(4));
+        // The cursor sits on the fold's heading row, which is where `zo` and `zd`
+        // apply.
+        type_keys(&mut vim, "zo", &mut b);
+        assert!(!b.has_closed_folds());
+        type_keys(&mut vim, "zc", &mut b);
+        assert!(b.has_closed_folds());
+        type_keys(&mut vim, "zd", &mut b);
+        assert!(!b.has_closed_folds());
+    }
+
+    #[test]
+    fn zm_and_zr_fold_and_unfold_every_section() {
+        let mut vim = Vim::new();
+        let mut b = note_buf();
+        b.goto_line(4);
+        type_keys(&mut vim, "zM", &mut b);
+        let view = b.fold_view();
+        assert_eq!(view.marker[0], Some(4));
+        assert_eq!(
+            view.marker[2], None,
+            "nested folds hide under the outer one"
+        );
+        assert_eq!(view.marker[5], Some(2));
+        assert_eq!(b.row_col(b.cursor()).0, 0);
+        type_keys(&mut vim, "zR", &mut b);
+        assert!(!b.has_closed_folds());
+    }
+
+    #[test]
+    fn z_waits_for_its_fold_command() {
+        let mut vim = Vim::new();
+        let mut b = note_buf();
+        b.goto_line(0);
+        type_keys(&mut vim, "z", &mut b);
+        assert_eq!(vim.pending_motion(), Some('z'));
+        // An unbound command letter cancels it without touching anything.
+        assert_eq!(
+            vim.handle_normal_key(Key::Char('q'), &mut b),
+            Outcome::Unhandled
+        );
+        assert_eq!(vim.pending_motion(), None);
+        assert!(!b.has_closed_folds());
+        type_keys(&mut vim, "z", &mut b);
+        vim.enter_normal();
+        assert_eq!(vim.pending_motion(), None);
     }
 }

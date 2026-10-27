@@ -82,6 +82,10 @@ mod acts {
             VimAltJ,
             VimAltK,
             VimAltL,
+            VimZ,
+            VimUpperR,
+            VimUpperM,
+            VimUpperE,
             VimDot,
             VimEscape,
             Newline,
@@ -529,6 +533,14 @@ fn keybindings() -> Vec<KeyBinding> {
         "alt-j" => VimAltJ,
         "alt-k" => VimAltK,
         "alt-l" => VimAltL,
+        // Folding (`za` toggle, `zc` close, `zo` open, `zd` remove, `zM` close
+        // all, `zR`/`zE` open all). `z` opens the command and the second key is
+        // read by the vim engine; `a`, `c`, `o` and `d` are already bound, so
+        // only the shifted command letters need their own actions.
+        "z" => VimZ,
+        "shift-r" => VimUpperR,
+        "shift-m" => VimUpperM,
+        "shift-e" => VimUpperE,
     ]);
     bind!("vim-insert", [
         "escape" => VimEscape,

@@ -324,6 +324,46 @@ impl MarkdownEditor {
             .collect()
     }
 
+    /// The fold markers the last paint drew, as (display line, label). A marker
+    /// is not buffer text, so it is not part of `painted_text`; this is how the
+    /// paint tests see it.
+    #[cfg(test)]
+    pub fn painted_fold_markers(&self) -> Vec<(usize, String)> {
+        self.hit_lines
+            .iter()
+            .filter_map(|hit| {
+                hit.fold_marker
+                    .as_ref()
+                    .map(|marker| (hit.index, marker.line.text.to_string()))
+            })
+            .collect()
+    }
+
+    /// Where a line's fold marker was painted, as (display line, first x, last
+    /// x) in window coordinates: what a click has to land on to toggle the fold.
+    #[cfg(test)]
+    pub fn fold_marker_bounds(&self) -> Vec<(usize, Pixels, Pixels)> {
+        self.hit_lines
+            .iter()
+            .filter_map(|hit| {
+                hit.fold_marker.as_ref().map(|marker| {
+                    let left = hit.bounds.left() + marker.x;
+                    (hit.index, left, left + marker.line.width())
+                })
+            })
+            .collect()
+    }
+
+    /// The top and bottom y of display line `index` as it was painted, in window
+    /// coordinates — what a test needs in order to click on that line.
+    #[cfg(test)]
+    pub fn hit_line_edges(&self, index: usize) -> Option<(Pixels, Pixels)> {
+        self.hit_lines
+            .iter()
+            .find(|hit| hit.index == index)
+            .map(|hit| (hit.bounds.top(), hit.bounds.bottom()))
+    }
+
     /// Cursor position in display coordinates (wrapped segments counted as
     /// lines, column counted in characters from the segment start), like a vim
     /// ruler.

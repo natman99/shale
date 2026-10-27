@@ -93,6 +93,21 @@ pub(crate) struct HitLine {
     /// check.
     #[allow(dead_code)]
     pub(crate) callout: bool,
+    /// The fold marker this line painted after its text, if any: where it starts
+    /// (measured from the line's left edge) and what it says. A click inside it
+    /// toggles the fold instead of moving the cursor.
+    pub(crate) fold_marker: Option<FoldMarker>,
+}
+
+/// A fold marker drawn after a line's text. It is not buffer text, so it lives
+/// outside the [`PieceMap`]: it only needs a position and a width.
+#[derive(Clone)]
+pub(crate) struct FoldMarker {
+    /// First x of the marker, measured from the line's left edge.
+    pub(crate) x: Pixels,
+    /// The marker's shaped text; its width gives the right edge of the click
+    /// target, and its string is what the paint tests check.
+    pub(crate) line: ShapedLine,
 }
 
 impl HitLine {
@@ -195,6 +210,19 @@ pub(crate) struct LineElement {
     /// table grid, a callout's box) comes from it, so a theme change is one
     /// assignment on the editor rather than a change here.
     pub(crate) palette: Rc<Palette>,
+    /// Set when this row is a heading whose section is folded shut: how many
+    /// rows the fold hides. The element paints that count after the row's text
+    /// and records where, so a click on it opens the section again.
+    pub(crate) fold: Option<usize>,
+}
+
+/// The text a folded heading carries: a marker and the number of rows the fold
+/// hides, so the user can see how much is out of view.
+fn fold_label(hidden: usize) -> String {
+    format!(
+        " \u{22ef} {hidden} more {}",
+        if hidden == 1 { "line" } else { "lines" }
+    )
 }
 
 pub(crate) struct LinePrepaint {
@@ -202,6 +230,9 @@ pub(crate) struct LinePrepaint {
     line: Option<ShapedLine>,
     /// One entry per cell, for a table row.
     cells: Vec<CellShaped>,
+    /// The fold marker (`⋯ 4 more lines`), shaped separately because it is not
+    /// part of the buffer text and so has no offset in the piece map.
+    marker: Option<ShapedLine>,
 }
 
 /// One table cell as it is painted: its shaped text, and the buffer ranges that
@@ -492,9 +523,25 @@ impl Element for LineElement {
                 &self.palette,
             );
             let line = text_system.shape_line(self.text.clone(), px(self.size), &runs, None);
+            // The fold marker is not buffer text, so it is shaped on its own and
+            // painted after the line rather than being spliced into it.
+            let marker = self.fold.map(|hidden| {
+                let label = fold_label(hidden);
+                let style = RunStyle {
+                    color: self.palette.dim,
+                    ..RunStyle::plain(&self.palette)
+                };
+                text_system.shape_line(
+                    SharedString::from(label.clone()),
+                    px(self.size),
+                    &[style.text_run(label.len(), &base_font)],
+                    None,
+                )
+            });
             return LinePrepaint {
                 line: Some(line),
                 cells: Vec::new(),
+                marker,
             };
         };
         // A table row is shaped cell by cell, each with only the styles that
@@ -528,7 +575,11 @@ impl Element for LineElement {
                 }
             })
             .collect();
-        LinePrepaint { line: None, cells }
+        LinePrepaint {
+            line: None,
+            cells,
+            marker: None,
+        }
     }
 
     fn paint(
@@ -618,6 +669,9 @@ impl Element for LineElement {
 
         let width;
         let segments: Vec<HitSegment>;
+        // Where this line painted its fold marker, if it has one, so a click on
+        // the marker can be told from a click on the text.
+        let mut fold_marker = None;
         if let Some(table) = self.table.clone() {
             width = px(table.total as f32 * f32::from(self.char_width));
             segments = table
@@ -701,6 +755,26 @@ impl Element for LineElement {
                     rgb(self.palette.cursor),
                 ));
             }
+
+            // The fold marker goes after the row's text, dimmed, and its x range
+            // is recorded so clicking it can open the section again.
+            if let Some(marker) = prepaint.marker.as_ref() {
+                let x = bounds.left() + line.width() + self.char_width;
+                if let Err(err) = marker.paint(
+                    gpui::point(x, bounds.top()),
+                    px(theme::line_height(self.size)),
+                    gpui::TextAlign::default(),
+                    None,
+                    window,
+                    cx,
+                ) {
+                    tracing::warn!(row = self.row, "failed to paint fold marker: {err:#}");
+                }
+                fold_marker = Some(FoldMarker {
+                    x: x - bounds.left(),
+                    line: marker.clone(),
+                });
+            }
         }
 
         // Record for hit-testing.
@@ -714,6 +788,7 @@ impl Element for LineElement {
                 bounds,
                 rule: self.rule,
                 callout: self.callout.is_some(),
+                fold_marker,
             });
         });
     }
