@@ -104,12 +104,15 @@ Workspace layout:
   unresolved dimmed) with **live preview** hiding the markers of a row the cursor
   is not on, and link navigation (`gx` on a link in normal mode, ctrl+click),
   status bar (mode, pending count/operator, dirty flag, path, display row:col),
-  ctrl+s save. Split into `main.rs` (workspace, keymap, actions), `editor.rs`
-  (the view: buffer + vim + wrap model + input), `line.rs` (the `LineElement`
-  that paints one display line, and the run builder), `preview.rs` (the painted
-  form of a display line and the buffer <-> painted-offset map), `table_view.rs`
-  (the table grid geometry: column widths and cell offsets, in character cells),
-  `theme.rs` (the palette and `Style` -> `RunStyle` mapping) and `tree.rs`.
+  ctrl+s save. Split into `main.rs` (workspace, keymap, actions) with its
+  headless tests in `tests/` (`keys.rs`, `paint.rs`), `editor/` (the view: `mod.rs`
+  holds the state and accessors, `wrap.rs` the display model, `render.rs` builds
+  the frame and the key context, `actions.rs` the key handlers, `input.rs` the
+  IME/paste/click surface), `line.rs` (the `LineElement` that paints one display
+  line, and the run builder), `preview.rs` (the painted form of a display line and
+  the buffer <-> painted-offset map), `table_view.rs` (the table grid geometry:
+  column widths and cell offsets, in character cells), `theme.rs` (the palette and
+  `Style` -> `RunStyle` mapping) and `tree.rs`.
 - `crates/mcp` (`shale-mcp` binary): MCP stdio server exposing list/read/
   write/search/backlinks tools.
 - `refs/` (**gitignored, not shipped**): local copies of the Vim help files
@@ -499,6 +502,14 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   character; normal mode should clamp. Related: `dd` on the last line leaves the
   cursor on the empty row the trailing newline leaves behind, where vim steps up
   to the previous line.
+
+- **Module sizes.** `editor.rs` and `main.rs` both passed the 1000-line mark in
+  `AGENTS.md`, so they are now directories: `editor/{mod,wrap,render,actions,input}.rs`
+  (a submodule can reach `MarkdownEditor`'s private state because they are all
+  descendants of `editor`; anything one sibling calls on another is `pub(super)`)
+  and `tests/{mod,keys,paint}.rs`. Largest files now: `main.rs` 570, `line.rs` 722,
+  `tests/paint.rs` 512. Keep an eye on `line.rs` — it holds the element, the run
+  builder and the table grid paint, and is the next candidate to split.
 
 System dependency (Linux): `libxkbcommon-x11-devel` (plus fontconfig, freetype,
 x11, xcb, wayland dev packages) and a working Vulkan driver (the Linux renderer
