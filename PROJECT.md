@@ -15,14 +15,14 @@ Shale is an obsidian-style markdown editor with extra developer focused features
 - [ ] Tabs
 - [ ] Tiling split view (like Obsidian)
 - [ ] Command pallette
-- [ ] Note search and full vault search
+- [ ] Note search and full vault search (command pallette, vim `/`)
 
 - Config files in TOML
 - Assure any code you reference or copy from online has a commercial permissible licensing 
 - Write unit tests 
 - Regularly commit to a local git repo. You don't need to publish it. Don't override the user's global config, make a local override for a user for yourself.
 - Expand this plan and goals as needed.
-- Assure **proper** support for manipulating tables with vim bindings. No unexpected skipping or jumping around when manipulating tables. Ask the user for expected behavior when designing this behavior.
+- Assure **proper** support for manipulating tables with vim bindings. No unexpected skipping or jumping around when manipulating tables. Ask the user for expected behavior when designing this.
 - Tree-sitter powered code highlighting for code blocks.
 - Full keyboard support if at all possible. 98% of the app should not require mouse usage. Mouse in the settings menu is fine.
 - Indexing for quick wiki-link look up and resolving.
@@ -241,10 +241,28 @@ Workspace layout:
   plus its trailing space and why `vw` reaches one character into the next word.
   (An attempt to make `w` stop on the gap was tried and reverted: it breaks `d2w`
   and contradicts the docs.) `de` was off by one character and is now inclusive.
-- **Not implemented yet in vim mode**: `.` repeat, `gv`, `C`/`S` in visual,
-  repeating a text object in visual to extend it, blockwise `ctrl-v`, the
-  case/replace operators (`~`, `u`, `r`) in visual, registers other than the
-  unnamed one.
+- **`.` repeat — done.** The engine records the command being typed
+  (`Vim::command: Vec<Cmd>` where `Cmd` is `Key(Key)` or `Text(String)`); when a
+  command finishes and changed the buffer it becomes `last_command`, and `.`
+  replays it through `handle_motion_key` (`Vim::repeat_last`). An insert session
+  is part of the recording: the editor calls `Vim::note_inserted` from
+  `insert_edit`, so `cw`+typed text and `o`+typed text replay as one change and
+  `.` never leaves the engine in insert mode (the replay ignores `EnterInsert`
+  and inserts the recorded text itself). Counts are recorded with the command;
+  commands that change nothing are not recorded, so `.` after a plain motion is
+  `Unhandled`.
+  **Binding caveat (this bit us):** a key that is bound in the keymap can also be
+  the *argument* of a half-typed command — `fv` must find a literal `v`, `f.` a
+  literal period. Unbound characters arrive through `replace_text_in_range`, but
+  bound ones arrive as actions, so the engine has to route them: the Find and
+  TextObject arms run before the motion match, the digit branch is skipped while
+  `waiting_for_literal()`, `.` repeat is guarded by it, and `handle_visual_key`
+  forwards straight to `visual_motion` when an argument is pending. Any new bound
+  key needs that path checked.
+- **Not implemented yet in vim mode**: `gv`, `C`/`S` in visual, repeating a text
+  object in visual to extend it, blockwise `ctrl-v`, the case/replace operators
+  (`~`, `u`, `r`) in visual, registers other than the unnamed one, insert-mode
+  deletions/arrows inside a `.` replay.
 - **Cursor model nits**: `Buffer` cursors may sit at `text.len()` (between
   characters) while vim's normal-mode cursor always sits *on* a character, so
   `w` at the end of a buffer can leave the cursor one position past the last
@@ -262,8 +280,8 @@ Next steps, roughly in order:
    display columns for tabs/multi-byte text.
 3. ~~Resolve the ctrl+z / redo keystroke question~~ Done (keymap `+` → `-`).
    Re-test ctrl-z / ctrl-r / ctrl-y and `ctrl-s` in a live window.
-4. ~~Visual mode (`v`/`V`) and selection operators~~ done. Next here: `.`
-   repeat, then the table goal.
+4. ~~Visual mode~~ and ~~`.` repeat~~ done (see Open threads). Next: the table
+   goal, then live preview.
 5. Table-aware motions and manipulation (the table goal): column motions on the
    pipe and dash characters, adding/removing rows and columns.
 6. Live preview mode (rendered markdown toggle) — pulldown-cmark for parsing.

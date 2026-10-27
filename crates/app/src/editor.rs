@@ -320,7 +320,9 @@ impl MarkdownEditor {
         cx.notify();
     }
 
-    fn insert_edit(&mut self, cx: &mut Context<Self>) {
+    fn insert_edit(&mut self, inserted: &str, cx: &mut Context<Self>) {
+        // So `.` can replay an insert session, the engine collects the text.
+        self.vim.note_inserted(inserted);
         self.mark_dirty();
         self.ensure_cursor_visible();
         cx.notify();
@@ -340,7 +342,7 @@ impl MarkdownEditor {
             return;
         }
         self.buffer.insert("\n");
-        self.insert_edit(cx);
+        self.insert_edit("\n", cx);
     }
 
     fn on_next_line(&mut self, _: &NextLine, _window: &mut Window, cx: &mut Context<Self>) {
@@ -354,7 +356,7 @@ impl MarkdownEditor {
 
     fn on_backspace(&mut self, _: &Backspace, _window: &mut Window, cx: &mut Context<Self>) {
         self.buffer.backspace();
-        self.insert_edit(cx);
+        self.insert_edit("", cx);
     }
 
     fn on_delete_forward(
@@ -364,7 +366,7 @@ impl MarkdownEditor {
         cx: &mut Context<Self>,
     ) {
         self.buffer.delete_forward();
-        self.insert_edit(cx);
+        self.insert_edit("", cx);
     }
 
     fn on_move_left(&mut self, _: &MoveLeft, _window: &mut Window, cx: &mut Context<Self>) {
@@ -422,7 +424,7 @@ impl MarkdownEditor {
     fn on_paste(&mut self, _: &PasteText, _window: &mut Window, cx: &mut Context<Self>) {
         if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
             self.buffer.insert(&text);
-            self.insert_edit(cx);
+            self.insert_edit(&text, cx);
         }
     }
 
@@ -557,7 +559,7 @@ impl EntityInputHandler for MarkdownEditor {
             self.buffer.set_selection(start, end);
         }
         self.buffer.insert(new_text);
-        self.insert_edit(cx);
+        self.insert_edit(new_text, cx);
     }
 
     fn replace_and_mark_text_in_range(
@@ -685,6 +687,7 @@ impl Render for MarkdownEditor {
             .on_action(cx.listener(|this, _: &VimUpperO, _, cx| this.normal(Key::Char('O'), cx)))
             .on_action(cx.listener(|this, _: &VimV, _, cx| this.normal(Key::Char('v'), cx)))
             .on_action(cx.listener(|this, _: &VimUpperV, _, cx| this.normal(Key::Char('V'), cx)))
+            .on_action(cx.listener(|this, _: &VimDot, _, cx| this.normal(Key::Char('.'), cx)))
             // Shared editing keys.
             .on_action(cx.listener(Self::on_escape))
             .on_action(cx.listener(Self::on_newline))

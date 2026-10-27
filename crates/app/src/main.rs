@@ -66,6 +66,7 @@ mod acts {
             VimUpperO,
             VimV,
             VimUpperV,
+            VimDot,
             VimEscape,
             Newline,
             NextLine,
@@ -447,6 +448,7 @@ fn keybindings() -> Vec<KeyBinding> {
     // mode), and `enter` is the next-line motion rather than a newline.
     bind!("vim-normal", [
         "u" => VimU,
+        "." => VimDot,
         "enter" => NextLine,
     ]);
     bind!("vim-insert", [
@@ -636,6 +638,7 @@ mod tests {
             (true, "s", "shale::Save"),
             (false, "k", "shale_editor::VimK"),
             (false, "$", "shale_editor::VimDollar"),
+            (false, ".", "shale_editor::VimDot"),
             (false, "^", "shale_editor::VimCaret"),
         ] {
             let typed = gpui::Keystroke {
@@ -1065,5 +1068,44 @@ mod tests {
         cx.simulate_keystrokes("$ h v l p");
         let text = editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
         assert_eq!(text, "thithi", "`p` should replace the selection");
+    }
+
+    /// `.` replays through the real keymap, including a typed insert session.
+    #[gpui::test]
+    fn dot_repeats_the_last_change(cx: &mut TestAppContext) {
+        cx.update(|cx| cx.bind_keys(keybindings()));
+
+        let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+        let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+        editor
+            .update(cx, |editor, window, cx| {
+                editor.set_text("one two three\nsecond para".to_string(), cx);
+                let focus = editor.focus_handle(cx);
+                window.focus(&focus, cx);
+            })
+            .unwrap();
+
+        cx.simulate_keystrokes("0 d w");
+        let text = editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
+        assert_eq!(text, "two three\nsecond para");
+        cx.simulate_keystrokes(".");
+        let text = editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
+        assert_eq!(text, "three\nsecond para", "`.` should repeat the delete");
+
+        cx.simulate_keystrokes("i");
+        cx.simulate_input("XY");
+        cx.simulate_keystrokes("escape");
+        let text = editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
+        assert_eq!(text, "XYthree\nsecond para");
+        cx.simulate_keystrokes(".");
+        let (mode, text) = editor
+            .read_with(cx, |editor, _cx| (editor.mode(), editor.text()))
+            .unwrap();
+        assert_eq!(text, "XYXYthree\nsecond para", "`.` repeats typed text");
+        assert_eq!(
+            mode,
+            shale_core::vim::Mode::Normal,
+            "and stays in normal mode"
+        );
     }
 }
