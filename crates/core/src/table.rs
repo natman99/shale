@@ -136,8 +136,17 @@ impl Table {
 
     /// The `(row index, column)` containing `offset`. A cursor on a pipe or on
     /// padding resolves to the cell that owns that region.
+    ///
+    /// The delimiter row has no cells: it is painted as a rule and has no text
+    /// worth editing, so an offset on it resolves to no cell at all and the vim
+    /// engine treats that line as an ordinary one. Motions never come to rest on
+    /// it either (see [`Table::navigable_rows`]), and a click on it is snapped
+    /// into a real cell by [`clickable_offset`].
     pub fn cell_at(&self, offset: usize) -> Option<(usize, usize)> {
         let row = self.row_at(offset)?;
+        if self.is_delimiter(row) {
+            return None;
+        }
         let cells = &self.rows[row].cells;
         let column = cells
             .iter()
@@ -149,12 +158,15 @@ impl Table {
     }
 
     /// The cell at `(row index, column)`, clamped into the table so callers can
-    /// ask for a position that an edit may have removed.
+    /// ask for a position that an edit may have removed. A request for the
+    /// delimiter row is answered with the nearest row that has cells, which is
+    /// what keeps an edit's cursor off the rule.
     pub fn cell_clamped(&self, row: usize, column: usize) -> Option<&Cell> {
         if self.rows.is_empty() || self.columns == 0 {
             return None;
         }
-        let row = self.rows.get(row.min(self.rows.len() - 1))?;
+        let index = self.row_beyond_delimiter(row.min(self.rows.len() - 1));
+        let row = self.rows.get(index)?;
         let column = column.min(self.columns - 1);
         row.cells.get(column)
     }
@@ -162,6 +174,28 @@ impl Table {
     /// Whether `row_index` is the delimiter row.
     pub fn is_delimiter(&self, row_index: usize) -> bool {
         row_index == self.delimiter
+    }
+
+    /// The rows a cursor can stand on: every row but the delimiter, which is
+    /// painted as a rule and has no text to edit. This is what the vertical
+    /// motions walk, so `j`/`k` skip the rule and can leave the table.
+    pub fn navigable_rows(&self) -> impl Iterator<Item = usize> + '_ {
+        (0..self.rows.len()).filter(move |index| !self.is_delimiter(*index))
+    }
+
+    /// The nearest row index to `row` that has cells. The row below the
+    /// delimiter is preferred, because that is where a cursor that was sent to
+    /// the rule most likely wanted to go; the row above is the fallback when the
+    /// delimiter is the table's last row.
+    fn row_beyond_delimiter(&self, row: usize) -> usize {
+        if row != self.delimiter {
+            return row;
+        }
+        if self.delimiter + 1 < self.rows.len() {
+            self.delimiter + 1
+        } else {
+            self.delimiter.saturating_sub(1)
+        }
     }
 }
 
@@ -220,6 +254,52 @@ pub fn tables(text: &str) -> Vec<Table> {
         });
     }
     out
+}
+
+/// The offset a click on `offset` was meant for. A click on a table's delimiter
+/// row — painted as a rule, with no text under the pointer — belongs to the cell
+/// below it in the same column, or the one above when the delimiter is the
+/// table's last row. Every other offset comes back unchanged.
+pub fn clickable_offset(tables: &[Table], offset: usize) -> usize {
+    for table in tables {
+        let Some(row) = table.row_at(offset) else {
+            continue;
+        };
+        if !table.is_delimiter(row) {
+            return offset;
+        }
+        // The column the pointer was over, from the delimiter row's own cells,
+        // which partition the row exactly like any other row's do.
+        let Some(column) = table.rows[row]
+            .cells
+            .iter()
+            .find(|c| c.contains(offset))
+            .or_else(|| nearest_cell_left(&table.rows[row], offset))
+            .map(|c| c.column)
+        else {
+            return offset;
+        };
+        let index = table.row_beyond_delimiter(row);
+        let Some(target) = table.rows.get(index) else {
+            return offset;
+        };
+        return target
+            .cells
+            .get(column)
+            .map(|c| c.cursor())
+            .unwrap_or(offset);
+    }
+    offset
+}
+
+/// The last cell that starts at or before `offset`, for an offset that no cell
+/// claims (a row whose cells were synthesized for a ragged table).
+fn nearest_cell_left(row: &TableRow, offset: usize) -> Option<&Cell> {
+    row.cells
+        .iter()
+        .rev()
+        .find(|c| c.span_start <= offset)
+        .or_else(|| row.cells.first())
 }
 
 /// Where the cursor sits inside a table: everything the editor needs to move it
@@ -430,7 +510,7 @@ fn landing(buf: &Buffer, first_row: usize, row: usize, column: usize) -> Option<
 
 /// Delete the table row at `row_index`, then report where the cursor should go:
 /// the cell in the same column of the row that took its place, or the row above
-/// when the last row was deleted.
+/// when the last row was deleted. One undo step.
 pub fn delete_row(buf: &mut Buffer, table: &Table, row_index: usize, column: usize) {
     let Some(row) = table.rows.get(row_index) else {
         return;
@@ -443,7 +523,7 @@ pub fn delete_row(buf: &mut Buffer, table: &Table, row_index: usize, column: usi
     }
 }
 
-/// Delete column `column` from every row of the table.
+/// Delete column `column` from every row of the table, as one undo step.
 pub fn delete_column(buf: &mut Buffer, table: &Table, row_index: usize, column: usize) {
     if table.columns < 2 {
         // A one-column table is not a table any more; leave it alone rather
@@ -451,6 +531,7 @@ pub fn delete_column(buf: &mut Buffer, table: &Table, row_index: usize, column: 
         return;
     }
     let first_row = table.rows.first().map(|r| r.row).unwrap_or(0);
+    buf.begin_undo_group();
     // Bottom-up so the offsets of the rows above stay valid.
     for row in table.rows.iter().rev() {
         let Some(cell) = row.cells.get(column) else {
@@ -460,6 +541,7 @@ pub fn delete_column(buf: &mut Buffer, table: &Table, row_index: usize, column: 
             buf.delete_range(start, end);
         }
     }
+    buf.end_undo_group();
     if let Some(offset) = landing(buf, first_row, row_index, column) {
         buf.set_cursor(offset);
     }
@@ -505,6 +587,7 @@ fn insert_row(buf: &mut Buffer, table: &Table, row_index: usize, column: usize, 
         text = format!("\n{line}");
     }
     buf.insert_at(target, &text);
+    buf.end_undo_group();
     if let Some(offset) = landing(buf, first_row, new_index, column) {
         buf.set_cursor(offset);
     }
@@ -522,6 +605,7 @@ pub fn insert_column_before(buf: &mut Buffer, table: &Table, row_index: usize, c
 
 fn insert_column(buf: &mut Buffer, table: &Table, row_index: usize, column: usize, after: bool) {
     let first_row = table.rows.first().map(|r| r.row).unwrap_or(0);
+    buf.begin_undo_group();
     for (index, row) in table.rows.iter().enumerate().rev() {
         let Some(cell) = row.cells.get(column) else {
             continue;
@@ -532,8 +616,128 @@ fn insert_column(buf: &mut Buffer, table: &Table, row_index: usize, column: usiz
             buf.insert_at(at, &text);
         }
     }
+    buf.end_undo_group();
     let landing_column = if after { column + 1 } else { column };
     if let Some(offset) = landing(buf, first_row, row_index, landing_column) {
+        buf.set_cursor(offset);
+    }
+}
+
+/// The text of one table row's line, without its newline.
+fn line_text(buf: &Buffer, row: &TableRow) -> String {
+    buf.text()[row.start..row.end].to_string()
+}
+
+/// Move the table row at `row_index` `delta` rows down (negative moves it up),
+/// as one undo step. The delimiter row stays where it is: moving the header down
+/// swaps it with the first body row rather than pushing it under the rule. The
+/// rows in between shift the other way by one, each keeping its own text exactly
+/// as the user left it, and the cursor follows the row that moved.
+pub fn move_row(buf: &mut Buffer, table: &Table, row_index: usize, column: usize, delta: isize) {
+    let rows: Vec<usize> = table.navigable_rows().collect();
+    if rows.len() < 2 {
+        return;
+    }
+    let Some(from) = rows.iter().position(|r| *r == row_index) else {
+        return;
+    };
+    let to = (from as isize + delta).clamp(0, rows.len() as isize - 1) as usize;
+    if to == from {
+        return;
+    }
+    let first_row = table.rows.first().map(|r| r.row).unwrap_or(0);
+    // The block of rows the moved row travels through, rotated by one.
+    let block: Vec<usize> = if to > from {
+        rows[from..=to].to_vec()
+    } else {
+        rows[to..=from].to_vec()
+    };
+    let mut texts: Vec<String> = block
+        .iter()
+        .map(|&index| line_text(buf, &table.rows[index]))
+        .collect();
+    if to > from {
+        texts.rotate_left(1);
+    } else {
+        texts.rotate_right(1);
+    }
+    buf.begin_undo_group();
+    // Bottom-up so the offsets of the rows above stay valid. Each line keeps its
+    // newline: only the content between `start` and `end` is replaced.
+    for (slot, &index) in block.iter().enumerate().rev() {
+        let row = &table.rows[index];
+        buf.delete_range(row.start, row.end);
+        buf.insert_at(row.start, &texts[slot]);
+    }
+    buf.end_undo_group();
+    if let Some(offset) = landing(buf, first_row, rows[to], column) {
+        buf.set_cursor(offset);
+    }
+}
+
+/// The text of columns `lo..=hi` of `row`, rotated by one column (the column at
+/// `lo` moves to the end of the block when moving right, the one at `hi` moves
+/// to the front when moving left), with the byte range that block occupies. The
+/// columns of a row are adjacent — each one's region runs up to the next one's
+/// start — so the whole block is a single splice. `None` when the row does not
+/// have every column in the block, i.e. a ragged row, which is left as it is.
+fn rotated_columns(
+    buf: &Buffer,
+    row: &TableRow,
+    lo: usize,
+    hi: usize,
+    right: bool,
+) -> Option<(usize, usize, String)> {
+    let mut start = usize::MAX;
+    let mut end = 0usize;
+    let mut chunks: Vec<String> = Vec::with_capacity(hi - lo + 1);
+    for index in lo..=hi {
+        let cell = row.cells.get(index)?;
+        let (from, to) = column_cut(row, cell)?;
+        start = start.min(from);
+        end = end.max(to);
+        chunks.push(buf.text()[from..to].to_string());
+    }
+    if chunks.len() < 2 {
+        return None;
+    }
+    if right {
+        chunks.rotate_left(1);
+    } else {
+        chunks.rotate_right(1);
+    }
+    Some((start, end, chunks.concat()))
+}
+
+/// Move table column `column` `delta` columns to the right (negative moves it
+/// left), as one undo step. The delimiter row's cell travels with the column, so
+/// the row stays a valid delimiter, the columns in between shift the other way
+/// by one, and the cursor follows the column that moved.
+pub fn move_column(buf: &mut Buffer, table: &Table, row_index: usize, column: usize, delta: isize) {
+    if table.columns < 2 {
+        return;
+    }
+    let last = table.columns - 1;
+    let to = (column as isize + delta).clamp(0, last as isize) as usize;
+    if to == column {
+        return;
+    }
+    let (lo, hi) = if to > column {
+        (column, to)
+    } else {
+        (to, column)
+    };
+    let first_row = table.rows.first().map(|r| r.row).unwrap_or(0);
+    buf.begin_undo_group();
+    // Bottom-up so the offsets of the rows above stay valid.
+    for row in table.rows.iter().rev() {
+        if let Some((start, end, text)) = rotated_columns(buf, row, lo, hi, to > column) {
+            buf.delete_range(start, end);
+            buf.insert_at(start, &text);
+        }
+    }
+    buf.end_undo_group();
+    if let Some(offset) = landing(buf, first_row, row_index, to) {
         buf.set_cursor(offset);
     }
 }
@@ -669,6 +873,43 @@ mod tests {
     }
 
     #[test]
+    fn the_delimiter_row_is_not_a_cell() {
+        let text = "| a | bb |\n| --- | --- |\n| 1 | 2 |\n";
+        let table = &tables(text)[0];
+        // Every offset of the rule line resolves to no cell, so the vim engine
+        // treats it as an ordinary line rather than as dashes to edit.
+        let rule = text.find("---").unwrap();
+        for offset in rule..rule + 3 {
+            assert!(table.cell_at(offset).is_none(), "offset {offset}");
+            assert!(locate(&tables(text), offset).is_none());
+        }
+        // It is still a row of the table, and it is the one the motions skip.
+        assert_eq!(table.row_at(rule), Some(1));
+        assert_eq!(table.navigable_rows().collect::<Vec<_>>(), vec![0, 2]);
+    }
+
+    #[test]
+    fn a_click_on_the_rule_lands_in_a_cell() {
+        let text = "| a | bb |\n| --- | --- |\n| 1 | 2 |\n";
+        let tables = tables(text);
+        let rule = text.find("---").unwrap();
+        // The rule line is `| --- | --- |`, so an offset nine bytes into it sits
+        // over the second column.
+        let over_second_column = rule + 9;
+        let snapped = clickable_offset(&tables, over_second_column);
+        assert_eq!(
+            &text[snapped..snapped + 1],
+            "2",
+            "the click belongs to the body row's second cell"
+        );
+        // A click on an ordinary row is left exactly where it was.
+        let on_content = text.find('1').unwrap();
+        assert_eq!(clickable_offset(&tables, on_content), on_content);
+        // A click outside a table is untouched, too.
+        assert_eq!(clickable_offset(&tables, 0), 0);
+    }
+
+    #[test]
     fn delete_row_selects_the_cell_that_took_its_place() {
         let mut buf = Buffer::new(TABLE.to_string());
         // Cursor on `3` (the last body row, column 0): deleting that row should
@@ -693,7 +934,11 @@ mod tests {
         let t = tables(buf.text())[0].clone();
         delete_row(&mut buf, &t, row, column);
         let after = tables(buf.text())[0].cell_at(buf.cursor()).unwrap();
-        assert_eq!(after, (1, 0), "the delimiter row is the last one left");
+        assert_eq!(
+            after,
+            (0, 0),
+            "only the header and the rule are left, and a cursor never lands on the rule"
+        );
     }
 
     #[test]
@@ -845,5 +1090,157 @@ mod tests {
             ts[0].rows[0].row, 2,
             "the table starts after the blank line"
         );
+    }
+
+    #[test]
+    fn move_row_down_swaps_it_with_the_row_below() {
+        let text = "| a | bb |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |\n";
+        let mut buf = Buffer::new(text.to_string());
+        let t = tables(text)[0].clone();
+        // The cursor is on `1`, the first body row; one step down swaps it with
+        // `3 | 4`, and the cursor follows the row that moved.
+        move_row(&mut buf, &t, 2, 0, 1);
+        assert_eq!(
+            buf.text(),
+            "| a | bb |\n| --- | --- |\n| 3 | 4 |\n| 1 | 2 |\n"
+        );
+        assert_eq!(&buf.text()[buf.cursor()..buf.cursor() + 1], "1");
+    }
+
+    #[test]
+    fn move_row_up_from_a_body_row_lands_above_it() {
+        let text = "| a | bb |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |\n";
+        let mut buf = Buffer::new(text.to_string());
+        let t = tables(text)[0].clone();
+        move_row(&mut buf, &t, 3, 1, -1);
+        assert_eq!(
+            buf.text(),
+            "| a | bb |\n| --- | --- |\n| 3 | 4 |\n| 1 | 2 |\n"
+        );
+        assert_eq!(&buf.text()[buf.cursor()..buf.cursor() + 1], "4");
+    }
+
+    #[test]
+    fn moving_the_header_keeps_the_rule_under_it() {
+        let text = "| a | bb |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |\n";
+        let mut buf = Buffer::new(text.to_string());
+        let t = tables(text)[0].clone();
+        // The delimiter row never moves: the header swaps with the first body
+        // row rather than being pushed under the rule.
+        move_row(&mut buf, &t, 0, 0, 1);
+        assert_eq!(
+            buf.text(),
+            "| 1 | 2 |\n| --- | --- |\n| a | bb |\n| 3 | 4 |\n"
+        );
+        let after = &tables(buf.text())[0];
+        assert_eq!(after.delimiter, 1, "still a valid table");
+        assert_eq!(
+            &buf.text()[buf.cursor()..buf.cursor() + 1],
+            "a",
+            "the cursor follows the row that moved"
+        );
+    }
+
+    #[test]
+    fn a_counted_row_move_rotates_the_rows_it_travels_through() {
+        let text = "| a |\n| --- |\n| 1 |\n| 2 |\n| 3 |\n";
+        let mut buf = Buffer::new(text.to_string());
+        let t = tables(text)[0].clone();
+        move_row(&mut buf, &t, 2, 0, 2);
+        assert_eq!(
+            buf.text(),
+            "| a |\n| --- |\n| 2 |\n| 3 |\n| 1 |\n",
+            "the rows it passed shift up by one"
+        );
+    }
+
+    #[test]
+    fn a_row_move_at_the_edge_of_the_table_does_nothing() {
+        let text = "| a |\n| --- |\n| 1 |\n";
+        let mut buf = Buffer::new(text.to_string());
+        let t = tables(text)[0].clone();
+        move_row(&mut buf, &t, 2, 0, 5);
+        move_row(&mut buf, &t, 0, 0, -5);
+        assert_eq!(buf.text(), text);
+        assert_eq!(buf.undo_depth(), 0, "a no-op leaves no undo step");
+    }
+
+    #[test]
+    fn move_column_right_swaps_it_with_the_column_next_to_it() {
+        let text = "| a | bb | ccc |\n| --- | --- | --- |\n| 1 | 22 | 333 |\n";
+        let mut buf = Buffer::new(text.to_string());
+        let t = tables(text)[0].clone();
+        move_column(&mut buf, &t, 2, 0, 1);
+        assert_eq!(
+            buf.text(),
+            "| bb | a | ccc |\n| --- | --- | --- |\n| 22 | 1 | 333 |\n"
+        );
+        // The cursor follows the column that moved, so it is still on `1`.
+        assert_eq!(&buf.text()[buf.cursor()..buf.cursor() + 1], "1");
+    }
+
+    #[test]
+    fn move_column_left_takes_the_rule_cell_with_it() {
+        let text = "| a | bb | ccc |\n| --- | :---: | --- |\n| 1 | 22 | 333 |\n";
+        let mut buf = Buffer::new(text.to_string());
+        let t = tables(text)[0].clone();
+        move_column(&mut buf, &t, 2, 1, -1);
+        assert_eq!(
+            buf.text(),
+            "| bb | a | ccc |\n| :---: | --- | --- |\n| 22 | 1 | 333 |\n",
+            "the alignment marker travels with its column"
+        );
+        let after = &tables(buf.text())[0];
+        assert_eq!(after.columns, 3, "still a valid table");
+    }
+
+    #[test]
+    fn a_counted_column_move_rotates_the_columns_it_travels_through() {
+        let text = "| a | bb | ccc |\n| --- | --- | --- |\n| 1 | 22 | 333 |\n";
+        let mut buf = Buffer::new(text.to_string());
+        let t = tables(text)[0].clone();
+        move_column(&mut buf, &t, 2, 0, 2);
+        assert_eq!(
+            buf.text(),
+            "| bb | ccc | a |\n| --- | --- | --- |\n| 22 | 333 | 1 |\n"
+        );
+    }
+
+    #[test]
+    fn a_ragged_row_is_left_alone_by_a_column_move() {
+        let text = "| a | b | c |\n| --- | --- | --- |\n| 1 |\n";
+        let mut buf = Buffer::new(text.to_string());
+        let t = tables(text)[0].clone();
+        move_column(&mut buf, &t, 2, 0, 1);
+        assert_eq!(
+            buf.text(),
+            "| b | a | c |\n| --- | --- | --- |\n| 1 |\n",
+            "the short row has no text to move"
+        );
+    }
+
+    /// The undo depth after one edit of each kind: a table edit splices every
+    /// row, but the user must be able to undo it in one step.
+    #[test]
+    fn a_table_edit_is_one_undo_step() {
+        let text = "| a | bb | ccc |\n| --- | --- | --- |\n| 1 | 22 | 333 |\n";
+        let edits: [fn(&mut Buffer, &Table); 5] = [
+            |buf, t| delete_column(buf, t, 2, 1),
+            |buf, t| insert_column_after(buf, t, 2, 1),
+            |buf, t| insert_column_before(buf, t, 2, 1),
+            |buf, t| move_column(buf, t, 2, 1, 1),
+            |buf, t| move_row(buf, t, 2, 1, -1),
+        ];
+        for edit in edits {
+            let mut buf = Buffer::new(text.to_string());
+            let t = tables(text)[0].clone();
+            edit(&mut buf, &t);
+            assert_ne!(buf.text(), text, "the edit did nothing");
+            assert_eq!(buf.undo_depth(), 1, "one step: {text:?}");
+            buf.undo();
+            assert_eq!(buf.text(), text, "one undo puts the table back");
+            buf.redo();
+            assert_ne!(buf.text(), text, "and one redo takes it back off");
+        }
     }
 }

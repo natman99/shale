@@ -35,6 +35,13 @@ impl MarkdownEditor {
         }
         if let Some(hit) = best {
             let offset = hit.offset_for_x(x - hit.bounds.left());
+            // A table's rule line is painted over the dashes of its delimiter
+            // row, which are not text the user can edit: a click there belongs to
+            // the cell below it (or above, at the bottom of the table).
+            let offset = shale_core::table::clickable_offset(
+                &shale_core::table::tables(self.buffer.text()),
+                offset,
+            );
             if event.modifiers.control {
                 self.refresh_links();
                 if self.link_at(offset).is_some() {

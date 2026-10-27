@@ -5,7 +5,7 @@
 //! [`Vim::handle_insert_key`] is consulted.
 
 use crate::buffer::Buffer;
-use crate::table::{self, Located, Table};
+use crate::table::{self, Cell, Located, Table};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
@@ -402,6 +402,25 @@ impl Vim {
         }
 
         let count = self.count.take().unwrap_or(1);
+        // `alt+hjkl` moves a whole row or column of the table the cursor is in.
+        // Outside a table the keys do nothing, so they stay unhandled.
+        if let Key::AltChar(c) = key {
+            let Some(loc) = located else {
+                return Outcome::Unhandled;
+            };
+            let Some(table) = tables.get(loc.table) else {
+                return Outcome::Unhandled;
+            };
+            let count = count as isize;
+            match c {
+                'h' => table::move_column(buf, table, loc.row, loc.column, -count),
+                'l' => table::move_column(buf, table, loc.row, loc.column, count),
+                'k' => table::move_row(buf, table, loc.row, loc.column, -count),
+                'j' => table::move_row(buf, table, loc.row, loc.column, count),
+                _ => return Outcome::Unhandled,
+            }
+            return Outcome::Stay;
+        }
         // Inside a cell the table commands come first: `H`/`L` jump columns,
         // `j`/`k`/`J`/`K` step through cells, and `o`/`I`/`A` act on the cell
         // rather than the whole row.
@@ -410,7 +429,8 @@ impl Vim {
                 return outcome;
             }
         }
-        let before = buf.cursor();
+        // The motions that follow are the ordinary (non-table) ones; a table row
+        // adjusts where they come to rest below.
         match key {
             // Motions
             Key::Char('h') => repeat(count, || buf.move_left()),
@@ -504,18 +524,19 @@ impl Vim {
             Key::Escape => buf.clear_selection(),
             _ => return Outcome::Unhandled,
         }
-        // Inside a cell the ordinary motions must not leave it: one that would
-        // step outside is undone. The column-edge motions stop at the cell's
-        // edge instead of the line's.
+        // Inside a cell the ordinary motions stay on the table's content: one
+        // that would come to rest on padding, a pipe or outside the row steps
+        // into the neighbouring cell instead. The column-edge motions stop at the
+        // cell's content edges rather than the line's.
         if let Some(loc) = located {
             let cell = loc.cell;
             match key {
                 Key::Char('h' | 'l' | ' ' | 'w' | 'b' | 'e') => {
-                    if !cell.contains(buf.cursor()) {
-                        buf.set_cursor(before);
+                    if let Some(table) = tables.get(loc.table) {
+                        snap_cell_motion(table, loc, key, buf);
                     }
                 }
-                Key::Char('0') => buf.set_cursor(cell.nav_start()),
+                Key::Char('0') => buf.set_cursor(cell.cursor()),
                 Key::Char('^') => buf.set_cursor(cell.cursor()),
                 Key::Char('$') => {
                     buf.set_cursor(if cell.start < cell.end {
@@ -530,11 +551,12 @@ impl Vim {
         Outcome::Stay
     }
 
-    /// The `0` motion: the start of the screen line, or of the cell when the
-    /// cursor is inside a table.
+    /// The `0` motion: the start of the screen line, or the first content
+    /// character of the cell when the cursor is inside a table (its padding is
+    /// not a place a cursor should come to rest).
     fn zero_motion(&self, buf: &mut Buffer) {
         match table::locate(&table::tables(buf.text()), buf.cursor()) {
-            Some(loc) => buf.set_cursor(loc.cell.nav_start()),
+            Some(loc) => buf.set_cursor(loc.cell.cursor()),
             None => buf.line_start_motion(),
         }
     }
@@ -558,14 +580,30 @@ impl Vim {
         let table = tables.get(loc.table)?;
         let count = count as isize;
         match c {
-            // Cell-to-cell motions. `h`/`l` stay character-wise inside the cell
-            // and are clamped to it; the shifted forms jump a whole column.
-            // Plain `j`/`k` step through cells, so the cursor never comes to
-            // rest in the gap between rows.
+            // Cell-to-cell motions. `h`/`l` walk the cell's content and step into
+            // the neighbouring cell at its edge; the shifted forms jump a whole
+            // column. Plain `j`/`k` step through cells, skipping the delimiter
+            // row, and walk out of the table at its top or bottom.
             'H' => step_cell(table, loc, 0, -count, buf),
             'L' => step_cell(table, loc, 0, count, buf),
-            'K' | 'k' => step_cell(table, loc, -count, 0, buf),
-            'J' | 'j' => step_cell(table, loc, count, 0, buf),
+            'K' | 'k' => match step_cell_rows(table, loc, -count, buf) {
+                // Walking off the top of the table leaves it: whatever part of the
+                // count the table did not use becomes the ordinary up motion.
+                Some(leftover) if leftover > 0 => {
+                    repeat(leftover, || buf.move_up());
+                    step_past_rule(table, buf, false);
+                }
+                Some(_) => {}
+                None => buf.move_up(),
+            },
+            'J' | 'j' => match step_cell_rows(table, loc, count, buf) {
+                Some(leftover) if leftover > 0 => {
+                    repeat(leftover, || buf.move_down());
+                    step_past_rule(table, buf, true);
+                }
+                Some(_) => {}
+                None => buf.move_down(),
+            },
             'D' => {
                 // Each delete re-locates the cursor, which can shift the table's
                 // indices, so the table is re-read for every column.
@@ -974,7 +1012,8 @@ fn char_range(buf: &Buffer, offset: usize, count: usize) -> (usize, usize) {
 /// Moves the cursor to the cell `d_row` rows and `d_col` columns away, clamped
 /// inside the table, landing on its first content character. Clamping is what
 /// keeps the cursor from jumping to another table or wandering off the grid when
-/// it is already at an edge.
+/// it is already at an edge. Used for the column jumps (`H`/`L`); the vertical
+/// motions go through [`step_cell_rows`], which can leave the table.
 fn step_cell(table: &Table, loc: Located, d_row: isize, d_col: isize, buf: &mut Buffer) {
     let last_row = table.rows.len().saturating_sub(1) as isize;
     let last_col = table.columns.saturating_sub(1) as isize;
@@ -986,10 +1025,103 @@ fn step_cell(table: &Table, loc: Located, d_row: isize, d_col: isize, buf: &mut 
     }
 }
 
+/// The vertical cell motion: `delta` rows down (or up, when negative) in the
+/// same column, skipping the delimiter row, landing on the cell's first content
+/// character. Returns the part of the count the table could not use — the steps
+/// left over after walking off its top or bottom, which the caller spends on the
+/// ordinary line motion so the cursor escapes the table — and `Some(0)` when the
+/// motion stayed inside. `None` means the cursor was not on a navigable row at
+/// all, so the caller should just use the ordinary motion.
+fn step_cell_rows(table: &Table, loc: Located, delta: isize, buf: &mut Buffer) -> Option<usize> {
+    let rows: Vec<usize> = table.navigable_rows().collect();
+    let pos = rows.iter().position(|r| *r == loc.row)? as isize;
+    let target = pos + delta;
+    // Walking off the table comes to rest on its edge first, so the steps that
+    // are left over continue from there instead of re-crossing the grid.
+    let (index, leftover) = if target < 0 {
+        (0, (-target) as usize)
+    } else if target as usize >= rows.len() {
+        (rows.len() - 1, target as usize - (rows.len() - 1))
+    } else {
+        (target as usize, 0)
+    };
+    let cell = table.rows[rows[index]].cells.get(loc.column)?;
+    buf.set_cursor(cell.cursor());
+    Some(leftover)
+}
+
+/// A vertical motion that left a table must not come to rest on its rule line:
+/// if the ordinary line motion landed there, step once more in the same
+/// direction. `table` describes the buffer as the motion saw it (no edits are
+/// involved), so its row offsets are still exact.
+fn step_past_rule(table: &Table, buf: &mut Buffer, down: bool) {
+    if table
+        .row_at(buf.cursor())
+        .is_some_and(|row| table.is_delimiter(row))
+    {
+        if down {
+            buf.move_down();
+        } else {
+            buf.move_up();
+        }
+    }
+}
+
+/// Where a character motion (`h`/`l`/`w`/`b`/`e`) may come to rest inside a
+/// table: on a cell's content, never on its padding or pipes. A motion that
+/// walks off the end of a cell steps into the next one in the same row (the
+/// previous one for a backward motion); at the edge of the row it stays on the
+/// cell's own content instead of escaping into the gutter.
+///
+/// Which end of the neighbour it lands on follows the motion: `l`, `w` and `b`
+/// arrive at a cell's first content character, while `h` and the inclusive `e`
+/// arrive at its last. An empty cell has no content, so its padding is the only
+/// place to sit and `Cell::cursor()` is used.
+fn snap_cell_motion(table: &Table, loc: Located, key: Key, buf: &mut Buffer) {
+    let cell = loc.cell;
+    let cursor = buf.cursor();
+    // Already on the cell's content: the motion was ordinary, leave it alone.
+    if cell.start <= cursor && cursor < cell.end {
+        return;
+    }
+    let forward = matches!(key, Key::Char('l' | ' ' | 'w' | 'e'));
+    let land_on_end = matches!(key, Key::Char('h' | 'e'));
+    let Some(row) = table.rows.get(loc.row) else {
+        return;
+    };
+    let neighbour = if forward {
+        row.cells.get(loc.column + 1)
+    } else if loc.column > 0 {
+        row.cells.get(loc.column - 1)
+    } else {
+        None
+    };
+    let at = match neighbour {
+        Some(cell) => cell_edge(buf, cell, land_on_end),
+        // At the edge of the row there is nowhere to step, so the cursor stays on
+        // this cell's content at the end the motion was travelling towards.
+        None => cell_edge(buf, &cell, forward),
+    };
+    buf.set_cursor(at);
+}
+
+/// The offset of a cell's first or last content character. An empty cell has no
+/// content, so its padding is the only place a cursor can sit.
+fn cell_edge(buf: &Buffer, cell: &Cell, last: bool) -> usize {
+    if last && cell.start < cell.end {
+        buf.prev_char_boundary(cell.end)
+    } else {
+        cell.cursor()
+    }
+}
+
 /// UI-independent key identity for the vim engine.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Key {
     Char(char),
+    /// A printable key typed with alt held, which the keymap delivers as its own
+    /// action. Used for the table row and column moves.
+    AltChar(char),
     Escape,
 }
 
@@ -1595,45 +1727,69 @@ mod tests {
         );
         type_keys(&mut vim, "k", &mut b);
         assert_eq!(&b.text()[b.cursor()..b.cursor() + 1], "1");
-        // At the bottom of the table `j` stays put rather than wandering off the
-        // grid, and a count jumps that many cells.
-        type_keys(&mut vim, "2j", &mut b);
-        assert_eq!(&b.text()[b.cursor()..b.cursor() + 1], "4", "clamped");
+        // A count jumps that many cells; past the bottom of the table the rest of
+        // the count becomes an ordinary line motion, which is how the cursor
+        // leaves the table (see `j_and_k_walk_out_of_the_table`).
+        type_keys(&mut vim, "j", &mut b);
+        assert_eq!(&b.text()[b.cursor()..b.cursor() + 1], "4", "one cell down");
         b.set_cursor(b.text().find('1').unwrap());
         type_keys(&mut vim, "2L", &mut b);
         assert_eq!(&b.text()[b.cursor()..b.cursor() + 3], "333");
     }
 
     #[test]
-    fn motions_cannot_escape_a_cell() {
+    fn character_motions_step_from_cell_to_cell() {
         let mut vim = Vim::new();
         let mut b = table_buf();
-        let start = b.text().find('1').unwrap();
-        b.set_cursor(start);
-        // `l` walks the padding and the pipe that closes the cell, then stops:
-        // the next pipe belongs to the cell on the right.
-        type_keys(&mut vim, "llll", &mut b);
+        b.set_cursor(b.text().find('1').unwrap());
+        // `l` never comes to rest on a cell's padding or on a pipe: one step past
+        // the content lands on the next cell's first character.
+        type_keys(&mut vim, "l", &mut b);
         assert_eq!(
             &b.text()[b.cursor()..b.cursor() + 1],
-            "|",
-            "held at the cell's closing pipe"
+            "2",
+            "across the boundary into the next cell"
         );
-        let at_pipe = b.cursor();
-        type_keys(&mut vim, "w", &mut b);
-        assert_eq!(b.cursor(), at_pipe, "w cannot cross into the next cell");
-        // The column edges replace the line edges.
+        let second_cell = b.cursor();
+        type_keys(&mut vim, "l", &mut b);
+        assert_eq!(
+            b.cursor(),
+            second_cell + 1,
+            "walking the content stays inside the cell"
+        );
+        type_keys(&mut vim, "l", &mut b);
+        assert_eq!(&b.text()[b.cursor()..b.cursor() + 1], "3");
+        // At the right edge of the row there is nowhere to step, so the cursor
+        // stays on the cell's last character instead of escaping into the gutter.
+        type_keys(&mut vim, "lll", &mut b);
+        assert_eq!(
+            &b.text()[b.cursor()..b.cursor() + 2],
+            "3 ",
+            "held at the cell's last content character, not the padding beyond it"
+        );
+        // `h` is the mirror image: it arrives at the previous cell's last
+        // character, which is where a leftward motion belongs.
+        b.set_cursor(b.text().find('3').unwrap());
+        type_keys(&mut vim, "h", &mut b);
+        assert_eq!(
+            b.cursor(),
+            b.text().find("22").unwrap() + 1,
+            "one cell left, at its end"
+        );
+        // `b` arrives at the previous cell's first character.
+        type_keys(&mut vim, "b", &mut b);
+        assert_eq!(
+            &b.text()[b.cursor()..b.cursor() + 2],
+            "22",
+            "the first character of the cell to the left"
+        );
+        // The column edges replace the line's, and both land on content.
         b.set_cursor(b.text().find("333").unwrap());
         type_keys(&mut vim, "0", &mut b);
         assert_eq!(
             &b.text()[b.cursor()..b.cursor() + 1],
-            " ",
-            "0 goes to the cell's left edge"
-        );
-        type_keys(&mut vim, "^", &mut b);
-        assert_eq!(
-            &b.text()[b.cursor()..b.cursor() + 1],
             "3",
-            "^ goes to the first content character"
+            "0 goes to the cell's first content character"
         );
         type_keys(&mut vim, "$", &mut b);
         assert_eq!(
@@ -1641,6 +1797,108 @@ mod tests {
             "3 |",
             "$ stops at the cell's last character, not the line's"
         );
+        type_keys(&mut vim, "^", &mut b);
+        assert_eq!(
+            &b.text()[b.cursor()..b.cursor() + 1],
+            "3",
+            "^ goes to the first content character"
+        );
+    }
+
+    /// The same table with prose above and below, so a motion can be seen leaving
+    /// it.
+    fn table_buf_with_context() -> Buffer {
+        Buffer::new(
+            "before\n\n| a | bb | ccc |\n| --- | --- | --- |\n| 1 | 22 | 333 |\n| 4 | 55 | 666 |\n\nafter\n"
+                .to_string(),
+        )
+    }
+
+    #[test]
+    fn j_and_k_skip_the_delimiter_row() {
+        let mut vim = Vim::new();
+        let mut b = table_buf();
+        b.set_cursor(b.text().find('a').unwrap());
+        type_keys(&mut vim, "j", &mut b);
+        assert_eq!(
+            &b.text()[b.cursor()..b.cursor() + 1],
+            "1",
+            "the rule line under the header is skipped"
+        );
+        type_keys(&mut vim, "k", &mut b);
+        assert_eq!(
+            &b.text()[b.cursor()..b.cursor() + 1],
+            "a",
+            "and on the way back up"
+        );
+    }
+
+    #[test]
+    fn j_and_k_walk_out_of_the_table() {
+        let mut vim = Vim::new();
+        let mut b = table_buf_with_context();
+        b.set_cursor(b.text().find('a').unwrap());
+        type_keys(&mut vim, "k", &mut b);
+        assert_eq!(b.row_col(b.cursor()).0, 1, "up out of the table");
+        assert!(
+            table::locate(&table::tables(b.text()), b.cursor()).is_none(),
+            "the cursor is no longer in a cell"
+        );
+        // Down through the whole table: the steps the table could not use become
+        // ordinary line motions, and the rule line is skipped on the way out.
+        b.set_cursor(b.text().find('a').unwrap());
+        type_keys(&mut vim, "4j", &mut b);
+        assert_eq!(
+            b.row_col(b.cursor()).0,
+            7,
+            "past the last row and the blank line, never stopping on the rule"
+        );
+        type_keys(&mut vim, "j", &mut b);
+        assert_eq!(b.row_col(b.cursor()).0, 8, "and on down into the prose");
+    }
+
+    #[test]
+    fn alt_hjkl_moves_a_row_or_column() {
+        let mut vim = Vim::new();
+        let mut b = table_buf();
+        b.set_cursor(b.text().find('1').unwrap());
+        type_alt_keys(&mut vim, 'j', &mut b);
+        assert_eq!(
+            b.text(),
+            "| a | bb | ccc |\n| --- | --- | --- |\n| 4 | 55 | 666 |\n| 1 | 22 | 333 |\n",
+            "alt-j moves the row down"
+        );
+        assert_eq!(&b.text()[b.cursor()..b.cursor() + 1], "1");
+        type_alt_keys(&mut vim, 'k', &mut b);
+        assert_eq!(b.text(), table_buf().text(), "and alt-k puts it back");
+
+        b.set_cursor(b.text().find("22").unwrap());
+        type_alt_keys(&mut vim, 'l', &mut b);
+        assert_eq!(
+            b.text(),
+            "| a | ccc | bb |\n| --- | --- | --- |\n| 1 | 333 | 22 |\n| 4 | 666 | 55 |\n",
+            "alt-l moves the column right"
+        );
+        assert_eq!(&b.text()[b.cursor()..b.cursor() + 2], "22");
+        type_alt_keys(&mut vim, 'h', &mut b);
+        assert_eq!(b.text(), table_buf().text(), "and alt-h puts it back");
+    }
+
+    #[test]
+    fn alt_motions_outside_a_table_do_nothing() {
+        let mut vim = Vim::new();
+        let mut b = buf();
+        let before = b.text().to_string();
+        assert_eq!(
+            vim.handle_normal_key(Key::AltChar('j'), &mut b),
+            Outcome::Unhandled
+        );
+        assert_eq!(b.text(), before);
+    }
+
+    /// Feed a sequence of alt-held printable keys.
+    fn type_alt_keys(vim: &mut Vim, c: char, b: &mut Buffer) {
+        vim.handle_normal_key(Key::AltChar(c), b);
     }
 
     #[test]

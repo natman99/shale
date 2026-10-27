@@ -901,13 +901,14 @@ impl Buffer {
     }
 
     /// Delete the half-open byte range `[start, end)` and park the cursor at
-    /// `start` (used by vim operators over a motion range).
+    /// `start` (used by vim operators over a motion range). Joins an open undo
+    /// group, which is how a table edit that splices several rows stays one step.
     pub fn delete_range(&mut self, start: usize, end: usize) {
         let (start, end) = (self.clamp(start), self.clamp(end));
         if start >= end {
             return;
         }
-        self.snapshot();
+        self.snapshot_for_edit();
         self.text.replace_range(start..end, "");
         self.selection = None;
         self.cursor = self.clamp(start);
@@ -927,10 +928,11 @@ impl Buffer {
     }
 
     /// Insert `text` at `offset` without touching the selection semantics of
-    /// [`Self::insert`] (used by linewise paste).
+    /// [`Self::insert`] (used by linewise paste and by table splices, which run
+    /// inside an undo group so one edit stays one undo step).
     pub fn insert_at(&mut self, offset: usize, text: &str) {
         let offset = self.clamp(offset);
-        self.snapshot();
+        self.snapshot_for_edit();
         self.text.insert_str(offset, text);
         self.cursor = self.clamp(offset + text.len());
         self.selection = None;

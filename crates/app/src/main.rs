@@ -77,6 +77,10 @@ mod acts {
             VimUpperD,
             VimPipe,
             VimBackslash,
+            VimAltH,
+            VimAltJ,
+            VimAltK,
+            VimAltL,
             VimDot,
             VimEscape,
             Newline,
@@ -471,6 +475,7 @@ fn keybindings() -> Vec<KeyBinding> {
     // lowercasing), and `enter` is the next-line motion rather than a newline.
     // The table edits (`DD` deletes a column, `|` and `\` insert one) are
     // normal-mode commands; in visual mode `D` is the selection operator.
+    // `alt+hjkl` moves a whole row or column of the table under the cursor.
     bind!("vim-normal", [
         "u" => VimU,
         "." => VimDot,
@@ -478,6 +483,10 @@ fn keybindings() -> Vec<KeyBinding> {
         "shift-d" => VimUpperD,
         "|" => VimPipe,
         "\\" => VimBackslash,
+        "alt-h" => VimAltH,
+        "alt-j" => VimAltJ,
+        "alt-k" => VimAltK,
+        "alt-l" => VimAltL,
     ]);
     bind!("vim-insert", [
         "escape" => VimEscape,

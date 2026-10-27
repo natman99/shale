@@ -170,6 +170,12 @@ impl Render for MarkdownEditor {
             .on_action(
                 cx.listener(|this, _: &VimBackslash, _, cx| this.normal(Key::Char('\\'), cx)),
             )
+            // The table row and column moves: alt-held keys, which the engine
+            // keeps apart from the plain motions.
+            .on_action(cx.listener(|this, _: &VimAltH, _, cx| this.normal(Key::AltChar('h'), cx)))
+            .on_action(cx.listener(|this, _: &VimAltJ, _, cx| this.normal(Key::AltChar('j'), cx)))
+            .on_action(cx.listener(|this, _: &VimAltK, _, cx| this.normal(Key::AltChar('k'), cx)))
+            .on_action(cx.listener(|this, _: &VimAltL, _, cx| this.normal(Key::AltChar('l'), cx)))
             .on_action(cx.listener(|this, _: &VimDot, _, cx| this.normal(Key::Char('.'), cx)))
             // Shared editing keys.
             .on_action(cx.listener(Self::on_escape))

@@ -140,6 +140,34 @@ fn keymap_matches_the_linux_keystroke_shape() {
             "normal mode: typed {key} should resolve to {action}"
         );
     }
+
+    // alt+hjkl: unlike shift, alt leaves the letter's keysym alone, so the
+    // platform delivers the plain letter with the alt modifier set.
+    for (key, action) in [
+        ("h", "shale_editor::VimAltH"),
+        ("j", "shale_editor::VimAltJ"),
+        ("k", "shale_editor::VimAltK"),
+        ("l", "shale_editor::VimAltL"),
+    ] {
+        let typed = gpui::Keystroke {
+            modifiers: gpui::Modifiers {
+                alt: true,
+                ..Default::default()
+            },
+            key: key.to_string(),
+            key_char: None,
+        };
+        let (bindings, pending) = keymap.bindings_for_input(&[typed], &contexts);
+        assert!(!pending, "alt-{key} should not leave pending input");
+        assert_eq!(
+            bindings
+                .iter()
+                .map(|b| b.action().name())
+                .collect::<Vec<_>>(),
+            vec![action],
+            "alt-{key} should resolve to {action}"
+        );
+    }
 }
 
 /// The table keys have to work through the real keymap, not just the core
@@ -174,18 +202,19 @@ fn table_edits_through_the_keymap(cx: &mut TestAppContext) {
         editor
             .read_with(cx, |editor, _cx| editor.cursor_position())
             .unwrap(),
-        (1, 8),
-        "j steps to the cell below rather than to the next line's start"
+        (2, 6),
+        "j skips the rule line and steps into the body row's cell"
     );
 
-    // Down to the body row, back to the first column, then drop the row.
-    cx.simulate_keystrokes("j H d d");
+    // Back to the first column, then drop the row. Only the header and the rule
+    // are left, and the cursor stays on the header's cell rather than the rule.
+    cx.simulate_keystrokes("H d d");
     assert_eq!(text(cx), "| a | b |\n| --- | --- |\n");
     assert_eq!(
         editor
             .read_with(cx, |editor, _cx| editor.cursor_position())
             .unwrap(),
-        (1, 2),
+        (0, 2),
         "the cell that took the deleted row's place is selected"
     );
 
@@ -200,7 +229,9 @@ fn table_edits_through_the_keymap(cx: &mut TestAppContext) {
         "and before, and the delimiter row stays valid"
     );
 
-    // shift-I empties the cell under the cursor and drops into insert mode.
+    // shift-I empties the cell under the cursor and drops into insert mode. The
+    // cursor is on one of the empty cells the last two edits added, so step back
+    // to the column that has text.
     cx.simulate_keystrokes("H shift-i");
     assert_eq!(
         editor.read_with(cx, |editor, _cx| editor.mode()).unwrap(),
@@ -209,8 +240,69 @@ fn table_edits_through_the_keymap(cx: &mut TestAppContext) {
     );
     assert_eq!(
         text(cx),
-        "| b |  |  |\n|  | --- | --- |\n",
+        "|  |  |  |\n| --- | --- | --- |\n",
         "only the current cell was emptied"
+    );
+    cx.simulate_keystrokes("escape u");
+    assert_eq!(
+        text(cx),
+        "| b |  |  |\n| --- | --- | --- |\n",
+        "one undo puts the emptied cell back"
+    );
+}
+
+/// `alt+hjkl` moves a whole row or column of the table, and each move is one
+/// undo step even though it splices every row.
+#[gpui::test]
+fn alt_hjkl_moves_table_rows_and_columns(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.bind_keys(keybindings()));
+
+    let original = "| a | b |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |\n";
+    let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+    let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+    editor
+        .update(cx, |editor, window, cx| {
+            editor.set_text(original.to_string(), cx);
+            let focus = editor.focus_handle(cx);
+            window.focus(&focus, cx);
+        })
+        .unwrap();
+    let text =
+        |cx: &mut VisualTestContext| editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
+
+    // Down into the first body row, so the cursor is inside the table.
+    cx.simulate_keystrokes("j");
+    assert_eq!(
+        editor
+            .read_with(cx, |editor, _cx| editor.cursor_position())
+            .unwrap(),
+        (2, 2),
+        "the cursor is on `1`"
+    );
+
+    cx.simulate_keystrokes("alt-j");
+    assert_eq!(
+        text(cx),
+        "| a | b |\n| --- | --- |\n| 3 | 4 |\n| 1 | 2 |\n",
+        "alt-j moves the row down"
+    );
+    cx.simulate_keystrokes("u");
+    assert_eq!(text(cx), original, "one undo puts the rows back");
+
+    cx.simulate_keystrokes("alt-l");
+    assert_eq!(
+        text(cx),
+        "| b | a |\n| --- | --- |\n| 2 | 1 |\n| 4 | 3 |\n",
+        "alt-l moves the column right"
+    );
+    cx.simulate_keystrokes("u");
+    assert_eq!(text(cx), original, "and one undo puts the columns back");
+
+    cx.simulate_keystrokes("alt-k");
+    assert_eq!(
+        text(cx),
+        "| 1 | 2 |\n| --- | --- |\n| a | b |\n| 3 | 4 |\n",
+        "alt-k moves the header down the list, keeping the rule under it"
     );
 }
 
