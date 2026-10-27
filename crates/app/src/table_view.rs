@@ -40,11 +40,12 @@ pub(crate) struct CellPaint {
 pub(crate) struct TablePaint {
     /// Cells left to right, always the table's column count.
     pub(crate) cells: Vec<CellPaint>,
-    /// The delimiter row: painted as a horizontal rule, its dashes hidden.
+    /// The delimiter row, drawn as a line of its own with the rule along its top
+    /// edge. Live preview collapses this row away unless the cursor is on it or
+    /// on the header above it, so it is only seen while editing `:---:`.
     pub(crate) delimiter: bool,
-    /// The row directly above the delimiter. Live preview usually collapses the
-    /// delimiter row to nothing, so the rule under the header is painted along
-    /// this row's bottom edge instead.
+    /// The row directly above the delimiter, which carries the rule along its
+    /// bottom edge when the delimiter row is collapsed out of the display model.
     pub(crate) rule_below: bool,
     /// The header row (the one above the delimiter), which gets a background.
     pub(crate) header: bool,
@@ -75,10 +76,17 @@ impl TablePaint {
 /// The paint plan for every buffer row that belongs to a table, indexed by
 /// buffer row (`None` for ordinary rows). `line_count` is the buffer's line
 /// count, which sizes the result.
+///
+/// `collapsed` marks the rows live preview gives no display line at all, which
+/// decides where the rule under the header is painted: on the delimiter row's
+/// top edge when that row is drawn, and on the header's bottom edge when it is
+/// not. The two are the same line, so the rule is painted exactly once either
+/// way.
 pub(crate) fn plans_by_row(
     text: &str,
     tables: &[Table],
     line_count: usize,
+    collapsed: &[bool],
 ) -> Vec<Option<TablePaint>> {
     let mut out: Vec<Option<TablePaint>> = vec![None; line_count];
     for table in tables {
@@ -95,6 +103,13 @@ pub(crate) fn plans_by_row(
             boundaries.push(x);
         }
         let total = x;
+        // Whether the delimiter row is drawn this frame, which moves the rule
+        // between it and the header above.
+        let rule_on_header = table
+            .rows
+            .get(table.delimiter)
+            .map(|row| collapsed.get(row.row).copied().unwrap_or(true))
+            .unwrap_or(true);
         for (index, row) in table.rows.iter().enumerate() {
             if row.row >= out.len() {
                 continue;
@@ -114,7 +129,7 @@ pub(crate) fn plans_by_row(
             out[row.row] = Some(TablePaint {
                 cells,
                 delimiter: index == table.delimiter,
-                rule_below: index + 1 == table.delimiter,
+                rule_below: index + 1 == table.delimiter && rule_on_header,
                 header: index < table.delimiter,
                 boundaries: boundaries.clone(),
                 total,
@@ -149,7 +164,7 @@ mod tests {
     #[test]
     fn columns_line_up_on_the_widest_content() {
         let text = "| a | bb |\n| --- | --- |\n| 111 | 2 |\n";
-        let plans = plans_by_row(text, &tables(text), 4);
+        let plans = plans_by_row(text, &tables(text), 4, &[]);
         // Column 0 is as wide as `111`, so every row puts column 1's content at
         // the same offset.
         let xs: Vec<usize> = painted(&plans, text)
@@ -167,7 +182,8 @@ mod tests {
     #[test]
     fn the_delimiter_row_is_marked_and_the_grid_has_one_line_per_edge() {
         let text = "| a | bb |\n| --- | --- |\n| 1 | 2 |\n";
-        let plans = plans_by_row(text, &tables(text), 3);
+        // The delimiter row is collapsed out of the display model.
+        let plans = plans_by_row(text, &tables(text), 3, &[false, true, false]);
         let flags: Vec<(bool, bool)> = plans
             .iter()
             .map(|p| {
@@ -200,16 +216,37 @@ mod tests {
     #[test]
     fn ordinary_rows_have_no_plan() {
         let text = "prose\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n";
-        let plans = plans_by_row(text, &tables(text), 5);
+        let plans = plans_by_row(text, &tables(text), 5, &[]);
         assert_eq!(plans.len(), 5);
         assert!(plans[0].is_none() && plans[1].is_none());
         assert!(plans[2].is_some() && plans[4].is_some());
     }
 
     #[test]
+    fn a_drawn_delimiter_row_carries_the_rule_itself() {
+        let text = "| a | bb |\n| --- | --- |\n| 1 | 2 |\n";
+        // The cursor is on the header, so live preview draws the delimiter row:
+        // the rule belongs to that row's top edge, not the header's bottom.
+        let plans = plans_by_row(text, &tables(text), 3, &[false, false, false]);
+        let rules: Vec<(bool, bool)> = plans
+            .iter()
+            .map(|p| {
+                p.as_ref()
+                    .map(|p| (p.rule_below, p.delimiter))
+                    .unwrap_or((false, false))
+            })
+            .collect();
+        assert_eq!(
+            rules,
+            vec![(false, false), (false, true), (false, false)],
+            "the rule is painted once, on the row that is drawn"
+        );
+    }
+
+    #[test]
     fn a_ragged_row_still_gets_every_column() {
         let text = "| a | b | c |\n| --- | --- | --- |\n| 1 |\n";
-        let plans = plans_by_row(text, &tables(text), 3);
+        let plans = plans_by_row(text, &tables(text), 3, &[]);
         let last = plans[2].as_ref().unwrap();
         assert_eq!(last.cells.len(), 3);
         assert_eq!(last.cells[2].start, last.cells[2].end, "empty cell");
@@ -220,7 +257,7 @@ mod tests {
     #[test]
     fn a_cursor_on_a_pipe_or_padding_resolves_to_the_nearest_cell() {
         let text = "| a | bb |\n| --- | --- |\n| 1 | 2 |\n";
-        let plans = plans_by_row(text, &tables(text), 3);
+        let plans = plans_by_row(text, &tables(text), 3, &[]);
         let row = plans[2].as_ref().unwrap();
         let line_start = text.find("| 1 |").unwrap();
         // The leading pipe sits left of the first cell's content.

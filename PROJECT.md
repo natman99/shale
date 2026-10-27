@@ -264,13 +264,14 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
     (`buffer::tests::a_collapsed_row_takes_no_display_line`).
     `MarkdownEditor::collapsed_rows` marks two kinds: the ``` lines of a fenced
     block the cursor is not inside, and a table's `---` delimiter row. Both come
-    back the moment the cursor is on them (for a fence, anywhere in its block),
-    which is what lets the user still type a new table's delimiter row or edit a
-    fence. Consequence for tables: with the delimiter row gone, the rule under
-    the header is painted along the header row's bottom edge
-    (`TablePaint::rule_below`), so a table no longer shows an empty band under its
-    header. The wrap cache gained `collapsed` and `no_wrap` flags so a cached
-    measurement is never reused for a row whose state changed.
+    back the moment the cursor is on them (for a fence, anywhere in its block;
+    for the delimiter row, also when the cursor is on the header above it — see
+    the delimiter-row note below), which is what lets the user still type a new
+    table's delimiter row or edit a fence. Consequence for tables: with the
+    delimiter row gone, the rule under the header is painted along the header
+    row's bottom edge (`TablePaint::rule_below`), so a table no longer shows an
+    empty band under its header. The wrap cache gained `collapsed` and `no_wrap`
+    flags so a cached measurement is never reused for a row whose state changed.
   - **Inline images.** `markdown::line_image_embed` recognises a row that is
     *nothing but* an embed — `![[att.png]]`, `![[att.png|300]]`,
     `![[att.png|300x200]]`, `![alt](path =300x200 "title")` — and returns the
@@ -332,8 +333,10 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
   before, and **`alt+h`/`alt+j`/`alt+k`/`alt+l` move a whole row or column**
   (`table::move_row`/`move_column`: the columns or rows between the cursor and
   its destination rotate by one, the delimiter row never moves, and the cursor
-  follows what moved). Plain `j`/`k` inside a table step **cell to cell** in the
-  same column, which is what the user asked for after other apps skipped around;
+  follows what moved). `J`/`K` inside a table step **cell to cell** in the same
+  column, which is what the user asked for after other apps skipped around
+  (plain `j`/`k` went back to being ordinary line motions later — see the
+  delimiter-row note below);
   `A` appends at the cell's end rather than the row's. A find that would land
   outside the cell counts as "not found" (so `f|` works — the closing pipe
   belongs to the cell — and `d3x`-style sweeps stop at the content edge, as do
@@ -352,8 +355,9 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
   turns each table into a grid in **character cells** (the widest content per
   column plus a one-cell gutter on each side), and `LineElement` paints each
   cell's content at its column offset with vertical rules on every boundary and a
-  shaded header row; the delimiter row's dashes are hidden and drawn as a
-  horizontal rule. Consequences worth remembering:
+  shaded header row; the delimiter row is collapsed out of the display model and
+  the rule under the header is painted in its place. Consequences worth
+  remembering:
   - A table row **never soft-wraps** (`display_lines` gives it one segment), so
     the buffer's display model and the paint stay in step;
     `a_table_is_painted_cell_by_cell` asserts one display line per row and one
@@ -385,19 +389,21 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
     stays on its own cell's content instead of escaping into the gutter. `0` now
     lands on the cell's first content character like `^` (it used to land on the
     padding), and `$` on its last.
-  - **`j`/`k` can leave the table.** They used to be captured as cell-to-cell
+  - **`J`/`K` can leave the table.** They used to be captured as cell-to-cell
     motion and clamped, so the cursor was trapped. `step_cell_rows` walks the
     table's *navigable* rows and, when the count runs past the top or bottom,
     comes to rest on the edge row and hands the leftover steps to the ordinary
     line motion, so the cursor walks out (`j_and_k_walk_out_of_the_table`).
   - **The delimiter row is not a cell.** `Table::cell_at` refuses every offset on
     it, `cell_clamped` snaps a request for it to the nearest row with cells (the
-    one below, else the one above), and `navigable_rows` is what the vertical
-    motions walk, so no motion lands on the rule. A click on the painted rule is
-    snapped into the cell below it by `table::clickable_offset`, which
-    `editor/input.rs` applies. Consequence: `dd` can never target the rule, and
-    if a cursor ever does end up there (a leftover count from a counted motion,
-    say) the engine treats that line as ordinary text.
+    one below, else the one above), and `navigable_rows` is what the shifted
+    vertical motions walk, so `J`/`K` never land on the rule. (Both of those
+    changed afterwards: plain `j`/`k` are ordinary line motions again and *can*
+    stop on the row once live preview draws it, and `table::clickable_offset`,
+    which snapped a click on the painted rule into the cell below it, was removed
+    — see the delimiter-row note below.) Consequence: `dd` can never target the
+    rule, and if a cursor does end up there the engine treats that line as
+    ordinary text.
   - **One table edit = one undo step.** `delete_column`, `insert_column`,
     `move_row` and `move_column` splice every row, so they open a buffer undo
     group; `Buffer::delete_range`/`insert_at` now use `snapshot_for_edit`, which
@@ -631,6 +637,29 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   cursor on the empty row the trailing newline leaves behind, where vim steps up
   to the previous line.
 
+- **The table's delimiter row comes back next to the cursor.** The `---` row is
+  still collapsed out of the display model (it takes no vertical space at all)
+  *unless* the cursor or the selection touches it or the header row above it,
+  which is where a cursor in the table usually is. When it is drawn it is painted
+  as its own grid row, cells and all, so `:---`, `---:` and `:---:` are visible
+  and editable (dim, from `Style::TableRule`), and the rule under the header is
+  painted exactly once: along the delimiter row's **top edge** when that row is
+  drawn, along the header's **bottom edge** (`TablePaint::rule_below`) when it is
+  not. `table_view::plans_by_row` takes the frame's `collapsed` flags to decide
+  which, so `render.rs` now computes `collapsed_rows` before the plans.
+  - **`j`/`k` versus `J`/`K` inside a table** (the user's choice): the shifted
+    forms are the cell-to-cell motions and skip the delimiter row
+    (`step_cell_rows` walking `Table::navigable_rows`); plain `j`/`k` are *not*
+    table commands at all and fall through to the ordinary line motions, which
+    follow the display model — so they step onto the rule row exactly when live
+    preview is drawing it, which is how the cursor reaches it to fix alignment.
+    `Table::clickable_offset` (which snapped a click on the rule into a
+    neighbouring cell) is gone: a collapsed row has no display line to click, and
+    a drawn one is real text.
+  - **The delimiter row is the floor of a column's width**: `column_widths` no
+    longer skips it, so a column can never be narrower than its `:---:` and the
+    drawn row cannot overflow into its neighbour.
+
 - **Module sizes.** `editor.rs` and `main.rs` both passed the 1000-line mark in
   `AGENTS.md`, so they are now directories: `editor/{mod,wrap,render,actions,input}.rs`
   (a submodule can reach `MarkdownEditor`'s private state because they are all
@@ -639,7 +668,7 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   `mdstyle/{mod,block,inline}.rs` (450 / 398 / 277): `mod.rs` holds `Style`,
   `CalloutKind`, `StyleSpan`, the line walk and the tests, `block.rs` classifies
   each line, `inline.rs` styles the text inside it. Largest files now: `vim.rs`
-  2074, `buffer.rs` 1554, `line.rs` 815, `tests/paint.rs` 648, `main.rs` 585.
+  2109, `buffer.rs` 1554, `line.rs` 807, `tests/paint.rs` 707, `main.rs` 585.
   `vim.rs` and `buffer.rs` are still over the rule — split them the next time
   either one is touched; `line.rs` (the element, the run builder and the table
   grid paint) is the next candidate after those.
@@ -661,11 +690,11 @@ Next steps, roughly in order:
    goal, then live preview.
 5. ~~Table-aware motions and manipulation (the table goal)~~ Done: the model, the
    row/column edits, the cell-aware motions, the keymap and the grid widget, plus
-   the user's polish round (cell-to-cell `h`/`l`/`w`/`b`/`e`, `j`/`k` escaping the
-   table, the rule line never being navigable, one undo step per table edit,
-   `alt+hjkl` row/column moves) — see Open threads. Follow-ups: horizontal
-   scrolling for a table wider than the window, wide-glyph column widths, and
-   live confirmation of the motions by the user.
+   the user's polish round (cell-to-cell `h`/`l`/`w`/`b`/`e`, `J`/`K` escaping
+   the table while plain `j`/`k` can stop on the rule row, one undo step per
+   table edit, `alt+hjkl` row/column moves) — see Open threads. Follow-ups:
+   horizontal scrolling for a table wider than the window, and wide-glyph column
+   widths.
 6. ~~Live preview mode~~ stage 1 (markdown syntax styling, heading sizes and
    code-block backgrounds), stage 2a (hiding the markers of a row the cursor is
    not on, including inside table cells) and stage 2b (callouts, collapsing a
@@ -674,13 +703,28 @@ Next steps, roughly in order:
    images embedded inside a paragraph, horizontal scrolling for a table wider
    than the window, wide-glyph column widths, and the shaped-geometry display
    columns that would also settle j/k accuracy.
-7. Theming (light/dark, TOML theme files). `theme.rs` is the palette and
+7. **Folding (header sections).** Collapse a heading's section to one line the
+   cursor steps over, later extended to fenced blocks, callouts and tables. The
+   display model is the right place and most of the machinery exists: a row
+   marked collapsed already takes no display line (`Buffer::set_display_segments`
+   distinguishes "no entry" from an empty vec), and
+   `MarkdownEditor::collapsed_rows` is where the per-frame decision is made, so a
+   fold is a set of rows marked collapsed plus a marker on the heading row that
+   keeps it visible and clickable. What it needs: a fold level per row (the
+   heading scan in the `mdstyle` line walk already knows the levels), a per-buffer
+   set of folded headings that survives edits (key it on the heading's offset
+   range and recompute when the text changes), the keybindings (`za` toggle, `zc`
+   close, `zo` open, `zR`/`zM` all, `zd`/`zE` remove a fold — all new contexts in
+   the keymap), and keeping the display-line count in step for `j`/`k`, the status
+   bar's row:col and the scroll position. Folding is view state: the buffer text
+   must never change.
+8. Theming (light/dark, TOML theme files). `theme.rs` is the palette and
    `appearance.font_family` in `shale.toml` already picks the editor's font;
    `appearance.font_size` is still not wired up (the editor shapes at
    `theme::FONT_SIZE`). Every colour the editor draws is a constant there
    (`TABLE_LINE` doubles as the thematic-break rule), so a theme is a palette
    swap plus a TOML loader — nothing else needs to change.
-8. Editor bindings round: **list / task / quote continuation on Enter.** Inside
+9. Editor bindings round: **list / task / quote continuation on Enter.** Inside
    a `-`/`*`/`+` bullet, a numbered item, a task (`- [ ]`) or a `>` quote,
    pressing Enter should insert the same marker on the new line (Obsidian's
    behaviour), and pressing Enter again on a marker-only line should remove that
@@ -688,10 +732,13 @@ Next steps, roughly in order:
    insert mode (so it lands in the same undo group and `.` replay), and the
    continuation should follow the line's indent. Task lines should insert an
    empty `- [ ]` regardless of whether the previous one was checked.
-9. HarperLS / LSP integration for spellcheck and grammar.
-10. Image display in vaults (gpui image elements).
-11. File tree: new/rename/delete, file watching.
-12. **Database tables (Obsidian bases)** — the user's goal, see the Database
+10. HarperLS / LSP integration for spellcheck and grammar.
+11. ~~Image display in vaults (gpui image elements)~~ mostly done: a row that is
+    nothing but an embed is drawn as the picture (stage 2b). What is left is an
+    image embedded *inside* a paragraph, and an `|alias` suffix on an embed is
+    currently read as "no size".
+12. File tree: new/rename/delete, file watching.
+13. **Database tables (Obsidian bases)** — the user's goal, see the Database
     section above. Nothing built yet, but the shape of it is already useful:
     a query result is a table that is *not* buffer text, and the grid paint
     (`table_view::plans_by_row` + `LineElement`) is the widget it needs. Keep

@@ -197,13 +197,41 @@ fn table_edits_through_the_keymap(cx: &mut TestAppContext) {
         (0, 6),
         "shift-L should land on the second column"
     );
+    cx.simulate_keystrokes("J");
+    assert_eq!(
+        editor
+            .read_with(cx, |editor, _cx| editor.cursor_position())
+            .unwrap(),
+        (2, 6),
+        "shift-J skips the rule line and steps into the body row's cell"
+    );
+    // Plain `j`/`k` are the ordinary line motions, which follow the display
+    // model: the rule row is collapsed while the cursor is below it, and drawn
+    // again once the cursor is on the header — where plain `j` stops on it, so
+    // its `:---:` markers can be edited.
+    cx.simulate_keystrokes("k");
+    assert_eq!(
+        editor
+            .read_with(cx, |editor, _cx| editor.cursor_position())
+            .unwrap(),
+        (0, 6),
+        "plain k steps over the collapsed rule row"
+    );
+    cx.simulate_keystrokes("j");
+    assert_eq!(
+        editor
+            .read_with(cx, |editor, _cx| editor.cursor_position())
+            .unwrap(),
+        (1, 6),
+        "plain j stops on the rule row, which the header's cursor brought back"
+    );
     cx.simulate_keystrokes("j");
     assert_eq!(
         editor
             .read_with(cx, |editor, _cx| editor.cursor_position())
             .unwrap(),
         (2, 6),
-        "j skips the rule line and steps into the body row's cell"
+        "and the next j moves on into the body"
     );
 
     // Back to the first column, then drop the row. Only the header and the rule
@@ -270,8 +298,9 @@ fn alt_hjkl_moves_table_rows_and_columns(cx: &mut TestAppContext) {
     let text =
         |cx: &mut VisualTestContext| editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
 
-    // Down into the first body row, so the cursor is inside the table.
-    cx.simulate_keystrokes("j");
+    // Down into the first body row, so the cursor is inside the table. shift-J
+    // is the cell-to-cell motion; plain j would stop on the rule row.
+    cx.simulate_keystrokes("J");
     assert_eq!(
         editor
             .read_with(cx, |editor, _cx| editor.cursor_position())

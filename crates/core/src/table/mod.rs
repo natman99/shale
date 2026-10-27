@@ -117,14 +117,14 @@ pub struct Table {
 
 impl Table {
     /// The widest content per column, in characters, used to lay the table out
-    /// as an aligned grid. The delimiter row is skipped: it is drawn as a rule,
-    /// not as text. `text` is the buffer text the offsets refer to.
+    /// as an aligned grid. The delimiter row counts too: live preview usually
+    /// draws it as a rule, but the row comes back as its own text when the
+    /// cursor is on it or on the header, and a column narrower than its `:---:`
+    /// would have nowhere to put that text. `text` is the buffer text the
+    /// offsets refer to.
     pub fn column_widths(&self, text: &str) -> Vec<usize> {
         let mut widths = vec![0usize; self.columns];
-        for (index, row) in self.rows.iter().enumerate() {
-            if index == self.delimiter {
-                continue;
-            }
+        for row in &self.rows {
             for cell in &row.cells {
                 let width = content_chars(text, cell);
                 if width > widths[cell.column] {
@@ -145,11 +145,12 @@ impl Table {
     /// The `(row index, column)` containing `offset`. A cursor on a pipe or on
     /// padding resolves to the cell that owns that region.
     ///
-    /// The delimiter row has no cells: it is painted as a rule and has no text
-    /// worth editing, so an offset on it resolves to no cell at all and the vim
-    /// engine treats that line as an ordinary one. Motions never come to rest on
-    /// it either (see [`Table::navigable_rows`]), and a click on it is snapped
-    /// into a real cell by [`clickable_offset`].
+    /// The delimiter row has no cells: it is painted as a rule and its dashes
+    /// are not cell content, so an offset on it resolves to no cell at all and
+    /// the vim engine treats that line as an ordinary one. The shifted vertical
+    /// motions never come to rest on it (see [`Table::navigable_rows`]); plain
+    /// `j`/`k` do, whenever live preview is drawing the row (which is when the
+    /// cursor is already on it or on the header above it).
     pub fn cell_at(&self, offset: usize) -> Option<(usize, usize)> {
         let row = self.row_at(offset)?;
         if self.is_delimiter(row) {
@@ -184,9 +185,11 @@ impl Table {
         row_index == self.delimiter
     }
 
-    /// The rows a cursor can stand on: every row but the delimiter, which is
-    /// painted as a rule and has no text to edit. This is what the vertical
-    /// motions walk, so `j`/`k` skip the rule and can leave the table.
+    /// The rows the shifted vertical motions (`J`/`K`) walk: every row but the
+    /// delimiter, which is painted as a rule and has no cell to edit, so they
+    /// skip the rule and can leave the table. Plain `j`/`k` are ordinary line
+    /// motions and follow the display model instead, which drops the delimiter
+    /// row only while nothing is on it.
     pub fn navigable_rows(&self) -> impl Iterator<Item = usize> + '_ {
         (0..self.rows.len()).filter(move |index| !self.is_delimiter(*index))
     }
@@ -262,52 +265,6 @@ pub fn tables(text: &str) -> Vec<Table> {
         });
     }
     out
-}
-
-/// The offset a click on `offset` was meant for. A click on a table's delimiter
-/// row — painted as a rule, with no text under the pointer — belongs to the cell
-/// below it in the same column, or the one above when the delimiter is the
-/// table's last row. Every other offset comes back unchanged.
-pub fn clickable_offset(tables: &[Table], offset: usize) -> usize {
-    for table in tables {
-        let Some(row) = table.row_at(offset) else {
-            continue;
-        };
-        if !table.is_delimiter(row) {
-            return offset;
-        }
-        // The column the pointer was over, from the delimiter row's own cells,
-        // which partition the row exactly like any other row's do.
-        let Some(column) = table.rows[row]
-            .cells
-            .iter()
-            .find(|c| c.contains(offset))
-            .or_else(|| nearest_cell_left(&table.rows[row], offset))
-            .map(|c| c.column)
-        else {
-            return offset;
-        };
-        let index = table.row_beyond_delimiter(row);
-        let Some(target) = table.rows.get(index) else {
-            return offset;
-        };
-        return target
-            .cells
-            .get(column)
-            .map(|c| c.cursor())
-            .unwrap_or(offset);
-    }
-    offset
-}
-
-/// The last cell that starts at or before `offset`, for an offset that no cell
-/// claims (a row whose cells were synthesized for a ragged table).
-fn nearest_cell_left(row: &TableRow, offset: usize) -> Option<&Cell> {
-    row.cells
-        .iter()
-        .rev()
-        .find(|c| c.span_start <= offset)
-        .or_else(|| row.cells.first())
 }
 
 /// Where the cursor sits inside a table: everything the editor needs to move it
@@ -491,7 +448,11 @@ mod tests {
         assert_eq!(t.columns, 2);
         assert_eq!(t.rows.len(), 4);
         assert_eq!(t.delimiter, 1);
-        assert_eq!(t.column_widths(TABLE), vec![1, 2]);
+        assert_eq!(
+            t.column_widths(TABLE),
+            vec![3, 3],
+            "the rule's dashes are the floor"
+        );
         assert_eq!(
             grid(TABLE)[0],
             vec![
@@ -600,30 +561,20 @@ mod tests {
             assert!(table.cell_at(offset).is_none(), "offset {offset}");
             assert!(locate(&tables(text), offset).is_none());
         }
-        // It is still a row of the table, and it is the one the motions skip.
+        // It is still a row of the table, and it is the one the shifted
+        // vertical motions skip.
         assert_eq!(table.row_at(rule), Some(1));
         assert_eq!(table.navigable_rows().collect::<Vec<_>>(), vec![0, 2]);
     }
 
     #[test]
-    fn a_click_on_the_rule_lands_in_a_cell() {
-        let text = "| a | bb |\n| --- | --- |\n| 1 | 2 |\n";
-        let tables = tables(text);
-        let rule = text.find("---").unwrap();
-        // The rule line is `| --- | --- |`, so an offset nine bytes into it sits
-        // over the second column.
-        let over_second_column = rule + 9;
-        let snapped = clickable_offset(&tables, over_second_column);
-        assert_eq!(
-            &text[snapped..snapped + 1],
-            "2",
-            "the click belongs to the body row's second cell"
-        );
-        // A click on an ordinary row is left exactly where it was.
-        let on_content = text.find('1').unwrap();
-        assert_eq!(clickable_offset(&tables, on_content), on_content);
-        // A click outside a table is untouched, too.
-        assert_eq!(clickable_offset(&tables, 0), 0);
+    fn the_delimiter_row_has_cells_that_set_the_column_floor() {
+        let text = "| a | bb |\n| :--- | ---: |\n| 1 | 2 |\n";
+        let table = &tables(text)[0];
+        // When live preview draws the rule row it draws its cells, so a column
+        // must be wide enough for the alignment markers it holds.
+        assert_eq!(grid(text)[0][1], vec![":---", "---:"]);
+        assert_eq!(table.column_widths(text), vec![4, 4]);
     }
 
     #[test]

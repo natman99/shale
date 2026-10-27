@@ -187,9 +187,13 @@ impl MarkdownEditor {
     /// The rows live preview does not draw at all, so they take up no vertical
     /// space: the ``` lines of a fenced block the cursor is not inside, and a
     /// table's `---` delimiter row, which is painted as a rule and has no cell
-    /// to edit. Either comes back as soon as the cursor is on it (or, for a
-    /// fence, anywhere in its block), which is what lets the user keep editing
-    /// the syntax — including typing a new table's delimiter row.
+    /// to edit.
+    ///
+    /// The delimiter row comes back as its own line as soon as the cursor is on
+    /// it (the user is editing `:---:` alignment) or on the header above it,
+    /// which is where a cursor in the table usually is; that is also what lets a
+    /// freshly typed delimiter row be seen. A fence line comes back when the
+    /// cursor is anywhere in its block.
     pub(super) fn collapsed_rows(
         &self,
         selection: Option<(usize, usize)>,
@@ -199,19 +203,19 @@ impl MarkdownEditor {
         let mut out = vec![false; line_count];
         for table in tables {
             let row = match table.rows.get(table.delimiter) {
-                Some(row) => row.row,
+                Some(row) => row,
                 None => continue,
             };
-            if row >= line_count
-                || self.touches(
-                    selection,
-                    self.buffer.line_start(row),
-                    self.buffer.line_end(row),
-                )
-            {
+            let header = table
+                .delimiter
+                .checked_sub(1)
+                .and_then(|index| table.rows.get(index));
+            let touched = self.touches(selection, row.start, row.end)
+                || header.is_some_and(|head| self.touches(selection, head.start, head.end));
+            if touched || row.row >= line_count {
                 continue;
             }
-            out[row] = true;
+            out[row.row] = true;
         }
 
         let Some((_, spans)) = self.style_cache.as_ref() else {

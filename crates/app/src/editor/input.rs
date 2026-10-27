@@ -34,14 +34,11 @@ impl MarkdownEditor {
             }
         }
         if let Some(hit) = best {
+            // A table's rule line is painted on the edge of a row that is, so a
+            // click there already belongs to that row; the delimiter row it
+            // stands for has no display line of its own unless the cursor is on
+            // it or on the header, in which case clicking its text is correct.
             let offset = hit.offset_for_x(x - hit.bounds.left());
-            // A table's rule line is painted over the dashes of its delimiter
-            // row, which are not text the user can edit: a click there belongs to
-            // the cell below it (or above, at the bottom of the table).
-            let offset = shale_core::table::clickable_offset(
-                &shale_core::table::tables(self.buffer.text()),
-                offset,
-            );
             if event.modifiers.control {
                 self.refresh_links();
                 if self.link_at(offset).is_some() {

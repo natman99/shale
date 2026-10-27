@@ -193,8 +193,8 @@ fn wrap_stays_accurate_for_tabs_and_unicode(cx: &mut TestAppContext) {
 
 /// A table is painted as a grid: one display line per row (never soft-wrapped,
 /// however wide it is) and one painted piece per cell, so the buffer's display
-/// model and the paint stay in step. Its `---` delimiter row is painted as a
-/// rule, so live preview gives it no line at all.
+/// model and the paint stay in step. The cursor is on the header row, which
+/// brings the `---` delimiter row back as a line of its own.
 #[gpui::test]
 fn a_table_is_painted_cell_by_cell(cx: &mut TestAppContext) {
     cx.update(|cx| cx.bind_keys(keybindings()));
@@ -223,16 +223,69 @@ fn a_table_is_painted_cell_by_cell(cx: &mut TestAppContext) {
             // step with what is painted.
             assert_eq!(
                 editor.display_line_count(),
-                4,
-                "the two rows with cells, the plain line and the trailing empty row: the delimiter row is a rule, not a line"
+                5,
+                "the header, the rule row (the cursor is on the header, so it is drawn), the body row, the plain line and the trailing empty row"
             );
             assert_eq!(
                 editor.painted_segments(),
-                vec![2, 2, 1, 1],
+                vec![2, 2, 2, 1, 1],
                 "each table row paints one piece per column"
             );
         })
         .unwrap();
+}
+
+/// A table's `---` delimiter row is drawn as a line of its own while the cursor
+/// is on the header above it (which is how its `:---:` markers get edited), and
+/// collapses to nothing once the cursor moves into the body, where the table
+/// reads as a grid again.
+#[gpui::test]
+fn a_table_delimiter_row_is_drawn_near_the_cursor(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.bind_keys(keybindings()));
+
+    let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+    let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+    editor
+        .update(cx, |editor, window, cx| {
+            editor.set_text(
+                "| Note | Links to |\n| :--- | ---: |\n| [[Welcome]] | **bold** |\n".to_string(),
+                cx,
+            );
+            let focus = editor.focus_handle(cx);
+            window.focus(&focus, cx);
+        })
+        .unwrap();
+    for _ in 0..2 {
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+    }
+
+    // The cursor starts on the header row, so the rule row is drawn below it.
+    let lines = editor
+        .read_with(cx, |editor, _cx| editor.display_line_count())
+        .unwrap();
+    assert_eq!(
+        lines, 4,
+        "header, rule row, body row and the trailing empty row"
+    );
+    let pieces = editor
+        .read_with(cx, |editor, _cx| editor.painted_pieces())
+        .unwrap();
+    assert_eq!(
+        pieces[1],
+        vec![":---", "---:"],
+        "the rule row is painted as its own cells, alignment markers and all"
+    );
+
+    // shift-J is the cell-to-cell motion, so it steps over the rule row; the
+    // cursor is now below it, and the row is gone.
+    cx.simulate_keystrokes("J");
+    let lines = editor
+        .read_with(cx, |editor, _cx| editor.display_line_count())
+        .unwrap();
+    assert_eq!(
+        lines, 3,
+        "the rule row takes no space once the cursor leaves it"
+    );
 }
 
 /// A fenced block's ``` lines are not drawn while the cursor is outside the
@@ -283,7 +336,8 @@ fn a_fenced_block_collapses_its_fence_lines(cx: &mut TestAppContext) {
 
 /// A table cell is painted by the grid rather than as markdown, but a row the
 /// cursor is not on still hides its markers: the user sees `Welcome`, not
-/// `[[Welcome]]`.
+/// `[[Welcome]]`. The delimiter row, drawn because the cursor is on the header,
+/// keeps its alignment markers.
 #[gpui::test]
 fn a_table_cell_hides_its_markers(cx: &mut TestAppContext) {
     cx.update(|cx| cx.bind_keys(keybindings()));
@@ -314,6 +368,11 @@ fn a_table_cell_hides_its_markers(cx: &mut TestAppContext) {
             );
             assert_eq!(
                 pieces[1],
+                vec!["----", "----"],
+                "the rule row is drawn as its own text while the cursor is on the header"
+            );
+            assert_eq!(
+                pieces[2],
                 vec!["Welcome", "bold"],
                 "the grid hides the pipes and live preview hides the markers"
             );

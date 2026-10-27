@@ -11,12 +11,15 @@
 //! IME anchored to the right bytes.
 //!
 //! A row that belongs to a markdown table is the exception: it is never wrapped
-//! and its source pipes and dashes are not painted. Instead each cell's content
-//! is drawn at its column's offset (see [`crate::table_view`]) with grid lines
-//! between the columns, so the user sees a table. Because the painted text is no
-//! longer one contiguous string, a painted line is recorded as a list of
-//! [`HitSegment`]s — one for an ordinary row, one per cell for a table row — and
-//! every x <-> offset question is answered against them.
+//! and its source pipes are not painted. Instead each cell's content is drawn at
+//! its column's offset (see [`crate::table_view`]) with grid lines between the
+//! columns, so the user sees a table. A table's `---` delimiter row is collapsed
+//! out of the display model unless the cursor is on it or on the header, and
+//! when it is drawn its cells (the alignment markers) are painted like any
+//! other's. Because the painted text is no longer one contiguous string, a
+//! painted line is recorded as a list of [`HitSegment`]s — one for an ordinary
+//! row, one per cell for a table row — and every x <-> offset question is
+//! answered against them.
 
 use gpui::{
     fill, font, px, relative, rgb, App, Bounds, Corners, Element, ElementId, ElementInputHandler,
@@ -175,7 +178,8 @@ pub(crate) struct LineElement {
     /// that matches the callout's type.
     pub(crate) callout: Option<CalloutKind>,
     /// Set when this row is a table row: the grid to paint instead of the raw
-    /// markdown, whose pipes and dashes are then hidden.
+    /// markdown, whose pipes are then left out because they are not cell
+    /// content.
     pub(crate) table: Option<TablePaint>,
     /// Set when this row is drawn as an embedded image instead of as text: the
     /// picture and the rectangle it fits in, which is also the line's height.
@@ -188,8 +192,7 @@ pub(crate) struct LineElement {
 pub(crate) struct LinePrepaint {
     /// The whole line's shaped text, for an ordinary row.
     line: Option<ShapedLine>,
-    /// One entry per cell, for a table row. The delimiter row's cells are empty:
-    /// its dashes are replaced by a rule.
+    /// One entry per cell, for a table row.
     cells: Vec<CellShaped>,
 }
 
@@ -280,8 +283,8 @@ impl LineElement {
     }
 
     /// Paints one row of a table: the header's background, the grid lines, the
-    /// delimiter's rule, then each cell's text with its own selection and cursor
-    /// quads.
+    /// rule under the header, then each cell's text with its own selection and
+    /// cursor quads.
     fn paint_table(
         &self,
         bounds: Bounds<Pixels>,
@@ -316,11 +319,12 @@ impl LineElement {
                 rgb(theme::TABLE_LINE),
             ));
         }
-        // The rule under the header: across the delimiter row when live preview
-        // draws that row, and along the header's bottom edge when it collapses
-        // the delimiter row to nothing.
+        // The rule under the header. It is painted once: along the delimiter
+        // row's top edge while live preview draws that row, and along the
+        // header's bottom edge when the delimiter row is collapsed away (or has
+        // scrolled out of view, which would leave the rule unpainted otherwise).
         let rule_y = if table.delimiter {
-            Some(bounds.top() + px(f32::from(bounds.size.height) / 2.))
+            Some(bounds.top())
         } else if table.rule_below {
             Some(bounds.bottom() - px(1.))
         } else {
@@ -358,9 +362,6 @@ impl LineElement {
                         rgb(SELECTION),
                     ));
                 }
-            }
-            if table.delimiter {
-                continue;
             }
             if let Err(err) = shaped.line.paint_background(
                 gpui::point(x, bounds.top()),
@@ -484,7 +485,9 @@ impl Element for LineElement {
         // A table row is shaped cell by cell, each with only the styles that
         // fall inside it, because the cells are painted at column offsets rather
         // than as one string. A cell's text leaves out the row's hidden markers,
-        // exactly as an ordinary row's does.
+        // exactly as an ordinary row's does. The delimiter row is shaped like any
+        // other: its cells are the alignment markers, which is what the user
+        // edits when the row is drawn.
         let text = self.text.to_string();
         let cells = table
             .cells
@@ -493,17 +496,6 @@ impl Element for LineElement {
                 let pieces =
                     shale_core::mdlayout::visible_pieces(cell.start, cell.end, &self.hidden);
                 let map = PieceMap::from_pieces(&pieces);
-                if table.delimiter {
-                    return CellShaped {
-                        line: text_system.shape_line(
-                            SharedString::from(""),
-                            px(self.size),
-                            &build_runs("", &[], &[], &base_font),
-                            None,
-                        ),
-                        map,
-                    };
-                }
                 let painted: String = pieces
                     .iter()
                     .map(|&(s, e)| &text[s - self.start..e - self.start])

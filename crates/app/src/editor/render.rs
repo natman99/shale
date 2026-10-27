@@ -79,13 +79,15 @@ impl Render for MarkdownEditor {
         // per buffer row, and a row that has one never soft-wraps, which the wrap
         // model has to be told about so it agrees with the paint.
         let buffer_tables = shale_core::table::tables(self.buffer.text());
-        let plans = table_view::plans_by_row(self.buffer.text(), &buffer_tables, line_count);
-        let table_rows: Vec<bool> = plans.iter().map(|plan| plan.is_some()).collect();
         // Rows live preview leaves out entirely: the fence lines of a code block
-        // the cursor is not in, and a table's delimiter row. Dropping them from
-        // the display model is what keeps j/k, the scroll position and the ruler
-        // in step with what is on screen.
+        // the cursor is not in, and a table's delimiter row (unless the cursor is
+        // on it or on the header above it). Dropping them from the display model
+        // is what keeps j/k, the scroll position and the ruler in step with what
+        // is on screen.
         let collapsed = self.collapsed_rows(selection, &buffer_tables);
+        let plans =
+            table_view::plans_by_row(self.buffer.text(), &buffer_tables, line_count, &collapsed);
+        let table_rows: Vec<bool> = plans.iter().map(|plan| plan.is_some()).collect();
         // Images: a row that is nothing but an embed is painted as the picture
         // while the cursor is elsewhere in the note. Whether a row shows the
         // picture or its source follows the same live-preview rule as every

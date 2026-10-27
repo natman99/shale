@@ -422,8 +422,10 @@ impl Vim {
             return Outcome::Stay;
         }
         // Inside a cell the table commands come first: `H`/`L` jump columns,
-        // `j`/`k`/`J`/`K` step through cells, and `o`/`I`/`A` act on the cell
-        // rather than the whole row.
+        // `J`/`K` step through cells, and `o`/`I`/`A` act on the cell rather
+        // than the whole row. Plain `j`/`k` fall through to the ordinary line
+        // motions below, which is what lets the cursor reach a table's delimiter
+        // row when live preview is drawing it.
         if let Some(loc) = located {
             if let Some(outcome) = self.table_command(key, count, &tables, loc, buf) {
                 return outcome;
@@ -582,11 +584,14 @@ impl Vim {
         match c {
             // Cell-to-cell motions. `h`/`l` walk the cell's content and step into
             // the neighbouring cell at its edge; the shifted forms jump a whole
-            // column. Plain `j`/`k` step through cells, skipping the delimiter
-            // row, and walk out of the table at its top or bottom.
+            // column. `J`/`K` step through the grid's rows, skipping the
+            // delimiter row and walking out of the table at its top or bottom.
+            // Plain `j`/`k` are not table commands at all: they stay the ordinary
+            // line motions, which follow the display model and so can stop on the
+            // delimiter row while live preview is drawing it.
             'H' => step_cell(table, loc, 0, -count, buf),
             'L' => step_cell(table, loc, 0, count, buf),
-            'K' | 'k' => match step_cell_rows(table, loc, -count, buf) {
+            'K' => match step_cell_rows(table, loc, -count, buf) {
                 // Walking off the top of the table leaves it: whatever part of the
                 // count the table did not use becomes the ordinary up motion.
                 Some(leftover) if leftover > 0 => {
@@ -596,7 +601,7 @@ impl Vim {
                 Some(_) => {}
                 None => buf.move_up(),
             },
-            'J' | 'j' => match step_cell_rows(table, loc, count, buf) {
+            'J' => match step_cell_rows(table, loc, count, buf) {
                 Some(leftover) if leftover > 0 => {
                     repeat(leftover, || buf.move_down());
                     step_past_rule(table, buf, true);
@@ -1025,10 +1030,11 @@ fn step_cell(table: &Table, loc: Located, d_row: isize, d_col: isize, buf: &mut 
     }
 }
 
-/// The vertical cell motion: `delta` rows down (or up, when negative) in the
-/// same column, skipping the delimiter row, landing on the cell's first content
-/// character. Returns the part of the count the table could not use — the steps
-/// left over after walking off its top or bottom, which the caller spends on the
+/// The shifted vertical motion (`J`/`K`): `delta` rows down (or up, when
+/// negative) in the same column, skipping the delimiter row, landing on the
+/// cell's first content character. Returns the part of the count the table could
+/// not use — the steps left over after walking off its top or bottom, which the
+/// caller spends on the
 /// ordinary line motion so the cursor escapes the table — and `Some(0)` when the
 /// motion stayed inside. `None` means the cursor was not on a navigable row at
 /// all, so the caller should just use the ordinary motion.
@@ -1719,18 +1725,18 @@ mod tests {
         );
         type_keys(&mut vim, "H", &mut b);
         assert_eq!(&b.text()[b.cursor()..b.cursor() + 1], "1", "back left");
-        type_keys(&mut vim, "j", &mut b);
+        type_keys(&mut vim, "J", &mut b);
         assert_eq!(
             &b.text()[b.cursor()..b.cursor() + 1],
             "4",
-            "plain j steps to the cell below"
+            "shift-J steps to the cell below"
         );
-        type_keys(&mut vim, "k", &mut b);
+        type_keys(&mut vim, "K", &mut b);
         assert_eq!(&b.text()[b.cursor()..b.cursor() + 1], "1");
         // A count jumps that many cells; past the bottom of the table the rest of
         // the count becomes an ordinary line motion, which is how the cursor
         // leaves the table (see `j_and_k_walk_out_of_the_table`).
-        type_keys(&mut vim, "j", &mut b);
+        type_keys(&mut vim, "J", &mut b);
         assert_eq!(&b.text()[b.cursor()..b.cursor() + 1], "4", "one cell down");
         b.set_cursor(b.text().find('1').unwrap());
         type_keys(&mut vim, "2L", &mut b);
@@ -1815,17 +1821,17 @@ mod tests {
     }
 
     #[test]
-    fn j_and_k_skip_the_delimiter_row() {
+    fn shift_j_and_k_skip_the_delimiter_row() {
         let mut vim = Vim::new();
         let mut b = table_buf();
         b.set_cursor(b.text().find('a').unwrap());
-        type_keys(&mut vim, "j", &mut b);
+        type_keys(&mut vim, "J", &mut b);
         assert_eq!(
             &b.text()[b.cursor()..b.cursor() + 1],
             "1",
             "the rule line under the header is skipped"
         );
-        type_keys(&mut vim, "k", &mut b);
+        type_keys(&mut vim, "K", &mut b);
         assert_eq!(
             &b.text()[b.cursor()..b.cursor() + 1],
             "a",
@@ -1833,12 +1839,41 @@ mod tests {
         );
     }
 
+    /// Plain `j`/`k` are not table commands: they are the ordinary line motions,
+    /// which follow the display model. Live preview draws the delimiter row while
+    /// the cursor is on the header or on the row itself, and then they stop on it
+    /// like any other line, which is how the user reaches `:---:` to edit it.
+    #[test]
+    fn plain_j_and_k_stop_on_the_delimiter_row_when_it_is_drawn() {
+        let mut vim = Vim::new();
+        let mut b = table_buf();
+        b.set_cursor(b.text().find('a').unwrap());
+        type_keys(&mut vim, "j", &mut b);
+        assert_eq!(
+            b.row_col(b.cursor()).0,
+            1,
+            "the rule row is a line like any other"
+        );
+        assert!(
+            table::locate(&table::tables(b.text()), b.cursor()).is_none(),
+            "and it is not a cell, so the table commands do not apply to it"
+        );
+        type_keys(&mut vim, "j", &mut b);
+        assert_eq!(
+            &b.text()[b.cursor()..b.cursor() + 1],
+            "1",
+            "the next j moves on into the body"
+        );
+        type_keys(&mut vim, "k", &mut b);
+        assert_eq!(b.row_col(b.cursor()).0, 1, "and k comes back onto it");
+    }
+
     #[test]
     fn j_and_k_walk_out_of_the_table() {
         let mut vim = Vim::new();
         let mut b = table_buf_with_context();
         b.set_cursor(b.text().find('a').unwrap());
-        type_keys(&mut vim, "k", &mut b);
+        type_keys(&mut vim, "K", &mut b);
         assert_eq!(b.row_col(b.cursor()).0, 1, "up out of the table");
         assert!(
             table::locate(&table::tables(b.text()), b.cursor()).is_none(),
@@ -1847,7 +1882,7 @@ mod tests {
         // Down through the whole table: the steps the table could not use become
         // ordinary line motions, and the rule line is skipped on the way out.
         b.set_cursor(b.text().find('a').unwrap());
-        type_keys(&mut vim, "4j", &mut b);
+        type_keys(&mut vim, "4J", &mut b);
         assert_eq!(
             b.row_col(b.cursor()).0,
             7,
