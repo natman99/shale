@@ -14,6 +14,8 @@ pub struct Config {
     pub editor: EditorConfig,
     #[serde(default)]
     pub appearance: AppearanceConfig,
+    #[serde(default)]
+    pub spellcheck: SpellcheckConfig,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -68,6 +70,30 @@ impl Default for AppearanceConfig {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct SpellcheckConfig {
+    /// Ask a language server for spelling and grammar notes. On by default; when
+    /// the server is not installed Shale simply has nothing to show.
+    pub enabled: bool,
+    /// The command that starts the server, spoken to over standard input and
+    /// output using the Language Server Protocol.
+    pub command: String,
+    /// Arguments for it. `--stdio` is what moves harper-ls off its default TCP
+    /// port and onto the pipes.
+    pub args: Vec<String>,
+}
+
+impl Default for SpellcheckConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            command: "harper-ls".to_string(),
+            args: vec!["--stdio".to_string()],
+        }
+    }
+}
+
 impl Config {
     /// Load from `shale.toml` inside `dir`, falling back to defaults when
     /// the file does not exist.
@@ -108,6 +134,19 @@ mod tests {
         assert_eq!(cfg.appearance.font_size, 12.0);
     }
 
+    /// Spellcheck is on by default and names the server it expects to find.
+    #[test]
+    fn spellcheck_defaults_to_harper_over_stdio() {
+        let cfg = Config::from_toml("").unwrap();
+        assert!(cfg.spellcheck.enabled);
+        assert_eq!(cfg.spellcheck.command, "harper-ls");
+        assert_eq!(cfg.spellcheck.args, vec!["--stdio"]);
+
+        let cfg = Config::from_toml("[spellcheck]\nenabled = false\n").unwrap();
+        assert!(!cfg.spellcheck.enabled);
+        assert_eq!(cfg.spellcheck.command, "harper-ls");
+    }
+
     #[test]
     fn full_config_roundtrips() {
         let toml = r#"
@@ -121,12 +160,18 @@ font_size = 16.5
 font_family = "Iosevka"
 live_preview = false
 theme = "light"
+
+[spellcheck]
+command = "my-ls"
+args = ["--stdio", "--quiet"]
 "#;
         let cfg = Config::from_toml(toml).unwrap();
         assert!(!cfg.editor.vim_mode);
         assert_eq!(cfg.appearance.font_size, 16.5);
         assert_eq!(cfg.appearance.font_family, "Iosevka");
         assert_eq!(cfg.appearance.theme, "light");
+        assert_eq!(cfg.spellcheck.command, "my-ls");
+        assert_eq!(cfg.spellcheck.args, vec!["--stdio", "--quiet"]);
     }
 
     #[test]
