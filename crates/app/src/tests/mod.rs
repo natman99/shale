@@ -10,7 +10,9 @@ use crate::editor::MarkdownEditor;
 use crate::workspace::{keybindings, Workspace};
 use gpui::{Focusable, TestAppContext, VisualTestContext, WindowHandle};
 
+mod blocks;
 mod keys;
+mod motions;
 mod paint;
 mod picker;
 mod tree;
