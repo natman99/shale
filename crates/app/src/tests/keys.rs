@@ -211,12 +211,12 @@ fn keymap_matches_the_linux_keystroke_shape() {
     // not in its context stack and cannot steal a typed letter.
     let contexts = vec![gpui::KeyContext::try_from("prompt").unwrap()];
     for (key, action) in [
-        ("enter", "shale::PromptSubmit"),
-        ("escape", "shale::PromptCancel"),
-        ("backspace", "shale::PromptBackspace"),
-        ("delete", "shale::PromptDelete"),
-        ("left", "shale::PromptLeft"),
-        ("right", "shale::PromptRight"),
+        ("enter", "shale::FieldSubmit"),
+        ("escape", "shale::FieldCancel"),
+        ("backspace", "shale::FieldBackspace"),
+        ("delete", "shale::FieldDelete"),
+        ("left", "shale::FieldLeft"),
+        ("right", "shale::FieldRight"),
     ] {
         let typed = gpui::Keystroke {
             modifiers: gpui::Modifiers::default(),
@@ -246,6 +246,49 @@ fn keymap_matches_the_linux_keystroke_shape() {
             "the prompt must not answer {key}, which is a character being typed"
         );
     }
+
+    // A picker: the same field keys, plus `j`/`k` for the highlighted row — and
+    // nothing else, because every other letter is part of the query being typed.
+    let contexts = vec![gpui::KeyContext::try_from("picker").unwrap()];
+    for (key, action) in [
+        ("enter", "shale::FieldSubmit"),
+        ("escape", "shale::FieldCancel"),
+        ("backspace", "shale::FieldBackspace"),
+        ("delete", "shale::FieldDelete"),
+        ("left", "shale::FieldLeft"),
+        ("right", "shale::FieldRight"),
+        ("j", "shale::PickerDown"),
+        ("k", "shale::PickerUp"),
+        ("down", "shale::PickerDown"),
+        ("up", "shale::PickerUp"),
+    ] {
+        assert_eq!(
+            resolved(&keymap, key, &contexts),
+            vec![action.to_string()],
+            "the picker: typed {key} should resolve to {action}"
+        );
+    }
+    for key in ["x", "r", "n", "h", "l", "i"] {
+        assert!(
+            resolved(&keymap, key, &contexts).is_empty(),
+            "the picker must not answer {key}, which is a character being typed"
+        );
+    }
+}
+
+/// The actions one plain keystroke resolves to in the given key contexts.
+fn resolved(keymap: &gpui::Keymap, key: &str, contexts: &[gpui::KeyContext]) -> Vec<String> {
+    let typed = gpui::Keystroke {
+        modifiers: gpui::Modifiers::default(),
+        key: key.to_string(),
+        key_char: None,
+    };
+    let (bindings, pending) = keymap.bindings_for_input(&[typed], contexts);
+    assert!(!pending, "{key} should not leave pending input");
+    bindings
+        .iter()
+        .map(|b| b.action().name().to_string())
+        .collect()
 }
 
 /// The table keys have to work through the real keymap, not just the core

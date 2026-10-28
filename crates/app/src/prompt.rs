@@ -22,9 +22,7 @@ use gpui::{
 };
 use shale_core::theme::Palette;
 
-use crate::acts::{
-    PromptBackspace, PromptCancel, PromptDelete, PromptLeft, PromptRight, PromptSubmit,
-};
+use crate::acts::{FieldBackspace, FieldCancel, FieldDelete, FieldLeft, FieldRight, FieldSubmit};
 use crate::field::{self, approx_char_width, Field, FieldElement, FieldOwner};
 
 /// The key context the prompt's bindings live in. While it is open its keys win
@@ -224,25 +222,25 @@ impl Render for Prompt {
         div()
             .key_context(CONTEXT)
             .track_focus(&self.focus_handle)
-            .on_action(cx.listener(|this, _: &PromptSubmit, _window, cx| {
+            .on_action(cx.listener(|this, _: &FieldSubmit, _window, cx| {
                 cx.emit(PromptEvent::Submit(this.field.text().to_string().into()));
             }))
-            .on_action(cx.listener(|_, _: &PromptCancel, _window, cx| {
+            .on_action(cx.listener(|_, _: &FieldCancel, _window, cx| {
                 cx.emit(PromptEvent::Cancel);
             }))
-            .on_action(cx.listener(|this, _: &PromptBackspace, _window, cx| {
+            .on_action(cx.listener(|this, _: &FieldBackspace, _window, cx| {
                 this.field.backspace();
                 cx.notify();
             }))
-            .on_action(cx.listener(|this, _: &PromptDelete, _window, cx| {
+            .on_action(cx.listener(|this, _: &FieldDelete, _window, cx| {
                 this.field.delete_forward();
                 cx.notify();
             }))
-            .on_action(cx.listener(|this, _: &PromptLeft, _window, cx| {
+            .on_action(cx.listener(|this, _: &FieldLeft, _window, cx| {
                 this.field.step_caret(-1);
                 cx.notify();
             }))
-            .on_action(cx.listener(|this, _: &PromptRight, _window, cx| {
+            .on_action(cx.listener(|this, _: &FieldRight, _window, cx| {
                 this.field.step_caret(1);
                 cx.notify();
             }))

@@ -42,6 +42,7 @@ impl Render for Workspace {
         }
         self.tree_rows = paths;
         let prompt = self.prompt.as_ref().map(|(_, prompt)| prompt.clone());
+        let picker = self.picker.clone();
 
         let mode = mode_label(self.editor.read(cx).mode());
         let dirty = if self.editor.read(cx).is_dirty() {
@@ -68,6 +69,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::rename_note))
             .on_action(cx.listener(Self::delete_note))
             .on_action(cx.listener(Self::focus_tree))
+            .on_action(cx.listener(Self::quick_open))
             .child(
                 div()
                     .flex_1()
@@ -139,7 +141,22 @@ impl Render for Workspace {
                                     .children(rows),
                             ),
                     )
-                    .child(div().flex_1().min_w_0().h_full().child(self.editor.clone())),
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .h_full()
+                            .flex()
+                            .flex_col()
+                            // A picker sits above the note rather than over it: no
+                            // overlay machinery, and the note shrinks while the
+                            // list is up. Like the prompt it is a sibling of the
+                            // editor, so the vim contexts stay out of its way.
+                            .when_some(picker, |d, picker| {
+                                d.child(div().p_2().pb_0().child(picker))
+                            })
+                            .child(div().flex_1().min_h_0().child(self.editor.clone())),
+                    ),
             )
             .child(
                 div()

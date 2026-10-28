@@ -8,6 +8,7 @@ mod editor;
 mod field;
 mod image;
 mod line;
+mod picker;
 mod preview;
 mod prompt;
 mod table_view;

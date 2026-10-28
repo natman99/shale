@@ -45,21 +45,7 @@ impl Field {
         &self.text
     }
 
-    /// Byte offset of the caret.
-    pub(crate) fn caret(&self) -> usize {
-        self.caret
-    }
-
-    pub(crate) fn is_empty(&self) -> bool {
-        self.text.is_empty()
-    }
-
     /// Replace the whole line and put the caret at its end.
-    pub(crate) fn set(&mut self, text: &str) {
-        self.text = SharedString::from(text.to_string());
-        self.caret = self.text.len();
-    }
-
     pub(crate) fn insert(&mut self, text: &str) {
         let mut new = self.text.to_string();
         new.replace_range(self.caret..self.caret, text);

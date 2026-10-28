@@ -3,54 +3,8 @@
 //! typed through the input handler, and Enter is what touches the disk.
 
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
-
-use gpui::{TestAppContext, VisualTestContext, WindowHandle};
-use shale_core::{Config, Vault};
 
 use super::*;
-use crate::workspace::{keybindings, Workspace};
-
-/// A workspace over a throwaway vault holding `files`, with the note focused the
-/// way `main` focuses it. The `TempDir` is returned so the caller can check what
-/// reached the disk.
-fn workspace(
-    cx: &mut TestAppContext,
-    files: &[&str],
-) -> (tempfile::TempDir, WindowHandle<Workspace>) {
-    let dir = tempfile::tempdir().unwrap();
-    for name in files {
-        let path = dir.path().join(name);
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).unwrap();
-        }
-        std::fs::write(&path, "").unwrap();
-    }
-    let vault = Rc::new(Vault::open(dir.path()).unwrap());
-    cx.update(|cx| cx.bind_keys(keybindings()));
-    let window =
-        cx.add_window(|_window, cx| Workspace::new(vault.clone(), Rc::new(Config::default()), cx));
-    window
-        .update(cx, |ws, window, cx| {
-            ws.focus_editor(&FocusEditor, window, cx);
-        })
-        .unwrap();
-    (dir, window)
-}
-
-/// The workspace's state, read out of the window.
-fn state(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> (Vec<PathBuf>, String) {
-    window
-        .update(cx, |ws, _window, _cx| {
-            (
-                ws.tree_rows(),
-                ws.active_path()
-                    .map(|p| p.display().to_string())
-                    .unwrap_or_default(),
-            )
-        })
-        .unwrap()
-}
 
 #[gpui::test]
 fn ctrl_n_asks_for_a_name_and_creates_the_note(cx: &mut TestAppContext) {

@@ -18,6 +18,8 @@ pub(crate) fn keybindings() -> Vec<KeyBinding> {
         KeyBinding::new("ctrl-shift-r", RenameNote, None),
         KeyBinding::new("ctrl-shift-d", DeleteNote, None),
         KeyBinding::new("ctrl-b", FocusTree, None),
+        // Quick-open: jump to a note by typing part of its name or path.
+        KeyBinding::new("ctrl-o", QuickOpen, None),
     ];
     macro_rules! bind {
         ($ctx:expr, [ $( $key:literal => $action:ident ),* $(,)? ]) => {
@@ -149,12 +151,27 @@ pub(crate) fn keybindings() -> Vec<KeyBinding> {
     // arrive through the input handler — so only the keys that are not text are
     // bound here.
     bind!("prompt", [
-        "enter" => PromptSubmit,
-        "escape" => PromptCancel,
-        "backspace" => PromptBackspace,
-        "delete" => PromptDelete,
-        "left" => PromptLeft,
-        "right" => PromptRight,
+        "enter" => FieldSubmit,
+        "escape" => FieldCancel,
+        "backspace" => FieldBackspace,
+        "delete" => FieldDelete,
+        "left" => FieldLeft,
+        "right" => FieldRight,
+    ]);
+    // A picker: the same field keys, plus the two that move the highlighted row.
+    // `j`/`k` are free here because the picker is drawn outside the tree and the
+    // editor, so neither of their key contexts is in the focused stack.
+    bind!("picker", [
+        "enter" => FieldSubmit,
+        "escape" => FieldCancel,
+        "backspace" => FieldBackspace,
+        "delete" => FieldDelete,
+        "left" => FieldLeft,
+        "right" => FieldRight,
+        "j" => PickerDown,
+        "k" => PickerUp,
+        "down" => PickerDown,
+        "up" => PickerUp,
     ]);
     keys
 }

@@ -96,11 +96,18 @@ actions!(
         TreeCollapse,
         TreeExpand,
         TreeOpen,
-        PromptSubmit,
-        PromptCancel,
-        PromptBackspace,
-        PromptDelete,
-        PromptLeft,
-        PromptRight,
+        QuickOpen,
+        // The keys a one-line field takes that are not printable text. The prompt
+        // and every picker bind these in their own context, because the field is
+        // the same widget in both.
+        FieldSubmit,
+        FieldCancel,
+        FieldBackspace,
+        FieldDelete,
+        FieldLeft,
+        FieldRight,
+        // Moving the highlighted row of a picker.
+        PickerUp,
+        PickerDown,
     ]
 );

@@ -9,6 +9,7 @@
 
 mod edits;
 mod keys;
+mod open;
 mod render;
 mod tree;
 
@@ -27,6 +28,7 @@ use shale_core::{Config, Vault};
 
 use crate::acts::*;
 use crate::editor::{EditorEvent, MarkdownEditor};
+use crate::picker;
 use crate::prompt;
 
 /// The whole window's state: what is open, what the sidebar shows, and the editor
@@ -62,6 +64,17 @@ pub(crate) struct Workspace {
     signature: BTreeMap<PathBuf, Stamp>,
     /// The subscription to the open prompt, replaced when another one opens.
     _prompt_events: Option<Subscription>,
+    /// The open picker, if one is open: quick-open today, search and the command
+    /// palette later.
+    picker: Option<Entity<picker::Picker>>,
+    /// What each row of the open picker stands for, indexed the way the picker
+    /// indexes its items, so a chosen row can be turned back into a path.
+    picker_targets: Vec<PathBuf>,
+    /// What had the keyboard when the picker opened, so closing it puts the
+    /// keyboard back where the user was working.
+    picker_return_focus: Option<gpui::FocusHandle>,
+    /// The subscription to the open picker, replaced when another one opens.
+    _picker_events: Option<Subscription>,
     status: SharedString,
     editor: Entity<MarkdownEditor>,
     _editor_events: Subscription,
@@ -134,6 +147,10 @@ impl Workspace {
             tree_rows: Vec::new(),
             prompt: None,
             prompt_return_focus: None,
+            picker: None,
+            picker_targets: Vec::new(),
+            picker_return_focus: None,
+            _picker_events: None,
             signature,
             _prompt_events: None,
             status: "".into(),
@@ -322,6 +339,23 @@ impl Workspace {
         self.prompt
             .as_ref()
             .map(|(_, prompt)| prompt.read(cx).text().to_string())
+    }
+
+    /// The note the open picker would choose, or `None` while no picker is open:
+    /// how a test checks what a typed query narrowed the list to.
+    #[cfg(test)]
+    pub(crate) fn picker_choice(&self, cx: &gpui::App) -> Option<String> {
+        self.picker
+            .as_ref()
+            .and_then(|picker| picker.read(cx).chosen())
+            .and_then(|idx| self.picker_targets.get(idx))
+            .map(|path| path.display().to_string())
+    }
+
+    /// How many rows the open picker is offering.
+    #[cfg(test)]
+    pub(crate) fn picker_matches(&self, cx: &gpui::App) -> Option<usize> {
+        self.picker.as_ref().map(|picker| picker.read(cx).matches())
     }
 }
 
