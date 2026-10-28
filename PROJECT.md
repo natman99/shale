@@ -162,21 +162,27 @@ Workspace layout:
   opening the note on that line. Spell and grammar checking come from a language
   server (`harper-ls --stdio` by default, named by `[spellcheck]` in `shale.toml`):
   what it finds is drawn as wavy underlines in the note and counted in the status
-  bar. Split into `main.rs` (the
+  bar, and vim's `K` — or resting the pointer on a marked word — opens a **popup**
+  over the note with the checker's complaint and the fixes it offers (one popup at
+  a time, anchored to the line it belongs to, not an OS window). Split into `main.rs` (the
   command line and the window it opens), `acts.rs` (every action the keymap
   names — the two namespaces its `actions!` calls generate are what the keymap
   and the tests match on, so they are load-bearing, not just namespaces),
   `field.rs` (the one-line text field the prompt and the pickers share: the text,
   the caret, the utf-16 translation gpui's input handler speaks, and the element
   that paints it and registers the input handler), `prompt.rs`, `picker.rs` (the
-  searchable list), `workspace/` (`mod.rs` the state, `keys.rs` the keymap,
+  searchable list), `popup.rs` (the checker's panel over the note: its message, its
+  rows, and the size the window uses to place it), `workspace/` (`mod.rs` the state,
+  `keys.rs` the keymap,
   `tree.rs` the sidebar's keyboard state and its rows, `edits.rs` the prompt and
   the vault edits behind its answers, `open.rs` the pickers' rows and choices
-  (a row is either a note or a command), `commands.rs` the command palette's list
+  (a row is either a note or a command), `popups.rs` the window's one popup —
+  opening, closing, and applying what the checker offered,
+  `commands.rs` the command palette's list
   — every command's label, the keys that run it and the action it dispatches —
   `render.rs` the frame), `tree.rs` (turning the vault's entries
   into rows) and its headless tests in `tests/` (`keys.rs`, `paint.rs`,
-  `tree.rs`, `picker.rs`), `editor/` (the view: `mod.rs`
+  `tree.rs`, `picker.rs`, `popup.rs`), `editor/` (the view: `mod.rs`
   holds the state and accessors, `wrap.rs` the display model, `render.rs` builds
   the frame and the key context, `actions.rs` the key handlers, `input.rs` the
   IME/paste/click surface), `line.rs` (the `LineElement` that paints one display
@@ -246,6 +252,16 @@ entity), cx)` while painting the current frame. Forget it and every character
   `Application::new()`; `ShapedLine::paint` takes `TextAlign` + `align_width`;
   `Window::focus` takes `cx`; `TextRun.len` and `ShapedLine::x_for_index` are
   **utf-8 byte** offsets, while the input-handler range methods are utf-16.
+- **Overlays, fonts and the two x spaces.** There is no `.absolute()/.left()/.top()`
+  on `Styled` in v1.25.3 — something drawn over something else is
+  `gpui::anchored().position(window_point).position_mode(AnchoredPositionMode::Window)`.
+  `Styled` has `font_family`, **not** `text_font`, and a `TextRun` carries a `Font`
+  but no size: the size is whatever text style the element is nested in, so a panel
+  sets `font_family`/`text_size` on its root and lets its rows inherit. And a
+  `HitLine`'s own x is measured **from the line's left edge** while a mouse event's
+  is a **window** coordinate — the editor has margins and a table row starts further
+  in again, so mixing them puts the cursor (or a hover) a few characters off. See
+  `MarkdownEditor::offset_at_x` (line-local) vs `offset_at_pointer_x` (window).
 
 ### Testing
 
@@ -259,7 +275,7 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
 - Run the test binaries under `ulimit -v` when working on anything that scans
   text (a scanner bug can allocate until the OOM killer takes the editor down —
   see the table postmortem).
-  Current peak RSS of the test binaries: core 6 MB, app 45 MB, mcp 3.4 MB. The
+  Current peak RSS of the test binaries: core 6 MB, app 47 MB, mcp 3.5 MB. The
   app binary's *address space* (not RSS) is far larger because of gpui/wgpu
   reservations, and it now needs **4 GB or more** — a 1 GB cap makes it die in an
   80-byte allocation. Build with `cargo test --workspace --no-run`, then run each
@@ -1260,12 +1276,125 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   survive a painted frame. `line.rs` gained a marks case in `runs_tile_the_line`
   (gpui asserts runs tile the text exactly, so a wrong range panics the frame
   rather than underlining the wrong word) and `a_checker_range_is_a_wavy_underline`.
-  **Follow-ups:** no `textDocument/codeAction`, so Harper's own fixes
-  (`HarperRecordLint`, `HarperAddToUserDict`, `HarperIgnoreLint`) are unreachable —
-  that is the obvious next step, and it wants a UI for "accept this suggestion";
-  no hover showing *what* the complaint is; no diagnostics outside the note
+  **Follow-ups:** ~~no `textDocument/codeAction`~~ and ~~no hover showing *what*
+  the complaint is~~ are both done — see the popup bullet below. Still open: no
+  diagnostics outside the note
   (nothing else is a document); `isolateEnglish` is off, so code spans and
   frontmatter are checked as prose; and a palette role of its own for the colour.
+- **The popup: code actions and hover (2026-10-28).** The checker now answers the
+  two questions it could not before: *what is the complaint* and *what can be done
+  about it*. Both arrive in one **panel drawn inside the window** — not an OS
+  window — over the note, from `crates/app/src/popup.rs` (the widget) and
+  `crates/app/src/workspace/popups.rs` (the window's rules).
+  **Two ways to ask.** vim's `K` (the engine returns the new `Outcome::Hover`, and
+  the editor dispatches `ShowNote` rather than knowing anything about checkers; the
+  window binds `K` in the command palette too). Inside a table `K` stays the row
+  motion, because the table path answers the key before the lookup can claim it —
+  `upper_k_in_a_table_moves_a_row_instead`. And the pointer: each display line
+  reports where the pointer is (`EditorEvent::Hovered { offset, line }`, worked out
+  from the text that was painted there), and the window opens a panel only when
+  that offset is inside a marked range and the editor is in normal mode. Insert
+  mode is typing, so the pointer never takes the keyboard then.
+  **Only one popup, and it always closes.** The window holds one
+  `Option<Entity<Popup>>`; opening another replaces it. A prompt or a picker closes
+  it on the way in (they are modal in a way a panel is not), and no panel opens
+  while one of them is up. Every exit goes through `close_popup`, which hands the
+  keyboard back to whatever had it — `escape`, a chosen row, the pointer leaving the
+  word it was opened over, the checker withdrawing its note, another note opening.
+  The one path with no window to refocus with (the file watcher) leaves the focus
+  in `pending_focus` and the next frame does it through `window.defer`, which is
+  why "closing always returns the keyboard" stays true rather than being true
+  except when a disk change happens to break it.
+  **Anchored to the line, not to a point.** The panel's place is recomputed each
+  frame from the display line it belongs to (`popup_place` → `hit_line_bounds`), so
+  it follows the note as it scrolls, and returns `None` — no panel — when that line
+  has scrolled out of the viewport (`MarkdownEditor::line_is_visible`), instead of
+  floating over the sidebar. `popup::panel_size(rows, size)` and the render are
+  built from the same constants, so the window's idea of where the panel is cannot
+  drift from where it is drawn. gpui v1.25.3 has no `.absolute()/.left()/.top()` on
+  `Styled`; overlays are `gpui::anchored().position(point)` with
+  `AnchoredPositionMode::Window`, which also keeps the panel inside the window
+  (`snap_to_window`).
+  **The notes live on the window.** `Workspace::checker_notes` keeps the
+  `Diagnostic`s the server published (it used to keep only their count), so `K` and
+  a resting pointer can find the note under the cursor **without asking the server
+  anything** — which is what makes the whole panel testable headlessly, with no
+  `harper-ls` in sight (`set_checker_notes` in tests). It also means the answer
+  arrives for a word the server already described, so `K` works while the server is
+  still thinking.
+  **Harper's seven offers, and the shapes they come in.** `textDocument/codeAction`
+  for a spelling diagnostic returns **seven** items in **two different shapes**:
+  three `CodeAction`s (`title`, `edit.changes`, and a `command` that is an
+  *object*) and four bare `Command`s (`title`, and a `command` that is a *string*
+  with the arguments one level shallower) — `HarperIgnoreLint`,
+  `HarperAddToUserDict`, `HarperAddToWSDict`, `HarperAddToFileDict`.
+  `mapping::command_of` tells them apart by exactly that. An edit whose URI is not
+  the open document is dropped, as is an item with no title or nothing to do.
+  `context.diagnostics` is sent **empty on purpose**: Harper re-lints the range
+  itself and ignores what the client echoes (read from its `generate_code_actions`).
+  Applying a row writes the edits into the buffer as **one undo group**
+  (`MarkdownEditor::apply_edits`, last edit first, `mark_dirty` so the checker is
+  told through the usual path) and *then* runs the action's command, which is the
+  spec's order. Note what that means on disk: `HarperRecordLint` makes Harper write
+  its own stats file, and `HarperAddTo*` writes a dictionary — the user asked for
+  it by choosing the row, but it is the server writing outside the vault.
+  **`textDocument/hover` is not implemented by Harper 2.8** — probed live, it
+  answers `-32601 Method not found`. So the panel's body comes from the
+  diagnostics we already hold rather than a hover request. A hover request is worth
+  sending only to a server that advertises `hoverProvider`; that is the follow-up.
+  **A bug the logs could not show:** `receive` dropped the answered id from
+  `pending` *before* `decide` looked, so every code-action answer looked like a
+  request we never sent and was discarded silently — the panel opened with its
+  message and no rows, and nothing was logged. `decide` reads an answer *against*
+  the outstanding request, so the id has to be settled afterwards; pinned by
+  `an_answer_is_read_before_its_request_is_settled`.
+  **gpui notes for this round.** `Styled` has `font_family`, not `text_font`; a
+  `TextRun` carries a `Font` but **no size** — the size comes from the surrounding
+  text style, which is why the panel sets `font_family`/`text_size` once and lets
+  its rows inherit. A row list built with `.id(...)` is `Vec<Stateful<Div>>` and
+  goes in with `.children(rows)`. `HitLine::offset_for_x` is measured **from the
+  line's left edge**, while a mouse event's position is a **window** coordinate:
+  `offset_at_pointer_x` subtracts the line's left edge, and the two spaces are named
+  separately so the next person does not mix them. In tests,
+  `VisualTestContext::simulate_mouse_move(point, button, modifiers)` drives the real
+  hover path, and `Entity::read_with(cx, f)` takes a closure (there is no bare
+  `read_with(cx)`).
+  **Verified live** (throwaway vault, screenshot): the panel over `Thier` rendered
+  opaque with its border, the message clipped to one line with `SpellCheck` dimmed
+  after it, and all seven offers listed with the first highlighted; the status bar
+  still read `2 spellcheck notes`. Applying a row was **not** verified live — there
+  is no key-injection tool allowed here — but `choosing_an_offer_rewrites_the_note`
+  covers it headlessly, including that one `u` undoes the whole fix.
+  **Tests:** core 218 (was 216) — `K` outside a table asks for the note and moves
+  nothing, `K` inside one moves a row. App 133 (was 112): `lsp/` gained the fix
+  mapping (a quickfix carrying its edit and its command, a bare command carrying
+  neither edit, an edit to another document dropped, positions round-tripping
+  through bytes, the ordering test above) and `tests/popup.rs` has fourteen: `K`
+  opens the right note, `K` on a plain word opens nothing, a second question
+  replaces the panel, `escape` closes it *and* returns the keyboard (proven by the
+  next `x` deleting a character), a picker closes it, a chosen offer rewrites the
+  note as one undo step, an offer with no edit still closes the panel, the pointer
+  opens and closes it, hovering while typing says nothing, a `K`-asked panel
+  outlives the pointer, a withdrawn note takes the panel with it, another note ends
+  it (and the deferred refocus gives the keyboard back), and the panel follows its
+  line off screen.
+- **More theme colours to add (the roles everything currently borrows).** Four
+  things are drawn with a role that was chosen for something else, and each wants
+  its own `Palette` role when a theme asks for it:
+  - the checker's wavy underline uses `callout_danger`;
+  - the popup's background, border and highlighted row use `ui_bg`, `ui_border`
+    and `ui_active_bg` — the same three the pickers use, so a theme cannot make a
+    panel read differently from a picker, and the popup's *code* (`SpellCheck`) is
+    dimmed with `dim`, the note's own dim;
+  - the status bar's background is `ui_status_bg`, but its text is `fg`;
+  - a matched picker row's text is `match_text`, judged against both picker
+    backgrounds by the readability test.
+  Adding a role is not one line: it means **20 built-in palettes**
+  (`crates/core/src/theme/`, one module per family), the `ThemeFile` override
+  struct, `tools/theme_gen.py`'s `FLOORS` so the generated palettes clear the same
+  WCAG checks the readability test applies, and the readability test itself. Do all
+  four in one pass, run the generator and `cargo fmt --all`, and check `git diff`
+  on the generated files is empty.
 - **Module sizes.** `editor.rs` and `main.rs` both passed the 1000-line mark in
   `AGENTS.md`, so they are now directories: `editor/{mod,wrap,render,actions,input}.rs`
   (a submodule can reach `MarkdownEditor`'s private state because they are all
@@ -1275,14 +1404,15 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   `CalloutKind`, `StyleSpan`, the line walk and the tests, `block.rs` classifies
   each line, `inline.rs` styles the text inside it. `main.rs` passed it again
   with the file tree, and is now `main.rs` (122) + `acts.rs` + `workspace/`.
-  Largest files now: `vim.rs` 2290, `buffer.rs` 1786, `line.rs` 973, `tests/paint.rs`
-  806, `core/theme/mod.rs` 794, `vault.rs` 750, `table/edit.rs` 640,
-  `workspace/mod.rs` 604, `table/mod.rs` 590, `picker.rs` 587, `editor/render.rs`
-  545, `editor/mod.rs` 526, `tests/tree.rs` 515, `lsp/mod.rs` 445,
+  Largest files now: `vim.rs` 2333, `buffer.rs` 1786, `line.rs` 973, `tests/paint.rs`
+  806, `core/theme/mod.rs` 794, `vault.rs` 750, `workspace/mod.rs` 734,
+  `lsp/mod.rs` 671, `editor/mod.rs` 614, `table/edit.rs` 640, `table/mod.rs` 590,
+  `picker.rs` 587, `editor/render.rs` 564,
+  `tests/tree.rs` 515, `tests/popup.rs` 483, `lsp/mapping.rs` 454,
   `tests/motions.rs` 442, `markdown.rs` 416, `editor/wrap.rs` 395,
   `workspace/edits.rs` 360, `tests/picker.rs` 346, `mdstyle/block.rs` 403,
   `mdstyle/mod.rs` 454, `field.rs` 335, `fold.rs` 332, `prompt.rs` 256,
-  `fuzzy.rs` 324, `rename.rs` 195, and the other
+  `fuzzy.rs` 324, `workspace/popups.rs` 285, `popup.rs` 276, `rename.rs` 195, and the other
   `workspace/` submodules at 355/209/189/187/118. `tests/keys.rs`
   reached the rule's line and is now three: `keys.rs` (344: the keystroke shapes,
   what each key resolves to per context, the chords), `motions.rs` (442: vim
@@ -1345,13 +1475,17 @@ Next steps, roughly in order:
    undo group and `.`. Follow-ups: replaying a marker *removal* with `.`, deeper
    nesting of lists, and continuing a callout's body.
 10. ~~HarperLS / LSP integration for spellcheck and grammar~~ Done for the note —
-    see the spellcheck bullet in Open threads. `crates/app/src/lsp` is the client,
-    `[spellcheck]` in `shale.toml` names the server, and what it finds is drawn as
-    wavy underlines and counted in the status bar. Left here: the server's own
-    `codeAction`s (fix it, add to dictionary, ignore this lint) need a UI, hover
-    should say what a complaint is, the colour wants a palette role of its own, and
+    see the spellcheck and popup bullets in Open threads. `crates/app/src/lsp` is
+    the client, `[spellcheck]` in `shale.toml` names the server, what it finds is
+    drawn as wavy underlines and counted in the status bar, and its `codeAction`s
+    and its complaint reach the user through the popup (`K`, or the pointer on a
+    marked word). Left here: asking a server that advertises `hoverProvider` (Harper
+    does not implement hover), the colour wanting a palette role of its own, and
     "support for custom language servers" is only half true — the config takes any
-    command, but diagnostics are the only thing Shale consumes.
+    command, but diagnostics and code actions are all Shale consumes. A popup that
+    can list more rows than fit (Harper's seven just fit) and a grammar fix applied
+    live are untested; `HarperRecordLint` writing Harper's own stats file is the
+    first time a row touches anything outside the vault.
 11. ~~Image display in vaults (gpui image elements)~~ mostly done: a row that is
     nothing but an embed is drawn as the picture (stage 2b). What is left is an
     image embedded *inside* a paragraph, and an `|alias` suffix on an embed is
