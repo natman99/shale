@@ -71,6 +71,8 @@ Shale has an MCP server with support for reading, writing, and searching vaults.
 
 The graph view needs to have filter options to hide and show nodes. It should have the option to color nodes based on tags. I want the ability to sort into "constellations" based on the subfolder the note rests in. Add the option to filter a parent folder to then have the constellations be its children. Add 3d and 2d graph views. Graph should have the option to be static, where each note gets it's position from some sort of stable and fast method, and a dynamic physics based graph like Obsidian has. Make sure to handle duplicate note names and other weird edge cases.
 
+Add a "heatmap" option which shows the notes that are edited and visited the most. Track these in the local DB.
+
 Example of constellations:
 vault /
 child 1/
@@ -87,6 +89,8 @@ Also add the ability to have nested constellations shown.
 
 ### Database 
 Persist metadata about notes to a local sqlite DB. This, along with other vault metadata, should be kept in a `.shale` directory in the vault. Store modification and creation date, tags, names, and whatever else is relevant as the project continues. When Obsidian properties are added, these should be stored as well. Use incremental updating of the DB. When the app is launched, a background thread should go and check for modified files that weren't persisted (due to an external editor, etc) and update the vault in the background. This background thread should then end and further updates will be done as notes are updated.
+
+The DB should track the number of times notes are opened/edited (debounced to avoid overlapping consecutive edits).
 
 The user will be able to write in line SQL queries (heavily sanitized, read only) that will then be used to create in line rendered tables based on vault contents. Query results should be cached when possible. For now, modifying information in these tables is not required. Just list the matching notes and data with the option to go to the note like wikilinks.
 
@@ -107,7 +111,9 @@ Workspace layout:
   `table` (the table model: cells, cell lookup, row/column editing and moving —
   `table/mod.rs` is the model, `table/edit.rs` the splices), `fold` (the foldable
   regions of a note — a heading and the rows it owns — the closed-fold set keyed
-  on heading text, and the per-row display effect of that set), `watch` (the
+  on heading text, and the per-row display effect of that set), `fuzzy` (the
+  subsequence matcher and ranker the pickers use: a score, and the byte ranges of
+  the candidate the query consumed), `watch` (the
   vault signature — every path stamped with size and mtime, or just existence for
   a folder — and the added/removed/modified diff built from two of them) and
   `theme` (the
@@ -143,15 +149,20 @@ Workspace layout:
   `appearance.font_size` sizes the text),
   ctrl+s save, and a file tree that can create, rename and delete notes and
   folders through a one-line prompt (`prompt.rs`) and follows the disk when
-  another program changes the vault. Split into `main.rs` (the
+  another program changes the vault, and **quick-open** (`ctrl-o`: a fuzzy list of
+  every note, `j`/`k` to move, `enter` to open). Split into `main.rs` (the
   command line and the window it opens), `acts.rs` (every action the keymap
   names — the two namespaces its `actions!` calls generate are what the keymap
   and the tests match on, so they are load-bearing, not just namespaces),
-  `workspace/` (`mod.rs` the state, `keys.rs` the keymap, `tree.rs` the sidebar's
-  keyboard state and its rows, `edits.rs` the prompt and the vault edits behind
-  its answers, `render.rs` the frame), `tree.rs` (turning the vault's entries
+  `field.rs` (the one-line text field the prompt and the pickers share: the text,
+  the caret, the utf-16 translation gpui's input handler speaks, and the element
+  that paints it and registers the input handler), `prompt.rs`, `picker.rs` (the
+  searchable list), `workspace/` (`mod.rs` the state, `keys.rs` the keymap,
+  `tree.rs` the sidebar's keyboard state and its rows, `edits.rs` the prompt and
+  the vault edits behind its answers, `open.rs` quick-open's rows and choices,
+  `render.rs` the frame), `tree.rs` (turning the vault's entries
   into rows) and its headless tests in `tests/` (`keys.rs`, `paint.rs`,
-  `tree.rs`), `editor/` (the view: `mod.rs`
+  `tree.rs`, `picker.rs`), `editor/` (the view: `mod.rs`
   holds the state and accessors, `wrap.rs` the display model, `render.rs` builds
   the frame and the key context, `actions.rs` the key handlers, `input.rs` the
   IME/paste/click surface), `line.rs` (the `LineElement` that paints one display
@@ -958,6 +969,46 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   database's incremental pass) for a big one; an external edit to a *dirty* note
   is reported but never merged; and a rename elsewhere looks like delete + add,
   so an open note that was renamed out is not followed to its new path.
+- **Fuzzy matching and quick-open — done (2026-10-27).** `shale_core::fuzzy`
+  matches a query as a case-insensitive subsequence and scores it: start of the
+  candidate +12, start of a word (after space `/` `-` `_` `.` `(` `[` `:`) +9, a
+  run of adjacent matches +4 each, +1 per character, −1 per character skipped
+  inside the span, a length penalty of one point per 8 characters the candidate is
+  longer than the query, and +40 for an exact match. `fuzzy_match` returns the
+  **byte ranges** it consumed so a picker can highlight them; `ranked` returns
+  `(match, index)` pairs best-first with a stable order for ties. Accents are not
+  folded (`cafe` does not find `café`). The scan takes the first word-start match
+  for each character and falls back to the first match, which is what lets `nb`
+  reach the `B` of `Note Book`; it is greedy, not optimal — good enough for paths
+  and command names, and worth revisiting if a picker ever ranks badly.
+  **The field is one widget now.** `crates/app/src/field.rs` holds `Field` (text,
+  caret, character-wise editing, the utf-16 translation) and `FieldElement` (the
+  box, the text, the caret, and the `ElementInputHandler` registration that has to
+  happen during paint). `Prompt` and `Picker` are both `FieldOwner`s, and the
+  prompt's key actions are `Field*` actions bound in *both* the `prompt` and the
+  `picker` contexts, because they mean the same thing in both.
+  **Quick-open (`ctrl-o`).** One row per note: the name leads, the folder it lives
+  in is drawn dimmer after it, and the query is ranked against the **whole path**,
+  so `no/an` reaches `notes/Another Note.md`. `j`/`k` (and the arrows) move the
+  highlighted row, `enter` opens it, escape closes the picker and gives the
+  keyboard back to whatever had it. The picker is drawn as a *sibling* of the tree
+  and the editor for the same reason the prompt is: gpui enables a context's
+  bindings whenever that context is in the focused element's stack, so nested
+  inside either one, their `j`/`k` would swallow the letters being typed — which
+  is also why `j`/`k` are free to bind inside the picker.
+  **Two ranges, not one.** Ranking matches the wide `search` text, but the
+  highlight has to land in the `label`, so the label is matched separately and a
+  query that only matched the folder part highlights nothing in the name. (The
+  first version applied the search-text ranges to the label and panicked on a
+  slice boundary — the ranges of one string are not ranges of another.)
+  **The list is a window, not a scroller:** 12 rows are drawn from an offset that
+  slides to keep the selection visible, so there is no scroll state to own. Rows
+  are not clickable yet, and the footer says "n of m matching".
+  **Tests:** ten in `fuzzy.rs`, five in `tests/picker.rs` (open, type, `j`/`k`,
+  backspace, escape — including that `j`/`k` in the picker never move the vim
+  cursor), and the keymap-shape test now asserts the `picker` context answers
+  enter/escape/j/k/arrows and *nothing* for plain letters. Live check: the picker
+  renders with the matched characters of the name shaded and the folder dimmed.
 - **Module sizes.** `editor.rs` and `main.rs` both passed the 1000-line mark in
   `AGENTS.md`, so they are now directories: `editor/{mod,wrap,render,actions,input}.rs`
   (a submodule can reach `MarkdownEditor`'s private state because they are all
@@ -967,10 +1018,11 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   `CalloutKind`, `StyleSpan`, the line walk and the tests, `block.rs` classifies
   each line, `inline.rs` styles the text inside it. `main.rs` passed it again
   with the file tree, and is now `main.rs` (116) + `acts.rs` + `workspace/`.
-  Largest files now: `vim.rs` 2219, `buffer.rs` 1786, `tests/keys.rs` 903,
-  `line.rs` 897, `tests/paint.rs` 772, `core/theme/mod.rs` 763, `vault.rs` 750,
-  `prompt.rs` 488, `tests/tree.rs` 441, `workspace/mod.rs` 394, `watch.rs` 202,
-  and the other `workspace/` submodules at 273/209/160/158. `vim.rs` and
+  Largest files now: `vim.rs` 2219, `buffer.rs` 1786, `tests/keys.rs` 946 (the
+  next one to split), `line.rs` 897, `tests/paint.rs` 772, `core/theme/mod.rs`
+  763, `vault.rs` 750, `workspace/mod.rs` 428, `picker.rs` 411, `tests/tree.rs`
+  395, `field.rs` 335, `prompt.rs` 256, `fuzzy.rs` 241, `watch.rs` 202, and the
+  other `workspace/` submodules at 273/209/160/158. `vim.rs` and
   `buffer.rs` are still
   over the rule — split them the next time either one is touched; `line.rs` (the
   element, the run builder and the table grid paint) is the next candidate after
@@ -1036,4 +1088,16 @@ Next steps, roughly in order:
     that geometry independent of `shale_core::table`'s buffer offsets so a
     rendered-from-a-query grid can reuse it, and keep the note files the source
     of truth (the DB in `<vault>/.shale` is a cache, updated incrementally in the
-    background at startup and then on edits).
+    background at startup and then on edits). `Vault::signature` is the
+    incremental pass the user asked for: it stamps every path with size and mtime
+    without reading a note, and `watch::VaultChanges::between` says which notes to
+    re-index. Open/edit counts (the user's addition) are a separate counter table,
+    written on open and debounced on edit, not something the signature can tell.
+14. **Pickers, reused.** Quick-open is done, so the same `Picker` widget and the
+    same `Field*`/`Picker*` bindings should carry the **command palette**
+    (`ctrl-shift-p`) and **vault search** (`ctrl-shift-f`, over
+    `shale_core::search`, whose hits are rows that open a note at a line). Both
+    need the picker to take a list of rows plus what choosing one means, which is
+    already how `workspace/open.rs` works. Follow-ups there: clickable rows, a
+    scrolling list once a vault outgrows the 12-row window, and a prefix that
+    switches what the picker searches.
