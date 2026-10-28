@@ -2,6 +2,7 @@ pub mod buffer;
 pub mod config;
 pub mod continuation;
 pub mod fold;
+pub mod fuzzy;
 pub mod markdown;
 pub mod mdlayout;
 pub mod mdstyle;
@@ -14,6 +15,7 @@ pub mod watch;
 
 pub use buffer::Buffer;
 pub use config::Config;
+pub use fuzzy::{fuzzy_match, ranked, FuzzyMatch};
 pub use theme::Palette;
 pub use vault::Vault;
 pub use watch::{Stamp, VaultChanges};
