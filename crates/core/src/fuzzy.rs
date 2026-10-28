@@ -5,6 +5,8 @@
 //! predicted: the start of the candidate, the start of a word inside it, and runs
 //! of adjacent characters. That is enough to make `nb` find `Note Book` and
 //! `shale.toml` find `notes/Shopping list.md` only when there is nothing better.
+//! The best placement of the query is found by dynamic programming, so the score
+//! is the best available rather than what a left-to-right scan happens to pick.
 //! Matching folds case but not accents: `cafe` does not find `café`.
 
 /// A match at the very start of the candidate.
@@ -41,11 +43,9 @@ pub struct FuzzyMatch {
 
 /// Match `query` against `candidate`, case-insensitively, as a subsequence.
 ///
-/// Greedy but not naive: for each query character the scan takes the first
-/// position that begins a word, and falls back to the first position that matches
-/// at all. That is what lets `nb` reach the `B` of `Note Book` instead of stopping
-/// at the `b` of `Noble`. Returns `None` when the characters do not appear in
-/// order.
+/// The placement that scores best wins: the start of the candidate, a word start
+/// and adjacent runs are worth more, and the characters skipped between matches
+/// cost. Returns `None` when the characters do not appear in order.
 pub fn fuzzy_match(query: &str, candidate: &str) -> Option<FuzzyMatch> {
     let query: Vec<char> = query.chars().map(lower).collect();
     if query.is_empty() {
@@ -63,43 +63,10 @@ pub fn fuzzy_match(query: &str, candidate: &str) -> Option<FuzzyMatch> {
         byte += c.len_utf8();
     }
 
-    let mut taken: Vec<usize> = Vec::with_capacity(query.len());
-    let mut from = 0;
-    for &q in &query {
-        let mut first = None;
-        let mut chosen = None;
-        let mut i = from;
-        while i < chars.len() {
-            if chars[i] == q {
-                if first.is_none() {
-                    first = Some(i);
-                }
-                if i > 0 && WORD_STARTS.contains(&chars[i - 1]) {
-                    chosen = Some(i);
-                    break;
-                }
-            }
-            i += 1;
-        }
-        let i = chosen.or(first)?;
-        taken.push(i);
-        from = i + 1;
-    }
-
-    let mut score = 0;
-    for (n, &i) in taken.iter().enumerate() {
-        score += CHAR_SCORE;
-        if i == 0 {
-            score += START_BONUS;
-        } else if WORD_STARTS.contains(&chars[i - 1]) {
-            score += WORD_BONUS;
-        }
-        if n > 0 && taken[n - 1] + 1 == i {
-            score += RUN_BONUS;
-        }
-    }
-    let span = taken.last().unwrap() - taken.first().unwrap() + 1;
-    score -= (span - query.len()) as i64 * GAP_PENALTY;
+    let (mut score, taken) = best_alignment(&query, &chars)?;
+    // A long candidate is a worse answer than a short one that matched just as
+    // well. This term does not depend on where the characters went, so it sits
+    // outside the alignment.
     score -= (chars.len() - query.len()) as i64 / LENGTH_PENALTY_DIVISOR;
     if chars.len() == query.len() {
         score += EXACT_BONUS;
@@ -116,6 +83,99 @@ pub fn fuzzy_match(query: &str, candidate: &str) -> Option<FuzzyMatch> {
         })
         .collect();
     Some(FuzzyMatch { score, ranges })
+}
+
+/// The highest-scoring way to place `query` inside `chars` as a subsequence, as
+/// that score and the candidate index each query character landed on.
+///
+/// Dynamic programming rather than a scan, for two reasons. A greedy scan can
+/// fail outright: `new note` against `New note ctrl-n` takes the `n` that starts
+/// *note* because a word start is worth more, then finds no `w` after it and
+/// reports no match at all. And a greedy scan is not even the best-scoring
+/// choice: the adjacent run `New` is worth more than jumping to a word start.
+///
+/// `row[ci]` is the best score for the query prefix so far that ends with that
+/// prefix's character on candidate index `ci`. Extending an alignment by one
+/// character either continues a run (worth [`RUN_BONUS`]) or skips characters
+/// (one [`GAP_PENALTY`] each), so the best predecessor is the best of those two,
+/// and the second is kept as a running maximum instead of rescanning.
+fn best_alignment(query: &[char], chars: &[char]) -> Option<(i64, Vec<usize>)> {
+    /// Low enough that no real alignment can lose to it, high enough that adding
+    /// a bonus to it cannot look like a score.
+    const NEG: i64 = i64::MIN / 4;
+
+    let mut row: Vec<i64> = vec![NEG; chars.len()];
+    // For each query character, the index the previous one landed on for the best
+    // alignment that ends at each candidate index: how the alignment is walked
+    // back once the last character is placed.
+    let mut parents: Vec<Vec<usize>> = Vec::with_capacity(query.len());
+
+    for (qi, &q) in query.iter().enumerate() {
+        let mut next: Vec<i64> = vec![NEG; chars.len()];
+        let mut parent: Vec<usize> = vec![usize::MAX; chars.len()];
+        // The best `row[prev] + prev * GAP_PENALTY` over the candidate indices at
+        // least two before the one being scored. Adding `-(ci + 1) * GAP_PENALTY`
+        // to it turns that into the gap penalty between `prev` and `ci`.
+        let mut running = NEG;
+        let mut running_at = usize::MAX;
+        for (ci, &c) in chars.iter().enumerate() {
+            if c == q {
+                let base = CHAR_SCORE
+                    + if ci == 0 {
+                        START_BONUS
+                    } else if WORD_STARTS.contains(&chars[ci - 1]) {
+                        WORD_BONUS
+                    } else {
+                        0
+                    };
+                if qi == 0 {
+                    next[ci] = base;
+                } else {
+                    if ci > 0 && row[ci - 1] > NEG {
+                        next[ci] = row[ci - 1] + base + RUN_BONUS;
+                        parent[ci] = ci - 1;
+                    }
+                    if running > NEG {
+                        let score = running + base - (ci + 1) as i64 * GAP_PENALTY;
+                        if score > next[ci] {
+                            next[ci] = score;
+                            parent[ci] = running_at;
+                        }
+                    }
+                }
+            }
+            // Fold this index in only after scoring it, so it is available to the
+            // indices after the next one and never to its immediate neighbour,
+            // which is the run case above.
+            if row[ci] > NEG {
+                let value = row[ci] + ci as i64 * GAP_PENALTY;
+                if value > running {
+                    running = value;
+                    running_at = ci;
+                }
+            }
+        }
+        row = next;
+        parents.push(parent);
+    }
+
+    let mut at = usize::MAX;
+    let mut score = NEG;
+    for (ci, &placed) in row.iter().enumerate() {
+        if placed > score {
+            score = placed;
+            at = ci;
+        }
+    }
+    if at == usize::MAX {
+        return None;
+    }
+    let mut taken = vec![0usize; query.len()];
+    for qi in (0..query.len()).rev() {
+        taken[qi] = at;
+        at = parents[qi][at];
+    }
+    Some((score, taken))
 }
 
 /// The best-scoring items first, at most `limit` of them, as `(match, index)`
@@ -196,6 +256,29 @@ mod tests {
         assert!(
             together.score > apart.score,
             "{together:?} should beat {apart:?}"
+        );
+    }
+
+    #[test]
+    fn a_query_with_a_space_still_finds_the_words_it_spells() {
+        // The left-to-right scan this replaced took the word-start `n` of `note`
+        // because a word start is worth more, then had no `w` left to find and
+        // reported that the row did not match at all.
+        let m = fuzzy_match("new note", "New note ctrl-n, n in the tree").unwrap();
+        assert_eq!(
+            m.ranges,
+            (0..8).map(|i| (i, i + 1)).collect::<Vec<_>>(),
+            "the candidate's first eight characters spell the query"
+        );
+    }
+
+    #[test]
+    fn the_best_scoring_placement_wins_rather_than_the_first_available_one() {
+        let m = fuzzy_match("ne", "New note").unwrap();
+        assert_eq!(
+            m.ranges,
+            vec![(0, 1), (1, 2)],
+            "the adjacent `Ne` is worth more than jumping to the `e` of `note`"
         );
     }
 
