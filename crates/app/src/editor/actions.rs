@@ -36,7 +36,7 @@ impl MarkdownEditor {
         let outcome = self.vim.handle_normal_key(key, &mut self.buffer);
         let changed = self.buffer.text() != before;
         if changed {
-            self.mark_dirty();
+            self.mark_dirty(cx);
         }
         match outcome {
             Outcome::EnterInsert => {
@@ -70,7 +70,7 @@ impl MarkdownEditor {
     pub(super) fn insert_edit(&mut self, inserted: &str, cx: &mut Context<Self>) {
         // So `.` can replay an insert session, the engine collects the text.
         self.vim.note_inserted(inserted);
-        self.mark_dirty();
+        self.mark_dirty(cx);
         self.ensure_cursor_visible();
         cx.notify();
     }
@@ -213,7 +213,7 @@ impl MarkdownEditor {
     pub(super) fn on_undo(&mut self, _: &Undo, _window: &mut Window, cx: &mut Context<Self>) {
         tracing::debug!(undo_depth = self.buffer.undo_depth(), "undo action");
         self.buffer.undo();
-        self.mark_dirty();
+        self.mark_dirty(cx);
         self.ensure_cursor_visible();
         cx.notify();
     }
@@ -221,7 +221,7 @@ impl MarkdownEditor {
     pub(super) fn on_redo(&mut self, _: &Redo, _window: &mut Window, cx: &mut Context<Self>) {
         tracing::debug!(redo_depth = self.buffer.redo_depth(), "redo action");
         self.buffer.redo();
-        self.mark_dirty();
+        self.mark_dirty(cx);
         self.ensure_cursor_visible();
         cx.notify();
     }

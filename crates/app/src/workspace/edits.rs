@@ -149,6 +149,7 @@ impl Workspace {
                     self.active = None;
                     self.editor
                         .update(cx, |editor, cx| editor.set_text(String::new(), cx));
+                    self.checker_closed(cx);
                 }
                 self.tree_selection = None;
                 self.refresh_entries(cx);
@@ -206,7 +207,11 @@ impl Workspace {
             if is_open {
                 let text = rewrite.text.clone();
                 self.editor
-                    .update(cx, |editor, cx| editor.set_text(text, cx));
+                    .update(cx, |editor, cx| editor.set_text(text.clone(), cx));
+                // The checker's document moved with the note: its URI is the
+                // note's path, so the old one is dropped and the new one opened
+                // with what the buffer now holds.
+                self.checker_opened(&path, &text, cx);
             }
         }
         Ok(report)

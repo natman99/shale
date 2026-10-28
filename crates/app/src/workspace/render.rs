@@ -52,6 +52,13 @@ impl Render for Workspace {
         };
         let pending = self.editor.read(cx).pending_hint();
         let (line, col) = self.editor.read(cx).display_position();
+        // The checker's count, so "no underlines" can be told apart from "the
+        // checker has not answered yet".
+        let spell = match self.spell_notes {
+            0 => String::new(),
+            1 => "1 spellcheck note".into(),
+            n => format!("{n} spellcheck notes"),
+        };
 
         div()
             .track_focus(&self.focus_handle)
@@ -182,6 +189,7 @@ impl Render for Workspace {
                     .bg(gpui::rgb(self.palette.ui_status_bg))
                     .child(format!("{mode}{pending}{dirty}"))
                     .child(self.status.clone())
+                    .child(spell)
                     .child(format!("{}:{}", line + 1, col + 1)),
             )
     }

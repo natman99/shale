@@ -15,6 +15,7 @@ mod keys;
 mod motions;
 mod paint;
 mod picker;
+mod spell;
 mod tree;
 
 /// A workspace over a throwaway vault holding `files`, with the note focused the
@@ -33,9 +34,14 @@ pub(crate) fn workspace(
         std::fs::write(&path, "").unwrap();
     }
     let vault = Rc::new(Vault::open(dir.path()).unwrap());
+    // The default config asks for a spell and grammar server, which is a real
+    // process per window. The tests here are about the window, not the checker
+    // (`tests::spell` and `crate::lsp` cover that), and a `harper-ls` per test is
+    // hundreds of megabytes of other people's dictionaries.
+    let mut config = Config::default();
+    config.spellcheck.enabled = false;
     cx.update(|cx| cx.bind_keys(keybindings()));
-    let window =
-        cx.add_window(|_window, cx| Workspace::new(vault.clone(), Rc::new(Config::default()), cx));
+    let window = cx.add_window(|_window, cx| Workspace::new(vault.clone(), Rc::new(config), cx));
     window
         .update(cx, |ws, window, cx| {
             ws.focus_editor(&FocusEditor, window, cx);

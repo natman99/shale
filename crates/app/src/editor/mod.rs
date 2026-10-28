@@ -41,6 +41,9 @@ pub(crate) use crate::theme::DEFAULT_FONT_SIZE;
 pub enum EditorEvent {
     /// The user asked to follow the wiki-link to `target`.
     FollowLink { target: String },
+    /// The note's text changed. The workspace uses this to keep the spell and
+    /// grammar checker's copy of the document in step with the buffer.
+    Changed,
 }
 
 impl EventEmitter<EditorEvent> for MarkdownEditor {}
@@ -87,6 +90,10 @@ pub struct MarkdownEditor {
     palette: Rc<Palette>,
     /// Body text size in pixels; headings are scaled from it.
     font_size: f32,
+    /// (start, end) buffer byte ranges the spell and grammar checker has
+    /// something to say about, drawn as wavy underlines. The workspace owns the
+    /// checker and pushes these; the editor only paints them.
+    marks: Vec<(usize, usize)>,
     dirty: bool,
 }
 
@@ -98,6 +105,7 @@ impl MarkdownEditor {
             vim: Vim::new(),
             scroll_handle: ScrollHandle::default(),
             hit_lines: Vec::new(),
+            marks: Vec::new(),
             wrap_cache: None,
             style_cache: None,
             links: Vec::new(),
@@ -181,8 +189,25 @@ impl MarkdownEditor {
         self.buffer.set_text(text);
         self.vim.enter_normal();
         self.dirty = false;
+        // A different document, so the old note's underlines are meaningless.
+        self.marks.clear();
         tracing::debug!(lines = self.buffer.line_count(), "editor set_text");
         cx.notify();
+    }
+
+    /// The ranges to draw as the checker's notes, as buffer byte offsets. Empty
+    /// clears them.
+    pub(crate) fn set_marks(&mut self, marks: Vec<(usize, usize)>, cx: &mut Context<Self>) {
+        if marks != self.marks {
+            self.marks = marks;
+            cx.notify();
+        }
+    }
+
+    /// The checker's ranges the editor is currently drawing.
+    #[cfg(test)]
+    pub(crate) fn marks(&self) -> &[(usize, usize)] {
+        &self.marks
     }
 
     pub fn mode(&self) -> Mode {
@@ -401,8 +426,12 @@ impl MarkdownEditor {
         )
     }
 
-    fn mark_dirty(&mut self) {
+    fn mark_dirty(&mut self, cx: &mut Context<Self>) {
         self.dirty = true;
+        // gpui queues an emit rather than running the handlers inside this
+        // update, so the workspace is free to read the buffer back from its
+        // handler.
+        cx.emit(EditorEvent::Changed);
     }
 
     // ----- wiki links ---------------------------------------------------
@@ -441,6 +470,17 @@ impl MarkdownEditor {
             .iter()
             .filter(|s| s.start < end && s.end > start)
             .map(|s| (s.start.max(start), s.end.min(end), s.style))
+            .collect()
+    }
+
+    /// The checker's ranges that overlap `start..end`, clipped to it. Like
+    /// [`Self::spans_in`] these are buffer byte offsets; the line element rebases
+    /// them onto the text it actually paints.
+    fn marks_in(&self, start: usize, end: usize) -> Vec<(usize, usize)> {
+        self.marks
+            .iter()
+            .filter(|(s, e)| *s < end && *e > start)
+            .map(|&(s, e)| (s.max(start), e.min(end)))
             .collect()
     }
 

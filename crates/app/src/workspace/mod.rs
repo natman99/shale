@@ -18,7 +18,7 @@ pub(crate) use keys::keybindings;
 pub(crate) use open::PickerTarget;
 
 use std::collections::{BTreeMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -30,6 +30,7 @@ use shale_core::{Config, Vault};
 
 use crate::acts::*;
 use crate::editor::{EditorEvent, MarkdownEditor};
+use crate::lsp::{absolute, Diagnostic, Spell};
 use crate::picker;
 use crate::prompt;
 
@@ -43,6 +44,14 @@ pub(crate) struct Workspace {
     /// The palette the whole window is drawn with, shared with the editor so a
     /// theme change repaints everything at once.
     palette: Rc<Palette>,
+    /// The spell and grammar checker, when one is configured and was started.
+    /// It owns a server process; the window only talks to it.
+    spell: Option<Entity<Spell>>,
+    /// The checker's notes on the open note, kept here so the status bar can
+    /// count them without reading the checker every frame.
+    spell_notes: usize,
+    /// The subscription that carries the checker's answers to the editor.
+    _spell_events: Option<Subscription>,
     entries: Vec<VaultEntry>,
     /// The vault's folders, which is how an empty one still gets a tree row.
     dirs: Vec<VaultEntry>,
@@ -118,7 +127,31 @@ impl Workspace {
         });
         let editor_events = cx.subscribe(&editor, |ws, _editor, event, cx| match event {
             EditorEvent::FollowLink { target } => ws.follow_link(target, cx),
+            // The buffer moved, so the checker's copy of the note is out of date.
+            // `Spell::changed` debounces, so a typed word is one request.
+            EditorEvent::Changed => ws.send_note_to_checker(cx),
         });
+        // Spell and grammar checking runs in a language server (`harper-ls` by
+        // default). A server that is not installed, or will not start, is a
+        // missing feature rather than a broken editor: it is reported and the
+        // window carries on without one.
+        let (spell, spell_notes, spell_events) = if config.spellcheck.enabled {
+            match Spell::start(&config.spellcheck, cx) {
+                Ok(spell) => {
+                    // The checker notifies when it has new answers; those become
+                    // the editor's wavy underlines.
+                    let events =
+                        cx.observe(&spell, |ws, spell, cx| ws.show_checker_notes(spell, cx));
+                    (Some(spell), 0, Some(events))
+                }
+                Err(err) => {
+                    tracing::warn!("no spellcheck: {err:#}");
+                    (None, 0, None)
+                }
+            }
+        } else {
+            (None, 0, None)
+        };
         // Keybinding bugs on Linux are almost always "what did the platform
         // actually deliver, and which action did it resolve to", so log both —
         // at trace level, since this fires for every keystroke and floods the
@@ -138,6 +171,9 @@ impl Workspace {
             vault,
             config,
             palette,
+            spell,
+            spell_notes,
+            _spell_events: spell_events,
             entries,
             dirs,
             expanded,
@@ -165,7 +201,8 @@ impl Workspace {
                 tracing::debug!(path = %path.display(), bytes = text.len(), "opened note");
                 self.active = Some(path.clone());
                 self.editor
-                    .update(cx, |editor, cx| editor.set_text(text, cx));
+                    .update(cx, |editor, cx| editor.set_text(text.clone(), cx));
+                self.checker_opened(path, &text, cx);
                 self.status = path.display().to_string().into();
             }
             Err(err) => {
@@ -210,10 +247,75 @@ impl Workspace {
         }
     }
 
+    /// The editor entity. Only the tests ask for it, to look at what the window
+    /// handed the checker.
+    #[cfg(test)]
+    pub(crate) fn editor(&self) -> &Entity<MarkdownEditor> {
+        &self.editor
+    }
+
+    /// The checker's notes on the open note, as the editor draws them.
+    #[cfg(test)]
+    pub(crate) fn spell_note_count(&self) -> usize {
+        self.spell_notes
+    }
+
+    /// Whether a checker process is running. Only the tests ask: the window's
+    /// behaviour must not depend on the answer, and this is how that is checked.
+    #[cfg(test)]
+    pub(crate) fn has_checker(&self) -> bool {
+        self.spell.is_some()
+    }
+
     pub(super) fn toggle_dir(&mut self, path: PathBuf) {
         if !self.expanded.remove(&path) {
             self.expanded.insert(path);
         }
+    }
+
+    // ----- spell and grammar checking ------------------------------------
+
+    /// Tell the checker which note the editor now holds. It keeps one document
+    /// open at a time, so this replaces whatever it was last looking at. The path
+    /// is vault-relative here and absolute by the time it becomes a URI, which is
+    /// what the server matches its answers back to.
+    fn checker_opened(&mut self, path: &Path, text: &str, cx: &mut Context<Self>) {
+        let Some(spell) = self.spell.clone() else {
+            return;
+        };
+        let path = absolute(self.vault.root(), path);
+        spell.update(cx, |spell, cx| spell.open(&path, text, cx));
+    }
+
+    /// The editor no longer holds a note, so the checker has nothing to say.
+    fn checker_closed(&mut self, cx: &mut Context<Self>) {
+        let Some(spell) = self.spell.clone() else {
+            return;
+        };
+        spell.update(cx, |spell, cx| spell.close(cx));
+    }
+
+    /// The buffer changed, so the checker's copy of the note is out of date. It
+    /// debounces, which is what keeps typing a word at one request per word
+    /// rather than one per character.
+    fn send_note_to_checker(&mut self, cx: &mut Context<Self>) {
+        let Some(spell) = self.spell.clone() else {
+            return;
+        };
+        let text = self.editor.read_with(cx, |editor, _cx| editor.text());
+        spell.update(cx, |spell, cx| spell.changed(&text, cx));
+    }
+
+    /// The checker answered. Its notes become the editor's wavy underlines and
+    /// the number the status bar shows, so the user can tell "no notes" from
+    /// "not finished yet".
+    fn show_checker_notes(&mut self, spell: Entity<Spell>, cx: &mut Context<Self>) {
+        let notes: Vec<Diagnostic> = spell.read(cx).diagnostics().to_vec();
+        self.spell_notes = notes.len();
+        let marks: Vec<(usize, usize)> = notes.iter().map(|d| (d.start, d.end)).collect();
+        self.editor
+            .update(cx, |editor, cx| editor.set_marks(marks, cx));
+        cx.notify();
     }
     pub(super) fn save(&mut self, _: &Save, _window: &mut Window, cx: &mut Context<Self>) {
         let Some(path) = self.active.clone() else {
@@ -304,6 +406,7 @@ impl Workspace {
                     self.active = None;
                     self.editor
                         .update(cx, |editor, cx| editor.set_text(String::new(), cx));
+                    self.checker_closed(cx);
                     self.status = format!("{} deleted from disk", path.display()).into();
                 }
             } else if changes.was_modified(&path) {
