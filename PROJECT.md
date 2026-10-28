@@ -67,6 +67,8 @@ Keep as much in Rust as possible, no bindings external libraries. Update the tec
 
 Shale has an MCP server with support for reading, writing, and searching vaults. The MCP server should _either_ be a separate binary which shares core functionality with a `core` crate in the project, or if speed will be acceptable use the main binary.
 
+If the app is open it should inform the user when the MCP is used to edit files and what files were changed. Make a toasts feature that will appear in the corner. Toasts always disappear after a few seconds. The timer on that can pause if the app isn't focused.
+
 ### Graph View
 
 The graph view needs to have filter options to hide and show nodes. It should have the option to color nodes based on tags. I want the ability to sort into "constellations" based on the subfolder the note rests in. Add the option to filter a parent folder to then have the constellations be its children. Add 3d and 2d graph views. Graph should have the option to be static, where each note gets it's position from some sort of stable and fast method, and a dynamic physics based graph like Obsidian has. Make sure to handle duplicate note names and other weird edge cases.
@@ -149,8 +151,12 @@ Workspace layout:
   `appearance.font_size` sizes the text),
   ctrl+s save, and a file tree that can create, rename and delete notes and
   folders through a one-line prompt (`prompt.rs`) and follows the disk when
-  another program changes the vault, and **quick-open** (`ctrl-o`: a fuzzy list of
-  every note, `j`/`k` to move, `enter` to open). Split into `main.rs` (the
+  another program changes the vault, and **quick-open** (`ctrl-o`, or `space f` in
+  normal mode: a fuzzy list of every note, `j`/`k` to move, `enter` to open) and a
+  **command palette** (`ctrl-shift-p`, or `:` in normal mode) — both pickers
+  *overlay* the note rather than pushing it down, and the note has margins around
+  it. `ctrl-w h`/`ctrl-w l` move the keyboard between the sidebar and the note.
+  Split into `main.rs` (the
   command line and the window it opens), `acts.rs` (every action the keymap
   names — the two namespaces its `actions!` calls generate are what the keymap
   and the tests match on, so they are load-bearing, not just namespaces),
@@ -159,7 +165,9 @@ Workspace layout:
   that paints it and registers the input handler), `prompt.rs`, `picker.rs` (the
   searchable list), `workspace/` (`mod.rs` the state, `keys.rs` the keymap,
   `tree.rs` the sidebar's keyboard state and its rows, `edits.rs` the prompt and
-  the vault edits behind its answers, `open.rs` quick-open's rows and choices,
+  the vault edits behind its answers, `open.rs` the pickers' rows and choices
+  (a row is either a note or a command), `commands.rs` the command palette's list
+  — every command's label, the keys that run it and the action it dispatches —
   `render.rs` the frame), `tree.rs` (turning the vault's entries
   into rows) and its headless tests in `tests/` (`keys.rs`, `paint.rs`,
   `tree.rs`, `picker.rs`), `editor/` (the view: `mod.rs`
@@ -975,12 +983,15 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   run of adjacent matches +4 each, +1 per character, −1 per character skipped
   inside the span, a length penalty of one point per 8 characters the candidate is
   longer than the query, and +40 for an exact match. `fuzzy_match` returns the
-  **byte ranges** it consumed so a picker can highlight them; `ranked` returns
+  byte ranges it consumed so a picker can highlight them; `ranked` returns
   `(match, index)` pairs best-first with a stable order for ties. Accents are not
-  folded (`cafe` does not find `café`). The scan takes the first word-start match
-  for each character and falls back to the first match, which is what lets `nb`
-  reach the `B` of `Note Book`; it is greedy, not optimal — good enough for paths
-  and command names, and worth revisiting if a picker ever ranks badly.
+  folded (`cafe` does not find `café`). The scan is a small dynamic program
+  (`best_alignment`): it looks for the *best* placement of the query, not the
+  first one. The greedy version it replaces could report **no match** for a
+  two-word query — `new note` against `New note ctrl-n…` spent its `n` on the
+  word start of "note" and then found no `w` anywhere after it. O(query ×
+  candidate) with a parents matrix for the walk-back; the length penalty and the
+  exact-match bonus are applied outside the DP, so the constants did not change.
   **The field is one widget now.** `crates/app/src/field.rs` holds `Field` (text,
   caret, character-wise editing, the utf-16 translation) and `FieldElement` (the
   box, the text, the caret, and the `ElementInputHandler` registration that has to
@@ -1004,11 +1015,62 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   **The list is a window, not a scroller:** 12 rows are drawn from an offset that
   slides to keep the selection visible, so there is no scroll state to own. Rows
   are not clickable yet, and the footer says "n of m matching".
-  **Tests:** ten in `fuzzy.rs`, five in `tests/picker.rs` (open, type, `j`/`k`,
+  **Tests:** twelve in `fuzzy.rs`, five in `tests/picker.rs` (open, type, `j`/`k`,
   backspace, escape — including that `j`/`k` in the picker never move the vim
   cursor), and the keymap-shape test now asserts the `picker` context answers
   enter/escape/j/k/arrows and *nothing* for plain letters. Live check: the picker
   renders with the matched characters of the name shaded and the folder dimmed.
+- **Window chords, `space f`, the command palette, and an overlay picker — done
+  (2026-10-27).**
+  **Focus chords.** `ctrl-b` is gone; `ctrl-w h` / `ctrl-w l` move the keyboard to
+  the sidebar / the note, which is the shape the planned split view wants. gpui
+  parses a multi-stroke binding natively — `KeyBinding::load` splits the keystroke
+  string on whitespace — so the chord is literally `"ctrl-w h"` in the `actions!`
+  keymap, and `ctrl-w` on its own stays pending (the keymap-shape test asserts the
+  prefix arms nothing and the pairs resolve). Both handlers return early while a
+  prompt or a picker is open, so a chord typed in the middle of a note name never
+  steals the keyboard.
+  **`space f` is a vim-engine chord, not a keymap binding.** `space` is already a
+  complete motion, and gpui's `dispatch_key` returns as soon as a prefix is armed
+  (`if pending { return pending }`), so binding `space` *and* `space f` would make
+  a lone space feel dead. Instead `Vim::after_space` is set by a plain space motion
+  and the next `f` in normal mode answers `Outcome::QuickOpen`, which the editor
+  turns into `window.dispatch_action(QuickOpen.boxed_clone(), cx)`. A count, a
+  command-line prefix or a visual selection disarms it, and `enter_insert` /
+  `enter_normal` clear it.
+  **Command palette (`ctrl-shift-p`, or `:` in normal mode).**
+  `workspace/commands.rs` is the list: a `Command` enum, its label, the keys that
+  run it, and the `Box<dyn Action>` it dispatches. `open.rs` now carries a
+  `PickerTarget` per row — a note path or a command — so one picker serves both.
+  A command row closes the picker first and *then* dispatches, at the focused node,
+  which is how an editor-only action like `Undo` reaches the editor; gpui's
+  `dispatch_action` defers (`cx.defer`), and the next `window.update` in a headless
+  test flushes it. `:` works because Linux delivers shift+`;` as the keysym `:`
+  with shift dropped (see the GPUI gotchas), so it is bound as `":"` in
+  `vim-normal`.
+  **What the `ctrl-shift-*` keys are for** (they are in the palette's search text,
+  so typing `ctrl-shift-d` in the palette finds Delete): `-n` new folder, `-r`
+  rename, `-d` delete, `-c` copy, `-v` paste, `-z` redo, `-p` the palette itself.
+  The trace lines that used to show `key="r" control=true` with no action **predate
+  the `ctrl+z` → `ctrl-z` keymap fix**, so they proved nothing about the
+  compositor. Per `gpui_linux`'s `keystroke_from_xkb`, ctrl+shift+letter should
+  arrive as the lowercase key with control *and* shift, which is what these
+  bindings ask for — still worth one live re-check with `RUST_LOG=shale=trace`.
+  **Layout: the note gets margins, the picker floats.** The middle column is
+  `.relative()` with `.px_4().pt_3().pb_2()`, and the picker is painted *after* the
+  editor as `.absolute().top_2().left_4().right_4()`. Before that, opening a picker
+  inserted a row above the text, which re-wrapped and shifted every line — the
+  "jerking" the user reported. `Workspace::note_origin` (test-only) reads the
+  painted first line's top and left from the hit-test records, so a test can assert
+  that an open picker moves nothing. Careful: `x_for_offset` is **line-relative**
+  (always 0 at the line start, which is why the first version of that test failed
+  with "got 0px"); `hit_line_x` is the window-coordinate edge.
+  **Tests:** app 79 (was 71) — six new in `tests/picker.rs` (the palette lists all
+  13 rows, `:` opens it, choosing a row runs its command end to end from the prompt
+  to a file on disk, a row can open the note picker, `space f` opens quick-open,
+  the window chords move focus), one paint test for the margins and the overlay,
+  two new fuzzy tests, two new vim tests. Peak RSS unchanged: app 42 MB, core
+  5.5 MB, mcp 3.4 MB.
 - **Module sizes.** `editor.rs` and `main.rs` both passed the 1000-line mark in
   `AGENTS.md`, so they are now directories: `editor/{mod,wrap,render,actions,input}.rs`
   (a submodule can reach `MarkdownEditor`'s private state because they are all
@@ -1017,12 +1079,19 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   `mdstyle/{mod,block,inline}.rs` (450 / 398 / 277): `mod.rs` holds `Style`,
   `CalloutKind`, `StyleSpan`, the line walk and the tests, `block.rs` classifies
   each line, `inline.rs` styles the text inside it. `main.rs` passed it again
-  with the file tree, and is now `main.rs` (116) + `acts.rs` + `workspace/`.
-  Largest files now: `vim.rs` 2219, `buffer.rs` 1786, `tests/keys.rs` 946 (the
-  next one to split), `line.rs` 897, `tests/paint.rs` 772, `core/theme/mod.rs`
-  763, `vault.rs` 750, `workspace/mod.rs` 428, `picker.rs` 411, `tests/tree.rs`
-  395, `field.rs` 335, `prompt.rs` 256, `fuzzy.rs` 241, `watch.rs` 202, and the
-  other `workspace/` submodules at 273/209/160/158. `vim.rs` and
+  with the file tree, and is now `main.rs` (122) + `acts.rs` + `workspace/`.
+  Largest files now: `vim.rs` 2290, `buffer.rs` 1786, `line.rs` 897, `tests/paint.rs`
+  806, `core/theme/mod.rs` 763, `vault.rs` 750, `table/edit.rs` 640, `table/mod.rs`
+  590, `editor/render.rs` 544, `workspace/mod.rs` 484, `editor/mod.rs` 476,
+  `picker.rs` 411, `tests/tree.rs` 395, `editor/wrap.rs` 395, `field.rs` 335,
+  `fold.rs` 332, `prompt.rs` 256, `tests/picker.rs` 243, `fuzzy.rs` 324, `watch.rs`
+  202, and the other `workspace/` submodules at 273/209/189/187/150/113. `tests/keys.rs`
+  reached the rule's line and is now three: `keys.rs` (344: the keystroke shapes,
+  what each key resolves to per context, the chords), `motions.rs` (442: vim
+  motions, operators, text objects, visual mode, `.` and the undo chords driven
+  through the keymap) and `blocks.rs` (222: folding and the Enter marker
+  continuation). `vim.rs` and
+  and
   `buffer.rs` are still
   over the rule — split them the next time either one is touched; `line.rs` (the
   element, the run builder and the table grid paint) is the next candidate after
@@ -1040,7 +1109,10 @@ Next steps, roughly in order:
 2. ~~Soft wrap~~ Done (see Open threads). Follow-ups there: screen-line `$`/`0`,
    display columns for tabs/multi-byte text.
 3. ~~Resolve the ctrl+z / redo keystroke question~~ Done (keymap `+` → `-`).
-   Re-test ctrl-z / ctrl-r / ctrl-y and `ctrl-s` in a live window.
+   Re-test ctrl-z / ctrl-r / ctrl-y and `ctrl-s` in a live window. The
+   `ctrl-shift-*` bindings are listed in the command palette now, so a dead one is
+   worth a live check with `RUST_LOG=shale=trace` (the old trace lines that looked
+   like proof of a swallowed chord predate the `ctrl-z` fix).
 4. ~~Visual mode~~ and ~~`.` repeat~~ done (see Open threads). Next: the table
    goal, then live preview.
 5. ~~Table-aware motions and manipulation (the table goal)~~ Done: the model, the
@@ -1093,11 +1165,10 @@ Next steps, roughly in order:
     without reading a note, and `watch::VaultChanges::between` says which notes to
     re-index. Open/edit counts (the user's addition) are a separate counter table,
     written on open and debounced on edit, not something the signature can tell.
-14. **Pickers, reused.** Quick-open is done, so the same `Picker` widget and the
-    same `Field*`/`Picker*` bindings should carry the **command palette**
-    (`ctrl-shift-p`) and **vault search** (`ctrl-shift-f`, over
-    `shale_core::search`, whose hits are rows that open a note at a line). Both
-    need the picker to take a list of rows plus what choosing one means, which is
-    already how `workspace/open.rs` works. Follow-ups there: clickable rows, a
-    scrolling list once a vault outgrows the 12-row window, and a prefix that
-    switches what the picker searches.
+14. ~~Pickers, reused~~ Quick-open and the **command palette** (`ctrl-shift-p`,
+    `:` in normal mode, `space f`) are done — see Open threads. What is left is
+    **vault search** (`ctrl-shift-f`, over `shale_core::search`, whose hits are
+    rows that open a note at a line): `PickerTarget` needs a variant that carries
+    the line to jump to. Follow-ups there: clickable rows, a scrolling list once a
+    vault outgrows the 12-row window, and a prefix that switches what the picker
+    searches.
