@@ -89,6 +89,17 @@ When the constellation filter is set to child 1 it's children, `pie/` and `cake/
 
 Also add the ability to have nested constellations shown.
 
+#### Graph animation & idling rules
+
+The full design (with verified gpui file:line references) is in `graph-view-plan.md`; these are the binding rules:
+
+- **No frame unless dirty.** gpui only draws when the scene is dirty (`should_draw = invalidator.is_dirty() || force_render`, `gpui/src/window.rs:1884`). Never `cx.notify()` from a bare timer. Every continuous animation must be the thing that marks dirty, and must stop marking it when it has nothing to animate.
+- **The physics sim sleeps.** It runs at a fixed timestep while the graph tab is open, alpha decays to a settle threshold, then it stops notifying the UI. Vault edits, filter changes, and node drags re-heat it. The sim runs on a background thread and never touches `App`; positions ship to the UI thread via a channel.
+- **All continuous animation pauses when the window is not focused.** Use `window.is_active(cx)` + the window activation observers. On deactivate: freeze the ambient-drift clock, stop shipping sim positions to the UI (the sim may keep ticking off-thread), let MCP edit ripples expire without drawing, pause orbit rotation, pause toast timers. On activate: resume. Keep one shared "window active" flag in the workspace that the graph and toasts both subscribe to. (gpui's built-in inactive-window 30 fps throttle is not enough — our animations keep the scene dirty.)
+- **Ambient drift is the only opt-in continuous frame source** (`[graph] drift` in config, off on the performance preset). With drift off and the sim settled, Shale must draw zero frames while idle.
+- **Platform frame loops differ — don't fight them in app code.** Wayland (`gpui_linux`) parks on a `wl_callback` when idle: true 0% CPU. Windows (`gpui_windows`) has a `VSyncProvider` thread that `DwmFlush()`es and invalidates every visible window each refresh; a settled idle window still takes a ~60 Hz wakeup + dirty-check (sub-1% CPU, no scene rebuild, no present). Minimized windows are skipped.
+- **Verify idle behavior** by watching the `FrameLoop::{Ticking, AwaitingCallback, Scheduled, Parked}` log lines in `gpui_linux`'s `wayland/window.rs` plus `top`/`pidstat` (expect 0.0–0.3% with drift off); ask the user to eyeball the graph tab for unwanted motion.
+
 ### Database 
 Persist metadata about notes to a local sqlite DB. This, along with other vault metadata, should be kept in a `.shale` directory in the vault. Store modification and creation date, tags, names, and whatever else is relevant as the project continues. When Obsidian properties are added, these should be stored as well. Use incremental updating of the DB. When the app is launched, a background thread should go and check for modified files that weren't persisted (due to an external editor, etc) and update the vault in the background. This background thread should then end and further updates will be done as notes are updated.
 
