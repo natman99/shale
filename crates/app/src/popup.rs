@@ -198,7 +198,7 @@ impl Render for Popup {
                     .child(div().w(px(14.)).child(format!("{}.", n + 1)))
                     .child(gpui::StyledText::new(row.clone()))
                     .when(n == self.selected, |d| {
-                        d.bg(gpui::rgb(palette.ui_active_bg))
+                        d.bg(gpui::rgb(palette.popup_hover_bg))
                     })
                     .on_click(move |_, _, cx| {
                         clicked.update(cx, |_, cx| cx.emit(PopupEvent::Apply(n)));
@@ -217,10 +217,10 @@ impl Render for Popup {
             .py(PAD)
             .text_size(px(self.size))
             .font_family(self.family.clone())
-            .bg(gpui::rgb(palette.ui_bg))
-            .text_color(gpui::rgb(palette.fg))
+            .bg(gpui::rgb(palette.popup_bg))
+            .text_color(gpui::rgb(palette.ui_fg))
             .border_1()
-            .border_color(gpui::rgb(palette.ui_border))
+            .border_color(gpui::rgb(palette.popup_border))
             .on_action(cx.listener(|_, _: &FieldCancel, _window, cx| {
                 cx.emit(PopupEvent::Cancel);
             }))
@@ -257,7 +257,7 @@ impl Render for Popup {
                     )
                     .child(
                         div()
-                            .text_color(gpui::rgb(palette.dim))
+                            .text_color(gpui::rgb(palette.ui_dim))
                             .child(gpui::StyledText::new(self.code.clone())),
                     ),
             )

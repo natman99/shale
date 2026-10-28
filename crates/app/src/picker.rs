@@ -411,7 +411,7 @@ fn runs(
             color: rgb(if is_match {
                 palette.match_text
             } else {
-                palette.fg
+                palette.ui_fg
             })
             .into(),
             background_color: None,
@@ -452,7 +452,7 @@ impl<T: Clone + 'static> Render for Picker<T> {
                     )))
                     .child(
                         div()
-                            .text_color(gpui::rgb(palette.dim))
+                            .text_color(gpui::rgb(palette.ui_dim))
                             .child(item.detail.clone()),
                     )
             })
@@ -506,7 +506,7 @@ impl<T: Clone + 'static> Render for Picker<T> {
                     .text_xs()
                     .px_2()
                     .pt_1()
-                    .text_color(gpui::rgb(palette.dim))
+                    .text_color(gpui::rgb(palette.ui_dim))
                     .child(self.label.clone()),
             )
             .child(div().px_2().py_1().child(FieldElement::new(entity)))
@@ -516,7 +516,7 @@ impl<T: Clone + 'static> Render for Picker<T> {
                     .text_xs()
                     .px_2()
                     .py_1()
-                    .text_color(gpui::rgb(palette.dim))
+                    .text_color(gpui::rgb(palette.ui_dim))
                     .child(format!(
                         "{} of {} matching",
                         if self.ranked.is_empty() {

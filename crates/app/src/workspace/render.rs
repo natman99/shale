@@ -82,7 +82,7 @@ impl Render for Workspace {
             .flex()
             .flex_col()
             .bg(gpui::rgb(self.palette.ui_bg))
-            .text_color(gpui::rgb(self.palette.fg))
+            .text_color(gpui::rgb(self.palette.ui_fg))
             .on_action(cx.listener(Self::save))
             .on_action(cx.listener(|_, _: &Quit, _, cx| cx.quit()))
             // The vault edits are available from anywhere: the tree's selection
@@ -204,6 +204,7 @@ impl Render for Workspace {
                     .gap_4()
                     .text_xs()
                     .bg(gpui::rgb(self.palette.ui_status_bg))
+                    .text_color(gpui::rgb(self.palette.ui_fg))
                     .child(format!("{mode}{pending}{dirty}"))
                     .child(self.status.clone())
                     .child(spell)

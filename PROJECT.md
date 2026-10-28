@@ -864,10 +864,12 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
       each single-letter box sat eight pixels from the next, and the box was the
       colour `==highlight==` uses in the note. A row is now **one
       `gpui::StyledText`** whose runs come from `picker::runs`: matched stretches
-      in `Palette::match_text`, everything else in `Palette::fg`, no background.
+      in `Palette::match_text`, everything else in the chrome's `ui_fg`, no
+      background.
       The matcher's adjacent single-character ranges are coalesced first, so a
       matched word is one run and keeps its kerning.
-    - **`match_text` is a new `Palette` role** — 29 roles now, filled by
+    - **`match_text` is a new `Palette` role** — 29 roles at the time, 53 now
+      (see the theme-roles thread below) — filled by
       `theme_gen.py`'s tables for the seven families and by hand for the
       Catppuccin flavours and `dark`/`light` — and a theme file can set it
       (`match_text = "#fab387"`). It is judged against the two surfaces a picker
@@ -883,8 +885,8 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
     - **Next: a theme picker.** Not started — the user is specifying what they want
       from it first. Today a theme change means editing `shale.toml` and restarting.
   - **Not done here**: no way to change the theme at runtime (restart to pick one
-    up), no per-role preview UI, and the palette has no entry for syntax
-    highlighting inside fenced code (which is the tree-sitter goal anyway).
+    up), and no per-role preview UI. Fenced code now has `code_text` painted and
+    the `code_*` token roles filled but unused, waiting for tree-sitter.
 
 - **Folding (heading sections) — done (2026-10-27).** `shale_core::fold` answers
   the two questions the view needs: `fold_regions(text)` (a heading owns every row
@@ -1403,23 +1405,64 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   takes the panel with it, another note ends
   it (and the deferred refocus gives the keyboard back), and the panel follows its
   line off screen.
-- **More theme colours to add (the roles everything currently borrows).** Four
-  things are drawn with a role that was chosen for something else, and each wants
-  its own `Palette` role when a theme asks for it:
-  - the checker's wavy underline uses `callout_danger`;
-  - the popup's background, border and highlighted row use `ui_bg`, `ui_border`
-    and `ui_active_bg` — the same three the pickers use, so a theme cannot make a
-    panel read differently from a picker, and the popup's *code* (`SpellCheck`) is
-    dimmed with `dim`, the note's own dim;
-  - the status bar's background is `ui_status_bg`, but its text is `fg`;
-  - a matched picker row's text is `match_text`, judged against both picker
-    backgrounds by the readability test.
-  Adding a role is not one line: it means **20 built-in palettes**
-  (`crates/core/src/theme/`, one module per family), the `ThemeFile` override
-  struct, `tools/theme_gen.py`'s `FLOORS` so the generated palettes clear the same
-  WCAG checks the readability test applies, and the readability test itself. Do all
-  four in one pass, run the generator and `cargo fmt --all`, and check `git diff`
-  on the generated files is empty.
+- **More theme colours — done (2026-10-28): 29 roles → 53.** Every borrowed
+  role listed below now has its own, and the palette has headroom for the goals
+  that are still on the list (tabs, splits, graph view, tree-sitter code blocks,
+  the prompt field, cursorline). Twenty-four new roles, in `Palette` order:
+  `cursor_line_bg`, `spell`, `code_text`, `code_comment`, `code_keyword`,
+  `code_string`, `code_number`, `code_function`, `code_type`, `code_const`,
+  `code_operator`, `ui_fg`, `ui_dim`, `ui_field_bg`, `ui_active_border`,
+  `ui_tab_bg`, `ui_tab_active_bg`, `popup_bg`, `popup_border`, `popup_hover_bg`,
+  `graph_node`, `graph_node_active`, `graph_edge`, `graph_text`.
+  - **Painted now:** `spell` (the checker's wavy underline, no longer
+    `callout_danger` — a spelling note is a remark, not an error), `popup_bg` /
+    `popup_border` / `popup_hover_bg` (the panel is its own surface, so a theme
+    can make it read differently from a picker), `ui_fg` (status bar and every
+    picker/panel label), `ui_dim` (picker hints, the prompt label, the panel's
+    source line — chrome's quiet text, distinct from the note's `dim`),
+    `ui_field_bg` (the picker and prompt input, no longer `code_block_bg`), and
+    `code_text` (fenced code text in `RunStyle::for_style`, which is the hook a
+    tree-sitter layer extends per token).
+  - **Reserved but not painted yet** — said so in the struct's doc comment:
+    `code_comment`/`code_keyword`/... (tree-sitter), `graph_*` (graph view),
+    `ui_tab_bg`/`ui_tab_active_bg` (tabs), `cursor_line_bg` (cursorline),
+    `ui_active_border` (the focused pane's border, for splits). They are filled
+    and readable today, so painting them later is a one-line change, not a
+    palette change.
+  - **Contrast is judged per surface, not against `bg`.** The readability test
+    and `theme_gen.py`'s `FLOORS` both carry `(role, surface, floor)` triples:
+    body roles 4.5 on `bg`, code tokens 2.0 on `code_block_bg` with `code_text`
+    at 4.0, chrome text 4.5 on `ui_bg`, `popup_border` 1.2 on `popup_bg`,
+    `graph_edge` 1.1 on `bg`. `PAIRS` covers the role-on-role cases:
+    `ui_status_bg`/`ui_fg` 4.5, `ui_field_bg`/`ui_fg` 4.5,
+    `ui_tab_active_bg`/`ui_fg` 3.0, `popup_bg`/`ui_fg` 4.5,
+    `popup_hover_bg`/`ui_fg` 3.5, `cursor_line_bg`/`fg` 4.0 and
+    `bg`/`cursor_line_bg` 1.05 (the tint must be visible without being loud).
+    Three floors had to be relaxed because they were *jointly* unsatisfiable:
+    a panel 1.2:1 from `bg` **and** 4.5:1 text on it is impossible for the light
+    flavours (hence panel-vs-bg 1.1 and a dedicated `ui_fg`), 4.5 for text on
+    `cursor_line_bg` fails Solarized by its own tone table (hence 4.0), and 2.5
+    for code tokens fails Rosé Pine Dawn's gold and Latte's yellow — the rule is
+    to keep upstream's colours rather than invent ones that clear a number.
+  - **Role mapping now has an authority**: `refs/catppuccin/style-guide.md`
+    (with `refs/catppuccin/palette.json`, v1.8.0) is the only published style
+    guide among the eight families, so Catppuccin's rows decide which colour
+    plays which role — Cursor Line = Text @10%, Active Border = Lavender,
+    Comments = Overlay 2, Functions = Blue, Types = Yellow, Constants = Peach,
+    Operators = Sky. Where a family has its own upstream *syntax* theme (Tokyo
+    Night's README tokens, Gruvbox's highlight groups, Nord's four documented
+    groups, Dracula's accent meanings, Solarized's accent meanings, One's eight
+    hues, Rosé Pine's role names) that theme wins for `code_*`. Obsidian's
+    palettes are **not** a source.
+  - All 20 built-ins and `DARK`/`LIGHT` are filled: `theme_gen.py`'s eight
+    family tables gained the 24 roles, `ThemeFile` gained 24 `Option<u32>`
+    fields, so a vault theme file can set any of them. The generator prints
+    every ratio and reports `0 problem(s)`; running it plus `cargo fmt --all`
+    reproduces the seven generated modules byte for byte.
+  - **Adding a role is still not one line**: `Palette` (+doc comment), the
+    struct/FIELDS order in the generator (every background must come before the
+    roles judged against it), `ThemeFile`, the eight family tables, `FLOORS` /
+    `PAIRS`, and the readability test. Do all of it in one pass.
 - **Module sizes.** `editor.rs` and `main.rs` both passed the 1000-line mark in
   `AGENTS.md`, so they are now directories: `editor/{mod,wrap,render,actions,input}.rs`
   (a submodule can reach `MarkdownEditor`'s private state because they are all

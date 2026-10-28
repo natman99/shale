@@ -119,6 +119,10 @@ impl RunStyle {
     }
 
     /// How a markdown span of `style` is drawn with `palette`.
+    ///
+    /// Fenced code gets `code_text` on `code_block_bg`; the per-token roles
+    /// (`code_keyword`, `code_string`, ...) are reserved for the tree-sitter
+    /// layer that will refine this once highlighting lands.
     pub(crate) fn for_style(style: Style, palette: &Palette) -> Self {
         let mut run = Self::plain(palette);
         match style {
@@ -145,7 +149,10 @@ impl RunStyle {
             Style::Strike => run.strikethrough = true,
             Style::Highlight => run.background = Some(palette.highlight_bg),
             Style::Code => run.background = Some(palette.code_bg),
-            Style::CodeBlock => run.background = Some(palette.code_block_bg),
+            Style::CodeBlock => {
+                run.color = palette.code_text;
+                run.background = Some(palette.code_block_bg);
+            }
             Style::CodeFence => {
                 run.color = palette.dim;
                 run.background = Some(palette.code_block_bg);

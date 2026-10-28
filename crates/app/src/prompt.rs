@@ -248,7 +248,7 @@ impl Render for Prompt {
                 div()
                     .text_xs()
                     .mb_1()
-                    .text_color(gpui::rgb(self.palette.dim))
+                    .text_color(gpui::rgb(self.palette.ui_dim))
                     .child(self.label.clone()),
             )
             .child(FieldElement::new(cx.entity()))

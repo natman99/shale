@@ -290,13 +290,14 @@ fn build_runs(
     }
     // The checker's notes are drawn last, over whatever styling the text already
     // had: a misspelled word inside a heading still needs its squiggle. The
-    // colour is the palette's error red, the one role every theme already reads
-    // as "something is wrong"; a dedicated palette role is a later refinement.
+    // colour is the palette's own `spell` role, which a theme can set apart from
+    // its error red -- a checker's note is a remark about the text, not an error
+    // in it.
     for (start, end) in marks {
         let start = (*start).min(total);
         let end = (*end).clamp(start, total);
         for slot in &mut styles[start..end] {
-            slot.spell = Some(palette.callout_danger);
+            slot.spell = Some(palette.spell);
         }
     }
 
@@ -913,7 +914,7 @@ mod tests {
         }
     }
 
-    /// The checker's ranges come out as wavy underlines in the palette's error
+    /// The checker's ranges come out as wavy underlines in the palette's spell
     /// colour, over whatever styling the same bytes already had.
     #[test]
     fn a_checker_range_is_a_wavy_underline() {
@@ -925,10 +926,7 @@ mod tests {
         assert_eq!(runs[0].len, 5, "the marked word is its own run");
         let underline = runs[0].underline.expect("underlined");
         assert!(underline.wavy, "a checker's note is a squiggle");
-        assert_eq!(
-            underline.color,
-            Some(rgb(Palette::DARK.callout_danger).into())
-        );
+        assert_eq!(underline.color, Some(rgb(Palette::DARK.spell).into()));
         assert!(
             runs[1].underline.is_none(),
             "the bytes past the range are left alone"

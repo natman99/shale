@@ -291,7 +291,9 @@ impl<E: FieldOwner + EntityInputHandler + 'static> Element for FieldElement<E> {
         cx: &mut App,
     ) {
         let palette = Rc::clone(self.owner.read(cx).palette());
-        window.paint_quad(fill(bounds, rgb(palette.code_block_bg)));
+        // A field is a control in the window, so it takes the chrome's field
+        // role rather than the note's inline-code background.
+        window.paint_quad(fill(bounds, rgb(palette.ui_field_bg)));
         window.paint_quad(fill(
             Bounds::from_corners(
                 point(bounds.left(), bounds.bottom() - px(1.)),
