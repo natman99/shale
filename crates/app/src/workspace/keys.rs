@@ -19,6 +19,9 @@ pub(crate) fn keybindings() -> Vec<KeyBinding> {
         KeyBinding::new("ctrl-shift-d", DeleteNote, None),
         // Quick-open: jump to a note by typing part of its name or path.
         KeyBinding::new("ctrl-o", QuickOpen, None),
+        // Vault search: every line that contains what is typed. The picker's rows
+        // are the hits, and choosing one opens the note on that line.
+        KeyBinding::new("ctrl-shift-f", SearchVault, None),
         // The command palette. `ctrl-shift-p` is the shape the user asked for;
         // vim's `:` is bound in the note's own context (see below).
         KeyBinding::new("ctrl-shift-p", CommandPalette, None),

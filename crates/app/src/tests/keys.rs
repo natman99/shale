@@ -183,6 +183,7 @@ fn keymap_matches_the_linux_keystroke_shape() {
         (true, true, "r", "shale::RenameNote"),
         (true, true, "d", "shale::DeleteNote"),
         (true, true, "p", "shale::CommandPalette"),
+        (true, true, "f", "shale::SearchVault"),
         (false, false, "j", "shale::TreeDown"),
         (false, false, "k", "shale::TreeUp"),
         (false, false, "enter", "shale::TreeOpen"),

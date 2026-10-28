@@ -1,10 +1,16 @@
-//! A searchable list: quick-open of notes today, and the widget the command
-//! palette and vault search will reuse.
+//! A searchable list: quick-open of notes and the command palette today, and the
+//! widget vault search reuses.
 //!
 //! The same shape as the prompt — a [`Field`] on top, keys handled through the
 //! same actions — plus the two things a prompt does not need: the rows are
 //! re-ranked with [`shale_core::fuzzy`] on every keystroke, and one row is
 //! highlighted so `enter` or `j`/`k` can choose it without the mouse.
+//!
+//! A picker is generic over what a row stands for (`PickerTarget` in the
+//! workspace), and the payload travels *inside* the row list rather than in a
+//! parallel array the caller has to keep in step: a picker whose rows are
+//! re-derived from the query changes their number and their order on every
+//! keystroke, which is exactly when a parallel array goes wrong.
 //!
 //! The list is a *window* over the ranked rows rather than a scrolling element:
 //! the window slides to keep the selection inside it, which is all a keyboard
@@ -42,12 +48,18 @@ const RANK_LIMIT: usize = 200;
 /// What the user did with the picker.
 #[derive(Clone)]
 pub(crate) enum PickerEvent {
-    /// Enter on the highlighted row: its index into the list the picker was
-    /// built from, which is the order the workspace passed in.
-    Choose(usize),
+    /// Enter on the highlighted row. Nothing more is needed: the row carries
+    /// what it stands for.
+    Choose,
     /// Escape: nothing was chosen.
     Cancel,
 }
+
+/// Rows that cannot be listed up front, given the query: vault search has to read
+/// every note, so its rows only exist once something has been typed. The rows are
+/// shown in the order the source returns them — a search already decided what is
+/// worth showing, and re-ranking it as a subsequence would only muddy that.
+pub(crate) type RowSource<T> = Rc<dyn Fn(&str) -> Vec<(PickerItem, T)>>;
 
 /// One row the picker can offer.
 #[derive(Clone)]
@@ -64,7 +76,7 @@ pub(crate) struct PickerItem {
 
 /// One row in ranked order.
 struct Row {
-    /// Which item of the caller's list this row is.
+    /// Which item of the picker's current list this row is.
     item: usize,
     /// Which characters of the *label* the query matched. The query is ranked
     /// against the wider search text, so these are computed separately: a query
@@ -74,14 +86,18 @@ struct Row {
 }
 
 /// A searchable list with one row highlighted.
-pub(crate) struct Picker {
+pub(crate) struct Picker<T: Clone + 'static> {
     focus_handle: FocusHandle,
     /// The question shown above the field.
     label: SharedString,
     /// What has been typed so far, and where the caret is.
     field: Field,
-    /// Everything that could be chosen, in the order the caller passed it.
-    items: Vec<PickerItem>,
+    /// Everything that could be chosen: the row's text and what it stands for.
+    /// For a sourced picker this is rebuilt from the query on every keystroke.
+    items: Vec<(PickerItem, T)>,
+    /// `Some` when the rows come from the query rather than from a list the
+    /// caller passed in.
+    source: Option<RowSource<T>>,
     /// `(row, index into items)`, best first, recomputed whenever the query
     /// changes. With an empty query this is every item in the caller's order.
     ranked: Vec<Row>,
@@ -96,10 +112,11 @@ pub(crate) struct Picker {
     size: f32,
 }
 
-impl Picker {
+impl<T: Clone + 'static> Picker<T> {
+    /// A picker over a list that already exists — every note, every command.
     pub(crate) fn new(
         label: impl Into<SharedString>,
-        items: Vec<PickerItem>,
+        items: Vec<(PickerItem, T)>,
         palette: Rc<Palette>,
         family: SharedString,
         size: f32,
@@ -110,6 +127,7 @@ impl Picker {
             label: label.into(),
             field: Field::new(""),
             items,
+            source: None,
             ranked: Vec::new(),
             selected: 0,
             palette,
@@ -120,10 +138,37 @@ impl Picker {
         picker
     }
 
-    /// The index into the caller's list that `enter` would choose, or `None` when
-    /// there is nothing to choose.
-    pub(crate) fn chosen(&self) -> Option<usize> {
-        self.ranked.get(self.selected).map(|row| row.item)
+    /// A picker whose rows are built from the query, for a list too expensive to
+    /// produce before anything has been typed.
+    pub(crate) fn sourced(
+        label: impl Into<SharedString>,
+        source: RowSource<T>,
+        palette: Rc<Palette>,
+        family: SharedString,
+        size: f32,
+        cx: &mut App,
+    ) -> Self {
+        let mut picker = Self {
+            focus_handle: cx.focus_handle(),
+            label: label.into(),
+            field: Field::new(""),
+            items: Vec::new(),
+            source: Some(source),
+            ranked: Vec::new(),
+            selected: 0,
+            palette,
+            family,
+            size,
+        };
+        picker.rerank();
+        picker
+    }
+
+    /// What `enter` would choose, or `None` when there is nothing to choose.
+    pub(crate) fn chosen(&self) -> Option<T> {
+        self.ranked
+            .get(self.selected)
+            .map(|row| self.items[row.item].1.clone())
     }
 
     /// How many rows matched.
@@ -136,6 +181,23 @@ impl Picker {
     /// that just moved to the top.
     fn rerank(&mut self) {
         let query = self.field.text().to_string();
+        if let Some(source) = self.source.clone() {
+            // The source did the finding; its order is the order to show.
+            self.items = source(&query);
+            self.ranked = self
+                .items
+                .iter()
+                .enumerate()
+                .map(|(idx, (item, _))| Row {
+                    item: idx,
+                    // A search hit is there because the query is *in* the line,
+                    // so the highlight is that substring, not a fuzzy alignment.
+                    label_ranges: substring_ranges(item.label.as_str(), &query),
+                })
+                .collect();
+            self.selected = 0;
+            return;
+        }
         let ranked = if query.is_empty() {
             self.items
                 .iter()
@@ -146,16 +208,18 @@ impl Picker {
                 })
                 .collect()
         } else {
-            shale_core::ranked(&query, &self.items, RANK_LIMIT, |item| item.search.as_str())
-                .into_iter()
-                // The score is what put the row here; the list is already in order.
-                .map(|(_, idx)| Row {
-                    item: idx,
-                    label_ranges: shale_core::fuzzy_match(&query, self.items[idx].label.as_str())
-                        .map(|in_label| in_label.ranges)
-                        .unwrap_or_default(),
-                })
-                .collect()
+            shale_core::ranked(&query, &self.items, RANK_LIMIT, |(item, _)| {
+                item.search.as_str()
+            })
+            .into_iter()
+            // The score is what put the row here; the list is already in order.
+            .map(|(_, idx)| Row {
+                item: idx,
+                label_ranges: shale_core::fuzzy_match(&query, self.items[idx].0.label.as_str())
+                    .map(|in_label| in_label.ranges)
+                    .unwrap_or_default(),
+            })
+            .collect()
         };
         self.ranked = ranked;
         self.selected = 0;
@@ -178,13 +242,13 @@ impl Picker {
     }
 }
 
-impl Focusable for Picker {
+impl<T: Clone + 'static> Focusable for Picker<T> {
     fn focus_handle(&self, _: &App) -> FocusHandle {
         self.focus_handle.clone()
     }
 }
 
-impl FieldOwner for Picker {
+impl<T: Clone + 'static> FieldOwner for Picker<T> {
     fn field(&self) -> &Field {
         &self.field
     }
@@ -206,9 +270,9 @@ impl FieldOwner for Picker {
     }
 }
 
-impl EventEmitter<PickerEvent> for Picker {}
+impl<T: Clone + 'static> EventEmitter<PickerEvent> for Picker<T> {}
 
-impl EntityInputHandler for Picker {
+impl<T: Clone + 'static> EntityInputHandler for Picker<T> {
     fn text_for_range(
         &mut self,
         range_utf16: Range<usize>,
@@ -292,6 +356,20 @@ impl EntityInputHandler for Picker {
     }
 }
 
+/// The byte range of the query inside `label`, ignoring case: how a sourced
+/// picker explains its rows. Only the first occurrence is marked, and a query
+/// that is not in the label (it matched elsewhere in the row) marks nothing.
+fn substring_ranges(label: &str, query: &str) -> Vec<(usize, usize)> {
+    if query.is_empty() {
+        return Vec::new();
+    }
+    let lower = label.to_lowercase();
+    match lower.find(&query.to_lowercase()) {
+        Some(start) => vec![(start, start + query.len())],
+        None => Vec::new(),
+    }
+}
+
 /// The label split into runs at the characters the query matched, so a row shows
 /// *why* it matched. The ranges are byte ranges the fuzzy matcher produced, so
 /// they land on character boundaries and never overlap.
@@ -315,7 +393,7 @@ fn runs(label: &str, matched: &[(usize, usize)], palette: &Palette) -> Vec<gpui:
     out
 }
 
-impl Render for Picker {
+impl<T: Clone + 'static> Render for Picker<T> {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let entity = cx.entity();
         let palette = Rc::clone(&self.palette);
@@ -324,7 +402,7 @@ impl Render for Picker {
         let rows: Vec<gpui::Div> = (start..end)
             .map(|n| {
                 let row = &self.ranked[n];
-                let item = &self.items[row.item];
+                let (item, _target) = &self.items[row.item];
                 div()
                     .flex()
                     .gap_2()
@@ -346,8 +424,8 @@ impl Render for Picker {
             .key_context(CONTEXT)
             .track_focus(&self.focus_handle)
             .on_action(cx.listener(|this, _: &FieldSubmit, _window, cx| {
-                if let Some(idx) = this.chosen() {
-                    cx.emit(PickerEvent::Choose(idx));
+                if this.chosen().is_some() {
+                    cx.emit(PickerEvent::Choose);
                 }
             }))
             .on_action(cx.listener(|_, _: &FieldCancel, _window, cx| {

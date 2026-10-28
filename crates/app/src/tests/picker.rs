@@ -1,7 +1,7 @@
-//! Quick-open and the command palette, driven through the same keymap and input
-//! paths the live app uses: the keys open the list, typed characters arrive
-//! through the picker's input handler and re-rank it, and `enter` chooses a row —
-//! a note to open, or a command to run.
+//! Quick-open, the command palette and vault search, driven through the same
+//! keymap and input paths the live app uses: the keys open the list, typed
+//! characters arrive through the picker's input handler and re-rank it, and
+//! `enter` chooses a row — a note to open, a line to jump to, or a command to run.
 
 use super::*;
 use crate::workspace::commands::Command;
@@ -240,4 +240,128 @@ fn ctrl_w_moves_the_keyboard_between_panels(cx: &mut TestAppContext) {
         "typed",
         "and the note has it back"
     );
+}
+
+/// A vault whose notes hold real text. `workspace` makes empty files, and search
+/// has nothing to find in those; the new files are folded in the way the vault
+/// watcher folds a change made outside Shale.
+fn vault_with(
+    cx: &mut TestAppContext,
+    notes: &[(&str, &str)],
+) -> (tempfile::TempDir, WindowHandle<Workspace>) {
+    let (dir, window) = workspace(cx, &[]);
+    for (name, text) in notes {
+        let path = dir.path().join(name);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(&path, text).unwrap();
+    }
+    window
+        .update(cx, |ws, _window, cx| ws.check_vault_now(cx))
+        .unwrap();
+    (dir, window)
+}
+
+/// The notes every search test uses: the query is in one line of each, in
+/// different folders, so a hit has to carry both its note and its line.
+fn needle_vault(cx: &mut TestAppContext) -> (tempfile::TempDir, WindowHandle<Workspace>) {
+    vault_with(
+        cx,
+        &[
+            ("Welcome.md", "first line\nthe needle is here\nlast\n"),
+            ("notes/Deep.md", "another needle, deeper down\n"),
+        ],
+    )
+}
+
+/// `ctrl-shift-f` has to read every note to find its rows, so unlike the other
+/// two pickers it is given a row source and asks it on each keystroke.
+#[gpui::test]
+fn ctrl_shift_f_finds_the_lines_that_hold_the_query(cx: &mut TestAppContext) {
+    let (_dir, window) = needle_vault(cx);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    cx.simulate_keystrokes("ctrl-shift-f");
+    assert_eq!(
+        matches(&window, cx),
+        Some(0),
+        "nothing has been typed, so no note has been read"
+    );
+
+    cx.simulate_input("needle");
+    assert_eq!(matches(&window, cx), Some(2), "one row per matching line");
+    assert_eq!(
+        choice(&window, cx).as_deref(),
+        Some("Welcome.md:2"),
+        "a row is the note and the line, in the order the notes were read"
+    );
+    cx.simulate_keystrokes("j");
+    assert_eq!(choice(&window, cx).as_deref(), Some("notes/Deep.md:1"));
+
+    cx.simulate_keystrokes("backspace backspace backspace backspace backspace backspace");
+    assert_eq!(
+        matches(&window, cx),
+        Some(0),
+        "erasing the query leaves no rows, rather than every line in the vault"
+    );
+}
+
+/// Choosing a hit opens its note with the cursor on its line, which is the whole
+/// point of the exercise: the user was reading that line in the picker.
+#[gpui::test]
+fn a_search_row_opens_the_note_on_its_line(cx: &mut TestAppContext) {
+    let (_dir, window) = needle_vault(cx);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    cx.simulate_keystrokes("ctrl-shift-f");
+    cx.simulate_input("needle");
+    cx.simulate_keystrokes("enter");
+
+    let (_, active) = state(&window, cx);
+    assert_eq!(active, "Welcome.md");
+    assert_eq!(
+        window
+            .update(cx, |ws, _window, cx| ws.cursor_position(cx))
+            .unwrap(),
+        (1, 0),
+        "the cursor is at the start of the line the row showed, not the top of the note"
+    );
+    assert_eq!(
+        window
+            .update(cx, |ws, _window, cx| ws.buffer_text(cx))
+            .unwrap(),
+        "first line\nthe needle is here\nlast\n"
+    );
+
+    cx.simulate_keystrokes("i");
+    cx.simulate_input("x");
+    assert_eq!(
+        window
+            .update(cx, |ws, _window, cx| ws.buffer_text(cx))
+            .unwrap(),
+        "first line\nxthe needle is here\nlast\n",
+        "the keyboard is back on the note, so the next key is a vim command"
+    );
+}
+
+/// A query nothing matches offers nothing: `enter` has to be inert rather than
+/// open an arbitrary note.
+#[gpui::test]
+fn a_search_with_no_hits_has_nothing_to_choose(cx: &mut TestAppContext) {
+    let (_dir, window) = needle_vault(cx);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    cx.simulate_keystrokes("ctrl-shift-f");
+    cx.simulate_input("zzzz");
+    assert_eq!(matches(&window, cx), Some(0));
+    assert_eq!(choice(&window, cx), None);
+    cx.simulate_keystrokes("enter");
+    assert_eq!(
+        matches(&window, cx),
+        Some(0),
+        "enter on an empty list leaves the picker up"
+    );
+    let (_, active) = state(&window, cx);
+    assert_eq!(active, "", "and no note was opened");
 }

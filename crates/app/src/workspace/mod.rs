@@ -66,13 +66,10 @@ pub(crate) struct Workspace {
     signature: BTreeMap<PathBuf, Stamp>,
     /// The subscription to the open prompt, replaced when another one opens.
     _prompt_events: Option<Subscription>,
-    /// The open picker, if one is open: quick-open today, search and the command
-    /// palette later.
-    picker: Option<Entity<picker::Picker>>,
-    /// What each row of the open picker stands for, indexed the way the picker
-    /// indexes its items, so a chosen row can be turned back into a note to open
-    /// or a command to run.
-    picker_targets: Vec<PickerTarget>,
+    /// The open picker, if one is open: quick-open, the command palette or a
+    /// vault search. Every row carries what it stands for, so there is no side
+    /// table to keep in step with a list that changes on each keystroke.
+    picker: Option<Entity<picker::Picker<PickerTarget>>>,
     /// What had the keyboard when the picker opened, so closing it puts the
     /// keyboard back where the user was working.
     picker_return_focus: Option<gpui::FocusHandle>,
@@ -151,7 +148,6 @@ impl Workspace {
             prompt: None,
             prompt_return_focus: None,
             picker: None,
-            picker_targets: Vec::new(),
             picker_return_focus: None,
             _picker_events: None,
             signature,
@@ -178,6 +174,19 @@ impl Workspace {
             }
         }
         cx.notify();
+    }
+
+    /// Open the note and put the cursor on `line` (1-based, the way a search hit
+    /// reports it), scrolling it into view: the row the user was reading in the
+    /// picker becomes the row the editor shows them.
+    pub(crate) fn open_note_at(&mut self, path: &PathBuf, line: usize, cx: &mut Context<Self>) {
+        self.open_note(path, cx);
+        // Only if the note really opened — a read error leaves `active` alone.
+        if self.active.as_deref() == Some(path.as_path()) {
+            self.editor.update(cx, |editor, cx| {
+                editor.reveal_line(line.saturating_sub(1), cx)
+            });
+        }
     }
 
     /// Open the note a wiki-link target refers to, if it exists.
@@ -340,6 +349,14 @@ impl Workspace {
         self.editor.read_with(cx, |editor, _cx| editor.is_dirty())
     }
 
+    /// The cursor's buffer position (row, column), 0-based: how a test checks
+    /// that choosing a search hit lands on the line that row was showing.
+    #[cfg(test)]
+    pub(crate) fn cursor_position<C: gpui::AppContext>(&self, cx: &C) -> (usize, usize) {
+        self.editor
+            .read_with(cx, |editor, _cx| editor.cursor_position())
+    }
+
     #[cfg(test)]
     pub(crate) fn tree_rows(&self) -> Vec<PathBuf> {
         self.tree_rows.clone()
@@ -377,15 +394,15 @@ impl Workspace {
 
     /// The note the open picker would choose, or `None` while no picker is open:
     /// how a test checks what a typed query narrowed the list to. A command row
-    /// reads as its label.
+    /// reads as its label, and a search hit as `path:line`.
     #[cfg(test)]
     pub(crate) fn picker_choice(&self, cx: &gpui::App) -> Option<String> {
         self.picker
             .as_ref()
             .and_then(|picker| picker.read(cx).chosen())
-            .and_then(|idx| self.picker_targets.get(idx))
             .map(|target| match target {
                 PickerTarget::Note(path) => path.display().to_string(),
+                PickerTarget::Hit { path, line } => format!("{}:{}", path.display(), line),
                 PickerTarget::Command(command) => command.label().to_string(),
             })
     }

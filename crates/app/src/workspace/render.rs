@@ -73,6 +73,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::window_left))
             .on_action(cx.listener(Self::window_right))
             .on_action(cx.listener(Self::quick_open))
+            .on_action(cx.listener(Self::search_vault))
             .on_action(cx.listener(Self::command_palette))
             .child(
                 div()

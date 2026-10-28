@@ -98,6 +98,8 @@ actions!(
         TreeExpand,
         TreeOpen,
         QuickOpen,
+        // Searching every note's text (`ctrl-shift-f`).
+        SearchVault,
         CommandPalette,
         // Moving the keyboard between the window's panels (`ctrl-w h`/`ctrl-w l`).
         // A split view will grow these into stepping sideways between panes.

@@ -189,6 +189,16 @@ impl MarkdownEditor {
         self.vim.mode()
     }
 
+    /// Put the cursor on buffer row `row` (0-based, clamped) and scroll it into
+    /// view. What vault search does with a hit; the cursor lands at the row's
+    /// first character, which is where a reader wants it, and the vim engine is
+    /// left in normal mode so the next keystroke is a motion.
+    pub fn reveal_line(&mut self, row: usize, cx: &mut Context<Self>) {
+        self.buffer.goto_line(row);
+        self.ensure_cursor_visible();
+        cx.notify();
+    }
+
     pub fn is_dirty(&self) -> bool {
         self.dirty
     }
