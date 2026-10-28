@@ -711,3 +711,115 @@ fn a_fold_command_needs_a_section_under_the_cursor(cx: &mut TestAppContext) {
     assert_eq!(lines, 2);
     assert!(painted.is_empty(), "nothing is folded");
 }
+
+/// Enter in insert mode carries a list, task, numbered or quote marker onto the
+/// new row (Obsidian's behaviour), and the marker text is ordinary insert text:
+/// one undo step takes the newline and the marker together.
+#[gpui::test]
+fn enter_continues_list_task_and_quote_markers(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.bind_keys(keybindings()));
+
+    let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+    let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+    editor
+        .update(cx, |editor, window, cx| {
+            editor.set_text(String::new(), cx);
+            let focus = editor.focus_handle(cx);
+            window.focus(&focus, cx);
+        })
+        .unwrap();
+
+    cx.simulate_keystrokes("i");
+    cx.simulate_input("- one");
+    cx.simulate_keystrokes("enter");
+    cx.simulate_input("two");
+    cx.simulate_keystrokes("escape");
+    let text = editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
+    assert_eq!(text, "- one\n- two", "the bullet is carried over");
+
+    // The whole insert session is one undo step, as in vim, and a session that
+    // only presses Enter gives up the newline and the marker together.
+    cx.simulate_keystrokes("u");
+    let text = editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
+    assert_eq!(text, "", "the session is one undo step");
+
+    editor
+        .update(cx, |editor, _window, cx| {
+            editor.set_text("- one".to_string(), cx);
+        })
+        .unwrap();
+    cx.simulate_keystrokes("A enter escape");
+    let text = editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
+    assert_eq!(text, "- one\n- ");
+    cx.simulate_keystrokes("u");
+    let text = editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
+    assert_eq!(text, "- one", "the marker is not its own undo step");
+
+    // A task starts empty whatever the row being continued held, and a numbered
+    // item counts up.
+    editor
+        .update(cx, |editor, _window, cx| {
+            editor.set_text("- [x] done".to_string(), cx);
+        })
+        .unwrap();
+    cx.simulate_keystrokes("A enter escape");
+    let text = editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
+    assert_eq!(text, "- [x] done\n- [ ] ", "the new task is unchecked");
+
+    editor
+        .update(cx, |editor, _window, cx| {
+            editor.set_text("3. third".to_string(), cx);
+        })
+        .unwrap();
+    cx.simulate_keystrokes("A enter escape");
+    let text = editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
+    assert_eq!(text, "3. third\n4. ");
+
+    // A quote keeps its markers, and the indent of a nested item is kept.
+    editor
+        .update(cx, |editor, _window, cx| {
+            editor.set_text("  - nested".to_string(), cx);
+        })
+        .unwrap();
+    cx.simulate_keystrokes("A enter escape");
+    let text = editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
+    assert_eq!(text, "  - nested\n  - ", "the indent is preserved");
+}
+
+/// Enter on a row that holds nothing but its marker removes the marker instead of
+/// starting a second empty item, and inside a fenced block markers are literal
+/// text.
+#[gpui::test]
+fn enter_on_a_marker_only_row_ends_the_list(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.bind_keys(keybindings()));
+
+    let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+    let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+    editor
+        .update(cx, |editor, window, cx| {
+            editor.set_text("- one\n- ".to_string(), cx);
+            let focus = editor.focus_handle(cx);
+            window.focus(&focus, cx);
+        })
+        .unwrap();
+
+    // `A` on the empty item: the marker goes away, leaving a blank row.
+    cx.simulate_keystrokes("G A enter");
+    let text = editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
+    assert_eq!(text, "- one\n", "the empty marker is removed, not doubled");
+
+    // The next Enter is an ordinary newline, which is how the list is left.
+    cx.simulate_keystrokes("enter escape");
+    let text = editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
+    assert_eq!(text, "- one\n\n");
+
+    // Inside a fence, `-` is literal text: Enter just breaks the line.
+    editor
+        .update(cx, |editor, _window, cx| {
+            editor.set_text("```\n- one\n```".to_string(), cx);
+        })
+        .unwrap();
+    cx.simulate_keystrokes("j A enter escape");
+    let text = editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
+    assert_eq!(text, "```\n- one\n\n```");
+}

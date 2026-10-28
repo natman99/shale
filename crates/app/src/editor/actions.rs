@@ -3,6 +3,8 @@
 //! themselves are mapped in `crate::acts`.
 
 use gpui::{Context, Window};
+use shale_core::continuation::{enter_action, EnterAction};
+use shale_core::mdstyle::Style;
 use shale_core::vim::{Key, Mode, Outcome};
 
 use crate::acts::*;
@@ -81,12 +83,45 @@ impl MarkdownEditor {
         cx.notify();
     }
 
+    /// Enter in insert mode. Ordinary rows get a newline; a row that opens a
+    /// list, task or quote carries its marker onto the new row (Obsidian), and a
+    /// row that holds *nothing but* its marker loses it, which is how a list ends
+    /// without typing a second empty item. The marker text is inserted as ordinary
+    /// insert text, so it joins the session's undo group and `.` replays it.
     pub(super) fn on_newline(&mut self, _: &Newline, _window: &mut Window, cx: &mut Context<Self>) {
         if self.vim.mode() != Mode::Insert {
             return;
         }
-        self.buffer.insert("\n");
-        self.insert_edit("\n", cx);
+        let cursor = self.buffer.cursor();
+        let in_code = self.row_is_code(cursor);
+        match enter_action(self.buffer.text(), cursor, in_code) {
+            EnterAction::Continue { text } => {
+                self.buffer.insert(&text);
+                self.insert_edit(&text, cx);
+            }
+            EnterAction::Clear { start, end } => {
+                // The marker (indent included) goes away and the row is left
+                // blank, with the cursor back at its start.
+                self.buffer.delete_range(start, end);
+                self.insert_edit("", cx);
+            }
+            EnterAction::Newline => {
+                self.buffer.insert("\n");
+                self.insert_edit("\n", cx);
+            }
+        }
+    }
+
+    /// Whether the row holding `offset` is inside a fenced code block, where
+    /// `-`, `>` and `1.` are literal text and must not be continued.
+    fn row_is_code(&mut self, offset: usize) -> bool {
+        self.refresh_styles();
+        let (row, _) = self.buffer.row_col(offset);
+        let start = self.buffer.line_start(row);
+        let end = self.buffer.line_end(row);
+        self.spans_in(start, end)
+            .into_iter()
+            .any(|(_, _, style)| matches!(style, Style::CodeBlock | Style::CodeFence))
     }
 
     pub(super) fn on_next_line(

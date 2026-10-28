@@ -311,7 +311,11 @@ fn callout_header(rest: &str) -> Option<(CalloutKind, usize, usize, usize)> {
 }
 
 /// `---` / `1.` / `+` list markers, including their trailing whitespace.
-fn list_marker_end(content: &str) -> Option<usize> {
+/// The end of a list marker in `content` (its indent, the `-`/`*`/`+` or the
+/// number and its closer, and the whitespace after it), as a byte offset in
+/// `content`. `pub(crate)` because [`crate::continuation`] continues the marker
+/// the scanner recognises, so the two must agree on what a marker is.
+pub(crate) fn list_marker_end(content: &str) -> Option<usize> {
     let indent = content
         .char_indices()
         .find(|(_, c)| *c != ' ' && *c != '\t')
@@ -344,8 +348,9 @@ fn list_marker_end(content: &str) -> Option<usize> {
     Some(indent + marker_len + spaces)
 }
 
-/// `[ ]` or `[x]` at the start of a list item's content.
-fn task_checkbox(rest: &str) -> Option<&str> {
+/// `[ ]` or `[x]` at the start of a list item's content. `pub(crate)` for the
+/// same reason as [`list_marker_end`].
+pub(crate) fn task_checkbox(rest: &str) -> Option<&str> {
     if !rest.starts_with('[') {
         return None;
     }

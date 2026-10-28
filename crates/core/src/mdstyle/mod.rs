@@ -25,6 +25,10 @@ mod inline;
 
 use block::scan_line;
 
+// The marker shapes a row can open with, shared with [`crate::continuation`],
+// which continues on Enter exactly what this scanner recognises.
+pub(crate) use block::{list_marker_end, task_checkbox};
+
 /// What a range of markdown source is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Style {

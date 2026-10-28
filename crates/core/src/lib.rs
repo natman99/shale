@@ -1,5 +1,6 @@
 pub mod buffer;
 pub mod config;
+pub mod continuation;
 pub mod fold;
 pub mod markdown;
 pub mod mdlayout;
