@@ -159,41 +159,56 @@ Workspace layout:
   `frappe`, `macchiato`, `mocha`, also spelled with a `catppuccin-` prefix),
   Tokyo Night ×3, Gruvbox ×2, Nord, Dracula, Solarized ×2, One ×2 and Rosé Pine
   ×3 — default `mocha` — or a `<vault>/.shale/themes/<name>.toml` file, and
-  `appearance.font_size` sizes the text),
-  ctrl+s save, and a file tree that can create, rename and delete notes and
+  `appearance.font_size` sizes the text; the theme can also be changed while the
+  window is up, by `:theme <name>` or by the palette's *Change the theme*, which
+  previews the palette its highlighted row names — `escape` puts the old one back),
+  ctrl+s save (`:w` does the same, and quitting writes a dirty note first so a
+  `:q` cannot lose work), and a file tree that can create, rename and delete notes and
   folders through a one-line prompt (`prompt.rs`); a rename also rewrites the
   wiki-links that pointed at the old name, in every other note and in the open one
   if it has no unsaved edits. It follows the disk when
-  another program changes the vault, and **quick-open** (`ctrl-o`, or `space f` in
-  normal mode: a fuzzy list of every note, `j`/`k` to move, `enter` to open) and a
-  **command palette** (`ctrl-shift-p`, or `:` in normal mode) — both pickers
+  another program changes the vault, and **quick-open** (`ctrl-o`, `space f` or
+  `:e` in normal mode: a fuzzy list of every note, `j`/`k` to move, `enter` to
+  open) and a
+  **command palette** (`ctrl-shift-p`) beside vim's **command line** (`:`, which is
+  deliberately *not* the palette: one word, matched exactly — `:w`, `:q`, `:wq`,
+  `:x`, `:e`, `:harper on|off|1|0`, `:theme [name]`; `ex.rs` is its whole
+  vocabulary, and a word it does not know runs nothing) — both pickers
   *overlay* the note rather than pushing it down, and the note has margins around
   it. `ctrl-w h`/`ctrl-w l` move the keyboard between the sidebar and the note,
-  and **vault search** (`ctrl-shift-f`) lists every line that holds what you type,
+  and **vault search** (`ctrl-shift-f`, or `space s`) lists every line that holds what you type,
   opening the note on that line. Spell and grammar checking come from a language
   server (`harper-ls --stdio` by default, named by `[spellcheck]` in `shale.toml`):
   what it finds is drawn as wavy underlines in the note and counted in the status
   bar, and vim's `K` — or resting the pointer on a marked word — opens a **popup**
   over the note with the checker's complaint and the fixes it offers (one popup at
-  a time, anchored to the line it belongs to, not an OS window). Split into `main.rs` (the
+  a time, anchored to the line it belongs to, not an OS window, and ended by
+  `escape`, by a row, or by the pointer walking off either edge of it). The
+  checker itself can be switched off and on without a restart (`:harper off`,
+  `:harper on`). Split into `main.rs` (the
   command line and the window it opens), `acts.rs` (every action the keymap
   names — the two namespaces its `actions!` calls generate are what the keymap
   and the tests match on, so they are load-bearing, not just namespaces),
   `field.rs` (the one-line text field the prompt and the pickers share: the text,
   the caret, the utf-16 translation gpui's input handler speaks, and the element
   that paints it and registers the input handler), `prompt.rs`, `picker.rs` (the
-  searchable list), `popup.rs` (the checker's panel over the note: its message, its
+  searchable list — its rows follow the pointer, and it tells the window which row
+  is highlighted, which is what a preview hangs on), `ex.rs` (vim's command line:
+  the word the user typed and what it means, matched exactly), `popup.rs` (the checker's panel over the note: its message, its
   rows, and the size the window uses to place it), `workspace/` (`mod.rs` the state,
   `keys.rs` the keymap,
   `tree.rs` the sidebar's keyboard state and its rows, `edits.rs` the prompt and
   the vault edits behind its answers, `open.rs` the pickers' rows and choices
-  (a row is either a note or a command), `popups.rs` the window's one popup —
+  (a row is a note, a search hit, a command or a theme), `themes.rs` changing the
+  palette while the window is up, including the preview the theme picker shows,
+  `popups.rs` the window's one popup —
   opening, closing, and applying what the checker offered,
   `commands.rs` the command palette's list
   — every command's label, the keys that run it and the action it dispatches —
   `render.rs` the frame), `tree.rs` (turning the vault's entries
-  into rows) and its headless tests in `tests/` (`keys.rs`, `paint.rs`,
-  `tree.rs`, `picker.rs`, `popup.rs`), `editor/` (the view: `mod.rs`
+  into rows) and its headless tests in `tests/` (`keys.rs`, `motions.rs`,
+  `blocks.rs`, `paint.rs`, `tree.rs`, `picker.rs`, `commands.rs`, `popup.rs`,
+  `spell.rs`), `editor/` (the view: `mod.rs`
   holds the state and accessors, `wrap.rs` the display model, `render.rs` builds
   the frame and the key context, `actions.rs` the key handlers, `input.rs` the
   IME/paste/click surface), `line.rs` (the `LineElement` that paints one display
@@ -286,7 +301,8 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
 - Run the test binaries under `ulimit -v` when working on anything that scans
   text (a scanner bug can allocate until the OOM killer takes the editor down —
   see the table postmortem).
-  Current peak RSS of the test binaries: core 6 MB, app 47 MB, mcp 3.5 MB. The
+  Current peak RSS of the test binaries (2026-10-28, app 148 / core 220 / mcp 6
+  tests): core 6 MB, app 49 MB, mcp 3.4 MB. The
   app binary's *address space* (not RSS) is far larger because of gpui/wgpu
   reservations, and it now needs **4 GB or more** — a 1 GB cap makes it die in an
   80-byte allocation. Build with `cargo test --workspace --no-run`, then run each
@@ -1405,6 +1421,85 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   takes the panel with it, another note ends
   it (and the deferred refocus gives the keyboard back), and the panel follows its
   line off screen.
+- **The pointer ends a panel at *both* edges (2026-10-28).** Reported live: the
+  panel vanished when the pointer moved up off the word but never when it walked
+  away below the panel, so it sat there until `escape`. The reason is that nothing
+  under the panel reports a mouse move: the panel swallows the moves over its own
+  rows, and below it there may be no text at all (a short note, a panel hanging
+  past the last line), so no `EditorEvent::Hovered` ever arrived to close it. The
+  **note column** now has an `on_mouse_move` (render.rs) covering the empty space
+  as well as the text, and `Workspace::pointer_moved` dismisses a pointer-opened
+  panel once the pointer is more than `DISMISS_LEEWAY` (14 px) past the panel's
+  bottom edge. The leeway is what keeps the trip from the word down onto a row
+  alive — that trip is the whole reason the rows are there.
+  - Both places that ask where the panel is (`pointer_on_panel` and
+    `pointer_moved`) call `popup_place(cx)` — working it out again from the anchor
+    line's painted bounds — instead of reading `popup_placed`, which is last
+    frame's answer. That matters because gpui bubbles a mouse move from the
+    deepest hit element outwards: the line's handler runs first and may have just
+    moved the panel to a new word, and a stale place would have dismissed the
+    panel the pointer was now standing on.
+  - Only the bottom edge is decided there. Everywhere else the line the pointer is
+    over still answers, which is what lets a panel follow the pointer from word to
+    word; a `K`-asked panel is untouched by any of it (`popup_from_pointer`).
+  - **Tests:** app 148 (was 135) — `the_panel_ends_when_the_pointer_walks_off_its_bottom`
+    (4 px past the edge keeps it, 60 px ends it) and
+    `a_panel_asked_for_with_k_survives_the_pointer_leaving_below_it`.
+- **`:` is a command line, not the palette (2026-10-28).** The user asked for vim
+  aliases (`e` open, `q` quit, `w` a no-op because "we autosave") and separately
+  noticed that a fuzzy palette would turn `:w` into whatever ranks best for the
+  letter `w`. So the two entry points are split: **`ctrl-shift-p`** is the fuzzy
+  list, **`:`** is a one-line field whose word is matched exactly by
+  `crates/app/src/ex.rs` — `w`/`write`, `q`/`quit`, `wq`/`x`/`xit`/`exit`,
+  `e`/`edit`/`open`, `harper on|1|off|0` (also `spellcheck`/`spell`),
+  `theme [name]`, and anything else reports `unknown command: <word>` and runs
+  nothing. The line is a `PromptKind::Command` prompt, drawn at the **bottom of the
+  note** rather than in the sidebar with the prompts that name a note, and it
+  closes before the command runs, so the keyboard is back in the note and a command
+  that opens a picker takes it from there exactly as the key would have.
+  - **Shale does not autosave** — the user's assumption was wrong, so `:w` is a
+    real save (free when the note is clean) rather than a no-op, and `:q`, `:wq`
+    and `ctrl-q` all go through `Workspace::quit`, which writes a dirty note first
+    and refuses to close if the write failed. Real autosave is on the parked list.
+  - `s` had no binding at all in normal mode, so the `space s` chord could not
+    reach the vim engine. It is bound to `VimS` now and the engine decides: after a
+    plain `space` it is `Outcome::SearchVault`, otherwise it is unhandled and does
+    nothing (vim's `s` — substitute — is still not implemented).
+  - The leader now has two chords, `space f` (quick-open) and `space s` (vault
+    search), both in `shale_core::vim` because `space` is also the right motion and
+    a keymap prefix would hold every space. `:e` is the third way to quick-open.
+- **Changing the theme without a restart (2026-10-28).** A palette is one
+  `Rc<Palette>` shared between the window and the editor, so switching is
+  replacing the pointer and repainting: `workspace/themes.rs` does it for the
+  command palette's *Change the theme*, for `:theme <name>`, and for a preview.
+  - **Preview on highlight.** `PickerEvent::Highlight` is emitted whenever the
+    highlighted row changes — `j`/`k`, a typed character re-ranking the list, or
+    the pointer resting on a row — and the window applies the theme that row names.
+    The picker's own palette is updated too (`Picker::set_palette`), because a
+    panel that stays dark while previewing a light theme hides the thing being
+    previewed. `theme_backup` holds the palette the picker was opened from, and
+    `close_picker` puts it back, so `escape` means "not that one" and choosing a
+    row (`enter` **or a click**) keeps it.
+  - Pickers are clickable now: a row follows the pointer (`hover_row`) and a click
+    is `enter`. That is what makes the preview usable with a mouse, and it is the
+    same mechanism, so the mouse and the keyboard cannot disagree about what would
+    be chosen.
+  - `shale_core::theme::theme_names(vault_root)` lists the vault's own
+    `.shale/themes/*.toml` stems, so a custom theme is a row too. Every path goes
+    through `palette_for`, so an alias (`catppuccin-mocha`, `tokyo-night-dark`) and
+    a vault file resolve exactly as they do at startup.
+  - **Not done:** the choice is not written back to `shale.toml` (parked), and the
+    theme is not remembered across restarts except through the config.
+  - **Tests:** `ex.rs`'s own four (the aliases, both spellings of yes and no, a
+    bare `harper` being a report rather than a guess, an unknown word being named
+    not guessed), `tests/commands.rs` (`:w` reaches the disk, an unknown word runs
+    nothing and leaves the note unsaved, `:e` opens the picker, `:theme` switches
+    and a bad name does not, `:harper off` when there is no checker), and
+    `tests/picker.rs` (`:` opens no list, `space s` opens the search, and the theme
+    picker previews on `j`, reverts on `escape` and keeps on `enter`).
+  - **Not verified live:** the preview and the click-to-choose path are headless
+    tests only. Worth a look in a real window, especially whether the preview
+    repaint feels instant.
 - **More theme colours — done (2026-10-28): 29 roles → 53.** Every borrowed
   role listed below now has its own, and the palette has headroom for the goals
   that are still on the list (tabs, splits, graph view, tree-sitter code blocks,
@@ -1472,16 +1567,19 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   `CalloutKind`, `StyleSpan`, the line walk and the tests, `block.rs` classifies
   each line, `inline.rs` styles the text inside it. `main.rs` passed it again
   with the file tree, and is now `main.rs` (122) + `acts.rs` + `workspace/`.
-  Largest files now: `vim.rs` 2333, `buffer.rs` 1786, `line.rs` 973, `tests/paint.rs`
-  806, `core/theme/mod.rs` 794, `vault.rs` 750, `workspace/mod.rs` 734,
-  `lsp/mod.rs` 671, `editor/mod.rs` 614, `table/edit.rs` 640, `table/mod.rs` 590,
-  `picker.rs` 587, `editor/render.rs` 564,
-  `tests/tree.rs` 515, `tests/popup.rs` 483, `lsp/mapping.rs` 454,
-  `tests/motions.rs` 442, `markdown.rs` 416, `editor/wrap.rs` 395,
-  `workspace/edits.rs` 360, `tests/picker.rs` 346, `mdstyle/block.rs` 403,
-  `mdstyle/mod.rs` 454, `field.rs` 335, `fold.rs` 332, `prompt.rs` 256,
-  `fuzzy.rs` 324, `workspace/popups.rs` 285, `popup.rs` 276, `rename.rs` 195, and the other
-  `workspace/` submodules at 355/209/189/187/118. `tests/keys.rs`
+  Largest files now: `vim.rs` 2357, `buffer.rs` 1786, `core/theme/mod.rs` 1270,
+  `line.rs` 971, `workspace/mod.rs` 837, `tests/paint.rs`
+  806, `vault.rs` 750, `lsp/mod.rs` 671, `picker.rs` 632, `tests/popup.rs` 630,
+  `editor/mod.rs` 617, `table/edit.rs` 640, `table/mod.rs` 590,
+  `editor/render.rs` 570,
+  `tests/tree.rs` 515, `lsp/mapping.rs` 454,
+  `tests/motions.rs` 442, `tests/picker.rs` 421, `markdown.rs` 416,
+  `workspace/edits.rs` 415, `editor/wrap.rs` 395,
+  `workspace/popups.rs` 353, `tests/keys.rs` 347, `mdstyle/block.rs` 403,
+  `mdstyle/mod.rs` 454, `field.rs` 335, `fold.rs` 332, `prompt.rs` 259,
+  `fuzzy.rs` 324, `workspace/open.rs` 306, `popup.rs` 276, `rename.rs` 195, and the other
+  `workspace/` submodules at 256/217/215/138/133 (`render`, `keys`, `tree`,
+  `commands`, `themes`). New this round: `ex.rs` 114 and `workspace/themes.rs` 133. `tests/keys.rs`
   reached the rule's line and is now three: `keys.rs` (344: the keystroke shapes,
   what each key resolves to per context, the chords), `motions.rs` (442: vim
   motions, operators, text objects, visual mode, `.` and the undo chords driven
@@ -1534,9 +1632,12 @@ Next steps, roughly in order:
    keep fold state per note across sessions; `zz`/`zt`/`zb` scroll commands.
 8. ~~Theming (light/dark, TOML theme files)~~ Done — see Open threads. The
    palette is `shale_core::theme::Palette`, `appearance.theme` selects it, and
-   `appearance.font_size` is wired through the editor. Follow-ups: switching
-   themes without a restart, and whatever roles a tree-sitter code highlighter
-   will need.
+   `appearance.font_size` is wired through the editor. ~~Switching themes without
+   a restart~~ Done (2026-10-28): the palette's *Change the theme* and `:theme`
+   both switch live, and the picker previews the palette its highlighted row
+   names. Follow-ups: writing the chosen theme back to `shale.toml` (a switch is
+   for the session today), and painting the `code_*` roles from tree-sitter — the
+   roles exist and `code_text` is used; the token roles are waiting for the parser.
 9. ~~Editor bindings round: list / task / quote continuation on Enter~~ Done —
    see the continuation bullet in Open threads. `shale_core::continuation` decides
    what Enter does, the insert-mode handler applies it so the marker joins the
@@ -1547,8 +1648,9 @@ Next steps, roughly in order:
     the client, `[spellcheck]` in `shale.toml` names the server, what it finds is
     drawn as wavy underlines and counted in the status bar, and its `codeAction`s
     and its complaint reach the user through the popup (`K`, or the pointer on a
-    marked word). Left here: asking a server that advertises `hoverProvider` (Harper
-    does not implement hover), the colour wanting a palette role of its own, and
+    marked word), and `:harper on|off|1|0` starts and stops the server without a
+    restart. Left here: asking a server that advertises `hoverProvider` (Harper
+    does not implement hover), and
     "support for custom language servers" is only half true — the config takes any
     command, but diagnostics and code actions are all Shale consumes. A popup that
     can list more rows than fit (Harper's seven just fit) and a grammar fix applied
@@ -1576,9 +1678,58 @@ Next steps, roughly in order:
     without reading a note, and `watch::VaultChanges::between` says which notes to
     re-index. Open/edit counts (the user's addition) are a separate counter table,
     written on open and debounced on edit, not something the signature can tell.
-14. ~~Pickers, reused~~ Quick-open, the **command palette** (`ctrl-shift-p`, `:` in
-    normal mode, `space f`) and **vault search** (`ctrl-shift-f`) are all done —
-    see Open threads. What is left there is polish: clickable rows, a scrolling
+14. ~~Pickers, reused~~ Quick-open (`ctrl-o`, `space f`, `:e`), the **command
+    palette** (`ctrl-shift-p`) and **vault search** (`ctrl-shift-f`, `space s`) are
+    all done — see Open threads. `:` is its own thing now (vim's command line,
+    matched exactly), which is what keeps a one-letter command out of the fuzzy
+    list. What is left there is polish: ~~clickable rows~~ done (the pointer picks
+    the row it is over, and a click is `enter`), a scrolling
     list once a vault outgrows the 12-row window, search options in the UI, a
     prefix that switches what the picker searches, and jumping to the matched
     column rather than the start of the line.
+
+## Parked threads (agreed 2026-10-28; not being worked now)
+
+The user is pivoting, so these are written down rather than left in the
+conversation. Roughly in order of what they have said they want.
+
+1. **Vim-like note search with `/`** — *on deck, do not start unasked.* `/` in
+   normal mode searching the vault (or the open note?) the way vim's does. It wants
+   the same pieces the pickers already have (`shale_core::ranked`, `search`), plus a
+   decision about what `/` means in a note editor: the open buffer, or the vault.
+   `n`/`N` for the next and previous match, and a way out that is not `escape`
+   twice.
+2. **A scrolling popup panel.** Harper's seven offers just fit the panel; an eighth
+   is cut off. One height model has to be shared by the render, `popup::panel_size`
+   and the window's click corridor (`workspace::popups::pointer_on_panel` and
+   `pointer_moved`), or the panel's place and the pointer's leeway drift apart.
+3. **A scrolling picker list.** Same shape as (2) and the same fix: `VISIBLE_ROWS`
+   is 12 and `window_start()` only scrolls enough to keep the selection visible.
+   A big vault's quick-open already truncates at `RANK_LIMIT`.
+4. **`textDocument/hover` behind a capability check.** Harper 2.8 does not
+   implement hover (`-32601`), so `K` answers from the notes we already hold.
+   Ask a server that advertises `hoverProvider` in its `initialize` answer, and
+   show what it says in the same panel.
+5. **Grammar fixes applied live.** The popup can apply a spelling fix (tested),
+   but a grammar `codeAction` has never been applied to a note the user is typing
+   in. Same path, different server answer; the risk is the buffer moving under the
+   cursor.
+6. **`K` with a count** (`3K`), which the vim engine currently reads as three
+   hovers' worth of nothing.
+7. **Horizontal scrolling** for a table wider than the window, and for long
+   unwrapped rows. Also the wide-glyph column widths, which the shaped-geometry
+   display columns would settle along with j/k accuracy.
+8. **Autosave.** The user's mental model is that Shale autosaves (`:w` was asked
+   for as a no-op on that assumption). It does not: `save` is `ctrl-s` only. For now
+   `:q`, `:wq` and `ctrl-q` write a dirty note before closing so nothing is lost,
+   and `:w` is a real save. A real autosave (debounced, on blur, on quit) is the
+   thing that would make `:w` the no-op they expect.
+9. **Persisting a live theme switch.** `:theme` and the picker change the session;
+   `appearance.theme` in `shale.toml` is not rewritten. Writing config back needs
+   care: the file is the user's, and comments in it are not preserved by a
+   serialize-and-write.
+10. **Module splits** (the `AGENTS.md` rule): `vim.rs` 2333 and `buffer.rs` 1786
+    are over it, and `line.rs` (973) is next — probably `line.rs` (the element) and
+    `runs.rs` (the run builder and the style map).
+11. **The `bench/` work the user drafted** in `d606dfc`. `ydotool` is allowed only
+    there.

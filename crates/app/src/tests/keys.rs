@@ -60,6 +60,9 @@ fn keymap_matches_the_linux_keystroke_shape() {
         (false, "$", "shale_editor::VimDollar"),
         (false, ".", "shale_editor::VimDot"),
         (false, "^", "shale_editor::VimCaret"),
+        // Bound for the `space s` leader chord. On its own it resolves to the vim
+        // engine, which has no `s` command and does nothing.
+        (false, "s", "shale_editor::VimS"),
         // vim's command line: Linux delivers shift+`;` as the `:` keysym with
         // the shift modifier dropped, so it is bound as the symbol itself.
         (false, ":", "shale_editor::VimColon"),

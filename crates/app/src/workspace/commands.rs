@@ -20,6 +20,9 @@ pub(crate) enum Command {
     DeleteNote,
     QuickOpen,
     SearchVault,
+    ChangeTheme,
+    CheckerOn,
+    CheckerOff,
     ShowNote,
     WindowLeft,
     WindowRight,
@@ -30,7 +33,7 @@ pub(crate) enum Command {
 }
 
 /// Every command, in the order the palette lists them before anything is typed.
-const ALL: [Command; 15] = [
+const ALL: [Command; 18] = [
     Command::Save,
     Command::Quit,
     Command::NewNote,
@@ -39,6 +42,9 @@ const ALL: [Command; 15] = [
     Command::DeleteNote,
     Command::QuickOpen,
     Command::SearchVault,
+    Command::ChangeTheme,
+    Command::CheckerOn,
+    Command::CheckerOff,
     Command::ShowNote,
     Command::WindowLeft,
     Command::WindowRight,
@@ -65,6 +71,9 @@ impl Command {
             Command::DeleteNote => "Delete the selected note",
             Command::QuickOpen => "Open a note",
             Command::SearchVault => "Search the vault",
+            Command::ChangeTheme => "Change the theme",
+            Command::CheckerOn => "Turn the spellchecker on",
+            Command::CheckerOff => "Turn the spellchecker off",
             Command::ShowNote => "Show the checker's note for the word here",
             Command::WindowLeft => "Focus the file tree",
             Command::WindowRight => "Focus the note",
@@ -80,14 +89,17 @@ impl Command {
     /// what the user can press instead.
     pub(crate) fn keys(self) -> &'static str {
         match self {
-            Command::Save => "ctrl-s",
-            Command::Quit => "ctrl-q",
+            Command::Save => "ctrl-s, :w",
+            Command::Quit => "ctrl-q, :q",
             Command::NewNote => "ctrl-n, n in the tree",
             Command::NewFolder => "ctrl-shift-n, shift-n in the tree",
             Command::RenameNote => "ctrl-shift-r, r in the tree",
             Command::DeleteNote => "ctrl-shift-d, shift-d in the tree",
-            Command::QuickOpen => "ctrl-o, space f",
-            Command::SearchVault => "ctrl-shift-f",
+            Command::QuickOpen => "ctrl-o, space f, :e",
+            Command::SearchVault => "ctrl-shift-f, space s",
+            Command::ChangeTheme => ":theme",
+            Command::CheckerOn => ":harper on",
+            Command::CheckerOff => ":harper off",
             Command::ShowNote => "K",
             Command::WindowLeft => "ctrl-w h",
             Command::WindowRight => "ctrl-w l",
@@ -111,6 +123,9 @@ impl Command {
             Command::DeleteNote => Box::new(DeleteNote),
             Command::QuickOpen => Box::new(QuickOpen),
             Command::SearchVault => Box::new(SearchVault),
+            Command::ChangeTheme => Box::new(ChangeTheme),
+            Command::CheckerOn => Box::new(CheckerOn),
+            Command::CheckerOff => Box::new(CheckerOff),
             Command::ShowNote => Box::new(ShowNote),
             Command::WindowLeft => Box::new(WindowLeft),
             Command::WindowRight => Box::new(WindowRight),

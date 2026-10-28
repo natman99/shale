@@ -5,6 +5,7 @@
 
 mod acts;
 mod editor;
+mod ex;
 mod field;
 mod image;
 mod line;

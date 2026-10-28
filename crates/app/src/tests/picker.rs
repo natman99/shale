@@ -5,6 +5,7 @@
 
 use super::*;
 use crate::workspace::commands::Command;
+use shale_core::theme::Palette;
 
 /// What the picker would choose right now, as the note path behind that row.
 fn choice(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> Option<String> {
@@ -138,17 +139,46 @@ fn ctrl_shift_p_lists_every_command(cx: &mut TestAppContext) {
     assert_eq!(choice(&window, cx).as_deref(), Some("Save the note"));
 }
 
-/// `:` is vim's command line, and the palette is what answers it.
+/// `:` is vim's command line, and it is deliberately *not* the palette: a fuzzy
+/// list would turn `:w` into whatever ranks best for the letter `w`. What the word
+/// itself means is `tests::commands`' business; here it is only that no list opens.
 #[gpui::test]
-fn colon_in_normal_mode_opens_the_palette(cx: &mut TestAppContext) {
+fn colon_opens_a_command_line_rather_than_the_palette(cx: &mut TestAppContext) {
     let (_dir, window) = workspace(cx, &["Welcome.md"]);
     let cx = &mut VisualTestContext::from_window(window.into(), cx);
 
     cx.simulate_keystrokes(":");
-    assert_eq!(matches(&window, cx), Some(command_count()));
+    assert_eq!(matches(&window, cx), None, "no list is open");
+    assert!(
+        window
+            .update(cx, |ws, _window, cx| ws.prompt_text(cx))
+            .unwrap()
+            .is_some(),
+        "the command line is"
+    );
     // Escape puts the note back, so the next key is a motion again.
     cx.simulate_keystrokes("escape j");
-    assert_eq!(matches(&window, cx), None);
+    assert!(window
+        .update(cx, |ws, _window, cx| ws.prompt_text(cx))
+        .unwrap()
+        .is_none());
+}
+
+/// `space s` is the leader's other chord: the vault search. Like `space f`, the
+/// vim engine owns it, because `space` is also the right motion.
+#[gpui::test]
+fn space_s_opens_vault_search(cx: &mut TestAppContext) {
+    let (_dir, window) = needle_vault(cx);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    cx.simulate_keystrokes("space s");
+    assert_eq!(
+        matches(&window, cx),
+        Some(0),
+        "the search picker is open, and has read nothing yet"
+    );
+    cx.simulate_input("needle");
+    assert_eq!(matches(&window, cx), Some(2), "one row per matching line");
 }
 
 /// Choosing a row runs the command as if its key had been typed: here the
@@ -214,6 +244,51 @@ fn space_f_opens_quick_open(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("space f");
     assert_eq!(matches(&window, cx), Some(2));
     assert_eq!(choice(&window, cx).as_deref(), Some("Welcome.md"));
+}
+
+/// The palette the window is drawn with, to check that a preview changed it and
+/// that `escape` put it back.
+fn palette(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> Palette {
+    *window.update(cx, |ws, _window, _cx| ws.palette()).unwrap()
+}
+
+/// The theme picker previews the row it points at, keeps the row that is chosen,
+/// and puts back the palette it was opened from when nothing was chosen.
+#[gpui::test]
+fn the_theme_picker_previews_and_keeps(cx: &mut TestAppContext) {
+    let (_dir, window) = workspace(cx, &["Welcome.md"]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    let start = palette(&window, cx);
+
+    cx.simulate_keystrokes(":");
+    cx.simulate_input("theme");
+    cx.simulate_keystrokes("enter");
+    assert_eq!(
+        matches(&window, cx),
+        Some(Palette::BUILT_INS.len()),
+        "every built-in is a row"
+    );
+    assert_eq!(palette(&window, cx), start, "opening changes nothing");
+
+    // `j` moves the highlight, which previews the row it landed on.
+    let light = Palette::built_in("light").unwrap();
+    cx.simulate_keystrokes("j");
+    assert_eq!(choice(&window, cx).as_deref(), Some("light"));
+    assert_eq!(palette(&window, cx), light, "the preview is on screen");
+
+    cx.simulate_keystrokes("escape");
+    assert_eq!(matches(&window, cx), None);
+    assert_eq!(palette(&window, cx), start, "escape was not an answer");
+
+    // Choosing a row keeps it.
+    cx.simulate_keystrokes(":");
+    cx.simulate_input("theme");
+    cx.simulate_keystrokes("enter j enter");
+    assert_eq!(palette(&window, cx), light);
+    assert_eq!(
+        window.update(cx, |ws, _window, _cx| ws.status()).unwrap(),
+        "theme: light"
+    );
 }
 
 /// `ctrl-w h` hands the keyboard to the sidebar and `ctrl-w l` takes it back.

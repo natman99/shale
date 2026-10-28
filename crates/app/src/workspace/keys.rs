@@ -104,6 +104,10 @@ pub(crate) fn keybindings() -> Vec<KeyBinding> {
     // `alt+hjkl` moves a whole row or column of the table under the cursor.
     bind!("vim-normal", [
         "u" => VimU,
+        // Bound only so the `space s` leader chord reaches the vim engine, which
+        // owns the chord because `space` is also the right motion. `s` by itself
+        // is not a Shale command yet, and the engine says so.
+        "s" => VimS,
         "." => VimDot,
         "enter" => NextLine,
         "shift-d" => VimUpperD,
@@ -121,10 +125,11 @@ pub(crate) fn keybindings() -> Vec<KeyBinding> {
         "shift-r" => VimUpperR,
         "shift-m" => VimUpperM,
         "shift-e" => VimUpperE,
-        // vim's command line. Shale has no ex commands yet, so `:` opens the
-        // command palette, which is the same list of commands with a fuzzy field.
-        // Linux delivers shift+`;` as the `:` keysym with shift dropped, so this
-        // is bindable directly.
+        // vim's command line: one word, matched exactly (`:w`, `:q`, `:harper
+        // off`). The fuzzy command palette is `ctrl-shift-p` above, and keeping the
+        // two apart is what stops `:w` matching a command that merely contains a
+        // `w`. Linux delivers shift+`;` as the `:` keysym with shift dropped, so
+        // this is bindable directly.
         ":" => VimColon,
     ]);
     bind!("vim-insert", [

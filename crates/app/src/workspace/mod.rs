@@ -13,6 +13,7 @@ mod keys;
 mod open;
 mod popups;
 mod render;
+mod themes;
 mod tree;
 
 pub(crate) use keys::keybindings;
@@ -24,7 +25,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use gpui::{prelude::*, Context, Entity, SharedString, Subscription, Window};
-use shale_core::theme::Palette;
+use shale_core::theme::{self, Palette};
 use shale_core::vault::VaultEntry;
 use shale_core::watch::{Stamp, VaultChanges};
 use shale_core::{Config, Vault};
@@ -40,11 +41,19 @@ use crate::prompt;
 pub(crate) struct Workspace {
     focus_handle: gpui::FocusHandle,
     vault: Rc<Vault>,
-    #[allow(dead_code)]
+    /// What the user asked for in `shale.toml`. The window reads it when it starts
+    /// the checker, which `:harper on` does at any time.
     config: Rc<Config>,
     /// The palette the whole window is drawn with, shared with the editor so a
     /// theme change repaints everything at once.
     palette: Rc<Palette>,
+    /// The name that palette was chosen by (`appearance.theme`, or what the theme
+    /// picker or `:theme` picked since). Only the status line asks.
+    theme_name: String,
+    /// The palette to go back to if the theme picker closes without a choice,
+    /// because everything it previewed on the way was not an answer. `None` when
+    /// no preview is in flight.
+    theme_backup: Option<Rc<Palette>>,
     /// The spell and grammar checker, when one is configured and was started.
     /// It owns a server process; the window only talks to it.
     spell: Option<Entity<Spell>>,
@@ -147,12 +156,21 @@ impl Workspace {
         // The palette comes from `appearance.theme`: a built-in name or a
         // `<vault>/.shale/themes/<name>.toml` file. A theme that cannot be found
         // or parsed must not stop the editor from starting, so it is reported and
-        // the default palette is used.
-        let palette = match shale_core::theme::palette_for(vault.root(), &config.appearance.theme) {
-            Ok(palette) => palette,
+        // the default palette is used. The name is kept, so the status line can
+        // say what is on screen after a live switch.
+        let configured = config.appearance.theme.trim().to_string();
+        let (palette, theme_name) = match theme::palette_for(vault.root(), &configured) {
+            Ok(palette) => (
+                palette,
+                if configured.is_empty() {
+                    Palette::DEFAULT_NAME.to_string()
+                } else {
+                    configured
+                },
+            ),
             Err(err) => {
                 tracing::warn!("could not load the configured theme: {err:#}");
-                Palette::DEFAULT
+                (Palette::DEFAULT, Palette::DEFAULT_NAME.to_string())
             }
         };
         let palette = Rc::new(palette);
@@ -209,6 +227,8 @@ impl Workspace {
             vault,
             config,
             palette,
+            theme_name: theme_name.clone(),
+            theme_backup: None,
             spell,
             checker_notes: Vec::new(),
             popup: None,
@@ -452,6 +472,76 @@ impl Workspace {
         self.refresh_popup_rows(cx);
         cx.notify();
     }
+    /// Start or stop the spell and grammar checker, whatever the config asked for
+    /// at startup (`:harper on|off`).
+    ///
+    /// Turning it off drops the checker entity, whose `Drop` ends the server
+    /// process, and with it the underlines and any panel about one of them.
+    /// Turning it on starts the server the config names and hands it the note that
+    /// is open; a server that is not installed is reported the way a missing one is
+    /// at startup — a missing feature rather than a broken editor.
+    pub(super) fn set_checker(&mut self, on: bool, cx: &mut Context<Self>) {
+        if self.spell.is_some() == on {
+            self.status = if on {
+                "the spellchecker is already on".into()
+            } else {
+                "the spellchecker is already off".into()
+            };
+            cx.notify();
+            return;
+        }
+        if on {
+            match Spell::start(&self.config.spellcheck, cx) {
+                Ok(spell) => {
+                    let events =
+                        cx.observe(&spell, |ws, spell, cx| ws.show_checker_notes(spell, cx));
+                    self._spell_events = Some(events);
+                    self.spell = Some(spell);
+                    self.status = "spellcheck on".into();
+                    // This server has never seen the note on screen.
+                    if let Some(path) = self.active.clone() {
+                        let text = self.editor.read_with(cx, |editor, _cx| editor.text());
+                        self.checker_opened(&path, &text, cx);
+                    }
+                }
+                Err(err) => {
+                    tracing::warn!("no spellcheck: {err:#}");
+                    self.status = format!("{err:#}").into();
+                }
+            }
+        } else {
+            self._spell_events = None;
+            self.spell = None;
+            // A panel about a word the checker no longer has anything to say about
+            // has nothing left to show.
+            self.drop_popup(cx);
+            self.show_notes(Vec::new(), cx);
+            self.status = "spellcheck off".into();
+        }
+        cx.notify();
+    }
+
+    /// Quit, writing the open note first when it holds unsaved edits.
+    ///
+    /// Shale has no autosave, so a quit that dropped the buffer would lose work the
+    /// user can see on screen. `ctrl-q`, `:q` and `:wq` all come through here
+    /// because the danger is the same; `:wq` asks for the write whether or not the
+    /// note is dirty.
+    pub(super) fn quit(&mut self, _: &Quit, window: &mut Window, cx: &mut Context<Self>) {
+        let dirty = self.editor.read_with(cx, |editor, _cx| editor.is_dirty());
+        if dirty {
+            self.save(&Save, window, cx);
+            // The save said why it failed in the status bar. Quitting now would
+            // throw the note away, so the user gets to see that first.
+            let still = self.editor.read_with(cx, |editor, _cx| editor.is_dirty());
+            if still {
+                cx.notify();
+                return;
+            }
+        }
+        cx.quit();
+    }
+
     pub(super) fn save(&mut self, _: &Save, _window: &mut Window, cx: &mut Context<Self>) {
         let Some(path) = self.active.clone() else {
             self.status = "no file open".into();
@@ -610,6 +700,13 @@ impl Workspace {
         self.active.clone()
     }
 
+    /// The palette the window is drawn with. Only the tests ask, to check that a
+    /// theme preview changed it and that `escape` put it back.
+    #[cfg(test)]
+    pub(crate) fn palette(&self) -> Rc<Palette> {
+        Rc::clone(&self.palette)
+    }
+
     #[cfg(test)]
     pub(crate) fn status(&self) -> String {
         self.status.to_string()
@@ -642,6 +739,7 @@ impl Workspace {
                 PickerTarget::Note(path) => path.display().to_string(),
                 PickerTarget::Hit { path, line } => format!("{}:{}", path.display(), line),
                 PickerTarget::Command(command) => command.label().to_string(),
+                PickerTarget::Theme(name) => name,
             })
     }
 

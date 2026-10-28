@@ -11,6 +11,7 @@ use crate::workspace::{keybindings, Workspace};
 use gpui::{Focusable, TestAppContext, VisualTestContext, WindowHandle};
 
 mod blocks;
+mod commands;
 mod keys;
 mod motions;
 mod paint;

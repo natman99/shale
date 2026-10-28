@@ -8,10 +8,11 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use anyhow::{Context as _, Result};
-use gpui::{prelude::*, Context, Entity, Focusable, Window};
+use gpui::{prelude::*, Action, Context, Entity, Focusable, Window};
 use shale_core::rename::LinkRewrite;
 
 use crate::acts::*;
+use crate::ex;
 use crate::prompt;
 
 use super::note_keys;
@@ -52,6 +53,21 @@ impl Workspace {
         cx.notify();
     }
 
+    /// `:` — vim's command line: one word, matched exactly.
+    ///
+    /// It is kept apart from the command palette on purpose. The palette
+    /// fuzzy-matches what is typed, which is what makes it good to look through
+    /// and dangerous to spell at: `:w` typed out of vim habit would become
+    /// whatever ranks best for the letter `w`, and `enter` would run it.
+    pub(super) fn command_line(
+        &mut self,
+        _: &RunCommandLine,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_prompt(prompt::PromptKind::Command, ":", "", window, cx);
+    }
+
     /// Close the prompt and hand the keyboard back to whatever had it before.
     fn close_prompt(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.prompt.is_none() {
@@ -79,6 +95,13 @@ impl Workspace {
     ) {
         let kind = prompt.read(cx).kind();
         let answer = answer.trim();
+        // A command line is a word, not a name for something on disk, and it is
+        // finished either way: an unknown command is an answer, not something to
+        // correct in place.
+        if kind == prompt::PromptKind::Command {
+            self.answer_command(answer, window, cx);
+            return;
+        }
         if kind == prompt::PromptKind::Delete && !answer.eq_ignore_ascii_case("yes") {
             self.status = "delete cancelled".into();
             self.close_prompt(window, cx);
@@ -92,6 +115,32 @@ impl Workspace {
                 cx.notify();
             }
         }
+    }
+
+    /// What a command line meant. The line closes before the command runs, so the
+    /// keyboard is back where it was and a command that opens a picker takes it
+    /// from there, exactly as if the command's key had been typed.
+    fn answer_command(&mut self, line: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let command = ex::parse(line);
+        self.close_prompt(window, cx);
+        match command {
+            ex::Ex::Empty => {}
+            ex::Ex::Write => self.save(&Save, window, cx),
+            ex::Ex::Quit => self.quit(&Quit, window, cx),
+            ex::Ex::WriteQuit => {
+                self.save(&Save, window, cx);
+                self.quit(&Quit, window, cx);
+            }
+            ex::Ex::Open => window.dispatch_action(QuickOpen.boxed_clone(), cx),
+            ex::Ex::Checker(on) => self.set_checker(on, cx),
+            ex::Ex::ThemePicker => window.dispatch_action(ChangeTheme.boxed_clone(), cx),
+            ex::Ex::Theme(name) => match self.set_theme(&name, cx) {
+                Ok(()) => self.status = format!("theme: {name}").into(),
+                Err(err) => self.status = format!("{err:#}").into(),
+            },
+            ex::Ex::Unknown(word) => self.status = format!("unknown command: {word}").into(),
+        }
+        cx.notify();
     }
 
     /// The vault edits behind each kind of answer, kept apart from the
@@ -140,6 +189,10 @@ impl Workspace {
                 self.tree_selection = Some(renamed.clone());
                 self.status = rename_status(&renamed, &report).into();
             }
+            // A command line is not a name for something on disk, and
+            // `answer_prompt` sends it off to `answer_command` before this is
+            // reached, so there is nothing to do here.
+            prompt::PromptKind::Command => {}
             prompt::PromptKind::Delete => {
                 let target = self.prompt_target()?;
                 if self.is_dir(&target) {

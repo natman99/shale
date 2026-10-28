@@ -50,6 +50,9 @@ pub(crate) enum PromptKind {
     Rename,
     /// A delete, which the user confirms rather than accidentally triggering.
     Delete,
+    /// vim's command line: one word naming one command, matched exactly. The field
+    /// is the same; what the answer *means* is [`crate::ex`]'s business.
+    Command,
 }
 
 /// A single-line text field with a caret, asking one question.

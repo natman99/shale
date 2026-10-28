@@ -26,6 +26,9 @@ actions!(
         VimG,
         VimUpperG,
         VimX,
+        // Bound so that the `space s` leader chord can reach the vim engine; `s`
+        // on its own is not a Shale command yet.
+        VimS,
         VimD,
         VimC,
         VimY,
@@ -101,6 +104,15 @@ actions!(
         // Searching every note's text (`ctrl-shift-f`).
         SearchVault,
         CommandPalette,
+        // vim's `:`: a command line, where a word names one command exactly. It is
+        // kept apart from the palette precisely because the palette fuzzy-matches a
+        // typed letter, and `:w` must not become "the first thing that matches w".
+        RunCommandLine,
+        // Pick a palette and see it straight away (`theme`, or the palette).
+        ChangeTheme,
+        // Starting and stopping the spell and grammar checker (`harper on|off`).
+        CheckerOn,
+        CheckerOff,
         // Moving the keyboard between the window's panels (`ctrl-w h`/`ctrl-w l`).
         // A split view will grow these into stepping sideways between panes.
         WindowLeft,

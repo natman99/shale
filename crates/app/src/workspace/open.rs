@@ -30,6 +30,9 @@ pub(crate) enum PickerTarget {
     },
     /// A command to dispatch as if its key had been typed.
     Command(Command),
+    /// A palette to draw the window with, named the way `appearance.theme` names
+    /// one: a built-in or the stem of a `<vault>/.shale/themes/<name>.toml`.
+    Theme(String),
 }
 
 /// How many search hits to offer. A keystroke reads the vault, so the walk stops
@@ -222,6 +225,15 @@ impl Workspace {
                     }
                 }
                 picker::PickerEvent::Cancel => ws.close_picker(window, cx),
+                // The row under the pointer or the selection. Only a theme row is
+                // worth acting on: previewing a palette is the point of listing
+                // them, and every other picker's rows would only be disturbed.
+                picker::PickerEvent::Highlight => {
+                    let target = picker.read_with(cx, |picker, _cx| picker.chosen());
+                    if let Some(PickerTarget::Theme(name)) = target {
+                        ws.preview_theme(&name, cx);
+                    }
+                }
             },
         ));
         self.picker = Some(picker.clone());
@@ -240,11 +252,21 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // A chosen theme is already on screen as a preview, so accepting it is
+        // only forgetting the palette the picker started from. Doing that before
+        // the close is what stops `close_picker` putting the old one back.
+        if let PickerTarget::Theme(name) = &chosen {
+            self.accept_theme(name, cx);
+        }
         self.close_picker(window, cx);
         match chosen {
             PickerTarget::Note(path) => self.open_note(&path, cx),
             PickerTarget::Hit { path, line } => {
                 self.open_note_at(&path, line, cx);
+            }
+            PickerTarget::Theme(name) => {
+                self.status = format!("theme: {name}").into();
+                cx.notify();
             }
             PickerTarget::Command(command) => {
                 self.status = command.label().into();
@@ -254,11 +276,16 @@ impl Workspace {
     }
 
     /// Close the picker and hand the keyboard back to whatever had it before.
+    ///
+    /// A theme the picker was only previewing goes back with the picker: escape
+    /// means "not that one", and the window is drawn as it was before the picker
+    /// opened.
     pub(super) fn close_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.picker.take().is_none() {
             return;
         }
         self._picker_events = None;
+        self.revert_theme(cx);
         let focus = match self.picker_return_focus.take() {
             Some(focus) => focus,
             None => self.editor.read(cx).focus_handle(cx),

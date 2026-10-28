@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use gpui::{anchored, div, prelude::*, px, AnchoredPositionMode, Context, Window};
 
 use crate::acts::*;
+use crate::prompt;
 use crate::tree;
 
 use super::tree::{push_node, TreeState};
@@ -41,7 +42,19 @@ impl Render for Workspace {
             push_node(&mut rows, &mut paths, node, 0, &state, &mut idx, cx);
         }
         self.tree_rows = paths;
-        let prompt = self.prompt.as_ref().map(|(_, prompt)| prompt.clone());
+        let prompt = self
+            .prompt
+            .as_ref()
+            .filter(|(kind, _)| *kind != prompt::PromptKind::Command)
+            .map(|(_, prompt)| prompt.clone());
+        // vim's command line asks for a command rather than a name, so it sits at
+        // the bottom of the note where `:` is, not in the sidebar with the prompts
+        // that name a note.
+        let command_line = self
+            .prompt
+            .as_ref()
+            .filter(|(kind, _)| *kind == prompt::PromptKind::Command)
+            .map(|(_, prompt)| prompt.clone());
         let picker = self.picker.clone();
         // The popup is drawn last, over the note, where its line was painted.
         // Asking each frame is what lets it follow the note as it scrolls; a line
@@ -84,7 +97,7 @@ impl Render for Workspace {
             .bg(gpui::rgb(self.palette.ui_bg))
             .text_color(gpui::rgb(self.palette.ui_fg))
             .on_action(cx.listener(Self::save))
-            .on_action(cx.listener(|_, _: &Quit, _, cx| cx.quit()))
+            .on_action(cx.listener(Self::quit))
             // The vault edits are available from anywhere: the tree's selection
             // says what they act on, and the open note is the fallback.
             .on_action(cx.listener(Self::new_note))
@@ -99,6 +112,10 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::search_vault))
             .on_action(cx.listener(Self::show_note))
             .on_action(cx.listener(Self::command_palette))
+            .on_action(cx.listener(Self::command_line))
+            .on_action(cx.listener(Self::change_theme))
+            .on_action(cx.listener(|ws, _: &CheckerOn, _window, cx| ws.set_checker(true, cx)))
+            .on_action(cx.listener(|ws, _: &CheckerOff, _window, cx| ws.set_checker(false, cx)))
             .child(
                 div()
                     .flex_1()
@@ -201,6 +218,9 @@ impl Render for Workspace {
                             // its way.
                             .when_some(picker, |d, picker| {
                                 d.child(div().absolute().top_2().left_4().right_4().child(picker))
+                            })
+                            .when_some(command_line, |d, line| {
+                                d.child(div().absolute().bottom_2().left_4().right_4().child(line))
                             }),
                     ),
             )

@@ -51,6 +51,10 @@ pub(crate) enum PickerEvent {
     /// Enter on the highlighted row. Nothing more is needed: the row carries
     /// what it stands for.
     Choose,
+    /// The highlighted row moved — by `j`/`k`, by typing, or by the pointer
+    /// resting on a row. The window decides what a row being pointed at means;
+    /// the theme picker previews it, and nothing else answers.
+    Highlight,
     /// Escape: nothing was chosen.
     Cancel,
 }
@@ -174,6 +178,25 @@ impl<T: Clone + 'static> Picker<T> {
     /// How many rows matched.
     pub(crate) fn matches(&self) -> usize {
         self.ranked.len()
+    }
+
+    /// The row the pointer is over becomes the highlighted one, so the pointer
+    /// and the keyboard always agree about what `enter` would choose.
+    pub(crate) fn hover_row(&mut self, row: usize, cx: &mut Context<Self>) {
+        if row >= self.ranked.len() || row == self.selected {
+            return;
+        }
+        self.selected = row;
+        cx.notify();
+        cx.emit(PickerEvent::Highlight);
+    }
+
+    /// Repaint the panel with `palette`. The theme picker previews the theme its
+    /// rows name, and the panel is drawn in the theme it is offering, so the
+    /// preview is not hidden by the panel that shows it.
+    pub(crate) fn set_palette(&mut self, palette: Rc<Palette>, cx: &mut Context<Self>) {
+        self.palette = palette;
+        cx.notify();
     }
 
     /// Re-rank the rows for the current query and put the selection back on the
@@ -315,6 +338,9 @@ impl<T: Clone + 'static> EntityInputHandler for Picker<T> {
         // Every keystroke narrows the list, which is the whole point of a picker.
         self.rerank();
         cx.notify();
+        // The best row may have changed under the selection, so a picker that
+        // previews what it points at has to be told.
+        cx.emit(PickerEvent::Highlight);
     }
 
     fn replace_and_mark_text_in_range(
@@ -432,11 +458,14 @@ impl<T: Clone + 'static> Render for Picker<T> {
         let base_font = font(self.family.clone());
         let start = self.window_start();
         let end = (start + VISIBLE_ROWS).min(self.ranked.len());
-        let rows: Vec<gpui::Div> = (start..end)
+        let rows: Vec<gpui::Stateful<gpui::Div>> = (start..end)
             .map(|n| {
                 let row = &self.ranked[n];
                 let (item, _target) = &self.items[row.item];
+                let hovered = entity.clone();
+                let clicked = entity.clone();
                 div()
+                    .id(("picker-row", n))
                     .flex()
                     .gap_2()
                     .px_1()
@@ -455,6 +484,18 @@ impl<T: Clone + 'static> Render for Picker<T> {
                             .text_color(gpui::rgb(palette.ui_dim))
                             .child(item.detail.clone()),
                     )
+                    // The pointer picks the row it is over, which is what makes a
+                    // preview (the theme picker's) follow the mouse, and what makes
+                    // a click mean the same thing `enter` would.
+                    .on_mouse_move(move |_, _, cx| {
+                        hovered.update(cx, |picker, cx| picker.hover_row(n, cx));
+                    })
+                    .on_click(move |_, _, cx| {
+                        clicked.update(cx, |picker, cx| {
+                            picker.hover_row(n, cx);
+                            cx.emit(PickerEvent::Choose);
+                        });
+                    })
             })
             .collect();
 
@@ -473,11 +514,13 @@ impl<T: Clone + 'static> Render for Picker<T> {
                 this.field.backspace();
                 this.rerank();
                 cx.notify();
+                cx.emit(PickerEvent::Highlight);
             }))
             .on_action(cx.listener(|this, _: &FieldDelete, _window, cx| {
                 this.field.delete_forward();
                 this.rerank();
                 cx.notify();
+                cx.emit(PickerEvent::Highlight);
             }))
             .on_action(cx.listener(|this, _: &FieldLeft, _window, cx| {
                 this.field.step_caret(-1);
@@ -490,10 +533,12 @@ impl<T: Clone + 'static> Render for Picker<T> {
             .on_action(cx.listener(|this, _: &PickerUp, _window, cx| {
                 this.move_selection(-1);
                 cx.notify();
+                cx.emit(PickerEvent::Highlight);
             }))
             .on_action(cx.listener(|this, _: &PickerDown, _window, cx| {
                 this.move_selection(1);
                 cx.notify();
+                cx.emit(PickerEvent::Highlight);
             }))
             .border_1()
             .border_color(gpui::rgb(palette.ui_border))

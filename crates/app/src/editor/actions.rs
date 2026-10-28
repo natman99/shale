@@ -61,6 +61,8 @@ impl MarkdownEditor {
             // travels up from here to the window that handles it, exactly as the
             // key would have.
             Outcome::QuickOpen => window.dispatch_action(QuickOpen.boxed_clone(), cx),
+            // `space s` is the other leader chord: the window owns the search.
+            Outcome::SearchVault => window.dispatch_action(SearchVault.boxed_clone(), cx),
             // vim's `K`: the window owns the checker, so the lookup is asked for by
             // name and travels up to it. Inside a table `K` is still the row
             // motion, which the engine decides before it ever gets here.
@@ -93,11 +95,11 @@ impl MarkdownEditor {
         cx.notify();
     }
 
-    /// `:` — vim's command line. Shale has no ex commands yet, so it opens the
-    /// command palette, which is the same list of commands with a fuzzy field in
-    /// front of it.
+    /// `:` — vim's command line. The window reads the word the user types next
+    /// (see [`crate::ex`]); it is *not* the command palette, which is the fuzzy
+    /// list on `ctrl-shift-p` and would turn `:w` into a guess.
     pub(super) fn on_colon(&mut self, _: &VimColon, window: &mut Window, cx: &mut Context<Self>) {
-        window.dispatch_action(CommandPalette.boxed_clone(), cx);
+        window.dispatch_action(RunCommandLine.boxed_clone(), cx);
     }
 
     /// Enter in insert mode. Ordinary rows get a newline; a row that opens a

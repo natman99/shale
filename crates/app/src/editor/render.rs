@@ -377,7 +377,12 @@ impl Render for MarkdownEditor {
             .on_action(
                 cx.listener(|this, _: &VimDot, window, cx| this.normal(Key::Char('.'), window, cx)),
             )
-            // vim's command line, which opens the command palette.
+            // Bound for the `space s` leader chord, which the engine owns.
+            .on_action(
+                cx.listener(|this, _: &VimS, window, cx| this.normal(Key::Char('s'), window, cx)),
+            )
+            // vim's command line: the window reads the word typed next. Not the
+            // command palette, which is `ctrl-shift-p`.
             .on_action(cx.listener(Self::on_colon))
             // Shared editing keys.
             .on_action(cx.listener(Self::on_escape))
