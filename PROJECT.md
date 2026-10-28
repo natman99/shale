@@ -117,8 +117,8 @@ Workspace layout:
   subsequence matcher and ranker the pickers use: a score, and the byte ranges of
   the candidate the query consumed), `watch` (the
   vault signature — every path stamped with size and mtime, or just existence for
-  a folder — and the added/removed/modified diff built from two of them) and
-  `theme` (the
+  a folder — and the added/removed/modified diff built from two of them), `rename`
+  (rewriting the wiki-links that point at a note when it is renamed) and `theme` (the
   colour palette as data: the `Palette` roles and 20 built-in values — Shale's
   `dark`/`light` plus the palettes of seven families, one module per family
   (`theme/catppuccin.rs`, `tokyo_night.rs`, `gruvbox.rs`, `nord.rs`,
@@ -150,7 +150,9 @@ Workspace layout:
   ×3 — default `mocha` — or a `<vault>/.shale/themes/<name>.toml` file, and
   `appearance.font_size` sizes the text),
   ctrl+s save, and a file tree that can create, rename and delete notes and
-  folders through a one-line prompt (`prompt.rs`) and follows the disk when
+  folders through a one-line prompt (`prompt.rs`); a rename also rewrites the
+  wiki-links that pointed at the old name, in every other note and in the open one
+  if it has no unsaved edits. It follows the disk when
   another program changes the vault, and **quick-open** (`ctrl-o`, or `space f` in
   normal mode: a fuzzy list of every note, `j`/`k` to move, `enter` to open) and a
   **command palette** (`ctrl-shift-p`, or `:` in normal mode) — both pickers
@@ -1113,6 +1115,49 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   have no UI; the cursor lands at the start of the line rather than on the match;
   and a hit in a note that is open with unsaved edits opens the disk copy, which is
   the same unsaved-edits question the watcher already refuses to merge.
+- **Renaming a note rewrites the links to it — done (2026-10-27).** The last piece
+  of the file-tree round, and the one Obsidian compatibility actually turns on.
+  **Finding the links means resolving them.** Nothing in a vault records which
+  notes link to which, so `shale_core::rename::rewrites_for_rename` reads every
+  note, extracts its wiki-links and asks `Vault::resolve_link` what each one means
+  — the same walk vault search makes. That is why the scan runs against the entries
+  from **before** the rename: once the file has moved, the old name resolves to
+  nothing and there is nothing to match.
+  **Only the name is rewritten.** `WikiLink` grew `stem_start`/`stem_end`, the byte
+  range of the target's last path component as written, and `stem_range` cuts it in
+  order: stop at the `|` that starts an alias, then at the `#` that starts a
+  heading anchor, then keep only what follows the last `/`, then trim the padding a
+  writer left inside the brackets. So `[[folder/Target#A heading|read this]]`
+  becomes `[[folder/Renamed#A heading|read this]]` — folder, anchor and alias
+  untouched, and an embed keeps its `!`. A link to a heading in the same note
+  (`[[#heading]]`) has no name, so its range is empty rather than pointing at
+  something a splice would overwrite. Getting the anchor cut wrong was the first
+  attempt's bug: it spliced over `Target#A heading` and silently dropped people's
+  anchors.
+  **Resolution decides what counts, with Obsidian's rules.** Two notes named
+  `Target.md` in different folders mean a bare `[[Target]]` points at the shortest
+  path and `[[notes/Target]]` points at the other, so renaming one rewrites some of
+  them and not others, which is exactly right and only falls out of resolving
+  rather than string-comparing. Case is folded the same way: `[[target]]` follows
+  the rename and takes the new name as the file spells it. Links inside fenced code
+  and inline code spans are skipped, because `extract_wikilinks` already skips them.
+  **The open note is the one file Shale must not write blind.** With unsaved edits
+  the disk copy is not what the user is looking at, so that note is skipped and the
+  status names it (`… ; the open note has unsaved edits, so its links were left
+  alone`) instead of letting them find out on the next save. When the buffer is
+  clean it is updated in place as well as on disk, or the next save would put the
+  old links straight back — at the cost of a `set_text`, which parks the cursor at
+  the top of the note.
+  **Tests:** core 215 (was 209) — two in `markdown.rs` for the stem range, four in
+  `rename.rs` (every link form and the code span, the two-notes-same-name case, the
+  case-folded link, a rename with no name in it). App 84 (was 82) — a rename through
+  the prompt updating another note's file, and the dirty-open-note case. The test
+  helper `vault_with` (notes with real text in them, folded in through
+  `check_vault_now`) moved to `tests/mod.rs`, since search and tree both need it.
+  **Follow-ups:** a *folder* rename leaves the links that spell the folder out
+  (`[[folder/Note]]`) alone — a different splice, over the prefix rather than the
+  name; markdown links (`[text](Target.md)`) are not rewritten yet; and the scan is
+  a full vault read, which the planned database will make incremental.
 - **Module sizes.** `editor.rs` and `main.rs` both passed the 1000-line mark in
   `AGENTS.md`, so they are now directories: `editor/{mod,wrap,render,actions,input}.rs`
   (a submodule can reach `MarkdownEditor`'s private state because they are all
@@ -1124,11 +1169,11 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   with the file tree, and is now `main.rs` (122) + `acts.rs` + `workspace/`.
   Largest files now: `vim.rs` 2290, `buffer.rs` 1786, `line.rs` 897, `tests/paint.rs`
   806, `core/theme/mod.rs` 763, `vault.rs` 750, `table/edit.rs` 640, `table/mod.rs`
-  590, `editor/render.rs` 544, `workspace/mod.rs` 501, `editor/mod.rs` 486,
-  `picker.rs` 489, `open.rs` 276, `tests/tree.rs` 395, `editor/wrap.rs` 395,
-  `field.rs` 335, `fold.rs` 332, `prompt.rs` 256, `tests/picker.rs` 367,
-  `fuzzy.rs` 324, `watch.rs` 202, and the other `workspace/` submodules at
-  273/209/189/187/118. `tests/keys.rs`
+  590, `editor/render.rs` 544, `workspace/mod.rs` 501, `picker.rs` 489,
+  `editor/mod.rs` 486, `tests/tree.rs` 475, `open.rs` 276, `editor/wrap.rs` 395,
+  `markdown.rs` 416, `field.rs` 335, `fold.rs` 332, `prompt.rs` 256,
+  `tests/picker.rs` 346, `fuzzy.rs` 324, `rename.rs` 195, and the other
+  `workspace/` submodules at 355/209/189/187/118. `tests/keys.rs`
   reached the rule's line and is now three: `keys.rs` (344: the keystroke shapes,
   what each key resolves to per context, the chords), `motions.rs` (442: vim
   motions, operators, text objects, visual mode, `.` and the undo chords driven
@@ -1193,9 +1238,10 @@ Next steps, roughly in order:
     nothing but an embed is drawn as the picture (stage 2b). What is left is an
     image embedded *inside* a paragraph, and an `|alias` suffix on an embed is
     currently read as "no size".
-12. ~~File tree: new/rename/delete, file watching~~ Done (see Open threads). Left
-    here: rewriting the wiki-links that point at a renamed note, and following an
-    open note when something else renames it.
+12. ~~File tree: new/rename/delete, file watching~~ and ~~rewriting the wiki-links
+    that point at a renamed note~~ Done (see Open threads). Left here: following an
+    open note when something else renames it, rewriting links on a *folder*
+    rename, and markdown links (`[text](Target.md)`) as well as wiki-links.
 13. **Database tables (Obsidian bases)** — the user's goal, see the Database
     section above. Nothing built yet, but the shape of it is already useful:
     a query result is a table that is *not* buffer text, and the grid paint
