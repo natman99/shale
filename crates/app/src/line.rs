@@ -183,6 +183,10 @@ pub(crate) struct LineElement {
     /// display line, in the order the scanner emitted them (block spans first,
     /// so later spans win). Re-based onto the painted text before shaping.
     pub(crate) spans: Vec<(usize, usize, Style)>,
+    /// (start, end) **buffer** byte ranges the spell and grammar checker has
+    /// something to say about, drawn as wavy underlines. Re-based onto the
+    /// painted text the same way the spans are.
+    pub(crate) marks: Vec<(usize, usize)>,
     /// Text size to shape and paint at; the row's height follows it.
     pub(crate) size: f32,
     /// Whether the row belongs to a fenced code block, whose background spans
@@ -249,14 +253,16 @@ pub(crate) struct CellShaped {
 ///
 /// Every byte of the line gets a style — the markdown spans applied in order,
 /// so a span that starts later in the source wins, then the resolved/unresolved
-/// colour of any wiki-link over the top — and neighbouring bytes that share a
-/// style are coalesced into one run. Run lengths are utf-8 byte counts and must
-/// add up to exactly `text.len()`: gpui walks runs against glyphs, so a map that
-/// does not tile the text styles the wrong characters.
+/// colour of any wiki-link over the top, then the checker's wavy underline over
+/// both — and neighbouring bytes that share a style are coalesced into one run.
+/// Run lengths are utf-8 byte counts and must add up to exactly `text.len()`:
+/// gpui walks runs against glyphs, so a map that does not tile the text styles
+/// the wrong characters.
 fn build_runs(
     text: &str,
     spans: &[(usize, usize, Style)],
     links: &[(usize, usize, bool)],
+    marks: &[(usize, usize)],
     base_font: &Font,
     palette: &Palette,
 ) -> Vec<TextRun> {
@@ -282,6 +288,17 @@ fn build_runs(
             slot.color = color;
         }
     }
+    // The checker's notes are drawn last, over whatever styling the text already
+    // had: a misspelled word inside a heading still needs its squiggle. The
+    // colour is the palette's error red, the one role every theme already reads
+    // as "something is wrong"; a dedicated palette role is a later refinement.
+    for (start, end) in marks {
+        let start = (*start).min(total);
+        let end = (*end).clamp(start, total);
+        for slot in &mut styles[start..end] {
+            slot.spell = Some(palette.callout_danger);
+        }
+    }
 
     let mut runs: Vec<TextRun> = Vec::new();
     let mut i = 0usize;
@@ -301,15 +318,28 @@ fn build_runs(
     runs
 }
 
-/// The markdown spans and wiki-links that overlap one table cell, clipped to it
-/// and re-based onto the cell's painted text. The spans in are buffer offsets;
-/// `map` describes the text they are being mapped onto.
+/// One table cell's worth of styling: the markdown spans, wiki-links and
+/// checker's ranges that fall inside it, re-based onto its painted text.
+type CellStyles = (
+    Vec<(usize, usize, Style)>,
+    Vec<(usize, usize, bool)>,
+    Vec<(usize, usize)>,
+);
+
+/// The markdown spans, wiki-links and checker's ranges that overlap one table
+/// cell, clipped to it and re-based onto the cell's painted text. The spans in
+/// are buffer offsets; `map` describes the text they are being mapped onto.
 fn cell_styles(
     spans: &[(usize, usize, Style)],
     links: &[(usize, usize, bool)],
+    marks: &[(usize, usize)],
     map: &PieceMap,
-) -> (Vec<(usize, usize, Style)>, Vec<(usize, usize, bool)>) {
-    (map.rebase_spans(spans), map.rebase_links(links))
+) -> CellStyles {
+    (
+        map.rebase_spans(spans),
+        map.rebase_links(links),
+        map.rebase_marks(marks),
+    )
 }
 
 impl LineElement {
@@ -519,6 +549,7 @@ impl Element for LineElement {
                 &self.text,
                 &self.map.rebase_spans(&self.spans),
                 &self.map.rebase_links(&self.links),
+                &self.map.rebase_marks(&self.marks),
                 &base_font,
                 &self.palette,
             );
@@ -562,8 +593,9 @@ impl Element for LineElement {
                     .iter()
                     .map(|&(s, e)| &text[s - self.start..e - self.start])
                     .collect();
-                let (spans, links) = cell_styles(&self.spans, &self.links, &map);
-                let runs = build_runs(&painted, &spans, &links, &base_font, &self.palette);
+                let (spans, links, marks) =
+                    cell_styles(&self.spans, &self.links, &self.marks, &map);
+                let runs = build_runs(&painted, &spans, &links, &marks, &base_font, &self.palette);
                 CellShaped {
                     line: text_system.shape_line(
                         SharedString::from(painted),
@@ -799,12 +831,13 @@ mod tests {
     use super::*;
     use gpui::font;
 
-    /// One paint input: the line's text, its markdown spans and its wiki-link
-    /// spans (start, end, resolved).
+    /// One paint input: the line's text, its markdown spans, its wiki-link spans
+    /// (start, end, resolved) and the checker's ranges.
     type Case = (
         &'static str,
         Vec<(usize, usize, Style)>,
         Vec<(usize, usize, bool)>,
+        Vec<(usize, usize)>,
     );
 
     /// The runs must tile the line exactly: gpui matches runs against glyphs by
@@ -814,8 +847,8 @@ mod tests {
     fn runs_tile_the_line() {
         let font = font("monospace");
         let cases: Vec<Case> = vec![
-            ("plain text", vec![], vec![]),
-            ("", vec![], vec![]),
+            ("plain text", vec![], vec![], vec![]),
+            ("", vec![], vec![], vec![]),
             (
                 "# Heading **bold**",
                 vec![
@@ -824,16 +857,31 @@ mod tests {
                     (10, 16, Style::Strong),
                 ],
                 vec![],
+                vec![],
             ),
-            ("héllo 🎉 `code` wörld", vec![(13, 19, Style::Code)], vec![]),
+            (
+                "héllo 🎉 `code` wörld",
+                vec![(13, 19, Style::Code)],
+                vec![],
+                vec![],
+            ),
             (
                 "[[link]] and [[gone]]",
                 vec![(0, 8, Style::WikiLink)],
                 vec![(0, 8, true), (13, 21, false)],
+                vec![],
+            ),
+            // A checker's note over styled text must still tile the line: it
+            // splits runs rather than adding length.
+            (
+                "Thier heading **is wrogn**",
+                vec![(14, 26, Style::Strong)],
+                vec![],
+                vec![(0, 5), (20, 26)],
             ),
         ];
-        for (text, spans, links) in cases {
-            let runs = build_runs(text, &spans, &links, &font, &Palette::DARK);
+        for (text, spans, links, marks) in cases {
+            let runs = build_runs(text, &spans, &links, &marks, &font, &Palette::DARK);
             let total: usize = runs.iter().map(|r| r.len).sum();
             assert_eq!(total, text.len(), "runs must cover {text:?} exactly");
             if text.is_empty() {
@@ -865,6 +913,28 @@ mod tests {
         }
     }
 
+    /// The checker's ranges come out as wavy underlines in the palette's error
+    /// colour, over whatever styling the same bytes already had.
+    #[test]
+    fn a_checker_range_is_a_wavy_underline() {
+        let font = font("monospace");
+        let text = "Thier spelling";
+        let runs = build_runs(text, &[], &[], &[(0, 5)], &font, &Palette::DARK);
+        let total: usize = runs.iter().map(|r| r.len).sum();
+        assert_eq!(total, text.len());
+        assert_eq!(runs[0].len, 5, "the marked word is its own run");
+        let underline = runs[0].underline.expect("underlined");
+        assert!(underline.wavy, "a checker's note is a squiggle");
+        assert_eq!(
+            underline.color,
+            Some(rgb(Palette::DARK.callout_danger).into())
+        );
+        assert!(
+            runs[1].underline.is_none(),
+            "the bytes past the range are left alone"
+        );
+    }
+
     /// A cell only sees the styles that fall inside it, re-based onto its own
     /// painted text: a bold span that starts in another column must not leak in,
     /// and one that starts inside must not be clipped away.
@@ -874,10 +944,16 @@ mod tests {
         // first cell's content is bytes 1..7.
         let spans = vec![(2, 7, Style::Strong)];
         let links = vec![(12, 18, true)];
+        let marks = vec![(2, 4), (12, 15)];
         let map = PieceMap::from_pieces(&[(1, 7)]);
-        let (cell_spans, cell_links) = cell_styles(&spans, &links, &map);
+        let (cell_spans, cell_links, cell_marks) = cell_styles(&spans, &links, &marks, &map);
         assert_eq!(cell_spans, vec![(1, 6, Style::Strong)]);
         assert!(cell_links.is_empty(), "a link in another cell is dropped");
+        assert_eq!(
+            cell_marks,
+            vec![(1, 3)],
+            "the mark inside the cell is re-based, the one in another cell dropped"
+        );
     }
 
     /// A cell whose markers are hidden is painted from the pieces that are left,
@@ -887,7 +963,7 @@ mod tests {
     fn cell_styles_follow_the_hidden_markers() {
         // The cell's content is bytes 10..17, `**a** b`, with both `**` hidden.
         let map = PieceMap::from_pieces(&[(12, 13), (15, 17)]);
-        let (cell_spans, _) = cell_styles(&[(10, 15, Style::Strong)], &[], &map);
+        let (cell_spans, _, _) = cell_styles(&[(10, 15, Style::Strong)], &[], &[], &map);
         assert_eq!(
             cell_spans,
             vec![(0, 1, Style::Strong)],

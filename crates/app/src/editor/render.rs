@@ -528,6 +528,7 @@ impl Render for MarkdownEditor {
                                 insert: self.vim.mode() == Mode::Insert,
                                 links: line_links,
                                 spans: line_spans,
+                                marks: self.marks_in(dl.start, dl.end),
                                 size: dl.size,
                                 block,
                                 rule,

@@ -96,6 +96,10 @@ pub(crate) struct RunStyle {
     pub background: Option<u32>,
     /// Underline the run.
     pub underline: bool,
+    /// Wavy-underline the run in this colour: the spell and grammar checker's
+    /// note about it. `None` for ordinary text. Kept apart from `underline`,
+    /// which markdown uses for links and which must stay straight.
+    pub spell: Option<u32>,
     /// Strike the run through (`~~text~~`).
     pub strikethrough: bool,
 }
@@ -109,6 +113,7 @@ impl RunStyle {
             italic: false,
             background: None,
             underline: false,
+            spell: None,
             strikethrough: false,
         }
     }
@@ -191,11 +196,23 @@ impl RunStyle {
             font,
             color: rgb(self.color).into(),
             background_color: self.background.map(|c| rgb(c).into()),
-            underline: self.underline.then_some(UnderlineStyle {
-                thickness: px(1.),
-                color: None,
-                wavy: false,
-            }),
+            // A markdown underline (a link) and a checker's note can land on the
+            // same run; the checker's squiggle wins, since it is the one the user
+            // is meant to act on.
+            underline: self
+                .spell
+                .map(|color| UnderlineStyle {
+                    thickness: px(1.),
+                    color: Some(rgb(color).into()),
+                    wavy: true,
+                })
+                .or_else(|| {
+                    self.underline.then_some(UnderlineStyle {
+                        thickness: px(1.),
+                        color: None,
+                        wavy: false,
+                    })
+                }),
             strikethrough: self.strikethrough.then_some(StrikethroughStyle {
                 thickness: px(1.),
                 color: None,

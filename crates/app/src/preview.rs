@@ -138,6 +138,23 @@ impl PieceMap {
         }
         out
     }
+
+    /// The checker's ranges that overlap the painted text, clipped and re-based
+    /// the same way. A range that falls entirely in a hidden marker (a heading's
+    /// `#`, say) contributes nothing, which is right: nothing is painted there to
+    /// underline.
+    pub(crate) fn rebase_marks(&self, marks: &[(usize, usize)]) -> Vec<(usize, usize)> {
+        let mut out = Vec::new();
+        for &(start, end) in marks {
+            for &(piece_start, piece_end, painted) in &self.pieces {
+                let (lo, hi) = (start.max(piece_start), end.min(piece_end));
+                if hi > lo {
+                    out.push((painted + (lo - piece_start), painted + (hi - piece_start)));
+                }
+            }
+        }
+        out
+    }
 }
 
 /// One display line as it is painted.
