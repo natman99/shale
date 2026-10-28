@@ -288,3 +288,154 @@ fn an_impossible_name_is_refused(cx: &mut TestAppContext) {
         "the prompt stays open so the name can be fixed rather than retyped"
     );
 }
+
+/// What the vault watcher does on its next tick, without waiting for the timer.
+fn check_vault(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) {
+    window
+        .update(cx, |ws, _window, cx| ws.check_vault_now(cx))
+        .unwrap();
+    cx.run_until_parked();
+}
+
+/// A note made by another program gets a row on its own.
+#[gpui::test]
+fn a_note_created_outside_shale_gets_a_row(cx: &mut TestAppContext) {
+    let (dir, window) = workspace(cx, &["Welcome.md"]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    let (rows, _) = state(&window, cx);
+    assert_eq!(rows, vec![PathBuf::from("Welcome.md")]);
+
+    std::fs::write(dir.path().join("Outside.md"), "written elsewhere").unwrap();
+    check_vault(&window, cx);
+
+    let (rows, active) = state(&window, cx);
+    assert_eq!(
+        rows,
+        vec![PathBuf::from("Outside.md"), PathBuf::from("Welcome.md")],
+        "the tree followed the disk"
+    );
+    assert_eq!(active, "", "and nothing was opened that nobody asked for");
+}
+
+/// A note nobody is editing is re-read, which is what makes an external edit
+/// visible instead of being silently overwritten by the next save.
+#[gpui::test]
+fn a_clean_note_changed_outside_shale_is_reloaded(cx: &mut TestAppContext) {
+    let (dir, window) = workspace(cx, &["Welcome.md"]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    window
+        .update(cx, |ws, _window, cx| {
+            ws.open_note(&PathBuf::from("Welcome.md"), cx)
+        })
+        .unwrap();
+    std::fs::write(dir.path().join("Welcome.md"), "changed elsewhere").unwrap();
+    check_vault(&window, cx);
+
+    let text = window
+        .update(cx, |ws, _window, cx| ws.buffer_text(cx))
+        .unwrap();
+    assert_eq!(text, "changed elsewhere");
+    let status = window.update(cx, |ws, _window, _cx| ws.status()).unwrap();
+    assert!(
+        status.contains("reloaded"),
+        "the status bar says so: {status}"
+    );
+}
+
+/// Unsaved edits outrank the disk: the buffer keeps what the user typed, and the
+/// status bar tells them the file moved under them.
+#[gpui::test]
+fn an_outside_edit_does_not_overwrite_unsaved_edits(cx: &mut TestAppContext) {
+    let (dir, window) = workspace(cx, &["Welcome.md"]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    window
+        .update(cx, |ws, _window, cx| {
+            ws.open_note(&PathBuf::from("Welcome.md"), cx)
+        })
+        .unwrap();
+    cx.simulate_keystrokes("A");
+    cx.simulate_input(" mine");
+    assert!(
+        window
+            .update(cx, |ws, _window, cx| ws.buffer_is_dirty(cx))
+            .unwrap(),
+        "the buffer holds an edit that is not on disk"
+    );
+
+    std::fs::write(dir.path().join("Welcome.md"), "changed elsewhere").unwrap();
+    check_vault(&window, cx);
+
+    let text = window
+        .update(cx, |ws, _window, cx| ws.buffer_text(cx))
+        .unwrap();
+    assert!(text.ends_with(" mine"), "the edit survived: {text:?}");
+    let status = window.update(cx, |ws, _window, _cx| ws.status()).unwrap();
+    assert!(
+        status.contains("changed on disk"),
+        "and it is visible: {status}"
+    );
+}
+
+/// A note deleted elsewhere leaves the tree. Deleted while it is open and
+/// unsaved, the text stays on screen so `ctrl-s` can write it back.
+#[gpui::test]
+fn a_note_deleted_outside_shale_leaves_the_tree(cx: &mut TestAppContext) {
+    let (dir, window) = workspace(cx, &["Welcome.md", "Gone.md"]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    std::fs::remove_file(dir.path().join("Gone.md")).unwrap();
+    check_vault(&window, cx);
+    let (rows, _) = state(&window, cx);
+    assert_eq!(rows, vec![PathBuf::from("Welcome.md")]);
+
+    window
+        .update(cx, |ws, _window, cx| {
+            ws.open_note(&PathBuf::from("Welcome.md"), cx)
+        })
+        .unwrap();
+    cx.simulate_keystrokes("A");
+    cx.simulate_input(" mine");
+    std::fs::remove_file(dir.path().join("Welcome.md")).unwrap();
+    check_vault(&window, cx);
+
+    let text = window
+        .update(cx, |ws, _window, cx| ws.buffer_text(cx))
+        .unwrap();
+    assert!(text.ends_with(" mine"), "the text is not thrown away");
+    let status = window.update(cx, |ws, _window, _cx| ws.status()).unwrap();
+    assert!(
+        status.contains("deleted from disk"),
+        "and it is visible: {status}"
+    );
+}
+
+/// Shale's own save must not come back as somebody else's edit, so the signature
+/// is re-taken after it writes and the next pass has nothing to report.
+#[gpui::test]
+fn saving_our_own_note_does_not_look_like_an_outside_change(cx: &mut TestAppContext) {
+    let (_dir, window) = workspace(cx, &["Welcome.md"]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    window
+        .update(cx, |ws, _window, cx| {
+            ws.open_note(&PathBuf::from("Welcome.md"), cx)
+        })
+        .unwrap();
+    cx.simulate_keystrokes("i");
+    cx.simulate_input("typed");
+    cx.simulate_keystrokes("escape ctrl-s");
+    check_vault(&window, cx);
+
+    let text = window
+        .update(cx, |ws, _window, cx| ws.buffer_text(cx))
+        .unwrap();
+    assert_eq!(text, "typed", "the buffer still holds what was typed");
+    let status = window.update(cx, |ws, _window, _cx| ws.status()).unwrap();
+    assert!(
+        status.contains("saved"),
+        "the last word is still the save: {status}"
+    );
+}

@@ -10,8 +10,10 @@ pub mod table;
 pub mod theme;
 pub mod vault;
 pub mod vim;
+pub mod watch;
 
 pub use buffer::Buffer;
 pub use config::Config;
 pub use theme::Palette;
 pub use vault::Vault;
+pub use watch::{Stamp, VaultChanges};

@@ -143,6 +143,9 @@ impl Workspace {
                 self.status = format!("deleted {}", target.display()).into();
             }
         }
+        // The edit that just happened was ours, so the watcher's next pass has
+        // nothing to report.
+        self.resign();
         Ok(())
     }
 
@@ -155,10 +158,11 @@ impl Workspace {
             .context("nothing is selected")
     }
 
-    /// Re-read the vault's listings after an edit, and hand the editor the new
+    /// Re-read the vault's listings after the disk moved — one of Shale's own
+    /// edits or a change made outside it — and hand the editor the new
     /// attachments and link targets so wiki-links resolve against what is on disk
     /// now.
-    fn refresh_entries(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn refresh_entries(&mut self, cx: &mut Context<Self>) {
         self.entries = self.vault.list_markdown().unwrap_or_default();
         self.dirs = self.vault.list_dirs().unwrap_or_default();
         let known = note_keys(&self.entries);

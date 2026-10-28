@@ -24,7 +24,7 @@ use shale_core::{Config, Vault};
 
 use acts::FocusEditor;
 
-use workspace::{keybindings, Workspace};
+use workspace::{keybindings, start_watcher, Workspace};
 
 #[derive(Parser, Debug)]
 #[command(name = "shale", about = "Obsidian-style markdown editor")]
@@ -93,6 +93,10 @@ fn main() -> Result<()> {
                 ws.focus_editor(&FocusEditor, window, cx)
             })
             .unwrap();
+
+        // The vault can change while Shale is open — Obsidian, git, another
+        // terminal — so the tree and the open note follow the disk.
+        start_watcher(&workspace, cx);
 
         if let Some(secs) = args.open_after {
             let ws = workspace.clone();

@@ -1,8 +1,11 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::io;
 use std::path::{Component, Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
+
+use crate::watch::Stamp;
 
 /// Directories that should never be treated as vault content.
 const IGNORED_DIRS: &[&str] = &[".git", ".obsidian", ".trash", ".shale"];
@@ -129,6 +132,45 @@ impl Vault {
             }
         }
         out.sort_by(|a, b| a.path.cmp(&b.path));
+        Ok(out)
+    }
+
+    /// Every file and directory in the vault, keyed by vault-relative path and
+    /// stamped with what made it that path. This is the cheap half of file
+    /// watching: one walk, no note contents read, so it can run on a timer; and
+    /// the same pass the planned vault database will use to decide which notes
+    /// have to be re-indexed.
+    pub fn signature(&self) -> Result<BTreeMap<PathBuf, Stamp>> {
+        let mut out = BTreeMap::new();
+        let mut stack = vec![self.root.clone()];
+        while let Some(dir) = stack.pop() {
+            let read = match fs::read_dir(&dir) {
+                Ok(read) => read,
+                // The vault root itself may vanish while we are walking it.
+                Err(err) if err.kind() == io::ErrorKind::NotFound => continue,
+                Err(err) => {
+                    return Err(err).with_context(|| format!("reading dir {}", dir.display()));
+                }
+            };
+            for entry in read {
+                let entry =
+                    entry.with_context(|| format!("reading dir entry in {}", dir.display()))?;
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                if name.starts_with('.') || IGNORED_DIRS.contains(&name.as_ref()) {
+                    continue;
+                }
+                let file_type = entry.file_type()?;
+                let path = entry.path();
+                let rel = self.relativize(&path)?;
+                if file_type.is_dir() {
+                    out.insert(rel, Stamp::Dir);
+                    stack.push(path);
+                } else if file_type.is_file() {
+                    out.insert(rel, Stamp::for_file(&entry)?);
+                }
+            }
+        }
         Ok(out)
     }
 

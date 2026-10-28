@@ -14,13 +14,15 @@ mod tree;
 
 pub(crate) use keys::keybindings;
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::time::Duration;
 
 use gpui::{prelude::*, Context, Entity, SharedString, Subscription, Window};
 use shale_core::theme::Palette;
 use shale_core::vault::VaultEntry;
+use shale_core::watch::{Stamp, VaultChanges};
 use shale_core::{Config, Vault};
 
 use crate::acts::*;
@@ -55,6 +57,9 @@ pub(crate) struct Workspace {
     /// keyboard back where the user was working: a rename started from the tree
     /// leaves them in the tree.
     prompt_return_focus: Option<gpui::FocusHandle>,
+    /// What every path in the vault looked like the last time the disk was
+    /// checked, which is what the next check explains the difference to.
+    signature: BTreeMap<PathBuf, Stamp>,
     /// The subscription to the open prompt, replaced when another one opens.
     _prompt_events: Option<Subscription>,
     status: SharedString,
@@ -67,6 +72,7 @@ impl Workspace {
     pub(crate) fn new(vault: Rc<Vault>, config: Rc<Config>, cx: &mut Context<Self>) -> Self {
         let entries = vault.list_markdown().unwrap_or_default();
         let dirs = vault.list_dirs().unwrap_or_default();
+        let signature = vault.signature().unwrap_or_default();
         // Every folder starts open: the tree is the vault, not a browser.
         let expanded = dirs.iter().map(|e| e.path.clone()).collect();
         let editor = cx.new(|cx| MarkdownEditor::new(cx));
@@ -128,6 +134,7 @@ impl Workspace {
             tree_rows: Vec::new(),
             prompt: None,
             prompt_return_focus: None,
+            signature,
             _prompt_events: None,
             status: "".into(),
             editor,
@@ -189,6 +196,9 @@ impl Workspace {
         match self.vault.write(&path, &text) {
             Ok(()) => {
                 self.editor.update(cx, |editor, _cx| editor.mark_clean());
+                // Shale just changed the disk itself; re-stamping it is what stops
+                // the watcher reporting our own save as an outside edit.
+                self.resign();
                 self.status = format!("saved {}", path.display()).into();
             }
             Err(err) => {
@@ -196,6 +206,87 @@ impl Workspace {
             }
         }
         cx.notify();
+    }
+
+    /// Fold a change made outside Shale into the window.
+    ///
+    /// The tree always follows the disk. The open note is re-read only when Shale
+    /// holds no unsaved edits, because reloading would throw away what the user
+    /// typed; a note deleted out from under a dirty buffer stays on screen so
+    /// `ctrl-s` can write it back.
+    pub(crate) fn apply_disk_changes(
+        &mut self,
+        after: BTreeMap<PathBuf, Stamp>,
+        cx: &mut Context<Self>,
+    ) {
+        let changes = VaultChanges::between(&self.signature, &after);
+        if changes.is_empty() {
+            return;
+        }
+        tracing::debug!(
+            added = changes.added.len(),
+            removed = changes.removed.len(),
+            modified = changes.modified.len(),
+            "the vault changed on disk"
+        );
+        self.signature = after;
+        self.refresh_entries(cx);
+        if let Some(path) = self.active.clone() {
+            let dirty = self.editor.read_with(cx, |editor, _cx| editor.is_dirty());
+            if changes.was_removed(&path) {
+                if dirty {
+                    self.status = format!(
+                        "{} deleted from disk; your edits are still here",
+                        path.display()
+                    )
+                    .into();
+                } else {
+                    self.active = None;
+                    self.editor
+                        .update(cx, |editor, cx| editor.set_text(String::new(), cx));
+                    self.status = format!("{} deleted from disk", path.display()).into();
+                }
+            } else if changes.was_modified(&path) {
+                if dirty {
+                    self.status = format!(
+                        "{} changed on disk; ctrl-s will overwrite it",
+                        path.display()
+                    )
+                    .into();
+                } else {
+                    self.open_note(&path, cx);
+                    self.status = format!("{} reloaded from disk", path.display()).into();
+                }
+            }
+        }
+        cx.notify();
+    }
+
+    /// Re-take the vault's signature. Shale's own edits change the disk, and the
+    /// watcher compares against this, so without it a save of ours would come
+    /// back as somebody else's edit.
+    pub(super) fn resign(&mut self) {
+        self.signature = self.vault.signature().unwrap_or_default();
+    }
+
+    /// What the watcher does on its timer — re-walk the vault and fold any
+    /// difference into the window — without waiting for the timer.
+    #[cfg(test)]
+    pub(crate) fn check_vault_now(&mut self, cx: &mut Context<Self>) {
+        let after = self.vault.signature().unwrap_or_default();
+        self.apply_disk_changes(after, cx);
+    }
+
+    /// The open note's text as the editor holds it, and whether that text is
+    /// ahead of the disk: how a test checks what a disk change did to a note.
+    #[cfg(test)]
+    pub(crate) fn buffer_text<C: gpui::AppContext>(&self, cx: &C) -> String {
+        self.editor.read_with(cx, |editor, _cx| editor.text())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn buffer_is_dirty<C: gpui::AppContext>(&self, cx: &C) -> bool {
+        self.editor.read_with(cx, |editor, _cx| editor.is_dirty())
     }
 
     #[cfg(test)]
@@ -232,6 +323,47 @@ impl Workspace {
             .as_ref()
             .map(|(_, prompt)| prompt.read(cx).text().to_string())
     }
+}
+
+/// How often the vault is re-walked looking for changes made outside Shale. Long
+/// enough that the walk never lands on a keystroke's path, short enough that a
+/// note created in another program shows up in the tree almost at once.
+const WATCH_INTERVAL: Duration = Duration::from_millis(750);
+
+/// Start watching the vault: every [`WATCH_INTERVAL`] the disk is re-walked on a
+/// background thread and any difference is folded into the window by
+/// [`Workspace::apply_disk_changes`].
+///
+/// Polling rather than an inotify dependency keeps `shale-core` free of external
+/// crates, and the signature pass is the same one the planned vault database will
+/// use to decide which notes to re-index. Only a weak handle is held, so closing
+/// the window ends the loop.
+pub(crate) fn start_watcher(workspace: &Entity<Workspace>, cx: &mut gpui::App) {
+    // A copy, not the `Rc`: the walk runs on a background thread, and `Rc` cannot
+    // cross one.
+    let vault = (*workspace.read(cx).vault).clone();
+    let watched = workspace.downgrade();
+    cx.spawn(async move |cx| {
+        loop {
+            cx.background_executor().timer(WATCH_INTERVAL).await;
+            let vault = vault.clone();
+            let Ok(signature) = cx
+                .background_executor()
+                .spawn(async move { vault.signature() })
+                .await
+            else {
+                continue;
+            };
+            if watched
+                .update(cx, |ws, cx| ws.apply_disk_changes(signature, cx))
+                .is_err()
+            {
+                // The window is gone, so there is nothing left to keep current.
+                break;
+            }
+        }
+    })
+    .detach();
 }
 
 /// Lowercased link targets that resolve to an existing note: file stems and
