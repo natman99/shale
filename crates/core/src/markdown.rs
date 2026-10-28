@@ -12,6 +12,14 @@ pub struct WikiLink {
     pub start: usize,
     /// Byte offset just past the end of the whole construct.
     pub end: usize,
+    /// Byte range of the note name inside the construct: the last path component
+    /// of the target, with no folder prefix, no `#heading` anchor, no `|alias`
+    /// and no padding spaces. That is the only part a rename may rewrite — the
+    /// rest of the link is how the author chose to write it. Empty when the link
+    /// has no name at all, as `[[#a heading in this note]]` does not.
+    pub stem_start: usize,
+    /// Byte offset just past [`Self::stem_start`]'s name.
+    pub stem_end: usize,
 }
 
 /// Extract wiki-links from markdown text.
@@ -111,12 +119,15 @@ fn scan_line(line_start: usize, line: &str, out: &mut Vec<WikiLink>) {
                     };
                     // Strip heading/block anchors from the target.
                     let target = target.split('#').next().unwrap_or(&target).to_string();
+                    let (stem_start, stem_end) = stem_range(inner);
                     out.push(WikiLink {
                         target,
                         alias,
                         embed,
                         start: line_start + full_start,
                         end: line_start + full_end,
+                        stem_start: line_start + i + 2 + stem_start,
+                        stem_end: line_start + i + 2 + stem_end,
                     });
                     i = full_end;
                     continue;
@@ -125,6 +136,26 @@ fn scan_line(line_start: usize, line: &str, out: &mut Vec<WikiLink>) {
         }
         i += 1;
     }
+}
+
+/// The byte range of the note name inside a wiki-link's `inner` text (everything
+/// between the brackets), relative to `inner` itself.
+///
+/// Cut in order: stop at the `|` that starts an alias, then at the `#` that starts
+/// a heading or block anchor, then keep only what follows the last `/`. Finally
+/// trim the padding a writer may have left inside the brackets, so `[[ Note ]]`
+/// names `Note` and nothing else.
+fn stem_range(inner: &str) -> (usize, usize) {
+    let head_end = inner.find('|').unwrap_or(inner.len());
+    let path_end = inner[..head_end].find('#').unwrap_or(head_end);
+    let name_start = inner[..path_end].rfind('/').map(|at| at + 1).unwrap_or(0);
+    let written = inner[name_start..path_end].trim_start();
+    let name = written.trim_end();
+    if name.is_empty() {
+        return (0, 0);
+    }
+    let start = name_start + (inner[name_start..path_end].len() - written.len());
+    (start, start + name.len())
 }
 
 /// Find the index of the `]]` closing a wiki-link opened at `from - 2`.
@@ -347,5 +378,39 @@ mod tests {
         let embed = line_image_embed("![[diagram.png|the diagram]]").unwrap();
         assert_eq!(embed.target, "diagram.png");
         assert_eq!((embed.width, embed.height), (None, None));
+    }
+
+    /// The name a rename is allowed to change: the last path component of the
+    /// target, and nothing around it.
+    #[test]
+    fn a_links_stem_is_its_name_and_nothing_else() {
+        for (text, name) in [
+            ("[[Note]]", "Note"),
+            ("[[ Note ]]", "Note"),
+            ("![[Note]]", "Note"),
+            ("[[folder/Note]]", "Note"),
+            ("[[Note#A heading]]", "Note"),
+            ("[[folder/Note#A heading|read this]]", "Note"),
+            ("[[Note|read this]]", "Note"),
+            ("[[note]]", "note"),
+        ] {
+            let links = extract_wikilinks(text);
+            assert_eq!(links.len(), 1, "{text} should hold one link");
+            assert_eq!(
+                &text[links[0].stem_start..links[0].stem_end],
+                name,
+                "{text} names {name}"
+            );
+        }
+    }
+
+    /// A link to a heading in the same note has no name to rewrite, and the stem
+    /// range is empty rather than pointing at something it would overwrite.
+    #[test]
+    fn a_link_with_no_name_has_an_empty_stem() {
+        let text = "[[#A heading in this note]]";
+        let links = extract_wikilinks(text);
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].stem_start, links[0].stem_end);
     }
 }

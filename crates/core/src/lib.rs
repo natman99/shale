@@ -6,6 +6,7 @@ pub mod fuzzy;
 pub mod markdown;
 pub mod mdlayout;
 pub mod mdstyle;
+pub mod rename;
 pub mod search;
 pub mod table;
 pub mod theme;
