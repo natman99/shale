@@ -184,6 +184,15 @@ impl Render for Workspace {
                             .px_4()
                             .pt_3()
                             .pb_2()
+                            // The column, not just the text, has to report the
+                            // pointer: the space below the last line belongs to no
+                            // line, and a panel the pointer walked away downwards
+                            // would otherwise never be told to go.
+                            .on_mouse_move(cx.listener(
+                                |this, event: &gpui::MouseMoveEvent, window, cx| {
+                                    this.pointer_moved(event.position, window, cx);
+                                },
+                            ))
                             .child(div().flex_1().min_h_0().child(self.editor.clone()))
                             // A picker *overlays* the note rather than pushing it
                             // down: it is painted after the text, so opening one does

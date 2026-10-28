@@ -141,6 +141,15 @@ fn pointer_over(
     gpui::point(x_over(cx, window, line, offset), (top + bottom) / 2.)
 }
 
+/// Where the panel was drawn: the y of its bottom edge, in window coordinates.
+fn panel_bottom(cx: &mut VisualTestContext, window: &WindowHandle<Workspace>) -> gpui::Pixels {
+    window
+        .update(cx, |ws, _window, cx| {
+            ws.popup_place(cx).expect("the panel has a place").bottom()
+        })
+        .unwrap()
+}
+
 /// vim's `K` on a word the checker marked: the complaint appears over the note,
 /// in the checker's words.
 #[gpui::test]
@@ -426,6 +435,62 @@ fn walking_down_from_a_word_beside_the_panel_keeps_it(cx: &mut TestAppContext) {
     assert!(
         shown(cx, &window),
         "straight down from a word beside the panel still reaches its rows"
+    );
+}
+
+/// A panel the pointer opened has to end when the pointer walks away below it,
+/// not just when it walks away above: the panel swallows the moves over its own
+/// rows, and the space under it belongs to no line, so nothing else would ever
+/// tell it to go.
+#[gpui::test]
+fn the_panel_ends_when_the_pointer_walks_off_its_bottom(cx: &mut TestAppContext) {
+    let (_dir, window) = marked_note(
+        cx,
+        "Thier spelling is wrogn.\n",
+        &[("Did you mean to spell `thier` this way?", 0, 5)],
+    );
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    paint(cx);
+
+    hover_at(cx, &window, 0, 2);
+    assert!(shown(cx, &window));
+    let bottom = panel_bottom(cx, &window);
+    let x = x_over(cx, &window, 0, 2);
+
+    // A little past the edge is still the way to a row: the panel's own border and
+    // the gap below it belong to the trip, not to leaving.
+    hover_point(cx, gpui::point(x, bottom + gpui::px(4.)));
+    assert!(
+        shown(cx, &window),
+        "the leeway below the panel is still its own"
+    );
+
+    // Well past it, the pointer has left, and nothing below the panel will ever
+    // report another move: the panel swallows the ones over its rows, and the
+    // space under it belongs to no line.
+    hover_point(cx, gpui::point(x, bottom + gpui::px(60.)));
+    assert!(!shown(cx, &window), "walking away below the panel ends it");
+}
+
+/// The same walk away from a panel the keyboard asked for: `K` is the user
+/// asking, and moving the mouse is not their answer to it, wherever it goes.
+#[gpui::test]
+fn a_panel_asked_for_with_k_survives_the_pointer_leaving_below_it(cx: &mut TestAppContext) {
+    let (_dir, window) = marked_note(
+        cx,
+        "Thier spelling is wrogn.\n",
+        &[("Did you mean to spell `thier` this way?", 0, 5)],
+    );
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    paint(cx);
+
+    cx.simulate_keystrokes("^ shift-k");
+    let bottom = panel_bottom(cx, &window);
+    let x = x_over(cx, &window, 0, 2);
+    hover_point(cx, gpui::point(x, bottom + gpui::px(60.)));
+    assert!(
+        shown(cx, &window),
+        "the keyboard asked, so the pointer does not answer"
     );
 }
 

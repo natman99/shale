@@ -10,9 +10,10 @@
 //!   popup replaces the first rather than laying it on top. A prompt or a picker
 //!   — which own the keyboard and are modal in a way a popup is not — closes the
 //!   popup on the way in, and no popup opens while one of them is up.
-//! - **They close.** `escape`, choosing a row, the pointer leaving the word, an
-//!   edit under the cursor, opening a note, opening a prompt or a picker: each
-//!   drops the popup and refocuses what had the keyboard before it.
+//! - **They close.** `escape`, choosing a row, the pointer leaving the word, the
+//!   pointer walking off the bottom of the panel, an edit under the cursor,
+//!   opening a note, opening a prompt or a picker: each drops the popup and
+//!   refocuses what had the keyboard before it.
 
 use gpui::{px, AppContext, Bounds, Context, Entity, Focusable, Pixels, Point, Window};
 
@@ -24,6 +25,16 @@ use super::Workspace;
 
 /// How far below the line the panel starts.
 const GAP: Pixels = px(4.);
+
+/// How far past the panel's bottom edge the pointer may go before the panel is
+/// dismissed.
+///
+/// The pointer has to cross the gap between the word and the panel to reach a
+/// row, so the edge cannot be exact; but a panel that survives the pointer
+/// walking away below it survives forever, because the panel swallows the moves
+/// over its own rows and there is nothing under it to report one. The note
+/// column's mouse-move handler ([`Workspace::pointer_moved`]) is what notices.
+const DISMISS_LEEWAY: Pixels = px(14.);
 
 impl Workspace {
     // ----- asking for a popup -------------------------------------------
@@ -75,10 +86,10 @@ impl Workspace {
             // panel's subject — unless the pointer is down at the panel's own
             // height, which is the trip from the word to one of its rows. Closing
             // there would make the rows unclickable, and being clickable is the
-            // whole point of having them. The panel's recorded place is used
-            // rather than a guess below the line, because near the bottom of the
-            // window it is drawn above it instead.
-            if self.popup_from_pointer && !self.pointer_on_panel(at) {
+            // whole point of having them. The panel's place is worked out again
+            // rather than read off the last frame, because near the bottom of the
+            // window it is drawn above the line instead.
+            if self.popup_from_pointer && !self.pointer_on_panel(at, cx) {
                 self.close_popup(window, cx);
             }
             return;
@@ -97,7 +108,7 @@ impl Workspace {
         self.open_popup_for(offset, line, true, window, cx);
     }
 
-    /// Whether the pointer is at the height the panel was drawn at last frame.
+    /// Whether the pointer is at the height the panel occupies.
     ///
     /// The panel swallows the mouse-move events over its own rows, so the window
     /// never hears about the pointer once it is on top of them; what it does hear
@@ -106,12 +117,44 @@ impl Workspace {
     /// right end of a long line sits above the space beside the panel, and a user
     /// walking straight down from it is on their way to a row just as much as
     /// someone above the panel's own text.
-    fn pointer_on_panel(&self, at: Point<Pixels>) -> bool {
-        let Some(placed) = self.popup_placed else {
+    fn pointer_on_panel(&self, at: Point<Pixels>, cx: &gpui::App) -> bool {
+        let Some(placed) = self.popup_place(cx) else {
             return false;
         };
         let slack = GAP + px(3.);
         at.y >= placed.origin.y - (GAP + slack) && at.y <= placed.bottom() + slack
+    }
+
+    /// The pointer moved anywhere in the note column, including the empty space
+    /// below the last line, where no line reports a hover.
+    ///
+    /// This is the only thing that ends a panel the pointer walked away from
+    /// *downwards*: the panel itself swallows the moves over its rows, and once
+    /// the pointer is below it there may be no text there to report the move, so a
+    /// panel left like that never goes away. Anything past the panel's bottom edge
+    /// plus [`DISMISS_LEEWAY`] is a way away from it.
+    ///
+    /// Only that one edge is decided here. Everywhere else the line the pointer is
+    /// over answers (see [`Workspace::pointer_hovered`]), which is what lets a
+    /// panel follow the pointer from word to word.
+    pub(super) fn pointer_moved(
+        &mut self,
+        at: Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.popup_from_pointer {
+            return;
+        }
+        // Worked out again rather than read off the last frame: the pointer may
+        // have just moved onto another marked word, which moved the panel with it,
+        // and a stale place would dismiss the panel the pointer is now on.
+        let Some(placed) = self.popup_place(cx) else {
+            return;
+        };
+        if at.y > placed.bottom() + DISMISS_LEEWAY {
+            self.close_popup(window, cx);
+        }
     }
 
     /// The checker's note that covers `offset`, if there is one.
