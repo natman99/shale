@@ -8,6 +8,7 @@ mod editor;
 mod field;
 mod image;
 mod line;
+mod lsp;
 mod picker;
 mod preview;
 mod prompt;

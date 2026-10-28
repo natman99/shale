@@ -23,6 +23,10 @@ gpui_platform = {
     features = ["wayland", "x11", "font-kit"],
 }
 pulldown-cmark = "0.13"
+# Streams and channels for the language-server client: the reader thread hands
+# messages to a gpui task. Already in the tree through gpui, so no new download.
+# MIT / Apache-2.0.
+futures = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 shale-core = { path = "crates/core" }
