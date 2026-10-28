@@ -9,6 +9,7 @@ use std::rc::Rc;
 
 use anyhow::{Context as _, Result};
 use gpui::{prelude::*, Context, Entity, Focusable, Window};
+use shale_core::rename::LinkRewrite;
 
 use crate::acts::*;
 use crate::prompt;
@@ -118,13 +119,24 @@ impl Workspace {
             prompt::PromptKind::Rename => {
                 let from = self.prompt_target()?;
                 let to = sibling_path(&from, answer);
+                // The links have to be found against the vault as it was *before*
+                // the rename: resolving a target is what decides which notes point
+                // at this one, and once the file has moved the old name resolves
+                // to nothing. A folder rename is left for later — the links that
+                // would need it spell the folder out, which is a different splice.
+                let rewrites = if self.is_dir(&from) {
+                    Vec::new()
+                } else {
+                    shale_core::rename::rewrites_for_rename(&self.vault, &self.entries, &from, &to)?
+                };
                 let renamed = self.vault.rename(&from, &to)?;
+                let report = self.apply_rewrites(&from, &renamed, &rewrites, cx)?;
                 self.refresh_entries(cx);
                 if self.active.as_deref() == Some(from.as_path()) {
                     self.active = Some(renamed.clone());
                 }
                 self.tree_selection = Some(renamed.clone());
-                self.status = format!("renamed to {}", renamed.display()).into();
+                self.status = rename_status(&renamed, &report).into();
             }
             prompt::PromptKind::Delete => {
                 let target = self.prompt_target()?;
@@ -156,6 +168,48 @@ impl Workspace {
             .clone()
             .or_else(|| self.active.clone())
             .context("nothing is selected")
+    }
+
+    /// Write the rewritten notes back and keep the open note in step.
+    ///
+    /// The open note is the one file Shale must not write blind: with unsaved
+    /// edits, what is on disk is not what the user is looking at, and overwriting
+    /// it would lose their work — so that note is left alone and named in the
+    /// status. When the buffer is clean it is updated in place as well as on disk,
+    /// or the next save would put the old links straight back.
+    fn apply_rewrites(
+        &mut self,
+        from: &Path,
+        renamed: &Path,
+        rewrites: &[LinkRewrite],
+        cx: &mut Context<Self>,
+    ) -> Result<RewriteReport> {
+        let open = self.active.clone();
+        let dirty = self.editor.read_with(cx, |editor, _cx| editor.is_dirty());
+        let mut report = RewriteReport::default();
+        for rewrite in rewrites {
+            // The renamed note is the one file that has already moved.
+            let path = if rewrite.path == from {
+                renamed.to_path_buf()
+            } else {
+                rewrite.path.clone()
+            };
+            // `active` is still the old path here — the caller updates it after.
+            let is_open = open.as_deref() == Some(rewrite.path.as_path());
+            if is_open && dirty {
+                report.skipped_open = true;
+                continue;
+            }
+            self.vault.write(&path, &rewrite.text)?;
+            report.files += 1;
+            report.links += rewrite.changed;
+            if is_open {
+                let text = rewrite.text.clone();
+                self.editor
+                    .update(cx, |editor, cx| editor.set_text(text, cx));
+            }
+        }
+        Ok(report)
     }
 
     /// Re-read the vault's listings after the disk moved — one of Shale's own
@@ -258,6 +312,34 @@ impl Workspace {
             cx,
         );
     }
+}
+
+/// What the link rewrites that follow a rename did.
+#[derive(Default)]
+struct RewriteReport {
+    /// Notes whose text was written back.
+    files: usize,
+    /// Links rewritten across them.
+    links: usize,
+    /// The open note holds unsaved edits, so its links were left alone.
+    skipped_open: bool,
+}
+
+/// What a rename did. Links that could not be updated because the note holding
+/// them has unsaved edits are named here rather than left for the user to find on
+/// their next save.
+fn rename_status(renamed: &Path, report: &RewriteReport) -> String {
+    let mut status = format!("renamed to {}", renamed.display());
+    if report.links > 0 {
+        status = format!(
+            "{status}; {} links in {} updated",
+            report.links, report.files
+        );
+    }
+    if report.skipped_open {
+        status = format!("{status}; the open note has unsaved edits, so its links were left alone");
+    }
+    status
 }
 
 /// The path `target` would have with `name` as its last component: the same

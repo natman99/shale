@@ -159,6 +159,86 @@ fn rename_moves_the_note_on_disk(cx: &mut TestAppContext) {
     assert_eq!(rows, vec![PathBuf::from("Welcomeed.md")]);
 }
 
+/// A rename is only finished when the links that pointed at the old name point at
+/// the new one, which means reading the rest of the vault and rewriting whatever
+/// resolves to the note that moved.
+#[gpui::test]
+fn a_rename_rewrites_the_links_that_point_at_the_note(cx: &mut TestAppContext) {
+    let (dir, window) = vault_with(
+        cx,
+        &[
+            ("Target.md", "the note that gets a new name\n"),
+            ("a.md", "see [[Target]] and [[Target|read this]]\n"),
+            ("b.md", "a link to [[a]] instead\n"),
+        ],
+    );
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    // The rename acts on the open note, and the prompt's field starts with the
+    // current stem, so the old name has to be erased before the new one is typed.
+    cx.simulate_keystrokes("ctrl-o");
+    cx.simulate_input("target");
+    cx.simulate_keystrokes("enter ctrl-shift-r");
+    cx.simulate_keystrokes("backspace backspace backspace backspace backspace backspace");
+    cx.simulate_input("Renamed");
+    cx.simulate_keystrokes("enter");
+
+    assert!(dir.path().join("Renamed.md").is_file());
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("a.md")).unwrap(),
+        "see [[Renamed]] and [[Renamed|read this]]\n",
+        "both forms point at the new name, and the alias survives"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("b.md")).unwrap(),
+        "a link to [[a]] instead\n",
+        "a link to a different note is not touched"
+    );
+    let status = window.update(cx, |ws, _window, _cx| ws.status()).unwrap();
+    assert!(
+        status.contains("2 links"),
+        "the status says what else the rename did: {status}"
+    );
+}
+
+/// The one note Shale must not write blind is the open one: with unsaved edits,
+/// the disk copy is not what the user is looking at, so its links wait for a save
+/// and the status says so.
+#[gpui::test]
+fn a_rename_leaves_a_dirty_open_note_alone(cx: &mut TestAppContext) {
+    let (dir, window) = vault_with(
+        cx,
+        &[
+            ("Target.md", "I link to [[Target]] myself\n"),
+            ("a.md", "see [[Target]]\n"),
+        ],
+    );
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    cx.simulate_keystrokes("ctrl-o");
+    cx.simulate_input("target");
+    cx.simulate_keystrokes("enter i x escape ctrl-shift-r");
+    cx.simulate_keystrokes("backspace backspace backspace backspace backspace backspace");
+    cx.simulate_input("Renamed");
+    cx.simulate_keystrokes("enter");
+
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("Renamed.md")).unwrap(),
+        "I link to [[Target]] myself\n",
+        "the note with unsaved edits is not written behind the user's back"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("a.md")).unwrap(),
+        "see [[Renamed]]\n",
+        "every other note is still updated"
+    );
+    let status = window.update(cx, |ws, _window, _cx| ws.status()).unwrap();
+    assert!(
+        status.contains("unsaved edits"),
+        "and the unfinished part is named: {status}"
+    );
+}
+
 /// A delete is the one destructive thing in the tree, so it asks first: anything
 /// but `yes` leaves the note alone.
 #[gpui::test]

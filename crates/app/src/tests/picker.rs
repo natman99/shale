@@ -242,27 +242,6 @@ fn ctrl_w_moves_the_keyboard_between_panels(cx: &mut TestAppContext) {
     );
 }
 
-/// A vault whose notes hold real text. `workspace` makes empty files, and search
-/// has nothing to find in those; the new files are folded in the way the vault
-/// watcher folds a change made outside Shale.
-fn vault_with(
-    cx: &mut TestAppContext,
-    notes: &[(&str, &str)],
-) -> (tempfile::TempDir, WindowHandle<Workspace>) {
-    let (dir, window) = workspace(cx, &[]);
-    for (name, text) in notes {
-        let path = dir.path().join(name);
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).unwrap();
-        }
-        std::fs::write(&path, text).unwrap();
-    }
-    window
-        .update(cx, |ws, _window, cx| ws.check_vault_now(cx))
-        .unwrap();
-    (dir, window)
-}
-
 /// The notes every search test uses: the query is in one line of each, in
 /// different folders, so a hit has to carry both its note and its line.
 fn needle_vault(cx: &mut TestAppContext) -> (tempfile::TempDir, WindowHandle<Workspace>) {

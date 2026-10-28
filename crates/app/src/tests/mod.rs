@@ -44,6 +44,28 @@ pub(crate) fn workspace(
     (dir, window)
 }
 
+/// A vault whose notes hold real text. `workspace` makes empty files, which is
+/// enough for the tree and the keymap but not for anything that reads a note; the
+/// new files are folded in the way the vault watcher folds a change made outside
+/// Shale.
+pub(crate) fn vault_with(
+    cx: &mut TestAppContext,
+    notes: &[(&str, &str)],
+) -> (tempfile::TempDir, WindowHandle<Workspace>) {
+    let (dir, window) = workspace(cx, &[]);
+    for (name, text) in notes {
+        let path = dir.path().join(name);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(&path, text).unwrap();
+    }
+    window
+        .update(cx, |ws, _window, cx| ws.check_vault_now(cx))
+        .unwrap();
+    (dir, window)
+}
+
 /// The workspace's state, read out of the window: the tree rows and the note that
 /// is open.
 pub(crate) fn state(
