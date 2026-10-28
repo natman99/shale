@@ -155,8 +155,9 @@ Workspace layout:
   normal mode: a fuzzy list of every note, `j`/`k` to move, `enter` to open) and a
   **command palette** (`ctrl-shift-p`, or `:` in normal mode) — both pickers
   *overlay* the note rather than pushing it down, and the note has margins around
-  it. `ctrl-w h`/`ctrl-w l` move the keyboard between the sidebar and the note.
-  Split into `main.rs` (the
+  it. `ctrl-w h`/`ctrl-w l` move the keyboard between the sidebar and the note,
+  and **vault search** (`ctrl-shift-f`) lists every line that holds what you type,
+  opening the note on that line. Split into `main.rs` (the
   command line and the window it opens), `acts.rs` (every action the keymap
   names — the two namespaces its `actions!` calls generate are what the keymap
   and the tests match on, so they are load-bearing, not just namespaces),
@@ -1071,6 +1072,47 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   the window chords move focus), one paint test for the margins and the overlay,
   two new fuzzy tests, two new vim tests. Peak RSS unchanged: app 42 MB, core
   5.5 MB, mcp 3.4 MB.
+- **Vault search (`ctrl-shift-f`) — done (2026-10-27).** The third picker, and the
+  one that forced the widget to change shape.
+  **Rows that only exist once you type.** Quick-open and the palette can build
+  their rows up front; a search has to read every note, so `Picker` gained a
+  second constructor, `sourced`, which is handed a `RowSource<T>` — a closure from
+  the query to the rows — and calls it on every keystroke. `rerank` for a sourced
+  picker *keeps the source's order*: a search already decided what is worth
+  showing and in what order, and re-ranking the hits as a fuzzy subsequence would
+  only muddy that. The highlight is different too: a hit is there because the query
+  is *inside* the line, so `substring_ranges` marks that substring rather than a
+  fuzzy alignment.
+  **The payload travels with the row.** A sourced picker changes the number and
+  order of its rows on every keystroke, which is exactly when a parallel
+  `picker_targets` array goes wrong, so `Picker` is now generic — `Picker<T>` —
+  `items` is `Vec<(PickerItem, T)>`, and `chosen()` returns the payload itself.
+  `PickerEvent::Choose` no longer carries an index; the workspace reads `chosen()`
+  off the entity. `PickerTarget` grew `Hit { path, line }` beside `Note(path)` and
+  `Command(command)`. The generic needs `T: Clone + 'static` — gpui's `Render` and
+  `Focusable` supertraits require `'static`, which is the first compile error this
+  refactor produced.
+  **Choosing a hit moves the cursor.** `Workspace::open_note_at` opens the note and
+  then `MarkdownEditor::reveal_line(row, cx)`, which is `Buffer::goto_line` plus the
+  existing `ensure_cursor_visible`, so the line the row was showing is the line on
+  screen. The search reports 1-based lines and the buffer is 0-based, hence the one
+  `saturating_sub(1)` at that seam.
+  **What a row looks like:** the matched line leads (trimmed, and clipped to 90
+  characters with an ellipsis so a long paragraph cannot stretch the overlay), and
+  `path:line` follows it dimmer. `MAX_SEARCH_HITS` is 200, so a keystroke stops
+  rather than walking a huge vault to the end.
+  **Tests:** app 82 (was 79) — three in `tests/picker.rs` (the rows are the hits
+  with their line numbers and `j` walks them; choosing one opens the note with the
+  cursor on that line rather than at the top; a query nothing matches leaves
+  `enter` inert), plus the `ctrl-shift-f` row in the keymap-shape test. Those tests
+  need notes with text in them, so `vault_with` writes real files and folds them in
+  through `check_vault_now`, the same path the disk watcher uses. Peak RSS 43 MB.
+  **Follow-ups:** every keystroke re-reads the vault, which is fine for a demo
+  vault and will want the planned database (or a cached index) for a real one; the
+  search options (`whole_word`, `case_sensitive`) exist in `shale_core::search` but
+  have no UI; the cursor lands at the start of the line rather than on the match;
+  and a hit in a note that is open with unsaved edits opens the disk copy, which is
+  the same unsaved-edits question the watcher already refuses to merge.
 - **Module sizes.** `editor.rs` and `main.rs` both passed the 1000-line mark in
   `AGENTS.md`, so they are now directories: `editor/{mod,wrap,render,actions,input}.rs`
   (a submodule can reach `MarkdownEditor`'s private state because they are all
@@ -1082,10 +1124,11 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   with the file tree, and is now `main.rs` (122) + `acts.rs` + `workspace/`.
   Largest files now: `vim.rs` 2290, `buffer.rs` 1786, `line.rs` 897, `tests/paint.rs`
   806, `core/theme/mod.rs` 763, `vault.rs` 750, `table/edit.rs` 640, `table/mod.rs`
-  590, `editor/render.rs` 544, `workspace/mod.rs` 484, `editor/mod.rs` 476,
-  `picker.rs` 411, `tests/tree.rs` 395, `editor/wrap.rs` 395, `field.rs` 335,
-  `fold.rs` 332, `prompt.rs` 256, `tests/picker.rs` 243, `fuzzy.rs` 324, `watch.rs`
-  202, and the other `workspace/` submodules at 273/209/189/187/150/113. `tests/keys.rs`
+  590, `editor/render.rs` 544, `workspace/mod.rs` 501, `editor/mod.rs` 486,
+  `picker.rs` 489, `open.rs` 276, `tests/tree.rs` 395, `editor/wrap.rs` 395,
+  `field.rs` 335, `fold.rs` 332, `prompt.rs` 256, `tests/picker.rs` 367,
+  `fuzzy.rs` 324, `watch.rs` 202, and the other `workspace/` submodules at
+  273/209/189/187/118. `tests/keys.rs`
   reached the rule's line and is now three: `keys.rs` (344: the keystroke shapes,
   what each key resolves to per context, the chords), `motions.rs` (442: vim
   motions, operators, text objects, visual mode, `.` and the undo chords driven
@@ -1165,10 +1208,9 @@ Next steps, roughly in order:
     without reading a note, and `watch::VaultChanges::between` says which notes to
     re-index. Open/edit counts (the user's addition) are a separate counter table,
     written on open and debounced on edit, not something the signature can tell.
-14. ~~Pickers, reused~~ Quick-open and the **command palette** (`ctrl-shift-p`,
-    `:` in normal mode, `space f`) are done — see Open threads. What is left is
-    **vault search** (`ctrl-shift-f`, over `shale_core::search`, whose hits are
-    rows that open a note at a line): `PickerTarget` needs a variant that carries
-    the line to jump to. Follow-ups there: clickable rows, a scrolling list once a
-    vault outgrows the 12-row window, and a prefix that switches what the picker
-    searches.
+14. ~~Pickers, reused~~ Quick-open, the **command palette** (`ctrl-shift-p`, `:` in
+    normal mode, `space f`) and **vault search** (`ctrl-shift-f`) are all done —
+    see Open threads. What is left there is polish: clickable rows, a scrolling
+    list once a vault outgrows the 12-row window, search options in the UI, a
+    prefix that switches what the picker searches, and jumping to the matched
+    column rather than the start of the line.
