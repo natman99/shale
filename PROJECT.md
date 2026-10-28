@@ -107,7 +107,10 @@ Workspace layout:
   `table` (the table model: cells, cell lookup, row/column editing and moving —
   `table/mod.rs` is the model, `table/edit.rs` the splices), `fold` (the foldable
   regions of a note — a heading and the rows it owns — the closed-fold set keyed
-  on heading text, and the per-row display effect of that set) and `theme` (the
+  on heading text, and the per-row display effect of that set), `watch` (the
+  vault signature — every path stamped with size and mtime, or just existence for
+  a folder — and the added/removed/modified diff built from two of them) and
+  `theme` (the
   colour palette as data: the `Palette` roles and 20 built-in values — Shale's
   `dark`/`light` plus the palettes of seven families, one module per family
   (`theme/catppuccin.rs`, `tokyo_night.rs`, `gruvbox.rs`, `nord.rs`,
@@ -139,7 +142,8 @@ Workspace layout:
   ×3 — default `mocha` — or a `<vault>/.shale/themes/<name>.toml` file, and
   `appearance.font_size` sizes the text),
   ctrl+s save, and a file tree that can create, rename and delete notes and
-  folders through a one-line prompt (`prompt.rs`). Split into `main.rs` (the
+  folders through a one-line prompt (`prompt.rs`) and follows the disk when
+  another program changes the vault. Split into `main.rs` (the
   command line and the window it opens), `acts.rs` (every action the keymap
   names — the two namespaces its `actions!` calls generate are what the keymap
   and the tests match on, so they are load-bearing, not just namespaces),
@@ -923,6 +927,37 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   `tests/tree.rs`, which exercise the whole path (`ctrl-n`, type the name through
   the input handler, Enter, then read what reached the disk). Live check: the
   prompt renders and the user's own keystrokes landed in the field.
+- **File watching — done (2026-10-27).** `Vault::signature` walks the vault once
+  and stamps every path it finds: `Stamp::File { len, mtime }` for a file,
+  `Stamp::Dir` for a folder. `watch::VaultChanges::between` compares two
+  signatures into `added` / `removed` / `modified` (in path order, because a
+  signature is a `BTreeMap`). A folder's stamp is its *existence*, never its
+  mtime: adding a child rewrites the folder's mtime, and the child is in the
+  signature anyway, so stamping the folder too would report every edit twice.
+  **Polling, not inotify.** `workspace::start_watcher` re-walks the vault every
+  750 ms on a background thread (`background_executor().spawn`, so the walk never
+  touches a keystroke) and hands the new signature to
+  `Workspace::apply_disk_changes`. `shale-core` stays dependency-free, and the
+  same pass is what the planned vault database will use to decide which notes to
+  re-index. The watcher holds only a `WeakEntity`, so closing the window ends the
+  loop. `Rc<Vault>` cannot cross a thread, so the watcher carries a `Vault` copy.
+  **What a change does.** The tree always follows the disk (`refresh_entries`).
+  The open note is re-read only when the buffer is clean; with unsaved edits the
+  buffer wins and the status bar says `changed on disk; ctrl-s will overwrite it`
+  (or `deleted from disk; your edits are still here`, so `ctrl-s` can write the
+  note back). A clean note deleted elsewhere is cleared, like our own delete.
+  **Shale re-stamps after its own edits** (`resign`, called from `save` and from
+  `apply_prompt`), or every save would come back as somebody else's edit and
+  reload the note out from under the cursor.
+  **Tests.** Six in `watch.rs` (add / edit / delete / rename / folder-mtime-ignored
+  / no-change), five in `tests/tree.rs` through `check_vault_now`, which is what
+  the timer calls. Live check: a note created in a terminal appeared in the tree
+  and vanished again when it was removed, without restarting.
+  **Follow-ups:** the watcher re-walks the whole vault each tick, which is fine
+  for a few thousand notes and worth replacing with a real watcher (or the
+  database's incremental pass) for a big one; an external edit to a *dirty* note
+  is reported but never merged; and a rename elsewhere looks like delete + add,
+  so an open note that was renamed out is not followed to its new path.
 - **Module sizes.** `editor.rs` and `main.rs` both passed the 1000-line mark in
   `AGENTS.md`, so they are now directories: `editor/{mod,wrap,render,actions,input}.rs`
   (a submodule can reach `MarkdownEditor`'s private state because they are all
@@ -933,9 +968,10 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   each line, `inline.rs` styles the text inside it. `main.rs` passed it again
   with the file tree, and is now `main.rs` (116) + `acts.rs` + `workspace/`.
   Largest files now: `vim.rs` 2219, `buffer.rs` 1786, `tests/keys.rs` 903,
-  `line.rs` 897, `tests/paint.rs` 772, `core/theme/mod.rs` 763, `vault.rs` 708,
-  `prompt.rs` 488, `tests/tree.rs` 290, and the `workspace/` submodules at
-  269/262/209/160/158. `vim.rs` and `buffer.rs` are still
+  `line.rs` 897, `tests/paint.rs` 772, `core/theme/mod.rs` 763, `vault.rs` 750,
+  `prompt.rs` 488, `tests/tree.rs` 441, `workspace/mod.rs` 394, `watch.rs` 202,
+  and the other `workspace/` submodules at 273/209/160/158. `vim.rs` and
+  `buffer.rs` are still
   over the rule — split them the next time either one is touched; `line.rs` (the
   element, the run builder and the table grid paint) is the next candidate after
   those.
@@ -990,12 +1026,9 @@ Next steps, roughly in order:
     nothing but an embed is drawn as the picture (stage 2b). What is left is an
     image embedded *inside* a paragraph, and an `|alias` suffix on an embed is
     currently read as "no size".
-12. ~~File tree: new/rename/delete~~ Done (see Open threads). Left here: file
-    watching — prefer a dependency-free `Vault::signature()` returning a
-    `BTreeMap<rel, (mtime, len)>` plus a `diff` into added/removed/modified,
-    polled from the app on a `background_executor` timer, because the database
-    goal needs the same "what changed on disk" pass (`notify`, MIT, is the
-    alternative) — and rewriting the wiki-links that point at a renamed note.
+12. ~~File tree: new/rename/delete, file watching~~ Done (see Open threads). Left
+    here: rewriting the wiki-links that point at a renamed note, and following an
+    open note when something else renames it.
 13. **Database tables (Obsidian bases)** — the user's goal, see the Database
     section above. Nothing built yet, but the shape of it is already useful:
     a query result is a table that is *not* buffer text, and the grid paint
