@@ -87,6 +87,12 @@ pub enum Outcome {
     /// has no idea what notes exist, let alone where they live, so this is a
     /// request rather than an edit.
     QuickOpen,
+    /// `K` was typed outside a table: vim's "look this up". Shale has no man
+    /// pages, but the window's spell and grammar checker has something to say
+    /// about the word under the cursor, and the engine has no idea that a checker
+    /// is even running — so this is a request, like `space f`. Inside a table `K`
+    /// stays the row motion.
+    Hover,
 }
 
 /// The unnamed register, holding the last yank or delete.
@@ -581,6 +587,8 @@ impl Vim {
             // Undo (redo is bound to ctrl-r by the UI).
             Key::Char('u') => buf.undo(),
             Key::Escape => buf.clear_selection(),
+            // vim's "look this up", handed to the window: see [`Outcome::Hover`].
+            Key::Char('K') => return Outcome::Hover,
             _ => return Outcome::Unhandled,
         }
         // Inside a cell the ordinary motions stay on the table's content: one
@@ -1730,6 +1738,41 @@ mod tests {
         // The motion-less `gx` leaves the cursor where it was.
         assert_eq!(b.cursor(), 20);
         assert_eq!(vim.mode(), Mode::Normal);
+    }
+
+    #[test]
+    fn upper_k_requests_the_checkers_note() {
+        let mut vim = Vim::new();
+        let mut b = buf();
+        b.set_cursor(2);
+        // The engine has nothing to look up and no idea what the word means: it
+        // hands the request to the window and leaves the cursor alone.
+        assert_eq!(
+            vim.handle_normal_key(Key::Char('K'), &mut b),
+            Outcome::Hover
+        );
+        assert_eq!(b.cursor(), 2);
+        assert_eq!(vim.mode(), Mode::Normal);
+        assert_eq!(b.text(), "hello world\nsecond line\nthird");
+    }
+
+    /// Inside a table, `K` is the grid's row motion, which the table path answers
+    /// before the lookup can claim it.
+    #[test]
+    fn upper_k_in_a_table_moves_a_row_instead() {
+        let mut vim = Vim::new();
+        let mut b = table_buf();
+        b.set_cursor(b.text().find('1').unwrap());
+        assert_eq!(
+            vim.handle_normal_key(Key::Char('K'), &mut b),
+            Outcome::Stay,
+            "the table answered it"
+        );
+        assert_eq!(
+            &b.text()[b.cursor()..b.cursor() + 1],
+            "a",
+            "one row up in the same column"
+        );
     }
 
     #[test]
