@@ -1067,7 +1067,9 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   painted first line's top and left from the hit-test records, so a test can assert
   that an open picker moves nothing. Careful: `x_for_offset` is **line-relative**
   (always 0 at the line start, which is why the first version of that test failed
-  with "got 0px"); `hit_line_x` is the window-coordinate edge.
+  with "got 0px"); `hit_line_x` is the window-coordinate edge. An overlay has to be
+  **opaque** or it is unreadable: the picker paints `ui_bg` behind itself, which is
+  the cost of not pushing the note down (found by the user, from a screenshot).
   **Tests:** app 79 (was 71) — six new in `tests/picker.rs` (the palette lists all
   13 rows, `:` opens it, choosing a row runs its command end to end from the prompt
   to a file on disk, a row can open the note picker, `space f` opens quick-open,
@@ -1239,7 +1241,9 @@ Next steps, roughly in order:
     image embedded *inside* a paragraph, and an `|alias` suffix on an embed is
     currently read as "no size".
 12. ~~File tree: new/rename/delete, file watching~~ and ~~rewriting the wiki-links
-    that point at a renamed note~~ Done (see Open threads). Left here: following an
+    that point at a renamed note~~ Done (see Open threads). `enter`/`space` on a
+    note row now opens it *and* moves the keyboard to the note (a folder row keeps
+    the sidebar's keyboard). Left here: following an
     open note when something else renames it, rewriting links on a *folder*
     rename, and markdown links (`[text](Target.md)`) as well as wiki-links.
 13. **Database tables (Obsidian bases)** — the user's goal, see the Database
