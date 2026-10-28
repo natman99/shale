@@ -794,6 +794,33 @@ pub fn palette_for(vault_root: &Path, name: &str) -> anyhow::Result<Palette> {
     Ok(base.apply(&theme))
 }
 
+/// The names the vault's own theme files answer to: the stems of
+/// `<vault>/.shale/themes/*.toml`, in sorted order.
+///
+/// A vault with no theme folder is not an error — it simply has no themes of its
+/// own, which is the common case. A file whose stem is also a built-in name is
+/// listed anyway, because the file is what [`palette_for`] resolves, and hiding
+/// the name would make the file unreachable.
+pub fn theme_names(vault_root: &Path) -> Vec<String> {
+    let Ok(read) = std::fs::read_dir(vault_root.join(THEME_DIR)) else {
+        return Vec::new();
+    };
+    let mut names: Vec<String> = read
+        .flatten()
+        .filter_map(|entry| {
+            entry
+                .file_name()
+                .to_string_lossy()
+                .strip_suffix(".toml")
+                .map(|stem| stem.to_string())
+        })
+        .filter(|stem| !stem.is_empty())
+        .collect();
+    names.sort();
+    names.dedup();
+    names
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -826,6 +853,20 @@ mod tests {
     fn a_theme_file_rejects_a_bad_key_or_colour() {
         assert!(ThemeFile::from_toml("base = \"light\"\nbak = \"#282828\"").is_err());
         assert!(ThemeFile::from_toml("bg = \"pink\"").is_err());
+    }
+
+    #[test]
+    fn theme_names_lists_the_vaults_own_files() {
+        let dir = tempfile::tempdir().unwrap();
+        // No theme folder at all is the common case, and not an error.
+        assert_eq!(theme_names(dir.path()), Vec::<String>::new());
+        let themes = dir.path().join(THEME_DIR);
+        std::fs::create_dir_all(&themes).unwrap();
+        std::fs::write(themes.join("mine.toml"), "base = \"dark\"\n").unwrap();
+        std::fs::write(themes.join("also.toml"), "base = \"light\"\n").unwrap();
+        // A file that is not a theme is not a theme name.
+        std::fs::write(themes.join("notes.md"), "not a theme\n").unwrap();
+        assert_eq!(theme_names(dir.path()), ["also", "mine"]);
     }
 
     #[test]

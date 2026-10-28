@@ -87,6 +87,10 @@ pub enum Outcome {
     /// has no idea what notes exist, let alone where they live, so this is a
     /// request rather than an edit.
     QuickOpen,
+    /// `space s` was typed: the UI should search every note for what the user
+    /// types next. A request rather than an edit, like `space f`: the engine has
+    /// no idea what the vault holds.
+    SearchVault,
     /// `K` was typed outside a table: vim's "look this up". Shale has no man
     /// pages, but the window's spell and grammar checker has something to say
     /// about the word under the cursor, and the engine has no idea that a checker
@@ -123,10 +127,11 @@ pub struct Vim {
     last_command: Option<Vec<Cmd>>,
     /// A command that dropped into insert mode is still being recorded.
     insert_session: bool,
-    /// The key just typed was a plain `space` motion, so a following `f` is
-    /// Shale's quick-open chord rather than a find. The space motion itself is
-    /// applied when `space` is typed — deferring it would make a lone `space`
-    /// look dead — so the chord is recognised one key late.
+    /// The key just typed was a plain `space` motion, so the next key may be one
+    /// of Shale's leader chords (`f` quick-open, `s` vault search) rather than a
+    /// find. The space motion itself is applied when `space` is typed — deferring
+    /// it would make a lone `space` look dead — so a chord is recognised one key
+    /// late.
     after_space: bool,
 }
 
@@ -230,14 +235,19 @@ impl Vim {
 
     /// Handle a key press while in normal or visual mode.
     pub fn handle_normal_key(&mut self, key: Key, buf: &mut Buffer) -> Outcome {
-        // The `space f` chord, one key after the motion that started it. Only a
-        // plain space motion arms it: `d space` or `f ` never do.
+        // The `space` leader's chords, one key after the motion that started
+        // them. Only a plain space motion arms them: `d space` or `f ` never do.
         let after_space = std::mem::take(&mut self.after_space);
-        if after_space && !self.mode.is_visual() && key == Key::Char('f') {
+        let chord = match (after_space, key) {
+            (true, Key::Char('f')) => Some(Outcome::QuickOpen),
+            (true, Key::Char('s')) => Some(Outcome::SearchVault),
+            _ => None,
+        };
+        if let Some(outcome) = chord.filter(|_| !self.mode.is_visual()) {
             self.pending = Pending::None;
             self.count = None;
             self.command.clear();
-            return Outcome::QuickOpen;
+            return outcome;
         }
         if self.mode.is_visual() {
             return self.handle_visual_key(key, buf);
@@ -2261,6 +2271,20 @@ mod tests {
         assert_eq!(
             vim.handle_normal_key(Key::Char('f'), &mut b),
             Outcome::QuickOpen
+        );
+        // The chord is not a change, so `.` has nothing to replay.
+        assert_eq!(vim.repeat_last(&mut b), Outcome::Unhandled);
+    }
+
+    #[test]
+    fn space_s_asks_the_ui_for_vault_search() {
+        let mut vim = Vim::new();
+        let mut b = note_buf();
+        b.goto_line(0);
+        assert_eq!(vim.handle_normal_key(Key::Char(' '), &mut b), Outcome::Stay);
+        assert_eq!(
+            vim.handle_normal_key(Key::Char('s'), &mut b),
+            Outcome::SearchVault
         );
         // The chord is not a change, so `.` has nothing to replay.
         assert_eq!(vim.repeat_last(&mut b), Outcome::Unhandled);
