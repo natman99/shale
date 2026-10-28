@@ -45,9 +45,12 @@ pub enum EditorEvent {
     /// grammar checker's copy of the document in step with the buffer.
     Changed,
     /// The pointer moved over the note, landing on buffer offset `offset` of
-    /// display line `line`. The editor does not know what — if anything — the
-    /// pointer is over; the workspace decides whether that is a popup.
-    Hovered { offset: usize, line: usize },
+    /// display line `line`, at the window position `at`.
+    Hovered {
+        offset: usize,
+        line: usize,
+        at: gpui::Point<Pixels>,
+    },
 }
 
 impl EventEmitter<EditorEvent> for MarkdownEditor {}

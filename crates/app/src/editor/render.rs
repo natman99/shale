@@ -554,6 +554,7 @@ impl Render for MarkdownEditor {
                                         cx.emit(EditorEvent::Hovered {
                                             offset,
                                             line: index,
+                                            at: event.position,
                                         })
                                     });
                                 }

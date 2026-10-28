@@ -46,8 +46,12 @@ impl Render for Workspace {
         // The popup is drawn last, over the note, where its line was painted.
         // Asking each frame is what lets it follow the note as it scrolls; a line
         // that is no longer on screen means no panel, which is the right answer
-        // rather than a panel floating over the wrong word.
-        let popup = self.popup_entity().zip(self.popup_place(cx));
+        // rather than a panel floating over the wrong word. The same bounds go on
+        // record, because the hover path has to know where the panel is to let the
+        // pointer travel from the word onto a row without closing it.
+        let placed = self.popup_place(cx);
+        self.popup_placed = placed;
+        let popup = self.popup_entity().zip(placed);
         // The one path that had to close a popup without a window to hand the
         // keyboard back with (the file watcher) left the refocus for here, which
         // is the first place there is a window. `defer` keeps the change out of
@@ -205,14 +209,14 @@ impl Render for Workspace {
                     .child(spell)
                     .child(format!("{}:{}", line + 1, col + 1)),
             )
-            .when_some(popup, |d, (popup, at)| {
+            .when_some(popup, |d, (popup, bounds)| {
                 // `anchored` paints at a window coordinate rather than in the
                 // layout, which is what lets the panel sit over the note without
                 // pushing the note down; snapping to the window's edge keeps a
                 // popup near the bottom or the right edge on screen.
                 d.child(
                     anchored()
-                        .position(at)
+                        .position(bounds.origin)
                         .position_mode(AnchoredPositionMode::Window)
                         .snap_to_window()
                         .child(popup),

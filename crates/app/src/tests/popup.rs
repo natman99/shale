@@ -30,6 +30,12 @@ fn paint(cx: &mut VisualTestContext) {
     }
 }
 
+/// Rest the pointer at a window position, as gpui delivers a move: no button
+/// held, no modifiers down.
+fn hover_point(cx: &mut VisualTestContext, at: gpui::Point<gpui::Pixels>) {
+    cx.simulate_mouse_move(at, None, gpui::Modifiers::none());
+}
+
 /// Rest the pointer on buffer offset `offset` of display line `line`, as gpui
 /// delivers a move: no button held, no modifiers down.
 fn hover_at(
@@ -88,6 +94,41 @@ fn text(cx: &mut VisualTestContext, window: &WindowHandle<Workspace>) -> String 
         .unwrap()
 }
 
+/// Where display line `line` was painted: its left edge, its top and its bottom,
+/// in window coordinates.
+fn line_box(
+    cx: &mut VisualTestContext,
+    window: &WindowHandle<Workspace>,
+    line: usize,
+) -> (gpui::Pixels, gpui::Pixels, gpui::Pixels) {
+    window
+        .update(cx, |ws, _window, cx| {
+            ws.editor().read_with(cx, |editor, _cx| {
+                let (left, _right) = editor.hit_line_x(line).unwrap();
+                let (top, bottom) = editor.hit_line_edges(line).unwrap();
+                (left, top, bottom)
+            })
+        })
+        .unwrap()
+}
+
+/// The window x of buffer offset `offset` on display line `line`.
+fn x_over(
+    cx: &mut VisualTestContext,
+    window: &WindowHandle<Workspace>,
+    line: usize,
+    offset: usize,
+) -> gpui::Pixels {
+    let (left, _top, _bottom) = line_box(cx, window, line);
+    left + window
+        .update(cx, |ws, _window, cx| {
+            ws.editor()
+                .read_with(cx, |editor, _cx| editor.x_for_offset(line, offset))
+        })
+        .unwrap()
+        .unwrap()
+}
+
 /// Where the pointer has to be to rest on buffer offset `offset` of display line
 /// `line`: the line's left edge plus where that offset was painted on it.
 fn pointer_over(
@@ -96,25 +137,8 @@ fn pointer_over(
     line: usize,
     offset: usize,
 ) -> gpui::Point<gpui::Pixels> {
-    let (left, top, bottom) = window
-        .update(cx, |ws, _window, cx| {
-            ws.editor().read_with(cx, |editor, _cx| {
-                (
-                    editor.hit_line_x(line).unwrap().0,
-                    editor.hit_line_edges(line).unwrap().0,
-                    editor.hit_line_edges(line).unwrap().1,
-                )
-            })
-        })
-        .unwrap();
-    let x = window
-        .update(cx, |ws, _window, cx| {
-            ws.editor()
-                .read_with(cx, |editor, _cx| editor.x_for_offset(line, offset))
-        })
-        .unwrap()
-        .unwrap();
-    gpui::point(left + x, (top + bottom) / 2.)
+    let (_left, top, bottom) = line_box(cx, window, line);
+    gpui::point(x_over(cx, window, line, offset), (top + bottom) / 2.)
 }
 
 /// vim's `K` on a word the checker marked: the complaint appears over the note,
@@ -344,6 +368,64 @@ fn moving_off_the_word_closes_the_panel(cx: &mut TestAppContext) {
     assert!(
         !shown(cx, &window),
         "the pointer left the word, so the panel left"
+    );
+}
+
+/// The panel hangs *below* the word, so the pointer has to cross text the checker
+/// never marked to reach one of its rows. A panel that closed on that trip could
+/// never be clicked, which is the whole point of having rows.
+#[gpui::test]
+fn the_pointer_can_travel_from_the_word_onto_the_panel(cx: &mut TestAppContext) {
+    let (_dir, window) = marked_note(
+        cx,
+        "Thier spelling is wrogn.\n",
+        &[("Did you mean to spell `thier` this way?", 0, 5)],
+    );
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    paint(cx);
+
+    hover_at(cx, &window, 0, 2);
+    assert!(shown(cx, &window));
+
+    // Straight down from the word, through the strip between the line and the
+    // panel — which belongs to the line below, and is not marked.
+    let (_left, _top, bottom) = line_box(cx, &window, 0);
+    let x = x_over(cx, &window, 0, 2);
+    hover_point(cx, gpui::point(x, bottom + gpui::px(2.)));
+    assert!(
+        shown(cx, &window),
+        "the way down to a row is not a way away from it"
+    );
+
+    // And on into the rows themselves.
+    hover_point(cx, gpui::point(x, bottom + gpui::px(20.)));
+    assert!(shown(cx, &window), "the panel is still there to be clicked");
+}
+
+/// A word near the right end of a long line sits above the *space beside* the
+/// panel rather than above its text. Walking straight down from it is still the
+/// way to a row, so the panel has to survive the walk.
+#[gpui::test]
+fn walking_down_from_a_word_beside_the_panel_keeps_it(cx: &mut TestAppContext) {
+    let prefix = "padding words to push the marked word past the panel's width";
+    let text = format!("{prefix} thier is misspelled\n");
+    let start = prefix.len() + 1;
+    let (_dir, window) = marked_note(
+        cx,
+        &text,
+        &[("Did you mean to spell `thier` this way?", start, start + 5)],
+    );
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    paint(cx);
+
+    hover_at(cx, &window, 0, start + 2);
+    assert!(shown(cx, &window));
+    let (_left, _top, bottom) = line_box(cx, &window, 0);
+    let x = x_over(cx, &window, 0, start + 2);
+    hover_point(cx, gpui::point(x, bottom + gpui::px(2.)));
+    assert!(
+        shown(cx, &window),
+        "straight down from a word beside the panel still reaches its rows"
     );
 }
 

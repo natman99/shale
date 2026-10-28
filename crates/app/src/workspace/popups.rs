@@ -14,7 +14,7 @@
 //!   edit under the cursor, opening a note, opening a prompt or a picker: each
 //!   drops the popup and refocuses what had the keyboard before it.
 
-use gpui::{px, AppContext, Context, Entity, Focusable, Pixels, Point, Window};
+use gpui::{px, AppContext, Bounds, Context, Entity, Focusable, Pixels, Point, Window};
 
 use crate::acts::ShowNote;
 use crate::lsp::{Diagnostic, Fix};
@@ -47,7 +47,7 @@ impl Workspace {
     }
 
     /// The pointer moved over the note and landed on buffer offset `offset` of
-    /// display line `line`.
+    /// display line `line`, with the pointer itself at the window position `at`.
     ///
     /// Hovering is a request, not a command: it only opens a popup when the
     /// pointer is over a word the checker marked, and it only closes one it
@@ -57,6 +57,7 @@ impl Workspace {
         &mut self,
         offset: usize,
         line: usize,
+        at: Point<Pixels>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -70,15 +71,20 @@ impl Workspace {
         }
         let note = self.note_at(offset);
         let Some(note) = note else {
-            // Nothing under the pointer. If the pointer is what opened the popup,
-            // that is the end of its subject.
-            if self.popup_from_pointer {
+            // Nothing marked under the pointer. That is usually the end of the
+            // panel's subject — unless the pointer is down at the panel's own
+            // height, which is the trip from the word to one of its rows. Closing
+            // there would make the rows unclickable, and being clickable is the
+            // whole point of having them. The panel's recorded place is used
+            // rather than a guess below the line, because near the bottom of the
+            // window it is drawn above it instead.
+            if self.popup_from_pointer && !self.pointer_on_panel(at) {
                 self.close_popup(window, cx);
             }
             return;
         };
-        // Moving onto the panel itself never gets here, because the panel is drawn
-        // on top and takes the mouse-move event.
+        // Already showing exactly this note: leave it alone, so the panel does not
+        // reopen on every mouse-move event.
         if self.popup_note == Some((note.start, note.end)) {
             return;
         }
@@ -89,6 +95,23 @@ impl Workspace {
             return;
         }
         self.open_popup_for(offset, line, true, window, cx);
+    }
+
+    /// Whether the pointer is at the height the panel was drawn at last frame.
+    ///
+    /// The panel swallows the mouse-move events over its own rows, so the window
+    /// never hears about the pointer once it is on top of them; what it does hear
+    /// about is the strip between the word and the panel, which belongs to the line
+    /// below. Only the height is compared, not the column: a marked word near the
+    /// right end of a long line sits above the space beside the panel, and a user
+    /// walking straight down from it is on their way to a row just as much as
+    /// someone above the panel's own text.
+    fn pointer_on_panel(&self, at: Point<Pixels>) -> bool {
+        let Some(placed) = self.popup_placed else {
+            return false;
+        };
+        let slack = GAP + px(3.);
+        at.y >= placed.origin.y - (GAP + slack) && at.y <= placed.bottom() + slack
     }
 
     /// The checker's note that covers `offset`, if there is one.
@@ -248,13 +271,15 @@ impl Workspace {
         popup.update(cx, |popup, cx| popup.set_rows(rows, cx));
     }
 
-    /// Where the popup panel goes: its top-left corner in window coordinates, or
-    /// `None` when there is no popup or the line it belongs to is not on screen.
+    /// Where the popup panel goes: its bounds in window coordinates, or `None`
+    /// when there is no popup or the line it belongs to is not on screen.
     ///
     /// Asked each frame, and answered from the line's bounds *as they were
     /// painted*, which is what lets a popup follow the note as it scrolls and
-    /// vanish when its line scrolls away.
-    pub(crate) fn popup_place(&self, cx: &gpui::App) -> Option<Point<Pixels>> {
+    /// vanish when its line scrolls away. The render draws the panel here and hands
+    /// the same bounds back to the hover path, so "where the panel is" is one
+    /// answer rather than two that can disagree.
+    pub(crate) fn popup_place(&self, cx: &gpui::App) -> Option<Bounds<Pixels>> {
         let anchor = self.popup_anchor?;
         let (line, size, visible) = self.editor.read_with(cx, |editor, _cx| {
             (
@@ -275,7 +300,7 @@ impl Workspace {
             // the text column rather than off the side of the window.
             x = (line.right() - size.width).max(line.left());
         }
-        Some(Point::new(x, line.bottom() + GAP))
+        Some(Bounds::new(Point::new(x, line.bottom() + GAP), size))
     }
 
     /// The popup entity, for the render.

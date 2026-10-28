@@ -62,6 +62,10 @@ pub(crate) struct Workspace {
     /// frame, so the panel follows the note as it scrolls and goes away when the
     /// line does.
     popup_anchor: Option<usize>,
+    /// Where the panel was actually drawn last frame, which the hover path uses to
+    /// decide whether the pointer is on its way onto the panel rather than away
+    /// from the word. Written by the render, read by the pointer.
+    popup_placed: Option<gpui::Bounds<gpui::Pixels>>,
     /// Whether the pointer opened the popup. Only then does moving off the word
     /// close it; a popup asked for with `K` stays until the user says otherwise.
     popup_from_pointer: bool,
@@ -210,6 +214,7 @@ impl Workspace {
             popup: None,
             popup_return_focus: None,
             popup_anchor: None,
+            popup_placed: None,
             popup_from_pointer: false,
             popup_note: None,
             popup_fixes: Vec::new(),
@@ -252,8 +257,8 @@ impl Workspace {
             &self.editor,
             window,
             |ws, _editor, event, window, cx| match event {
-                EditorEvent::Hovered { offset, line } => {
-                    ws.pointer_hovered(*offset, *line, window, cx)
+                EditorEvent::Hovered { offset, line, at } => {
+                    ws.pointer_hovered(*offset, *line, *at, window, cx)
                 }
                 // Everything else the editor reports is handled by the subscription
                 // `new` makes, which needs no window.
