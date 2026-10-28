@@ -108,14 +108,18 @@ Workspace layout:
   `table/mod.rs` is the model, `table/edit.rs` the splices), `fold` (the foldable
   regions of a note — a heading and the rows it owns — the closed-fold set keyed
   on heading text, and the per-row display effect of that set) and `theme` (the
-  colour palette as data: the `Palette` roles, the built-in values — `dark`,
-  `light` and the four Catppuccin flavours, the last in `theme/catppuccin.rs` —
-  the `<vault>/.shale/themes/<name>.toml` loader and the callout accents derived
-  from them). The Catppuccin hexes are verbatim from `palette.json` v1.8.0 of
-  https://github.com/catppuccin/palette (**MIT**, so copying them into this
-  Apache-2.0 crate is fine) and the role mapping follows Catppuccin's own style
-  guide, https://github.com/catppuccin/catppuccin/blob/main/docs/style-guide.md.
-  Pure Rust, fully unit tested.
+  colour palette as data: the `Palette` roles and 20 built-in values — Shale's
+  `dark`/`light` plus the palettes of seven families, one module per family
+  (`theme/catppuccin.rs`, `tokyo_night.rs`, `gruvbox.rs`, `nord.rs`,
+  `dracula.rs`, `solarized.rs`, `one.rs`, `rose_pine.rs`) — the
+  `<vault>/.shale/themes/<name>.toml` loader and the callout accents derived from
+  them). The hexes are upstream's own: Catppuccin's from `palette.json` v1.8.0 of
+  https://github.com/catppuccin/palette with the roles filled by its style guide
+  (https://github.com/catppuccin/catppuccin/blob/main/docs/style-guide.md), and
+  the rest from each family's palette file — Atom's One is defined in HSL rather
+  than hex, so `one.rs` evaluates those definitions instead of trusting a port.
+  Every one of those upstreams is **MIT**, so the hexes may live in this
+  Apache-2.0 crate. Pure Rust, fully unit tested.
 - `crates/app` (`shale` binary): GPUI app (Zed's gpui, tag `v1.25.3`) — file
   tree sidebar, custom line-based editor view with **soft wrap** and vim
   normal/insert/visual modes (hjkl, w/b/e, 0 ^ $ — screen-line aware, gg/G,
@@ -129,9 +133,10 @@ Workspace layout:
   (`gx` on a link in normal mode, ctrl+click),
   status bar (mode, pending count/operator, dirty flag, path, display row:col),
   **theming** (`appearance.theme` selects a built-in palette — Shale's own `dark`
-  and `light`, or one of the four Catppuccin flavours (`latte`, `frappe`,
-  `macchiato`, `mocha`, also spelled with a `catppuccin-` prefix), default
-  `mocha` — or a `<vault>/.shale/themes/<name>.toml` file, and
+  and `light` plus 18 family palettes: the four Catppuccin flavours (`latte`,
+  `frappe`, `macchiato`, `mocha`, also spelled with a `catppuccin-` prefix),
+  Tokyo Night ×3, Gruvbox ×2, Nord, Dracula, Solarized ×2, One ×2 and Rosé Pine
+  ×3 — default `mocha` — or a `<vault>/.shale/themes/<name>.toml` file, and
   `appearance.font_size` sizes the text),
   ctrl+s save. Split into `main.rs` (workspace, keymap, actions) with its
   headless tests in `tests/` (`keys.rs`, `paint.rs`), `editor/` (the view: `mod.rs`
@@ -153,6 +158,12 @@ Workspace layout:
   so behaviour can be checked without network access. Sources and licensing in
   `refs/README.md`: the Obsidian help repo grants **no** license, so those pages
   are specification only — never copy their prose or assets into Shale.
+- `tools/` (**not shipped, Python**): `theme_gen.py` generates the seven
+  third-party palette modules in `crates/core/src/theme/` from upstream colour
+  names, and runs the same WCAG contrast checks as the crate's readability test
+  before writing anything, so a palette that would fail that test is reported
+  instead of emitted. Running it and then `cargo fmt --all` reproduces those
+  files byte for byte; `git diff` on them is the check that tool and crate agree.
 
 ### GPUI gotchas (learned the hard way — re-read before touching the UI)
 
@@ -203,8 +214,7 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
 `niri msg --json windows` to find the window id.
 - Run the test binaries under `ulimit -v` when working on anything that scans
   text (a scanner bug can allocate until the OOM killer takes the editor down —
-  see the table postmortem). Build parallelism is capped in `.cargo/config.toml`
-  at the user's request because a full-parallel build stalled the editor.
+  see the table postmortem).
   Current peak RSS of the test binaries: core 5.4 MB, app 30 MB, mcp 3.5 MB. The
   app binary's *address space* (not RSS) is far larger because of gpui/wgpu
   reservations, and it now needs **4 GB or more** — a 1 GB cap makes it die in an
@@ -684,9 +694,10 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
 
 - **Theming — done (first pass).** Colours are data, not paint sites.
   `shale_core::theme::Palette` is one struct of 0xRRGGBB *roles* (`bg`, `fg`,
-  `dim`, `link`, `table_line`, `callout_warning`, `ui_status_bg`, …) with six
-  built-in values — `Palette::DARK`, `Palette::LIGHT` and the four Catppuccin
-  flavours, which live in `theme/catppuccin.rs` — and `Palette::DEFAULT` (Mocha)
+  `dim`, `link`, `table_line`, `callout_warning`, `ui_status_bg`, …) with twenty
+  built-in values — `Palette::DARK`, `Palette::LIGHT` and the family palettes in
+  `theme/{catppuccin,tokyo_night,gruvbox,nord,dracula,solarized,one,rose_pine}.rs`
+  — and `Palette::DEFAULT` (Mocha)
   is what a vault that names no theme gets; `callout_accent(kind)`
   reads its colours off the palette, so a theme can retune one callout type
   without touching the rest. `appearance.theme` in `shale.toml` names a built-in
@@ -733,6 +744,42 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
       sRGB channels linearized before weighting). The old shortcut weighted the raw
       0-1 channels and under-reported mid-tones so badly that Catppuccin Frappé's
       text scored 3.4:1 where it is really 8.1:1; the floors are unchanged.
+  - **Seven more families added (2026-10-27).** Fourteen more built-in palettes,
+    so twenty in all: `tokyo-night` / `-storm` / `-light`, `gruvbox-dark` /
+    `-light`, `nord`, `dracula`, `solarized-dark` / `-light`, `one-dark` /
+    `-light`, and `rose-pine` / `-moon` / `-dawn`. Each is its upstream's own
+    values, not a port's: Tokyo Night from `lua/tokyonight/colors/` in
+    tokyonight.nvim plus the workbench shades of the official VS Code themes
+    (the origin repo moved from `enkia/` to `tokyo-night/`), Gruvbox from
+    `colors/gruvbox.vim` — including the way it re-binds its own `bg0..bg4` /
+    `fg0..fg4` names in light mode and its `Visual`/`LineNr`/`Comment` highlights,
+    Nord from `src/nord.scss` and the use its four groups document for
+    themselves, Dracula from its published eleven-colour table, Solarized from
+    its tone ladder, Rosé Pine from `palette.json` (whose README also gives the
+    `rose-pine-moon` / `rose-pine-dawn` spelling), and One by *evaluating* Atom's
+    HSL definitions and the LESS shades it derives (`@syntax-gutter`, the
+    `lighten(@syntax-bg, 10%)` selection, `@level-3-color`), which is how it lands
+    on the expected `#282c34` / `#abb2bf` / `#3e4451` / `#21252b` without anyone
+    copying a hex.
+    - They are written by `tools/theme_gen.py`, which maps upstream colour
+      **names** onto Shale's roles and refuses to emit a role that fails the
+      crate's readability floors — all 14 pass, each ratio printed. Where a
+      palette genuinely has no colour for a role the tool composites one and says
+      so in the generated comment: Nord's quiet text roles (nord3 on nord0 is
+      1.7:1), Dracula's chrome (its palette has no third surface), Solarized's
+      code span and table header, and `selection`/`highlight_bg` throughout, since
+      a `Palette` has no alpha. Atom's LESS `lighten()` cannot lighten a 98%
+      background, so One Light's surfaces darken.
+    - Names are lowercase ASCII file stems (so `frappe`, not `frappé`,
+      and `rose-pine`, not `rosé`); every built-in is a legal `base` in a vault
+      theme file, and the two spellings people actually type resolve:
+      `catppuccin-` prefix as before, plus `-dark` on a family whose dark variant
+      carries the bare name (`tokyo-night-dark`, `rose-pine-dark`). A bare
+      `gruvbox` or `one` stays unresolved rather than guessing a mode.
+    - Tests: the readability test now walks 20 palettes, and
+      `the_other_families_are_built_ins` plus `the_built_in_list_is_a_set` cover
+      the names, the aliases, `base`, uniqueness, and that every name is a plain
+      file stem.
     - **Next: a theme picker.** Not started — the user is specifying what they want
       from it first. Today a theme change means editing `shale.toml` and restarting.
   - **Not done here**: no way to change the theme at runtime (restart to pick one
@@ -786,6 +833,43 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
     so those are additive), fold state per note on disk, `zz`/`zt`/`zb` scroll
     commands, and `zn`/`zi` (enable/disable folding).
 
+- **List, task and quote continuation on Enter — done (2026-10-27).**
+  `shale_core::continuation` answers one question about a byte offset:
+  `enter_action(text, offset, in_code)` returns `Continue { text }` (a newline
+  plus the marker the new row should open with), `Clear { start, end }` (the row
+  holds *nothing but* its marker, so delete it and leave the row blank — this is
+  how a list ends without typing a second empty item) or `Newline`.
+  - **The marker shapes are the scanner's.** `mdstyle::block::list_marker_end`
+    and `task_checkbox` became `pub(crate)` and are re-exported from `mdstyle`,
+    so live preview hides exactly the markers this continues and the two can
+    never disagree about what a marker is. `row_marker` reads the row's indent,
+    then any number of `>` markers (each with its optional single space), then a
+    bullet / number and an optional task checkbox.
+  - **Rules:** the indent is preserved, so a nested item continues at the same
+    depth; a task always continues as `- [ ] ` whatever the row being continued
+    held; a numbered item counts up and keeps its zero padding (`08.` → `09. `,
+    `3)` → `4) `); a quote keeps its `>` markers, and a list inside a quote keeps
+    both. `in_code` — the UI says the row is inside a fenced block — suppresses
+    all of it, so a `-` in code stays a `-`.
+  - **The app applies it in insert mode** (`editor/actions.rs::on_newline`): the
+    marker text goes in through `buffer.insert` + `insert_edit`, so it joins the
+    insert session's undo group and `.` replays it as ordinary typed text.
+    `Clear` uses `buffer.delete_range` + `insert_edit("")`. `row_is_code` asks
+    the style scanner for the row's spans instead of tracking fences a second
+    way.
+  - **Known limits.** A marker *removal* cannot be replayed by `.`
+    (`note_inserted("")` records nothing), so `.` after a list-ending Enter
+    repeats nothing; a nested item keeps the source row's indent rather than
+    deepening; a callout's body continues as a plain `> ` and does not keep the
+    callout header (Obsidian behaves the same way).
+  - Tests: ten in `continuation.rs`, plus
+    `enter_continues_list_task_and_quote_markers` and
+    `enter_on_a_marker_only_row_ends_the_list` in `tests/keys.rs`. Undo finding
+    from writing them: an insert session really is one group, so
+    `i - one <enter> two <esc> u` empties the buffer rather than leaving `- one`;
+    the test that checks the marker is not its own step uses `A <enter> <esc> u`.
+    Needs a live check by the user (no key-injection tool is installed).
+
 - **Module sizes.** `editor.rs` and `main.rs` both passed the 1000-line mark in
   `AGENTS.md`, so they are now directories: `editor/{mod,wrap,render,actions,input}.rs`
   (a submodule can reach `MarkdownEditor`'s private state because they are all
@@ -794,8 +878,8 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   `mdstyle/{mod,block,inline}.rs` (450 / 398 / 277): `mod.rs` holds `Style`,
   `CalloutKind`, `StyleSpan`, the line walk and the tests, `block.rs` classifies
   each line, `inline.rs` styles the text inside it. Largest files now: `vim.rs`
-  2219, `buffer.rs` 1786, `line.rs` 897, `tests/paint.rs` 772, `tests/keys.rs`
-  713, `core/theme/mod.rs` 642, `main.rs` 632. `vim.rs` and `buffer.rs` are still
+  2219, `buffer.rs` 1786, `line.rs` 897, `tests/keys.rs` 825, `tests/paint.rs`
+  772, `core/theme/mod.rs` 763, `main.rs` 632. `vim.rs` and `buffer.rs` are still
   over the rule — split them the next time either one is touched; `line.rs` (the
   element, the run builder and the table grid paint) is the next candidate after
   those.
@@ -840,14 +924,11 @@ Next steps, roughly in order:
    `appearance.font_size` is wired through the editor. Follow-ups: switching
    themes without a restart, and whatever roles a tree-sitter code highlighter
    will need.
-9. Editor bindings round: **list / task / quote continuation on Enter.** Inside
-   a `-`/`*`/`+` bullet, a numbered item, a task (`- [ ]`) or a `>` quote,
-   pressing Enter should insert the same marker on the new line (Obsidian's
-   behaviour), and pressing Enter again on a marker-only line should remove that
-   empty marker instead of adding a second one. Needs the marker text inserted in
-   insert mode (so it lands in the same undo group and `.` replay), and the
-   continuation should follow the line's indent. Task lines should insert an
-   empty `- [ ]` regardless of whether the previous one was checked.
+9. ~~Editor bindings round: list / task / quote continuation on Enter~~ Done —
+   see the continuation bullet in Open threads. `shale_core::continuation` decides
+   what Enter does, the insert-mode handler applies it so the marker joins the
+   undo group and `.`. Follow-ups: replaying a marker *removal* with `.`, deeper
+   nesting of lists, and continuing a callout's body.
 10. HarperLS / LSP integration for spellcheck and grammar.
 11. ~~Image display in vaults (gpui image elements)~~ mostly done: a row that is
     nothing but an embed is drawn as the picture (stage 2b). What is left is an
