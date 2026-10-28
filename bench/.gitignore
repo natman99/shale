@@ -1,0 +1,5 @@
+# Harness artifacts — disposable, never commit.
+results/
+vaults/
+profiles/
+__pycache__/
