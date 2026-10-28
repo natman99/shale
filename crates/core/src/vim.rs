@@ -83,6 +83,10 @@ pub enum Outcome {
     Unhandled,
     /// `gx` was typed: the UI should follow the link under the cursor.
     FollowLink,
+    /// `space f` was typed: the UI should open its quick-open picker. The engine
+    /// has no idea what notes exist, let alone where they live, so this is a
+    /// request rather than an edit.
+    QuickOpen,
 }
 
 /// The unnamed register, holding the last yank or delete.
@@ -113,6 +117,11 @@ pub struct Vim {
     last_command: Option<Vec<Cmd>>,
     /// A command that dropped into insert mode is still being recorded.
     insert_session: bool,
+    /// The key just typed was a plain `space` motion, so a following `f` is
+    /// Shale's quick-open chord rather than a find. The space motion itself is
+    /// applied when `space` is typed — deferring it would make a lone `space`
+    /// look dead — so the chord is recognised one key late.
+    after_space: bool,
 }
 
 impl Default for Vim {
@@ -131,6 +140,7 @@ impl Vim {
             command: Vec::new(),
             last_command: None,
             insert_session: false,
+            after_space: false,
         }
     }
 
@@ -185,12 +195,14 @@ impl Vim {
         self.mode = Mode::Insert;
         self.pending = Pending::None;
         self.count = None;
+        self.after_space = false;
     }
 
     pub fn enter_normal(&mut self) {
         self.mode = Mode::Normal;
         self.pending = Pending::None;
         self.count = None;
+        self.after_space = false;
         // Leaving insert mode ends the command that started it.
         // Leaving insert mode ends the insert session that was being recorded.
         if self.insert_session && !self.command.is_empty() {
@@ -212,6 +224,15 @@ impl Vim {
 
     /// Handle a key press while in normal or visual mode.
     pub fn handle_normal_key(&mut self, key: Key, buf: &mut Buffer) -> Outcome {
+        // The `space f` chord, one key after the motion that started it. Only a
+        // plain space motion arms it: `d space` or `f ` never do.
+        let after_space = std::mem::take(&mut self.after_space);
+        if after_space && !self.mode.is_visual() && key == Key::Char('f') {
+            self.pending = Pending::None;
+            self.count = None;
+            self.command.clear();
+            return Outcome::QuickOpen;
+        }
         if self.mode.is_visual() {
             return self.handle_visual_key(key, buf);
         }
@@ -468,8 +489,12 @@ impl Vim {
             Key::Char('k') => repeat(count, || buf.move_up()),
             Key::Char('l') => repeat(count, || buf.move_right_stay_on_line()),
             // Vim binds space to the same motion as `l`; as the argument of
-            // `f `/`t ` it arrives through the pending find instead.
-            Key::Char(' ') => repeat(count, || buf.move_right_stay_on_line()),
+            // `f `/`t ` it arrives through the pending find instead. The motion
+            // also arms the `space f` quick-open chord.
+            Key::Char(' ') => {
+                self.after_space = true;
+                repeat(count, || buf.move_right_stay_on_line())
+            }
             Key::Char('w') => repeat(count, || buf.word_forward()),
             Key::Char('b') => repeat(count, || buf.word_backward()),
             Key::Char('e') => repeat(count, || buf.word_end()),
@@ -2178,6 +2203,52 @@ mod tests {
         assert!(b.has_closed_folds());
         type_keys(&mut vim, "zd", &mut b);
         assert!(!b.has_closed_folds());
+    }
+
+    #[test]
+    fn space_f_asks_the_ui_for_the_quick_open_picker() {
+        let mut vim = Vim::new();
+        let mut b = note_buf();
+        b.goto_line(0);
+        assert_eq!(b.cursor(), 0);
+        // The space motion is applied immediately, so a lone space is never
+        // left waiting for a second key.
+        assert_eq!(vim.handle_normal_key(Key::Char(' '), &mut b), Outcome::Stay);
+        assert_eq!(b.cursor(), 1, "space still moves right");
+        assert_eq!(
+            vim.handle_normal_key(Key::Char('f'), &mut b),
+            Outcome::QuickOpen
+        );
+        // The chord is not a change, so `.` has nothing to replay.
+        assert_eq!(vim.repeat_last(&mut b), Outcome::Unhandled);
+    }
+
+    #[test]
+    fn only_a_plain_space_arms_the_quick_open_chord() {
+        let mut vim = Vim::new();
+        let mut b = note_buf();
+        b.goto_line(0);
+        // `f` on its own still starts a find.
+        vim.handle_normal_key(Key::Char('f'), &mut b);
+        assert_eq!(vim.pending_motion(), Some('f'));
+        vim.enter_normal();
+        // `d space` deletes to the right and does not arm the chord, so the
+        // next `f` is a find.
+        vim.handle_normal_key(Key::Char('d'), &mut b);
+        vim.handle_normal_key(Key::Char(' '), &mut b);
+        assert_eq!(vim.pending_motion(), None);
+        vim.handle_normal_key(Key::Char('f'), &mut b);
+        assert_eq!(vim.pending_motion(), Some('f'));
+        vim.enter_normal();
+        // Escape after a space drops the chord too.
+        vim.handle_normal_key(Key::Char(' '), &mut b);
+        vim.enter_normal();
+        vim.handle_normal_key(Key::Char('f'), &mut b);
+        assert_eq!(
+            vim.pending_motion(),
+            Some('f'),
+            "f starts a find rather than opening the picker"
+        );
     }
 
     #[test]
