@@ -20,6 +20,7 @@ pub(crate) enum Command {
     DeleteNote,
     QuickOpen,
     SearchVault,
+    ShowNote,
     WindowLeft,
     WindowRight,
     Undo,
@@ -29,7 +30,7 @@ pub(crate) enum Command {
 }
 
 /// Every command, in the order the palette lists them before anything is typed.
-const ALL: [Command; 14] = [
+const ALL: [Command; 15] = [
     Command::Save,
     Command::Quit,
     Command::NewNote,
@@ -38,6 +39,7 @@ const ALL: [Command; 14] = [
     Command::DeleteNote,
     Command::QuickOpen,
     Command::SearchVault,
+    Command::ShowNote,
     Command::WindowLeft,
     Command::WindowRight,
     Command::Undo,
@@ -63,6 +65,7 @@ impl Command {
             Command::DeleteNote => "Delete the selected note",
             Command::QuickOpen => "Open a note",
             Command::SearchVault => "Search the vault",
+            Command::ShowNote => "Show the checker's note for the word here",
             Command::WindowLeft => "Focus the file tree",
             Command::WindowRight => "Focus the note",
             Command::Undo => "Undo",
@@ -85,6 +88,7 @@ impl Command {
             Command::DeleteNote => "ctrl-shift-d, shift-d in the tree",
             Command::QuickOpen => "ctrl-o, space f",
             Command::SearchVault => "ctrl-shift-f",
+            Command::ShowNote => "K",
             Command::WindowLeft => "ctrl-w h",
             Command::WindowRight => "ctrl-w l",
             Command::Undo => "u, ctrl-z",
@@ -107,6 +111,7 @@ impl Command {
             Command::DeleteNote => Box::new(DeleteNote),
             Command::QuickOpen => Box::new(QuickOpen),
             Command::SearchVault => Box::new(SearchVault),
+            Command::ShowNote => Box::new(ShowNote),
             Command::WindowLeft => Box::new(WindowLeft),
             Command::WindowRight => Box::new(WindowRight),
             Command::Undo => Box::new(Undo),

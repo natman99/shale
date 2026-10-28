@@ -61,6 +61,10 @@ impl MarkdownEditor {
             // travels up from here to the window that handles it, exactly as the
             // key would have.
             Outcome::QuickOpen => window.dispatch_action(QuickOpen.boxed_clone(), cx),
+            // vim's `K`: the window owns the checker, so the lookup is asked for by
+            // name and travels up to it. Inside a table `K` is still the row
+            // motion, which the engine decides before it ever gets here.
+            Outcome::Hover => window.dispatch_action(ShowNote.boxed_clone(), cx),
             Outcome::Stay | Outcome::Unhandled => {}
         }
         self.ensure_cursor_visible();

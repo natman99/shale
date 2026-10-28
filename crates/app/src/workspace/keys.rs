@@ -3,6 +3,7 @@
 use gpui::KeyBinding;
 
 use crate::acts::*;
+use crate::popup;
 
 pub(crate) fn keybindings() -> Vec<KeyBinding> {
     // gpui's keystroke syntax separates modifiers with `-`, not `+`: `ctrl-z`.
@@ -188,5 +189,24 @@ pub(crate) fn keybindings() -> Vec<KeyBinding> {
         "down" => PickerDown,
         "up" => PickerUp,
     ]);
+    // The popup. It is a sibling of the note and the tree, so — as with a picker —
+    // `j`/`k` are free here, and `escape` closes it rather than leaving a vim
+    // command half-typed. The rows are also reachable by number, which is the
+    // fastest way to take the first offer; those bindings carry the row, so they
+    // are pushed one by one rather than through `bind!`.
+    bind!(popup::CONTEXT, [
+        "escape" => FieldCancel,
+        "enter" => FieldSubmit,
+        "j" => PickerDown,
+        "k" => PickerUp,
+        "down" => PickerDown,
+        "up" => PickerUp,
+    ]);
+    for (row, key) in ["1", "2", "3", "4", "5", "6", "7", "8", "9"]
+        .into_iter()
+        .enumerate()
+    {
+        keys.push(KeyBinding::new(key, ApplyRow(row), Some(popup::CONTEXT)));
+    }
     keys
 }

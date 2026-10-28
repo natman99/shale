@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use gpui::{div, prelude::*, px, Context, Window};
+use gpui::{anchored, div, prelude::*, px, AnchoredPositionMode, Context, Window};
 
 use crate::acts::*;
 use crate::tree;
@@ -43,6 +43,18 @@ impl Render for Workspace {
         self.tree_rows = paths;
         let prompt = self.prompt.as_ref().map(|(_, prompt)| prompt.clone());
         let picker = self.picker.clone();
+        // The popup is drawn last, over the note, where its line was painted.
+        // Asking each frame is what lets it follow the note as it scrolls; a line
+        // that is no longer on screen means no panel, which is the right answer
+        // rather than a panel floating over the wrong word.
+        let popup = self.popup_entity().zip(self.popup_place(cx));
+        // The one path that had to close a popup without a window to hand the
+        // keyboard back with (the file watcher) left the refocus for here, which
+        // is the first place there is a window. `defer` keeps the change out of
+        // the draw itself.
+        if let Some(focus) = self.pending_focus.take() {
+            window.defer(cx, move |window, cx| focus.focus(window, cx));
+        }
 
         let mode = mode_label(self.editor.read(cx).mode());
         let dirty = if self.editor.read(cx).is_dirty() {
@@ -54,7 +66,7 @@ impl Render for Workspace {
         let (line, col) = self.editor.read(cx).display_position();
         // The checker's count, so "no underlines" can be told apart from "the
         // checker has not answered yet".
-        let spell = match self.spell_notes {
+        let spell = match self.checker_notes.len() {
             0 => String::new(),
             1 => "1 spellcheck note".into(),
             n => format!("{n} spellcheck notes"),
@@ -81,6 +93,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::window_right))
             .on_action(cx.listener(Self::quick_open))
             .on_action(cx.listener(Self::search_vault))
+            .on_action(cx.listener(Self::show_note))
             .on_action(cx.listener(Self::command_palette))
             .child(
                 div()
@@ -192,5 +205,18 @@ impl Render for Workspace {
                     .child(spell)
                     .child(format!("{}:{}", line + 1, col + 1)),
             )
+            .when_some(popup, |d, (popup, at)| {
+                // `anchored` paints at a window coordinate rather than in the
+                // layout, which is what lets the panel sit over the note without
+                // pushing the note down; snapping to the window's edge keeps a
+                // popup near the bottom or the right edge on screen.
+                d.child(
+                    anchored()
+                        .position(at)
+                        .position_mode(AnchoredPositionMode::Window)
+                        .snap_to_window()
+                        .child(popup),
+                )
+            })
     }
 }

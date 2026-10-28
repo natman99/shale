@@ -33,6 +33,8 @@ impl Workspace {
         let palette = Rc::clone(&self.palette);
         let prompt =
             cx.new(|cx| prompt::Prompt::new(kind, label, initial, palette, family, size, cx));
+        // A prompt owns the keyboard, so a popup cannot stay up beside it.
+        self.close_popup(window, cx);
         self._prompt_events = Some(cx.subscribe_in(
             &prompt,
             window,

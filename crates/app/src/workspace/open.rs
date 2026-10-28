@@ -187,9 +187,9 @@ impl Workspace {
         self.show_picker(picker, window, cx);
     }
 
-    /// The picker is drawn in the editor's face and colours, so a row of search
-    /// results reads like the note it came from.
-    fn picker_style(
+    /// The panel is drawn in the editor's face and colours, so a row of search
+    /// results — or a checker's note — reads like the note it came from.
+    pub(super) fn picker_style(
         &self,
         cx: &Context<Self>,
     ) -> (Rc<shale_core::theme::Palette>, SharedString, f32) {
@@ -208,6 +208,9 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // A picker owns the keyboard, so a popup cannot stay up beside it: one
+        // panel, one focus, no argument about which `escape` answers to.
+        self.close_popup(window, cx);
         self._picker_events = Some(cx.subscribe_in(
             &picker,
             window,

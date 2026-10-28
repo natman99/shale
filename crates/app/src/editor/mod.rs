@@ -44,6 +44,10 @@ pub enum EditorEvent {
     /// The note's text changed. The workspace uses this to keep the spell and
     /// grammar checker's copy of the document in step with the buffer.
     Changed,
+    /// The pointer moved over the note, landing on buffer offset `offset` of
+    /// display line `line`. The editor does not know what — if anything — the
+    /// pointer is over; the workspace decides whether that is a popup.
+    Hovered { offset: usize, line: usize },
 }
 
 impl EventEmitter<EditorEvent> for MarkdownEditor {}
@@ -321,13 +325,28 @@ impl MarkdownEditor {
             .map(|hit| hit.x_for_offset(offset))
     }
 
-    /// The buffer offset a click at `x` on display line `index` lands on.
+    /// The buffer offset a pointer at `x` on display line `index` lands on, using
+    /// the text that was painted there.
     #[cfg(test)]
     pub fn offset_at_x(&self, index: usize, x: Pixels) -> Option<usize> {
         self.hit_lines
             .iter()
             .find(|hit| hit.index == index)
             .map(|hit| hit.offset_for_x(x))
+    }
+
+    /// The buffer offset a pointer at the **window** x `x` lands on, on display
+    /// line `index`.
+    ///
+    /// The line's text does not start at the window's left edge — the editor has
+    /// margins, and a table row starts further in again — so the pointer is
+    /// measured from where the line was painted. [`Self::offset_at_x`] takes the
+    /// other coordinate space, measured from the line itself.
+    pub fn offset_at_pointer_x(&self, index: usize, x: Pixels) -> Option<usize> {
+        self.hit_lines
+            .iter()
+            .find(|hit| hit.index == index)
+            .map(|hit| hit.offset_for_x(x - hit.bounds.left()))
     }
 
     /// The height each display line was painted at, which follows its text size
@@ -413,6 +432,75 @@ impl MarkdownEditor {
             .iter()
             .find(|hit| hit.index == index)
             .map(|hit| (hit.bounds.left(), hit.bounds.right()))
+    }
+
+    /// Where display line `index` was painted, in window coordinates. The window
+    /// places the popup just below it, and asks again each frame, which is what
+    /// lets a popup follow the note as it scrolls.
+    pub fn hit_line_bounds(&self, index: usize) -> Option<gpui::Bounds<Pixels>> {
+        self.hit_lines
+            .iter()
+            .find(|hit| hit.index == index)
+            .map(|hit| hit.bounds)
+    }
+
+    /// Whether display line `index` is inside the scroll container's viewport as
+    /// it was painted.
+    ///
+    /// Every line is laid out, scrolled away or not, so the window asks this
+    /// before drawing a panel over a line: a panel over a word that is not on
+    /// screen would float over the sidebar or the status bar instead.
+    pub fn line_is_visible(&self, index: usize) -> bool {
+        let Some(hit) = self.hit_lines.iter().find(|hit| hit.index == index) else {
+            return false;
+        };
+        let view = self.scroll_handle.bounds();
+        hit.bounds.top() < view.bottom() && hit.bounds.bottom() > view.top()
+    }
+
+    /// Where the cursor is, as a buffer byte offset.
+    pub fn cursor_offset(&self) -> usize {
+        self.buffer.cursor()
+    }
+
+    /// Whether the editor is in normal mode.
+    ///
+    /// The window asks because the pointer may only open a popup in normal mode:
+    /// in insert, visual, or the middle of a vim command the keyboard is busy with
+    /// something the user is doing, and taking it away would be worse than saying
+    /// nothing.
+    pub fn is_normal_mode(&self) -> bool {
+        self.vim.mode() == Mode::Normal
+            && self.vim.count().is_none()
+            && self.vim.pending_operator().is_none()
+    }
+
+    /// Rewrite the note at the given byte ranges, last one first so the earlier
+    /// offsets stay valid, as one undo step. Returns whether anything was done.
+    ///
+    /// This is how a checker's fix reaches the text: the window decides *which*
+    /// ranges and what replaces them, and the editor keeps the single-owner rule
+    /// over the buffer. The note is left dirty, so the checker is told about the
+    /// new text by the usual path.
+    pub fn apply_edits(
+        &mut self,
+        edits: &[(usize, usize, String)],
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if edits.is_empty() {
+            return false;
+        }
+        let mut edits = edits.to_vec();
+        edits.sort_by_key(|(start, _, _)| *start);
+        self.buffer.begin_undo_group();
+        for (start, end, text) in edits.iter().rev() {
+            self.buffer.set_selection(*start, *end);
+            self.buffer.insert(text);
+        }
+        self.buffer.end_undo_group();
+        self.mark_dirty(cx);
+        cx.notify();
+        true
     }
 
     /// Cursor position in display coordinates (wrapped segments counted as

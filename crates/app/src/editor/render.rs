@@ -16,7 +16,7 @@ use crate::preview::{LineLayout, PieceMap};
 use crate::table_view;
 use crate::theme;
 
-use super::MarkdownEditor;
+use super::{EditorEvent, MarkdownEditor};
 
 impl Render for MarkdownEditor {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -509,6 +509,7 @@ impl Render for MarkdownEditor {
                             .as_ref()
                             .map(|image| f32::from(image.height))
                             .unwrap_or_else(|| theme::line_height(dl.size));
+                        let editor = cx.entity();
 
                         div()
                             .id(("line", index))
@@ -538,6 +539,24 @@ impl Render for MarkdownEditor {
                                 char_width,
                                 palette: Rc::clone(&self.palette),
                                 fold,
+                            })
+                            // Where the pointer is over the note is reported to the
+                            // window, which decides whether that is a word the
+                            // checker has something to say about. The line under the
+                            // pointer is the only one that reports, and the offset is
+                            // worked out from the text that was painted on it.
+                            .on_mouse_move(move |event: &gpui::MouseMoveEvent, _window, cx| {
+                                let offset = editor.read_with(cx, |editor, _cx| {
+                                    editor.offset_at_pointer_x(index, event.position.x)
+                                });
+                                if let Some(offset) = offset {
+                                    editor.update(cx, |_, cx| {
+                                        cx.emit(EditorEvent::Hovered {
+                                            offset,
+                                            line: index,
+                                        })
+                                    });
+                                }
                             })
                     })),
             )

@@ -11,6 +11,7 @@ pub(crate) mod commands;
 mod edits;
 mod keys;
 mod open;
+mod popups;
 mod render;
 mod tree;
 
@@ -30,7 +31,7 @@ use shale_core::{Config, Vault};
 
 use crate::acts::*;
 use crate::editor::{EditorEvent, MarkdownEditor};
-use crate::lsp::{absolute, Diagnostic, Spell};
+use crate::lsp::{absolute, Diagnostic, Fix, Spell};
 use crate::picker;
 use crate::prompt;
 
@@ -47,9 +48,36 @@ pub(crate) struct Workspace {
     /// The spell and grammar checker, when one is configured and was started.
     /// It owns a server process; the window only talks to it.
     spell: Option<Entity<Spell>>,
-    /// The checker's notes on the open note, kept here so the status bar can
-    /// count them without reading the checker every frame.
-    spell_notes: usize,
+    /// The checker's notes on the open note. They live here rather than only in
+    /// the checker so that the status bar can count them, and `K` or a resting
+    /// pointer can open a popup for the word under the cursor without asking the
+    /// server anything — which is also what makes that path testable.
+    checker_notes: Vec<Diagnostic>,
+    /// The popup the window is showing, if any. There is one slot and one only:
+    /// opening another replaces it, and every way out goes through `close_popup`.
+    popup: Option<Entity<crate::popup::Popup>>,
+    /// What had the keyboard before the popup took it, so closing hands it back.
+    popup_return_focus: Option<gpui::FocusHandle>,
+    /// The display line the popup sits below. Its place is worked out again each
+    /// frame, so the panel follows the note as it scrolls and goes away when the
+    /// line does.
+    popup_anchor: Option<usize>,
+    /// Whether the pointer opened the popup. Only then does moving off the word
+    /// close it; a popup asked for with `K` stays until the user says otherwise.
+    popup_from_pointer: bool,
+    /// Which marked range the popup is about, so a mouse-move over the same word
+    /// does not reopen it and a checker answer can tell whether its subject is
+    /// still marked.
+    popup_note: Option<(usize, usize)>,
+    /// What the checker offered about that range, in the order it offered it: the
+    /// popup shows these titles, and a chosen row number indexes back into them.
+    popup_fixes: Vec<Fix>,
+    /// A focus to hand the keyboard to at the start of the next frame, for the one
+    /// path that has to close a popup without a window to do it with (the file
+    /// watcher). Setting this is what keeps "closing always returns focus" true.
+    pending_focus: Option<gpui::FocusHandle>,
+    /// The subscription to the open popup, replaced when another one opens.
+    _popup_events: Option<Subscription>,
     /// The subscription that carries the checker's answers to the editor.
     _spell_events: Option<Subscription>,
     entries: Vec<VaultEntry>,
@@ -87,6 +115,9 @@ pub(crate) struct Workspace {
     status: SharedString,
     editor: Entity<MarkdownEditor>,
     _editor_events: Subscription,
+    /// The pointer-over-the-note subscription. It needs a window to hand the
+    /// keyboard to, so `attach_window` adds it rather than `new`.
+    _hover_events: Option<Subscription>,
     _keystroke_observer: Subscription,
 }
 
@@ -130,27 +161,30 @@ impl Workspace {
             // The buffer moved, so the checker's copy of the note is out of date.
             // `Spell::changed` debounces, so a typed word is one request.
             EditorEvent::Changed => ws.send_note_to_checker(cx),
+            // Hover is answered by the subscription `attach_window` adds, which is
+            // the one that has a window to hand the keyboard to.
+            EditorEvent::Hovered { .. } => {}
         });
         // Spell and grammar checking runs in a language server (`harper-ls` by
         // default). A server that is not installed, or will not start, is a
         // missing feature rather than a broken editor: it is reported and the
         // window carries on without one.
-        let (spell, spell_notes, spell_events) = if config.spellcheck.enabled {
+        let (spell, spell_events) = if config.spellcheck.enabled {
             match Spell::start(&config.spellcheck, cx) {
                 Ok(spell) => {
                     // The checker notifies when it has new answers; those become
                     // the editor's wavy underlines.
                     let events =
                         cx.observe(&spell, |ws, spell, cx| ws.show_checker_notes(spell, cx));
-                    (Some(spell), 0, Some(events))
+                    (Some(spell), Some(events))
                 }
                 Err(err) => {
                     tracing::warn!("no spellcheck: {err:#}");
-                    (None, 0, None)
+                    (None, None)
                 }
             }
         } else {
-            (None, 0, None)
+            (None, None)
         };
         // Keybinding bugs on Linux are almost always "what did the platform
         // actually deliver, and which action did it resolve to", so log both —
@@ -172,7 +206,15 @@ impl Workspace {
             config,
             palette,
             spell,
-            spell_notes,
+            checker_notes: Vec::new(),
+            popup: None,
+            popup_return_focus: None,
+            popup_anchor: None,
+            popup_from_pointer: false,
+            popup_note: None,
+            popup_fixes: Vec::new(),
+            pending_focus: None,
+            _popup_events: None,
             _spell_events: spell_events,
             entries,
             dirs,
@@ -191,11 +233,38 @@ impl Workspace {
             status: "".into(),
             editor,
             _editor_events: editor_events,
+            _hover_events: None,
             _keystroke_observer: keystroke_observer,
         }
     }
 
+    /// Wire up the part of the window that needs a window to act on: the pointer's
+    /// position over the note, because opening a popup is a focus change.
+    ///
+    /// Called once per window, by the frame that builds it. Until it is, the window
+    /// simply never hovers — which is why the rest of the window can be built, and
+    /// tested, without one.
+    pub(crate) fn attach_window(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self._hover_events.is_some() {
+            return;
+        }
+        self._hover_events = Some(cx.subscribe_in(
+            &self.editor,
+            window,
+            |ws, _editor, event, window, cx| match event {
+                EditorEvent::Hovered { offset, line } => {
+                    ws.pointer_hovered(*offset, *line, window, cx)
+                }
+                // Everything else the editor reports is handled by the subscription
+                // `new` makes, which needs no window.
+                EditorEvent::FollowLink { .. } | EditorEvent::Changed => {}
+            },
+        ));
+    }
+
     pub(crate) fn open_note(&mut self, path: &PathBuf, cx: &mut Context<Self>) {
+        // A popup belongs to the note it was opened over, so a new note ends it.
+        self.drop_popup(cx);
         match self.vault.read(path) {
             Ok(text) => {
                 tracing::debug!(path = %path.display(), bytes = text.len(), "opened note");
@@ -257,7 +326,56 @@ impl Workspace {
     /// The checker's notes on the open note, as the editor draws them.
     #[cfg(test)]
     pub(crate) fn spell_note_count(&self) -> usize {
-        self.spell_notes
+        self.checker_notes.len()
+    }
+
+    /// The popup's rows, and whether one is up at all. Only the tests ask.
+    #[cfg(test)]
+    pub(crate) fn popup_rows(&self, cx: &gpui::App) -> Vec<String> {
+        let Some(popup) = self.popup.as_ref() else {
+            return Vec::new();
+        };
+        popup.read_with(cx, |popup, _cx| {
+            popup.rows().iter().map(|row| row.to_string()).collect()
+        })
+    }
+
+    /// Whether a popup is up. Only the tests ask.
+    #[cfg(test)]
+    pub(crate) fn has_popup(&self) -> bool {
+        self.popup.is_some()
+    }
+
+    /// The complaint the popup is showing. Only the tests ask, to check that the
+    /// panel is about the right word.
+    #[cfg(test)]
+    pub(crate) fn popup_message(&self, cx: &gpui::App) -> Option<String> {
+        self.popup
+            .as_ref()
+            .map(|popup| popup.read_with(cx, |popup, _cx| popup.message().to_string()))
+    }
+
+    /// Offer the popup a list of fixes without a server to produce them, so the
+    /// path from a row to the buffer can be tested. Only the tests call it.
+    #[cfg(test)]
+    pub(crate) fn offer_test_fixes(&mut self, fixes: Vec<Fix>, cx: &mut Context<Self>) {
+        let Some(popup) = self.popup.clone() else {
+            return;
+        };
+        self.popup_fixes = fixes;
+        let rows: Vec<String> = self
+            .popup_fixes
+            .iter()
+            .map(|fix| fix.title.clone())
+            .collect();
+        popup.update(cx, |popup, cx| popup.set_rows(rows, cx));
+    }
+
+    /// Put the checker's notes in place without a server, so the popup's paths
+    /// can be tested headlessly. Only the tests call it.
+    #[cfg(test)]
+    pub(crate) fn set_checker_notes(&mut self, notes: Vec<Diagnostic>, cx: &mut Context<Self>) {
+        self.show_notes(notes, cx);
     }
 
     /// Whether a checker process is running. Only the tests ask: the window's
@@ -308,13 +426,25 @@ impl Workspace {
 
     /// The checker answered. Its notes become the editor's wavy underlines and
     /// the number the status bar shows, so the user can tell "no notes" from
-    /// "not finished yet".
+    /// "not finished yet"; they also refresh a popup that is already up, whose
+    /// rows are the checker's own offers.
     fn show_checker_notes(&mut self, spell: Entity<Spell>, cx: &mut Context<Self>) {
         let notes: Vec<Diagnostic> = spell.read(cx).diagnostics().to_vec();
-        self.spell_notes = notes.len();
-        let marks: Vec<(usize, usize)> = notes.iter().map(|d| (d.start, d.end)).collect();
+        self.show_notes(notes, cx);
+    }
+
+    /// Put a fresh set of notes on the open note: the underlines, the count, and
+    /// the rows of a popup that is up.
+    fn show_notes(&mut self, notes: Vec<Diagnostic>, cx: &mut Context<Self>) {
+        self.checker_notes = notes;
+        let marks: Vec<(usize, usize)> = self
+            .checker_notes
+            .iter()
+            .map(|note| (note.start, note.end))
+            .collect();
         self.editor
             .update(cx, |editor, cx| editor.set_marks(marks, cx));
+        self.refresh_popup_rows(cx);
         cx.notify();
     }
     pub(super) fn save(&mut self, _: &Save, _window: &mut Window, cx: &mut Context<Self>) {
@@ -351,7 +481,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.prompt.is_some() || self.picker.is_some() {
+        if self.prompt.is_some() || self.picker.is_some() || self.popup.is_some() {
             return;
         }
         self.focus_tree(&FocusTree, window, cx);
@@ -364,7 +494,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.prompt.is_some() || self.picker.is_some() {
+        if self.prompt.is_some() || self.picker.is_some() || self.popup.is_some() {
             return;
         }
         self.focus_editor(&FocusEditor, window, cx);

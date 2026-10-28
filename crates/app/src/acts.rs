@@ -117,5 +117,15 @@ actions!(
         // Moving the highlighted row of a picker.
         PickerUp,
         PickerDown,
+        // The checker's note about the word under the cursor, in a popup over the
+        // note (vim's `K`, and the pointer resting on a marked word).
+        ShowNote,
     ]
 );
+
+/// Choosing a row of the popup by its number. It carries the row, so it is a
+/// struct rather than a name in the list above; the popup turns it back into
+/// whichever of its own actions that row stands for.
+#[derive(Clone, PartialEq, gpui::Action)]
+#[action(namespace = shale, no_json)]
+pub(crate) struct ApplyRow(pub usize);

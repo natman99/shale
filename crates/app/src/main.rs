@@ -10,6 +10,7 @@ mod image;
 mod line;
 mod lsp;
 mod picker;
+mod popup;
 mod preview;
 mod prompt;
 mod table_view;
@@ -80,8 +81,12 @@ fn main() -> Result<()> {
                     ))),
                     ..Default::default()
                 },
-                move |_window, cx| {
+                move |window, cx| {
                     cx.activate(true);
+                    // The pointer's position over the note can open a popup, and a
+                    // popup taking the keyboard is a focus change, so that part of
+                    // the window is wired up here, where there is a window.
+                    ws_for_build.update(cx, |ws, cx| ws.attach_window(window, cx));
                     if let Some(note) = note.clone() {
                         ws_for_build.update(cx, |ws, cx| ws.open_note(&note, cx));
                     }
