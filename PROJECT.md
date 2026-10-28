@@ -159,7 +159,10 @@ Workspace layout:
   *overlay* the note rather than pushing it down, and the note has margins around
   it. `ctrl-w h`/`ctrl-w l` move the keyboard between the sidebar and the note,
   and **vault search** (`ctrl-shift-f`) lists every line that holds what you type,
-  opening the note on that line. Split into `main.rs` (the
+  opening the note on that line. Spell and grammar checking come from a language
+  server (`harper-ls --stdio` by default, named by `[spellcheck]` in `shale.toml`):
+  what it finds is drawn as wavy underlines in the note and counted in the status
+  bar. Split into `main.rs` (the
   command line and the window it opens), `acts.rs` (every action the keymap
   names — the two namespaces its `actions!` calls generate are what the keymap
   and the tests match on, so they are load-bearing, not just namespaces),
@@ -182,7 +185,12 @@ Workspace layout:
   vault attachment and sizing the picture), `table_view.rs` (the table grid
   geometry: column widths and cell offsets, in character cells), `theme.rs` (the
   text metrics, the monospace family choice and the `Style` -> `RunStyle`
-  mapping — the colours themselves are `shale_core::theme::Palette`) and
+  mapping — the colours themselves are `shale_core::theme::Palette`),
+  `lsp/` (the language-server client: `mod.rs` the `Spell` entity — process,
+  handshake, one open document, debounced whole-document sync, and the answers to
+  the requests the *server* sends the client; `wire.rs` the JSON-RPC framing, where
+  `Content-Length` counts bytes; `mapping.rs` the UTF-16-position to buffer-byte
+  translation) and
   `tree.rs`.
 - `crates/mcp` (`shale-mcp` binary): MCP stdio server exposing list/read/
   write/search/backlinks tools.
@@ -251,13 +259,19 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
 - Run the test binaries under `ulimit -v` when working on anything that scans
   text (a scanner bug can allocate until the OOM killer takes the editor down —
   see the table postmortem).
-  Current peak RSS of the test binaries: core 5.4 MB, app 30 MB, mcp 3.5 MB. The
+  Current peak RSS of the test binaries: core 6 MB, app 45 MB, mcp 3.4 MB. The
   app binary's *address space* (not RSS) is far larger because of gpui/wgpu
   reservations, and it now needs **4 GB or more** — a 1 GB cap makes it die in an
   80-byte allocation. Build with `cargo test --workspace --no-run`, then run each
   `target/debug/deps/<name>-<hash>` binary under `sh -c 'ulimit -v N; /usr/bin/
   time -v ./binary'`; never wrap `cargo test` itself, and re-derive the hashes
   after a rebuild.
+- The headless harness (`tests/mod.rs::workspace`) turns `[spellcheck]` **off**.
+  It would otherwise start a real `harper-ls` per window: several hundred
+  megabytes of other people's dictionaries across the suite, and a gpui test
+  scheduler that drops a still-pending local task from another thread and
+  panics. `tests/spell.rs` covers the window's side with a command that cannot
+  start, and `lsp/`'s own tests cover the protocol without a server.
 
 ### Open threads (write findings here as they come up)
 
@@ -1185,6 +1199,73 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   (`[[folder/Note]]`) alone — a different splice, over the prefix rather than the
   name; markdown links (`[text](Target.md)`) are not rewritten yet; and the scan is
   a full vault read, which the planned database will make incremental.
+- **Spellcheck and grammar, from a language server (2026-10-27).** Shale is the
+  **client**: `crates/app/src/lsp` starts a server (`harper-ls --stdio` by
+  default, `command`/`args`/`enabled` from `[spellcheck]` in `shale.toml`), speaks
+  JSON-RPC over its stdin/stdout, and draws what comes back as wavy underlines.
+  One server per window, one document open at a time, whole-document sync — which
+  is what Harper advertises (`textDocumentSync.change = 1`), and the honest size
+  for a single-note editor.
+  **Two facts about harper-ls 2.8 are load-bearing.** It sends the client
+  `workspace/configuration` (twice) and `client/registerCapability` *before* it
+  will process a `didOpen`, so a client that treats server→client requests as
+  noise sees no diagnostics, ever — `decide` answers every request, even with
+  `null`. And grammar rules stay off unless `initialize` carries
+  `initializationOptions.grammarOpacity = "all"`: with the defaults you get spell
+  checking only, which is half the feature. With it, `she don't` comes back as
+  `PronounVerbAgreement` and a heading in lowercase as `UseTitleCase`.
+  **Positions are UTF-16 code units per line; the buffer counts bytes.** An
+  accented letter is one unit and two bytes, an emoji two and four, so
+  `mapping::offset_of` walks the line in code units and clamps a character past
+  the line end rather than running into the next line. A range that cannot be
+  placed is *dropped*: a squiggle on the wrong word is worse than none. The
+  framing has the same trap — `Content-Length` counts **bytes**, so a framer that
+  counts characters desynchronises the stream the first time a note holds an
+  accent, which in a markdown vault is the ordinary case.
+  **The ranges are buffer offsets all the way to the paint.** `PieceMap::
+  rebase_marks` clips and re-bases them onto what a line actually paints, exactly
+  as the markdown spans already were, so a note under a heading marker live
+  preview hid contributes nothing and a table cell sees only its own. `build_runs`
+  applies them last, over any styling the bytes already had, and `RunStyle.spell`
+  turns into a wavy `UnderlineStyle`; where a markdown underline and a checker's
+  note meet, the squiggle wins. The colour is `Palette::callout_danger` — the
+  error red every built-in already has — rather than a new role, which would mean
+  twenty palettes and the generator; a `spell` role is the refinement to make when
+  a theme asks for one.
+  **Debounce, and who tells whom.** `Spell::changed` bumps a revision counter and
+  asks 400 ms after the last keystroke, dropping a request a later edit overtook,
+  so typing a word is one request rather than one per character. The editor emits
+  `EditorEvent::Changed` from `mark_dirty`, which every edit path already passes
+  through, so the editor knows nothing about the checker; gpui queues an `emit`
+  rather than running handlers inside the update, which is what makes it safe for
+  the workspace to read the buffer back from its own handler. Opening a note,
+  deleting one and renaming one re-open/close the document, since its URI *is* its
+  path.
+  **A missing server is a missing feature, not a broken editor.** `Spell::start`
+  fails, the window logs one line and carries on with `spell: None`; nothing in
+  the editor path assumes otherwise. `Drop` sends `exit` and kills the process — a
+  `std::process::Child` that is merely dropped keeps running, which would leave a
+  checker behind per window.
+  **Verified live** (screenshots of a throwaway vault): `Thier` and `wrogn`
+  squiggled, `don't` squiggled from the grammar rule, a whole lowercase heading
+  squiggled from `UseTitleCase` (Harper's own range, checked against the server
+  directly — not a mapping bug), and the status bar read `4 spellcheck notes`.
+  **Tests:** core 216 (was 215) — the `[spellcheck]` defaults and a partial
+  section over them. App 112 (was 84 before this round, +19 in `lsp/` and +2 in
+  `tests/spell.rs`): the framer (byte-vs-character `Content-Length`, a reader that
+  hands over one byte at a time, a bad frame skipped), the mapping (UTF-16 units,
+  the clamp, the backwards range, an unplaceable diagnostic), `decide` (a server
+  request answered, the handshake recognised), the URI's escapes, and the window's
+  two: a server that will not start leaves the editor alone, and the ranges
+  survive a painted frame. `line.rs` gained a marks case in `runs_tile_the_line`
+  (gpui asserts runs tile the text exactly, so a wrong range panics the frame
+  rather than underlining the wrong word) and `a_checker_range_is_a_wavy_underline`.
+  **Follow-ups:** no `textDocument/codeAction`, so Harper's own fixes
+  (`HarperRecordLint`, `HarperAddToUserDict`, `HarperIgnoreLint`) are unreachable —
+  that is the obvious next step, and it wants a UI for "accept this suggestion";
+  no hover showing *what* the complaint is; no diagnostics outside the note
+  (nothing else is a document); `isolateEnglish` is off, so code spans and
+  frontmatter are checked as prose; and a palette role of its own for the colour.
 - **Module sizes.** `editor.rs` and `main.rs` both passed the 1000-line mark in
   `AGENTS.md`, so they are now directories: `editor/{mod,wrap,render,actions,input}.rs`
   (a submodule can reach `MarkdownEditor`'s private state because they are all
@@ -1194,12 +1275,14 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   `CalloutKind`, `StyleSpan`, the line walk and the tests, `block.rs` classifies
   each line, `inline.rs` styles the text inside it. `main.rs` passed it again
   with the file tree, and is now `main.rs` (122) + `acts.rs` + `workspace/`.
-  Largest files now: `vim.rs` 2290, `buffer.rs` 1786, `line.rs` 897, `tests/paint.rs`
-  806, `core/theme/mod.rs` 763, `vault.rs` 750, `table/edit.rs` 640, `table/mod.rs`
-  590, `editor/render.rs` 544, `workspace/mod.rs` 501, `picker.rs` 489,
-  `editor/mod.rs` 486, `tests/tree.rs` 475, `open.rs` 276, `editor/wrap.rs` 395,
-  `markdown.rs` 416, `field.rs` 335, `fold.rs` 332, `prompt.rs` 256,
-  `tests/picker.rs` 346, `fuzzy.rs` 324, `rename.rs` 195, and the other
+  Largest files now: `vim.rs` 2290, `buffer.rs` 1786, `line.rs` 973, `tests/paint.rs`
+  806, `core/theme/mod.rs` 794, `vault.rs` 750, `table/edit.rs` 640,
+  `workspace/mod.rs` 604, `table/mod.rs` 590, `picker.rs` 587, `editor/render.rs`
+  545, `editor/mod.rs` 526, `tests/tree.rs` 515, `lsp/mod.rs` 445,
+  `tests/motions.rs` 442, `markdown.rs` 416, `editor/wrap.rs` 395,
+  `workspace/edits.rs` 360, `tests/picker.rs` 346, `mdstyle/block.rs` 403,
+  `mdstyle/mod.rs` 454, `field.rs` 335, `fold.rs` 332, `prompt.rs` 256,
+  `fuzzy.rs` 324, `rename.rs` 195, and the other
   `workspace/` submodules at 355/209/189/187/118. `tests/keys.rs`
   reached the rule's line and is now three: `keys.rs` (344: the keystroke shapes,
   what each key resolves to per context, the chords), `motions.rs` (442: vim
@@ -1209,8 +1292,9 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   and
   `buffer.rs` are still
   over the rule — split them the next time either one is touched; `line.rs` (the
-  element, the run builder and the table grid paint) is the next candidate after
-  those.
+  element, the run builder and the table grid paint) grew to 973 with the
+  checker's underlines and is the next to cross it, so the split there is probably
+  `line.rs` (the element) and `runs.rs` (the run builder and the style map).
 
 System dependency (Linux): `libxkbcommon-x11-devel` (plus fontconfig, freetype,
 x11, xcb, wayland dev packages) and a working Vulkan driver (the Linux renderer
@@ -1260,7 +1344,14 @@ Next steps, roughly in order:
    what Enter does, the insert-mode handler applies it so the marker joins the
    undo group and `.`. Follow-ups: replaying a marker *removal* with `.`, deeper
    nesting of lists, and continuing a callout's body.
-10. HarperLS / LSP integration for spellcheck and grammar.
+10. ~~HarperLS / LSP integration for spellcheck and grammar~~ Done for the note —
+    see the spellcheck bullet in Open threads. `crates/app/src/lsp` is the client,
+    `[spellcheck]` in `shale.toml` names the server, and what it finds is drawn as
+    wavy underlines and counted in the status bar. Left here: the server's own
+    `codeAction`s (fix it, add to dictionary, ignore this lint) need a UI, hover
+    should say what a complaint is, the colour wants a palette role of its own, and
+    "support for custom language servers" is only half true — the config takes any
+    command, but diagnostics are the only thing Shale consumes.
 11. ~~Image display in vaults (gpui image elements)~~ mostly done: a row that is
     nothing but an embed is drawn as the picture (stage 2b). What is left is an
     image embedded *inside* a paragraph, and an `|alias` suffix on an embed is
