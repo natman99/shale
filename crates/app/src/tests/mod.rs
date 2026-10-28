@@ -15,6 +15,7 @@ mod keys;
 mod motions;
 mod paint;
 mod picker;
+mod popup;
 mod spell;
 mod tree;
 
@@ -44,6 +45,9 @@ pub(crate) fn workspace(
     let window = cx.add_window(|_window, cx| Workspace::new(vault.clone(), Rc::new(config), cx));
     window
         .update(cx, |ws, window, cx| {
+            // The same call `main` makes, so the tests see the window the live app
+            // has, hover included.
+            ws.attach_window(window, cx);
             ws.focus_editor(&FocusEditor, window, cx);
         })
         .unwrap();
