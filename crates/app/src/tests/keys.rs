@@ -168,6 +168,84 @@ fn keymap_matches_the_linux_keystroke_shape() {
             "alt-{key} should resolve to {action}"
         );
     }
+
+    // The sidebar and the vault edits. A ctrl+shift+letter arrives as the
+    // lowercase key with both modifiers set, the same shape ctrl-shift-c needs.
+    let contexts = vec![gpui::KeyContext::try_from("tree").unwrap()];
+    for (control, shift, key, action) in [
+        (true, false, "n", "shale::NewNote"),
+        (true, true, "n", "shale::NewFolder"),
+        (true, true, "r", "shale::RenameNote"),
+        (true, true, "d", "shale::DeleteNote"),
+        (true, false, "b", "shale::FocusTree"),
+        (false, false, "j", "shale::TreeDown"),
+        (false, false, "k", "shale::TreeUp"),
+        (false, false, "enter", "shale::TreeOpen"),
+        (false, true, "d", "shale::DeleteNote"),
+        (false, false, "escape", "shale::FocusEditor"),
+    ] {
+        let typed = gpui::Keystroke {
+            modifiers: gpui::Modifiers {
+                control,
+                shift,
+                ..Default::default()
+            },
+            key: key.to_string(),
+            key_char: None,
+        };
+        let (bindings, pending) = keymap.bindings_for_input(&[typed], &contexts);
+        assert!(!pending, "{key} should not leave pending input");
+        assert_eq!(
+            bindings
+                .iter()
+                .map(|b| b.action().name())
+                .collect::<Vec<_>>(),
+            vec![action],
+            "the tree: typed {key} should resolve to {action}"
+        );
+    }
+
+    // The prompt takes the keys that are not text; printable characters arrive
+    // through the input handler instead. The negative half matters most: the
+    // prompt is drawn outside the tree's key context, so the tree's `j`/`k` are
+    // not in its context stack and cannot steal a typed letter.
+    let contexts = vec![gpui::KeyContext::try_from("prompt").unwrap()];
+    for (key, action) in [
+        ("enter", "shale::PromptSubmit"),
+        ("escape", "shale::PromptCancel"),
+        ("backspace", "shale::PromptBackspace"),
+        ("delete", "shale::PromptDelete"),
+        ("left", "shale::PromptLeft"),
+        ("right", "shale::PromptRight"),
+    ] {
+        let typed = gpui::Keystroke {
+            modifiers: gpui::Modifiers::default(),
+            key: key.to_string(),
+            key_char: None,
+        };
+        let (bindings, pending) = keymap.bindings_for_input(&[typed], &contexts);
+        assert!(!pending, "{key} should not leave pending input");
+        assert_eq!(
+            bindings
+                .iter()
+                .map(|b| b.action().name())
+                .collect::<Vec<_>>(),
+            vec![action],
+            "the prompt: typed {key} should resolve to {action}"
+        );
+    }
+    for key in ["j", "k", "r", "n", "h", "l"] {
+        let typed = gpui::Keystroke {
+            modifiers: gpui::Modifiers::default(),
+            key: key.to_string(),
+            key_char: None,
+        };
+        let (bindings, _) = keymap.bindings_for_input(&[typed], &contexts);
+        assert!(
+            bindings.is_empty(),
+            "the prompt must not answer {key}, which is a character being typed"
+        );
+    }
 }
 
 /// The table keys have to work through the real keymap, not just the core

@@ -166,6 +166,11 @@ impl MarkdownEditor {
         self.buffer.text().to_string()
     }
 
+    /// The body text size the editor paints and measures with.
+    pub(crate) fn font_size(&self) -> f32 {
+        self.font_size
+    }
+
     /// The font family the editor resolves for painting, which the line element
     /// needs to shape text with the same face the wrappers measured.
     pub(crate) fn font_family(&self) -> SharedString {

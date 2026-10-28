@@ -6,7 +6,10 @@
 //! window.
 
 use super::*;
-use gpui::{TestAppContext, VisualTestContext};
+use crate::editor::MarkdownEditor;
+use crate::workspace::keybindings;
+use gpui::{Focusable, TestAppContext, VisualTestContext};
 
 mod keys;
 mod paint;
+mod tree;

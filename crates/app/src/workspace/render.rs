@@ -1,0 +1,158 @@
+//! The frame: sidebar rows, the prompt, the note and the status bar.
+
+use std::path::PathBuf;
+
+use gpui::{div, prelude::*, px, Context, Window};
+
+use crate::acts::*;
+use crate::tree;
+
+use super::tree::{push_node, TreeState};
+use super::{mode_label, Workspace};
+
+impl Render for Workspace {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let tree = tree::build_tree(&self.entries, &self.dirs);
+        let active = self.active.clone();
+        let selected = self.tree_selection.clone();
+        let expanded = &self.expanded;
+        // The keyboard selection is only drawn while the sidebar has the
+        // keyboard, so a stale selection does not look like the cursor.
+        let tree_focused = self.tree_focus.is_focused(window);
+        let selected_row = if tree_focused {
+            selected.as_ref()
+        } else {
+            None
+        };
+
+        // Build sidebar rows.
+        let mut rows: Vec<gpui::AnyElement> = Vec::new();
+        // The paths of the rows in the order they are drawn, which is what the
+        // keyboard motions step through.
+        let mut paths: Vec<PathBuf> = Vec::new();
+        let mut idx = 0usize;
+        let state = TreeState {
+            active: &active,
+            selected: selected_row,
+            expanded,
+            palette: &self.palette,
+        };
+        for node in &tree {
+            push_node(&mut rows, &mut paths, node, 0, &state, &mut idx, cx);
+        }
+        self.tree_rows = paths;
+        let prompt = self.prompt.as_ref().map(|(_, prompt)| prompt.clone());
+
+        let mode = mode_label(self.editor.read(cx).mode());
+        let dirty = if self.editor.read(cx).is_dirty() {
+            "●"
+        } else {
+            ""
+        };
+        let pending = self.editor.read(cx).pending_hint();
+        let (line, col) = self.editor.read(cx).display_position();
+
+        div()
+            .track_focus(&self.focus_handle)
+            .size_full()
+            .flex()
+            .flex_col()
+            .bg(gpui::rgb(self.palette.ui_bg))
+            .text_color(gpui::rgb(self.palette.fg))
+            .on_action(cx.listener(Self::save))
+            .on_action(cx.listener(|_, _: &Quit, _, cx| cx.quit()))
+            // The vault edits are available from anywhere: the tree's selection
+            // says what they act on, and the open note is the fallback.
+            .on_action(cx.listener(Self::new_note))
+            .on_action(cx.listener(Self::new_folder))
+            .on_action(cx.listener(Self::rename_note))
+            .on_action(cx.listener(Self::delete_note))
+            .on_action(cx.listener(Self::focus_tree))
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .flex()
+                    .child(
+                        div()
+                            .flex_none()
+                            .w(px(260.))
+                            .h_full()
+                            .flex()
+                            .flex_col()
+                            .border_r_1()
+                            .border_color(gpui::rgb(self.palette.ui_border))
+                            .child(
+                                div()
+                                    .p_2()
+                                    .pb_1()
+                                    .font_weight(gpui::FontWeight::BOLD)
+                                    .child(
+                                        self.vault
+                                            .root()
+                                            .file_name()
+                                            .unwrap_or_default()
+                                            .to_string_lossy()
+                                            .to_string(),
+                                    ),
+                            )
+                            // The prompt is a sibling of the tree, not a child of
+                            // it: gpui enables a context's bindings whenever that
+                            // context is in the focused element's stack, so a prompt
+                            // *inside* the tree would still take the tree's `j`/`k`.
+                            .when_some(prompt, |d, prompt| {
+                                d.child(div().px_2().pb_2().child(prompt))
+                            })
+                            .child(
+                                div()
+                                    .id("tree-scroll")
+                                    .flex_1()
+                                    .min_h_0()
+                                    .overflow_scroll()
+                                    .key_context(tree::CONTEXT)
+                                    .track_focus(&self.tree_focus)
+                                    .on_action(cx.listener(|this, _: &TreeDown, _window, cx| {
+                                        this.move_tree_selection(1, cx)
+                                    }))
+                                    .on_action(cx.listener(|this, _: &TreeUp, _window, cx| {
+                                        this.move_tree_selection(-1, cx)
+                                    }))
+                                    .on_action(cx.listener(|this, _: &TreeOpen, _window, cx| {
+                                        this.open_tree_row(cx)
+                                    }))
+                                    .on_action(cx.listener(
+                                        |this, _: &TreeCollapse, _window, cx| {
+                                            this.tree_collapse(cx)
+                                        },
+                                    ))
+                                    .on_action(cx.listener(|this, _: &TreeExpand, _window, cx| {
+                                        this.tree_expand(cx)
+                                    }))
+                                    .on_action(cx.listener(Self::focus_editor))
+                                    .on_action(cx.listener(Self::new_note))
+                                    .on_action(cx.listener(Self::new_folder))
+                                    .on_action(cx.listener(Self::rename_note))
+                                    .on_action(cx.listener(Self::delete_note))
+                                    .p_2()
+                                    .pt_1()
+                                    .text_sm()
+                                    .children(rows),
+                            ),
+                    )
+                    .child(div().flex_1().min_w_0().h_full().child(self.editor.clone())),
+            )
+            .child(
+                div()
+                    .h(px(24.))
+                    .px_2()
+                    .flex()
+                    .items_center()
+                    .gap_4()
+                    .text_xs()
+                    .bg(gpui::rgb(self.palette.ui_status_bg))
+                    .child(format!("{mode}{pending}{dirty}"))
+                    .child(self.status.clone())
+                    .child(format!("{}:{}", line + 1, col + 1)),
+            )
+    }
+}

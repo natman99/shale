@@ -7,6 +7,10 @@ use anyhow::{bail, Context, Result};
 /// Directories that should never be treated as vault content.
 const IGNORED_DIRS: &[&str] = &[".git", ".obsidian", ".trash", ".shale"];
 
+/// Characters Obsidian refuses in a file or folder name. Keeping them out of the
+/// names Shale creates is what makes a vault stay openable in Obsidian.
+const FORBIDDEN_NAME_CHARS: &[char] = &['*', '"', '\\', '/', '<', '>', ':', '|', '?'];
+
 /// A markdown note inside a vault, addressed by a vault-relative path.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VaultEntry {
@@ -92,6 +96,42 @@ impl Vault {
         self.walk(|name| !name.ends_with(".md"))
     }
 
+    /// Every directory in the vault, sorted by relative path, with the same
+    /// directories skipped as for notes. The file tree needs these because a
+    /// folder that holds no notes yet is still a folder the user can see and
+    /// open.
+    pub fn list_dirs(&self) -> Result<Vec<VaultEntry>> {
+        let mut out = Vec::new();
+        let mut stack = vec![self.root.clone()];
+        while let Some(dir) = stack.pop() {
+            let read = match fs::read_dir(&dir) {
+                Ok(read) => read,
+                Err(err) if err.kind() == io::ErrorKind::NotFound => continue,
+                Err(err) => {
+                    return Err(err).with_context(|| format!("reading dir {}", dir.display()));
+                }
+            };
+            for entry in read {
+                let entry =
+                    entry.with_context(|| format!("reading dir entry in {}", dir.display()))?;
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                if name.starts_with('.') || IGNORED_DIRS.contains(&name.as_ref()) {
+                    continue;
+                }
+                let path = entry.path();
+                if entry.file_type()?.is_dir() {
+                    out.push(VaultEntry {
+                        path: self.relativize(&path)?,
+                    });
+                    stack.push(path);
+                }
+            }
+        }
+        out.sort_by(|a, b| a.path.cmp(&b.path));
+        Ok(out)
+    }
+
     /// The directory walk both listings share: every file whose name `accept`
     /// takes, as a vault-relative path.
     fn walk(&self, accept: impl Fn(&str) -> bool) -> Result<Vec<VaultEntry>> {
@@ -146,6 +186,98 @@ impl Vault {
                 .with_context(|| format!("creating directory {}", parent.display()))?;
         }
         fs::write(&path, content).with_context(|| format!("writing note {}", path.display()))
+    }
+
+    // ----- creating, renaming and deleting (the file tree's edits) ------
+
+    /// Create an empty note at `rel`, adding `.md` when the name carries no
+    /// extension, and return the vault-relative path that was created.
+    ///
+    /// Refuses to overwrite anything that already exists, so a mistyped name
+    /// cannot quietly replace a note.
+    pub fn create_note(&self, rel: impl AsRef<Path>) -> Result<PathBuf> {
+        let rel = checked_rel(rel.as_ref())?;
+        let rel = if rel.extension().is_some() {
+            rel
+        } else {
+            rel.with_extension("md")
+        };
+        guard_unprotected(&rel)?;
+        let path = self.resolve(&rel)?;
+        if path.exists() {
+            bail!("{} already exists", rel.display());
+        }
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("creating directory {}", parent.display()))?;
+        }
+        fs::write(&path, "").with_context(|| format!("creating note {}", path.display()))?;
+        Ok(rel)
+    }
+
+    /// Create a directory (and any missing parents) inside the vault.
+    pub fn create_dir(&self, rel: impl AsRef<Path>) -> Result<()> {
+        let rel = checked_rel(rel.as_ref())?;
+        guard_unprotected(&rel)?;
+        let path = self.resolve(&rel)?;
+        fs::create_dir_all(path).with_context(|| format!("creating directory {}", rel.display()))
+    }
+
+    /// Move `from` to `to` and return the new vault-relative path.
+    ///
+    /// The destination is validated as a name and must not exist, so a rename
+    /// can never destroy another note; its parent directories are created. The
+    /// source is only checked for traversal, because a vault copied in from
+    /// elsewhere can hold names Shale itself would never create.
+    pub fn rename(&self, from: impl AsRef<Path>, to: impl AsRef<Path>) -> Result<PathBuf> {
+        let from = from.as_ref();
+        let src = self.resolve(from)?;
+        if !src.exists() {
+            bail!("there is nothing at {} to rename", from.display());
+        }
+        let rel = checked_rel(to.as_ref())?;
+        guard_unprotected(&rel)?;
+        let dst = self.resolve(&rel)?;
+        if dst.exists() {
+            bail!("{} already exists", rel.display());
+        }
+        if let Some(parent) = dst.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("creating directory {}", parent.display()))?;
+        }
+        fs::rename(&src, &dst)
+            .with_context(|| format!("renaming {} to {}", src.display(), dst.display()))?;
+        Ok(rel)
+    }
+
+    /// Delete one note. A directory is refused: use [`Self::delete_dir`].
+    pub fn delete(&self, rel: impl AsRef<Path>) -> Result<()> {
+        let rel = rel.as_ref();
+        guard_unprotected(rel)?;
+        let path = self.resolve(rel)?;
+        let meta = fs::symlink_metadata(&path)
+            .with_context(|| format!("looking up {}", path.display()))?;
+        if meta.is_dir() {
+            bail!("{} is a folder, not a note", rel.display());
+        }
+        fs::remove_file(&path).with_context(|| format!("deleting {}", path.display()))
+    }
+
+    /// Delete a folder, refusing one that still holds anything. That guard is what
+    /// keeps a stray keypress from taking a whole branch of the vault with it.
+    pub fn delete_dir(&self, rel: impl AsRef<Path>) -> Result<()> {
+        let rel = rel.as_ref();
+        guard_unprotected(rel)?;
+        let path = self.resolve(rel)?;
+        let meta = fs::symlink_metadata(&path)
+            .with_context(|| format!("looking up {}", path.display()))?;
+        if !meta.is_dir() {
+            bail!("{} is not a folder", rel.display());
+        }
+        if fs::read_dir(&path)?.next().is_some() {
+            bail!("{} is not empty", rel.display());
+        }
+        fs::remove_dir(&path).with_context(|| format!("deleting folder {}", path.display()))
     }
 
     /// Find the vault entry a wiki-link target refers to, using Obsidian's
@@ -254,6 +386,76 @@ impl Vault {
     }
 }
 
+/// Validate a vault-relative path that Shale is about to **create**: every
+/// component must be a name a vault can hold, and the path may not traverse.
+/// Returns the same path with any `.` components dropped.
+fn checked_rel(rel: &Path) -> Result<PathBuf> {
+    if rel.as_os_str().is_empty() {
+        bail!("a name cannot be empty");
+    }
+    let mut out = PathBuf::new();
+    for comp in rel.components() {
+        match comp {
+            Component::Normal(c) => {
+                let name = c
+                    .to_str()
+                    .with_context(|| format!("{} is not valid utf-8", rel.display()))?;
+                check_name(name, rel)?;
+                out.push(c);
+            }
+            Component::ParentDir | Component::CurDir => {
+                bail!("path traversal is not allowed: {}", rel.display());
+            }
+            _ => bail!("invalid path component in: {}", rel.display()),
+        }
+    }
+    Ok(out)
+}
+
+/// Reject a file or folder name that cannot live in a vault: Obsidian's
+/// forbidden characters, control characters, the names that mean "this folder"
+/// or "its parent", and a trailing `.` or space, which Obsidian also refuses.
+fn check_name(name: &str, rel: &Path) -> Result<()> {
+    if name.is_empty() {
+        bail!("a name cannot be empty");
+    }
+    if name == "." || name == ".." {
+        bail!("`{name}` is not a name a note can have");
+    }
+    for c in name.chars() {
+        if FORBIDDEN_NAME_CHARS.contains(&c) {
+            bail!("`{c}` is not allowed in a note name ({})", rel.display());
+        }
+        if c.is_control() {
+            bail!(
+                "control characters are not allowed in a note name ({})",
+                rel.display()
+            );
+        }
+    }
+    if name.ends_with('.') || name.ends_with(' ') {
+        bail!(
+            "a note name cannot end with `{}` ({})",
+            if name.ends_with('.') { '.' } else { ' ' },
+            rel.display()
+        );
+    }
+    Ok(())
+}
+
+/// Refuse to touch anything under a dot directory, which is where the vault's
+/// own machinery (`.obsidian`, `.shale`, `.git`) lives.
+fn guard_unprotected(rel: &Path) -> Result<()> {
+    for comp in rel.components() {
+        if let Component::Normal(c) = comp {
+            if c.to_string_lossy().starts_with('.') {
+                bail!("{} is not vault content", rel.display());
+            }
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -354,6 +556,24 @@ mod tests {
     }
 
     #[test]
+    fn lists_folders_including_empty_ones() -> Result<()> {
+        let (_dir, vault) = fixture()?;
+        vault.create_dir("inbox/empty")?;
+        let paths: Vec<_> = vault.list_dirs()?.iter().map(|e| e.path.clone()).collect();
+        assert_eq!(
+            paths,
+            vec![
+                PathBuf::from("assets"),
+                PathBuf::from("inbox"),
+                PathBuf::from("inbox/empty"),
+                PathBuf::from("notes")
+            ],
+            "every folder, however empty, and no dot directories"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn resolve_link_exact_and_by_stem() -> Result<()> {
         let (_dir, vault) = fixture()?;
         let entries = vault.list_markdown()?;
@@ -388,5 +608,101 @@ mod tests {
     #[test]
     fn open_missing_dir_fails() {
         assert!(Vault::open("/definitely/not/a/vault/here").is_err());
+    }
+
+    #[test]
+    fn create_note_adds_the_extension_and_its_parents() -> Result<()> {
+        let (_dir, vault) = fixture()?;
+        assert_eq!(
+            vault.create_note("notes/Idea")?,
+            PathBuf::from("notes/Idea.md"),
+            "a bare name becomes a note, and the folder is created on the way"
+        );
+        assert_eq!(vault.read("notes/Idea.md")?, "");
+        Ok(())
+    }
+
+    #[test]
+    fn create_rename_and_delete_round_trip() -> Result<()> {
+        let (_dir, vault) = fixture()?;
+        vault.create_note("inbox/Thought.md")?;
+        assert_eq!(
+            vault.rename("inbox/Thought.md", "notes/Thought.md")?,
+            PathBuf::from("notes/Thought.md")
+        );
+        assert!(!vault.exists("inbox/Thought.md"));
+        assert_eq!(vault.read("notes/Thought.md")?, "");
+        vault.delete("notes/Thought.md")?;
+        assert!(!vault.exists("notes/Thought.md"));
+        Ok(())
+    }
+
+    #[test]
+    fn an_edit_never_overwrites_or_replaces() -> Result<()> {
+        let (_dir, vault) = fixture()?;
+        // Creating over a note that exists would lose it.
+        assert!(vault.create_note("Welcome.md").is_err());
+        // So would renaming onto one.
+        assert!(vault.rename("Welcome.md", "notes/Another Note.md").is_err());
+        assert!(vault.exists("Welcome.md"));
+        assert!(vault.exists("notes/Another Note.md"));
+        // And a missing source is an error, not a silent move.
+        assert!(vault.rename("nope.md", "elsewhere.md").is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn names_a_vault_cannot_hold_are_refused() -> Result<()> {
+        let (_dir, vault) = fixture()?;
+        for name in [
+            "quote\".md",
+            "star*.md",
+            "angle<.md",
+            "colon:.md",
+            "pipe|.md",
+            "question?.md",
+            "back\\\\slash.md",
+            "trailing.",
+            "trailing ",
+            "",
+            ".",
+            "..",
+        ] {
+            assert!(
+                vault.create_note(name).is_err(),
+                "`{name}` is not a name Shale should create"
+            );
+        }
+        assert_eq!(
+            vault.create_note("new/folder/name.md")?,
+            PathBuf::from("new/folder/name.md"),
+            "`/` separates folders, so it is only forbidden inside a single name"
+        );
+        // A name Obsidian forbids, so the vault stays openable there.
+        assert!(vault.create_dir("notes/a:b").is_err());
+        // And nothing under a dot directory is vault content.
+        assert!(vault.create_note(".shale/secret.md").is_err());
+        assert!(vault.delete(".obsidian/config.json").is_err());
+        assert!(vault.exists(".obsidian/config.json"));
+        Ok(())
+    }
+
+    #[test]
+    fn delete_refuses_a_folder_and_a_folder_with_notes_in_it() -> Result<()> {
+        let (_dir, vault) = fixture()?;
+        assert!(
+            vault.delete("notes").is_err(),
+            "a folder is not a note, and deleting one recursively is not `delete`"
+        );
+        assert!(vault.delete_dir("notes").is_err(), "it still holds notes");
+        assert!(vault.exists("notes/Another Note.md"));
+        vault.create_dir("empty")?;
+        vault.delete_dir("empty")?;
+        assert!(!vault.resolve("empty")?.exists());
+        assert!(
+            vault.delete_dir("Welcome.md").is_err(),
+            "that is not a folder"
+        );
+        Ok(())
     }
 }
