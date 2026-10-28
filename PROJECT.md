@@ -1295,12 +1295,24 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   from the text that was painted there), and the window opens a panel only when
   that offset is inside a marked range and the editor is in normal mode. Insert
   mode is typing, so the pointer never takes the keyboard then.
+  **The way down to a row is not a way away from the word.** A live try found the
+  panel vanishing as soon as the pointer moved to click a fix: it hangs *below* the
+  word, so the short trip from the word to one of its rows crosses text the checker
+  never marked, and leaving a marked word closed the panel. Now, when nothing is
+  marked under the pointer, the panel is kept if the pointer is at the height the
+  panel was drawn at — `popup_placed`, the bounds the render recorded, rather than a
+  guess below the line, because near the bottom of the window `snap_to_window`
+  draws it above the line instead. Only the height is compared, not the column: a
+  marked word near the right end of a long line sits above the space *beside* the
+  panel, and walking straight down from it is just as much the way to a row.
+  Moving sideways along the line still dismisses it.
   **Only one popup, and it always closes.** The window holds one
   `Option<Entity<Popup>>`; opening another replaces it. A prompt or a picker closes
   it on the way in (they are modal in a way a panel is not), and no panel opens
   while one of them is up. Every exit goes through `close_popup`, which hands the
   keyboard back to whatever had it — `escape`, a chosen row, the pointer leaving the
-  word it was opened over, the checker withdrawing its note, another note opening.
+  word it was opened over (but not on its way down to a row), the checker
+  withdrawing its note, another note opening.
   The one path with no window to refocus with (the file watcher) leaves the focus
   in `pending_focus` and the next frame does it through `window.defer`, which is
   why "closing always returns the keyboard" stays true rather than being true
@@ -1366,16 +1378,18 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   is no key-injection tool allowed here — but `choosing_an_offer_rewrites_the_note`
   covers it headlessly, including that one `u` undoes the whole fix.
   **Tests:** core 218 (was 216) — `K` outside a table asks for the note and moves
-  nothing, `K` inside one moves a row. App 133 (was 112): `lsp/` gained the fix
+  nothing, `K` inside one moves a row. App 135 (was 112): `lsp/` gained the fix
   mapping (a quickfix carrying its edit and its command, a bare command carrying
   neither edit, an edit to another document dropped, positions round-tripping
-  through bytes, the ordering test above) and `tests/popup.rs` has fourteen: `K`
+  through bytes, the ordering test above) and `tests/popup.rs` has sixteen: `K`
   opens the right note, `K` on a plain word opens nothing, a second question
   replaces the panel, `escape` closes it *and* returns the keyboard (proven by the
   next `x` deleting a character), a picker closes it, a chosen offer rewrites the
   note as one undo step, an offer with no edit still closes the panel, the pointer
   opens and closes it, hovering while typing says nothing, a `K`-asked panel
-  outlives the pointer, a withdrawn note takes the panel with it, another note ends
+  outlives the pointer, the pointer can walk from the word down onto the panel —
+  including from a word beside the panel rather than above it — a withdrawn note
+  takes the panel with it, another note ends
   it (and the deferred refocus gives the keyboard back), and the panel follows its
   line off screen.
 - **More theme colours to add (the roles everything currently borrows).** Four
