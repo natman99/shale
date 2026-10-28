@@ -35,20 +35,65 @@ Shale's own `dark`/`light` and the Catppuccin flavours are hand-written in the
 import os
 
 FIELDS = [
-    "bg", "fg", "cursor", "selection", "link", "link_unresolved", "dim",
-    "heading", "quote", "accent", "tag", "code_bg", "code_block_bg",
-    "highlight_bg", "match_text", "table_line", "table_header_bg", "callout_bg",
-    "ui_bg",
-    "ui_status_bg", "ui_border", "ui_hover_bg", "ui_active_bg", "callout_note",
+    "bg", "fg", "cursor", "cursor_line_bg", "selection", "link",
+    "link_unresolved", "dim", "heading", "quote", "accent", "tag", "spell",
+    "code_bg", "code_block_bg", "code_text", "code_comment", "code_keyword",
+    "code_string", "code_number", "code_function", "code_type", "code_const",
+    "code_operator", "highlight_bg", "match_text", "table_line",
+    "table_header_bg", "callout_bg", "ui_bg", "ui_fg", "ui_dim",
+    "ui_status_bg", "ui_border", "ui_active_border", "ui_hover_bg",
+    "ui_active_bg", "ui_field_bg", "ui_tab_bg", "ui_tab_active_bg",
+    "popup_bg", "popup_border", "popup_hover_bg", "graph_node",
+    "graph_node_active", "graph_edge", "graph_text", "callout_note",
     "callout_teal", "callout_question", "callout_warning", "callout_failure",
     "callout_danger",
 ]
 
-# The floors in `theme::tests::the_built_in_palettes_are_readable`.
+# The floors in `theme::tests::the_built_in_palettes_are_readable`, as
+# field -> (the role it is drawn over, floor). Most roles are judged against the
+# note's background; the `code_*` tokens against the code block's, and the
+# `ui_*` ones against the window's. A token colour only has to be
+# distinguishable from the code around it -- `code_text` carries the body-text
+# floor -- because every family's own syntax theme, not Shale, is the authority
+# on what its tokens look like.
 FLOORS = {
-    "fg": 4.5, "heading": 4.5, "link": 3.0, "tag": 3.0, "quote": 2.5,
-    "dim": 2.0, "link_unresolved": 2.0,
+    "fg": ("bg", 4.5), "heading": ("bg", 4.5), "link": ("bg", 3.0),
+    "tag": ("bg", 3.0), "quote": ("bg", 2.5), "dim": ("bg", 2.0),
+    "link_unresolved": ("bg", 2.0), "spell": ("bg", 2.0),
+    "code_text": ("code_block_bg", 4.0),
+    "code_comment": ("code_block_bg", 2.0),
+    "code_keyword": ("code_block_bg", 2.0),
+    "code_string": ("code_block_bg", 2.0),
+    "code_number": ("code_block_bg", 2.0),
+    "code_function": ("code_block_bg", 2.0),
+    "code_type": ("code_block_bg", 2.0),
+    "code_const": ("code_block_bg", 2.0),
+    "code_operator": ("code_block_bg", 2.0),
+    "ui_fg": ("ui_bg", 4.5), "ui_dim": ("ui_bg", 2.0),
+    "ui_active_border": ("ui_bg", 1.2), "ui_tab_bg": ("ui_bg", 1.1),
+    "ui_tab_active_bg": ("ui_bg", 1.25),
+    "popup_bg": ("bg", 1.1), "popup_border": ("popup_bg", 1.2),
+    "graph_node": ("bg", 1.5), "graph_node_active": ("bg", 2.0),
+    "graph_edge": ("bg", 1.1), "graph_text": ("bg", 2.5),
 }
+
+# A background role and the text role drawn on it, as (background, text, floor,
+# what the reader is reading). A highlighted row gets a lower floor than body
+# text: it is transient, its text is short, and it has to be *visible* against
+# the surface it sits on, which for a palette whose text is a mid-tone is a pull
+# in the other direction. `cursor_line_bg` is here as a pair against the note
+# because what has to hold is that the band is visible at all; Solarized's own
+# tone table rates body text on its secondary background as less than optimal,
+# which is why that pair's floor is 4.0 rather than 4.5.
+PAIRS = [
+    ("ui_status_bg", "ui_fg", 4.5, "the status bar's text"),
+    ("ui_field_bg", "ui_fg", 4.5, "what you type in the prompt field"),
+    ("ui_tab_active_bg", "ui_fg", 3.0, "the open tab's label"),
+    ("popup_bg", "ui_fg", 4.5, "the panel's text"),
+    ("popup_hover_bg", "ui_fg", 3.5, "a panel row's text"),
+    ("cursor_line_bg", "fg", 4.0, "text on the cursor's line"),
+    ("bg", "cursor_line_bg", 1.05, "the cursor's line itself"),
+]
 
 # `match_text` is judged against the surfaces a picker draws its rows on, not
 # against the note: an ordinary row sits on `ui_bg`, the highlighted row on
@@ -151,9 +196,17 @@ class Theme:
             return over(base_v, colour_v, alpha), "derived", label
         raise SystemExit(f"unknown spec {spec!r}")
 
-    def pick(self, field, spec, bg):
-        """Resolve a spec, trying candidates until one clears the role's floor."""
-        floor = FLOORS.get(field)
+    def pick(self, field, spec):
+        """Resolve a spec, trying candidates until one clears the role's floor.
+
+        The background the role is judged against is the one `FLOORS` names for
+        it, already settled by the time `build` reaches the role.
+        """
+        floor = None
+        bg = 0
+        if field in FLOORS:
+            bg_field, floor = FLOORS[field]
+            bg = self.chosen[bg_field][0]
         specs = spec[1] if isinstance(spec, tuple) and spec[0] == "cand" else [spec]
         tried = []
         for inner in specs:
@@ -163,8 +216,8 @@ class Theme:
             if floor is None or ratio > floor:
                 return v, kind, label
         self.problems.append(
-            f"{self.name}: {field} has no colour clearing {floor}: "
-            + "; ".join(tried))
+            f"{self.name}: {field} has no colour clearing {floor} on "
+            f"{FLOORS[field][0]}: " + "; ".join(tried))
         v, kind, label = self.resolve(specs[0])
         return v, kind, label
 
@@ -187,30 +240,27 @@ class Theme:
     def build(self):
         self.problems = []
         self.chosen = {}
-        bg = self.pick("bg", self.roles["bg"], 0)[0]
+        self.chosen["bg"] = self.resolve(self.roles["bg"])
         # The picker's two surfaces are needed by `match_text`, which sits
-        # earlier in FIELDS than they do, so they are settled up front.
+        # earlier in FIELDS than they do, so they are settled up front. So is
+        # `ui_bg`, which every `ui_*` role is judged against.
         for field in MATCH_BGS:
-            self.chosen[field] = self.pick(field, self.roles[field], bg)
+            self.chosen[field] = self.pick(field, self.roles[field])
         for field in FIELDS:
             if field in self.chosen:
                 continue
             if field == "match_text":
                 self.chosen[field] = self.pick_match(field, self.roles[field])
                 continue
-            if field == "bg":
-                value, kind, label = self.resolve(self.roles["bg"])
-                self.chosen[field] = (value, kind, label)
-                continue
-            if field == "ui_status_bg":
-                v, kind, label = self.resolve(self.roles[field])
-                if contrast(self.chosen["fg"][0], v) <= 4.5:
-                    self.problems.append(
-                        f"{self.name}: note text on ui_status_bg {label} is "
-                        f"{contrast(self.chosen['fg'][0], v):.2f}, needs 4.5")
-                self.chosen[field] = (v, kind, label)
-                continue
-            self.chosen[field] = self.pick(field, self.roles[field], bg)
+            self.chosen[field] = self.pick(field, self.roles[field])
+        # The pairs are checked once everything is chosen, since either half may
+        # sit anywhere in FIELDS.
+        for bg_field, text_field, floor, what in PAIRS:
+            ratio = contrast(self.chosen[bg_field][0], self.chosen[text_field][0])
+            if ratio <= floor:
+                self.problems.append(
+                    f"{self.name}: {what} is {ratio:.2f} on "
+                    f"{bg_field}, needs {floor}")
         return self.chosen
 
     def rust(self):
@@ -228,14 +278,11 @@ class Theme:
         return "\n".join(out)
 
     def report(self):
-        bg = self.chosen["bg"][0]
-        rows = [f"{field} {contrast(bg, self.chosen[field][0]):.2f}"
+        rows = [f"{field} {contrast(self.chosen[FLOORS[field][0]][0], self.chosen[field][0]):.2f}"
                 for field in FLOORS]
-        rows.append("status " + format(
-            contrast(self.chosen["fg"][0], self.chosen["ui_status_bg"][0]), ".2f"))
-        rows += [f"match_{f[3:]} " + format(
-            contrast(self.chosen[f][0], self.chosen["match_text"][0]), ".2f")
-            for f in MATCH_BGS]
+        rows += [f"{b}/{t} " + format(
+            contrast(self.chosen[b][0], self.chosen[t][0]), ".2f")
+            for b, t, _, _ in PAIRS]
         return f"{self.name:<18} " + " ".join(rows)
 
 
@@ -299,6 +346,39 @@ def tokyo_roles():
         "callout_warning": "yellow",
         "callout_failure": "orange",
         "callout_danger": "red",
+        # Tokyo Night's own token colours, as its README names them: magenta
+        # keywords, green strings, orange constants, blue functions, the brighter
+        # blue for types, cyan for constants and markup.
+        "cursor_line_bg": ("blend", "bg", "sel", 0.25,
+                           "the selection shade again, more faintly: a band"),
+        "spell": "red",
+        "code_text": "fg",
+        "code_comment": "comment",
+        "code_keyword": "magenta",
+        "code_string": "green",
+        "code_number": "orange",
+        "code_function": "blue",
+        "code_type": "blue1",
+        "code_const": "cyan",
+        "code_operator": "fg_dark",
+        "ui_fg": "fg",
+        "ui_dim": "fg_dark",
+        "ui_field_bg": "bg_highlight",
+        "ui_active_border": "blue",
+        "ui_tab_bg": "bg_highlight",
+        "ui_tab_active_bg": "sel",
+        # The raised pane reads against the default variant's background but not
+        # against Storm's lighter one, which is a hair brighter than its own
+        # highlight, so Storm falls back to the gutter shade.
+        "popup_bg": ("cand", ["bg_highlight", "fg_gutter"]),
+        # The gutter shade is the theme's rule colour; Storm's panel fell back
+        # to that same shade, so its rule steps up to the brighter gutter grey.
+        "popup_border": ("cand", ["fg_gutter", "dark5"]),
+        "popup_hover_bg": ("blend", "bg_highlight", "fg", 0.12),
+        "graph_node": "blue",
+        "graph_node_active": "cyan",
+        "graph_edge": "fg_gutter",
+        "graph_text": "fg_dark",
     }
 
 
@@ -356,6 +436,37 @@ def gruvbox_roles():
         "callout_warning": "yellow",
         "callout_failure": "orange",
         "callout_danger": "red",
+        # Gruvbox's own highlight groups: `Comment` gray, `String` and
+        # `Function` green, `Number` and `Constant` purple, `Type` yellow,
+        # `Identifier` blue, `Special` aqua, `CursorLine` bg1. It has seven
+        # accents for eight token roles, so strings and functions share green
+        # and constants and numbers share purple, exactly as upstream does.
+        "cursor_line_bg": "bg1",
+        "spell": "red",
+        "code_text": "fg1",
+        "code_comment": "gray",
+        "code_keyword": "blue",
+        "code_string": "green",
+        "code_number": "purple",
+        "code_function": "green",
+        "code_type": "yellow",
+        "code_const": "purple",
+        "code_operator": "aqua",
+        "ui_fg": "fg1",
+        # fg4 is the faintest text in dark mode and too faint on the chrome's
+        # own pane, so dark mode takes gray and light mode keeps fg4.
+        "ui_dim": ("cand", ["fg4", "gray"]),
+        "ui_field_bg": "bg2",
+        "ui_active_border": "yellow",
+        "ui_tab_bg": "bg2",
+        "ui_tab_active_bg": "bg3",
+        "popup_bg": "bg1",
+        "popup_border": "bg3",
+        "popup_hover_bg": ("blend", "bg1", "fg1", 0.12),
+        "graph_node": "blue",
+        "graph_node_active": "orange",
+        "graph_edge": "bg3",
+        "graph_text": "fg3",
     }
 
 
@@ -436,6 +547,37 @@ def rose_pine_roles(dawn):
         "callout_warning": "gold",
         "callout_failure": "rose",
         "callout_danger": "love",
+        # Rosé Pine names its colours for jobs, and the tokens follow them: iris
+        # for variables and imports, pine for strings, gold for numbers, love
+        # for functions, foam for types, rose for constants.
+        "cursor_line_bg": ("overlay" if dawn else "surface"),
+        "spell": "love",
+        "code_text": "text",
+        "code_comment": "muted",
+        "code_keyword": "iris",
+        "code_string": "pine",
+        "code_number": ("cand", ["gold", "rose", "pine"]),
+        "code_function": "love",
+        "code_type": "foam",
+        "code_const": "rose",
+        "code_operator": "subtle",
+        "ui_fg": "text",
+        "ui_dim": "subtle",
+        "ui_field_bg": ("overlay" if dawn else "surface"),
+        "ui_active_border": "rose",
+        # The three backgrounds are within a whisker of each other, so a tab and
+        # a panel are the recessed pane with the text colour blended into it.
+        "ui_tab_bg": ("cand", ["overlay", ("blend", "overlay", "text", 0.10)]),
+        "ui_tab_active_bg": ("blend", "overlay", "text", 0.22),
+        "popup_bg": ("cand", ["overlay", ("blend", "overlay", "text", 0.10),
+                              ("blend", "overlay", "text", 0.20)]),
+        "popup_border": "rose",
+        "popup_hover_bg": ("blend", "overlay", "text", 0.12),
+        "graph_node": "iris",
+        "graph_node_active": "gold",
+        "graph_edge": ("cand", ["overlay",
+                                ("blend", "overlay", "text", 0.15)]),
+        "graph_text": "subtle",
     }
 
 
@@ -456,6 +598,11 @@ def one(hue, sat, bright, mono, hues, light_variant):
         guide = 0.20
         renamed, added = hsl(208, 100, 66), hsl(132, 60, 44)
         modified = hsl(40, 90, 50)
+        # LESS cannot lighten a 98% background, so every raised surface here is
+        # a lowered one; the tab and panel shades are steps down the same ramp.
+        cursorline = drop(h, s, l, 5)
+        tab, tab_active = drop(h, s, l, 12), drop(h, s, l, 20)
+        panel = drop(h, s, l, 12)
     else:
         gutter = drop(h, m1[0], m1[1], 26)     # darken(@syntax-fg, 26%)
         sel, code_bg = lift(h, s, l, 10), lift(h, s, l, 8)
@@ -465,6 +612,9 @@ def one(hue, sat, bright, mono, hues, light_variant):
         guide = 0.15
         renamed, added = hsl(208, 100, 60), hsl(150, 60, 54)
         modified = hsl(40, 60, 70)
+        cursorline = lift(h, s, l, 6)
+        tab, tab_active = panes, lift(h, s, l, 10)
+        panel = panes
     fg = hsl(h, m1[0], m1[1])
     guide_v = over(hsl(h, s, l), fg, guide)
     # A query's matched characters take the theme's warm end: `modified` (a soft
@@ -511,6 +661,44 @@ def one(hue, sat, bright, mono, hues, light_variant):
         "callout_warning": ("val", modified, "the theme's modified colour"),
         "callout_failure": ("val", orange, "orange"),
         "callout_danger": ("val", red, "red"),
+        # One Dark's eight hues are its syntax theme: purple keywords, green
+        # strings, orange numbers and constants, blue functions, yellow types,
+        # cyan operators, mono-3 comments. The UI shades come from the *-ui
+        # packages: the app levels, the raised panel, the selection.
+        "cursor_line_bg": ("val", cursorline,
+                           "the note background one step off: a band"),
+        "spell": ("val", red, "red"),
+        "code_text": ("val", fg, "mono-1"),
+        "code_comment": ("val", hsl(h, m3[0], m3[1]), "mono-3, the comment colour"),
+        "code_keyword": ("val", purple, "purple"),
+        "code_string": ("val", green, "green"),
+        "code_number": ("val", orange, "orange"),
+        "code_function": ("val", blue, "blue"),
+        "code_type": ("cand", [("val", modified, "the theme's modified colour"),
+                               ("val", orange, "orange"),
+                               ("val", orange2, "orange's lighter twin")]),
+        "code_const": ("cand", [("val", orange2, "orange's lighter twin"),
+                                ("val", red2, "red's darker twin")]),
+        "code_operator": ("val", cyan, "cyan"),
+        "ui_fg": ("val", fg, "mono-1"),
+        "ui_dim": ("val", hsl(h, m2[0], m2[1]), "mono-2"),
+        "ui_field_bg": ("val", code_bg, "one step off the note background"),
+        "ui_active_border": ("val", accent, "the theme's accent"),
+        "ui_tab_bg": ("val", tab, None),
+        "ui_tab_active_bg": ("val", tab_active, None),
+        "popup_bg": ("val", panel, None),
+        "popup_border": ("val", over(panel, fg, 0.35),
+                        f"{hx(fg)} at 35% over the panel"),
+        "popup_hover_bg": ("val", over(panel, fg, 0.12),
+                           f"the panel with mono-1 at 12%"),
+        "graph_node": ("val", purple, "purple"),
+        "graph_node_active": ("cand", [("val", modified, "the theme's modified colour"),
+                                       ("val", orange, "orange"),
+                                       ("val", red2, "red's darker twin")]),
+        "graph_edge": ("val", guide_v, "a rule is what the theme draws as a guide"),
+        # mono-2 is 2.3:1 on the note, under the floor for a label, so the
+        # graph's labels take the body colour.
+        "graph_text": ("val", fg, "mono-1"),
     }
 
 
@@ -585,6 +773,34 @@ THEMES = [
         "callout_warning": "yellow",
         "callout_failure": "orange",
         "callout_danger": "red",
+        # The light theme's own token shades, taken from what the VS Code file
+        # paints each token with; `line_hl` is the theme's own line highlight.
+        "cursor_line_bg": "line_hl",
+        "spell": "red",
+        "code_text": "fg",
+        "code_comment": "comment",
+        "code_keyword": "purple",
+        "code_string": "green",
+        "code_number": "orange",
+        "code_function": "link",
+        "code_type": "teal",
+        "code_const": "deep_cyan",
+        "code_operator": "quote",
+        "ui_fg": "fg_strong",
+        "ui_dim": "muted",
+        "ui_field_bg": "code_bg",
+        "ui_active_border": "link",
+        # The theme's chrome shades are all within a hair of each other, so the
+        # tabs are the chrome with its own foreground blended into it.
+        "ui_tab_bg": ("blend", "chrome", "fg", 0.14),
+        "ui_tab_active_bg": ("blend", "chrome", "fg", 0.26),
+        "popup_bg": "deep",
+        "popup_border": "ln",
+        "popup_hover_bg": ("blend", "deep", "fg", 0.12),
+        "graph_node": "link",
+        "graph_node_active": "deep_cyan",
+        "graph_edge": "ln",
+        "graph_text": "quote",
     }, notes={
         "cursor": "the theme's dark cyan, since its cyan has no light twin",
         "tag": "the light theme's green: a tag is not a link here",
@@ -641,6 +857,41 @@ THEMES = [
         "callout_warning": "nord13",
         "callout_failure": "nord12",
         "callout_danger": "nord11",
+        # Nord says what its four groups are for, and the tokens follow that:
+        # Frost (nord7-10) for the parts of a program a reader navigates --
+        # nord8 functions, nord7 types -- and Aurora (nord11-15) for the parts
+        # it marks -- nord15 keywords, nord14 strings, nord13 numbers, nord12
+        # constants. Comments take nord3 lifted toward nord4, as the quiet text
+        # roles here already do: nord3 alone is 1.7:1 on its own pane.
+        "cursor_line_bg": ("blend", "nord0", "nord4", 0.08,
+                           "nord4 barely into nord0: a band, not a surface"),
+        "spell": "nord11",
+        "code_text": "nord4",
+        "code_comment": ("cand", [("blend", "nord3", "nord4", a) for a in
+                                  (0.35, 0.50, 0.65)]),
+        "code_keyword": "nord15",
+        "code_string": "nord14",
+        "code_number": "nord13",
+        "code_function": "nord8",
+        "code_type": "nord7",
+        "code_const": "nord12",
+        "code_operator": ("cand", ["nord10", "nord9"]),
+        "ui_fg": "nord4",
+        "ui_dim": ("cand", [("blend", "nord3", "nord4", a) for a in
+                            (0.45, 0.60)]),
+        "ui_field_bg": "nord2",
+        "ui_active_border": "nord8",
+        "ui_tab_bg": "nord3",
+        "ui_tab_active_bg": ("blend", "nord3", "nord4", 0.20),
+        "popup_bg": "nord2",
+        "popup_border": ("cand", ["nord3",
+                                  ("blend", "nord2", "nord4", 0.35)]),
+        "popup_hover_bg": ("blend", "nord2", "nord4", 0.12),
+        "graph_node": "nord8",
+        "graph_node_active": "nord13",
+        "graph_edge": "nord2",
+        "graph_text": ("cand", [("blend", "nord3", "nord4", a) for a in
+                                (0.45, 0.60)]),
     }, notes={"ui_status_bg": "Nord has no pane deeper than nord1"}),
     Theme("dracula", "PALETTE", "dracula", [
         "Dracula: the dark pastel palette, on Background `#282a36`.",
@@ -675,6 +926,38 @@ THEMES = [
         "callout_warning": "yellow",
         "callout_failure": "orange",
         "callout_danger": "red",
+        # Dracula publishes what each accent is for, and the tokens follow it:
+        # Purple keywords, Green strings, Orange numbers, Cyan functions,
+        # Yellow types, Pink constants, Red operators. Current Line is already
+        # the cursor-line shade; everything between the eleven colours is a
+        # blend of Comment into Background, commented as such.
+        "cursor_line_bg": "current_line",
+        "spell": "red",
+        "code_text": "fg",
+        "code_comment": "comment",
+        "code_keyword": "purple",
+        "code_string": "green",
+        "code_number": "orange",
+        "code_function": "cyan",
+        "code_type": "yellow",
+        "code_const": "pink",
+        "code_operator": "red",
+        "ui_fg": "fg",
+        # Comment is the palette's only quiet colour and it is too faint on a
+        # raised tab, so the hint colour is Comment lifted toward Foreground.
+        "ui_dim": ("blend", "comment", "fg", 0.35,
+                   "Comment lifted 35% toward Foreground"),
+        "ui_field_bg": "current_line",
+        "ui_active_border": "pink",
+        "ui_tab_bg": "current_line",
+        "ui_tab_active_bg": ("blend", "current_line", "comment", 0.45),
+        "popup_bg": ("blend", "bg", "comment", 0.35),
+        "popup_border": ("blend", "bg", "comment", 0.60),
+        "popup_hover_bg": ("blend", "bg", "comment", 0.55),
+        "graph_node": "purple",
+        "graph_node_active": "orange",
+        "graph_edge": ("blend", "bg", "comment", 0.40),
+        "graph_text": "comment",
     }),
     Theme("solarized", "DARK", "solarized-dark", [
         "Solarized dark: base0 `#839496` on base03 `#002b36`.",
@@ -717,6 +1000,39 @@ THEMES = [
         "callout_warning": "yellow",
         "callout_failure": "orange",
         "callout_danger": "red",
+        # Solarized's eight accents carry meanings, and the tokens follow them:
+        # green statements, cyan literals, orange numbers, blue identifiers and
+        # functions, yellow types, violet the reserved constant, red operators.
+        # base02 is the palette's own "background line", and its text ladder
+        # steps one rung brighter on a secondary background -- base1 rather than
+        # base0 for the window -- which is what its tone table says to do.
+        "cursor_line_bg": "base02",
+        "spell": "red",
+        "code_text": "base0",
+        "code_comment": "base01",
+        "code_keyword": "green",
+        "code_string": ("cand", ["cyan", "blue"]),
+        "code_number": "orange",
+        "code_function": "blue",
+        "code_type": "yellow",
+        "code_const": ("cand", ["violet", "magenta"]),
+        "code_operator": ("cand", ["red", "orange"]),
+        "ui_fg": "base1",
+        "ui_dim": "base01",
+        "ui_field_bg": "base03",
+        "ui_active_border": "blue",
+        "ui_tab_bg": ("blend", "base02", "base01", 0.25),
+        "ui_tab_active_bg": ("blend", "base02", "base01", 0.35),
+        # base02 is the palette's raised pane; the panel has to read against the
+        # note, and this is the shade Solarized itself puts text on. The field
+        # you type in is cut from the note's own background.
+        "popup_bg": "base02",
+        "popup_border": "base01",
+        "popup_hover_bg": ("blend", "base02", "base1", 0.10),
+        "graph_node": "blue",
+        "graph_node_active": "orange",
+        "graph_edge": "base01",
+        "graph_text": "base00",
     }),
     Theme("solarized", "LIGHT", "solarized-light", [
         "Solarized light: the ladder upside down, base01 `#586e75` on base3",
@@ -756,6 +1072,34 @@ THEMES = [
         "callout_warning": "yellow",
         "callout_failure": "orange",
         "callout_danger": "red",
+        # The same accent meanings as the dark mode, with the neutral ladder
+        # upside down: base01 is the body text, base02 the tone for text on a
+        # secondary background, and base1 the faintest rule.
+        "cursor_line_bg": ("blend", "base3", "base01", 0.08,
+                           "base01 barely into base3: a band, not a surface"),
+        "spell": "red",
+        "code_text": "base01",
+        "code_comment": ("cand", ["base1", "base01"]),
+        "code_keyword": "green",
+        "code_string": ("cand", ["cyan", "blue"]),
+        "code_number": "orange",
+        "code_function": "blue",
+        "code_type": "yellow",
+        "code_const": ("cand", ["violet", "magenta"]),
+        "code_operator": ("cand", ["red", "orange"]),
+        "ui_fg": "base02",
+        "ui_dim": ("cand", ["base1", "base01"]),
+        "ui_field_bg": "base3",
+        "ui_active_border": "blue",
+        "ui_tab_bg": ("blend", "base2", "base01", 0.30),
+        "ui_tab_active_bg": ("blend", "base2", "base01", 0.45),
+        "popup_bg": ("blend", "base2", "base01", 0.12),
+        "popup_border": "base1",
+        "popup_hover_bg": ("blend", "base2", "base01", 0.35),
+        "graph_node": "blue",
+        "graph_node_active": "orange",
+        "graph_edge": ("cand", ["base1", "base01"]),
+        "graph_text": "base00",
     }),
     Theme("one", "DARK", "one-dark", [
         "One Dark: Atom's palette, on `hsl(220, 13%, 18%)` = `#282c34`.",

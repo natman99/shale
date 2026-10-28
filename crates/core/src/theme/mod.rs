@@ -44,11 +44,19 @@ pub mod tokyo_night;
 /// The directory under the vault root where theme files live.
 pub const THEME_DIR: &str = ".shale/themes";
 
-/// Every colour the editor draws, as 0xRRGGBB.
+/// Every colour the editor draws, or will draw, as 0xRRGGBB.
 ///
 /// The names describe roles, not hues, because a theme will reuse the same role
 /// for very different colours: `dim` is syntax punctuation in both the dark and
 /// the light palette even though one is grey and the other is a dark warm grey.
+///
+/// A theme file only has to name the roles it cares about, so a longer list is
+/// cheap for a theme author. Some roles are not painted yet -- the `code_*`
+/// token colours wait on tree-sitter, the `graph_*` colours on the graph view,
+/// `ui_tab_*` on tabs and `cursor_line_bg` on a current-line highlight -- and
+/// are here so that adding those features does not mean re-cutting twenty
+/// palettes one role at a time. [`crate::theme::tests`] still judges every role
+/// in every built-in, so a reserved colour is a usable one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Palette {
@@ -58,6 +66,8 @@ pub struct Palette {
     pub fg: u32,
     /// The normal-mode cursor block.
     pub cursor: u32,
+    /// Background band across the line the cursor sits on: vim's `cursorline`.
+    pub cursor_line_bg: u32,
     /// Visual-mode selection.
     pub selection: u32,
     /// A wiki-link that names an existing note.
@@ -74,10 +84,34 @@ pub struct Palette {
     pub accent: u32,
     /// A `#tag`.
     pub tag: u32,
+    /// The wavy underline the spell and grammar checker marks a word with.
+    ///
+    /// Kept apart from [`Self::callout_danger`] because a checker's squiggle is
+    /// a note about the text rather than an error in it: a theme may want it in
+    /// a quieter colour, or in the colour of its warning rather than its error.
+    pub spell: u32,
     /// Background of an inline code span.
     pub code_bg: u32,
     /// Background of a fenced code block's lines.
     pub code_block_bg: u32,
+    /// Ordinary text inside a fenced code block.
+    pub code_text: u32,
+    /// A comment inside a fenced code block.
+    pub code_comment: u32,
+    /// A control or declaration keyword inside a fenced code block.
+    pub code_keyword: u32,
+    /// A string literal inside a fenced code block.
+    pub code_string: u32,
+    /// A number literal inside a fenced code block.
+    pub code_number: u32,
+    /// A function name or call inside a fenced code block.
+    pub code_function: u32,
+    /// A type, class or interface name inside a fenced code block.
+    pub code_type: u32,
+    /// A constant, builtin or symbol inside a fenced code block.
+    pub code_const: u32,
+    /// An operator or delimiter inside a fenced code block.
+    pub code_operator: u32,
     /// Background of `==highlighted==` text.
     pub highlight_bg: u32,
     /// The characters a picker's query matched, drawn as text in this colour
@@ -104,6 +138,45 @@ pub struct Palette {
     pub ui_hover_bg: u32,
     /// The file-tree row that names the open note.
     pub ui_active_bg: u32,
+    /// Text drawn on a window surface rather than in the note: the sidebar's
+    /// rows, a picker's rows, the status bar and a tab's label. It is separate
+    /// from [`Self::fg`] because the note's text colour is chosen against the
+    /// note's background, and a theme may want its chrome to read quieter.
+    pub ui_fg: u32,
+    /// Quiet text on a window surface: a picker's hint line, a field's
+    /// placeholder, a panel's source label. The chrome's [`Self::dim`].
+    pub ui_dim: u32,
+    /// Background of the text field a picker or the `:` prompt types into.
+    ///
+    /// Not [`Self::code_block_bg`], which it used to borrow: a field is a
+    /// control in the window, not a span of code in the note.
+    pub ui_field_bg: u32,
+    /// The rule around whatever the window currently has the keyboard: the
+    /// focused pane of a split, the focused field. [`Self::ui_border`] is the
+    /// same rule where it does not.
+    pub ui_active_border: u32,
+    /// A tab that does not hold the open note.
+    pub ui_tab_bg: u32,
+    /// The tab that holds the open note.
+    pub ui_tab_active_bg: u32,
+    /// Background of the note's popup panel: the checker's answer to `K`.
+    ///
+    /// Separate from [`Self::ui_bg`] so a theme can make a panel read
+    /// differently from a picker, and so the panel stays legible over the note
+    /// it floats above rather than only over the window's chrome.
+    pub popup_bg: u32,
+    /// The rule around that panel.
+    pub popup_border: u32,
+    /// The panel's row under the pointer, or the one the keyboard is on.
+    pub popup_hover_bg: u32,
+    /// A note's dot in the graph view.
+    pub graph_node: u32,
+    /// The graph's focused or hovered node.
+    pub graph_node_active: u32,
+    /// A wiki-link's line between two nodes in the graph.
+    pub graph_edge: u32,
+    /// A node's label in the graph.
+    pub graph_text: u32,
     /// Callout accents: the left bar and title of a box, by callout type.
     pub callout_note: u32,
     /// Abstract and example callouts.
@@ -124,6 +197,8 @@ impl Palette {
         bg: 0x1e1e1e,
         fg: 0xd4d4d4,
         cursor: 0xaeafad,
+        // One step up from the note's own background: a band, not a highlight.
+        cursor_line_bg: 0x242424,
         selection: 0x264f78,
         link: 0x7aa6f0,
         link_unresolved: 0x7d6f6f,
@@ -132,8 +207,24 @@ impl Palette {
         quote: 0x9aa0a6,
         accent: 0x7aa6f0,
         tag: 0x8fbf7f,
+        // The palette's error red: the checker's squiggle is the only thing
+        // that has to be red in a note, and only because it means "wrong".
+        spell: 0xe05e5e,
         code_bg: 0x2f2f2f,
         code_block_bg: 0x262626,
+        // Shale's own dark palette has no syntax theme, so the token colours are
+        // its existing accents pressed into the jobs tree-sitter will need:
+        // the note's text for ordinary code, the comment grey for comments, and
+        // the callout accents for the parts of a program a reader scans for.
+        code_text: 0xd4d4d4,
+        code_comment: 0x6b7280,
+        code_keyword: 0xc586c0,
+        code_string: 0x8fbf7f,
+        code_number: 0xe0a55e,
+        code_function: 0x7aa6f0,
+        code_type: 0x6fc7c2,
+        code_const: 0xe07a5e,
+        code_operator: 0x9aa0a6,
         highlight_bg: 0x4a3f1f,
         // The same amber `==highlight==` is drawn on, but as text: it reads on
         // both of the picker's row backgrounds, where the note's own colours do
@@ -143,10 +234,25 @@ impl Palette {
         table_header_bg: 0x2a2a2e,
         callout_bg: 0x252a33,
         ui_bg: 0x1e1e1e,
+        ui_fg: 0xd4d4d4,
+        ui_dim: 0x9aa0a6,
         ui_status_bg: 0x252526,
         ui_border: 0x3c3c3c,
+        ui_active_border: 0x7aa6f0,
         ui_hover_bg: 0x2a2a2a,
         ui_active_bg: 0x2f2f2f,
+        ui_field_bg: 0x2f2f2f,
+        ui_tab_bg: 0x2d2d30,
+        ui_tab_active_bg: 0x404046,
+        // A panel floats over the note, so it is raised above both the note and
+        // the chrome, and its own rule is one step above that.
+        popup_bg: 0x303036,
+        popup_border: 0x45454b,
+        popup_hover_bg: 0x3a3a40,
+        graph_node: 0x7aa6f0,
+        graph_node_active: 0xe0a55e,
+        graph_edge: 0x3f3f46,
+        graph_text: 0x9aa0a6,
         callout_note: 0x8ca0b3,
         callout_teal: 0x6fc7c2,
         callout_question: 0xc586c0,
@@ -161,6 +267,8 @@ impl Palette {
         bg: 0xfafafa,
         fg: 0x222228,
         cursor: 0x535353,
+        // One step down from the note's own background.
+        cursor_line_bg: 0xf2f2f4,
         selection: 0xbfd7f0,
         link: 0x17497c,
         link_unresolved: 0x7d6262,
@@ -169,8 +277,20 @@ impl Palette {
         quote: 0x545960,
         accent: 0x17497c,
         tag: 0x245824,
+        spell: 0xc03c3c,
         code_bg: 0xe8e8e8,
         code_block_bg: 0xefefef,
+        // The same accents as the dark palette, darkened to keep their contrast
+        // against a cream-white block (see `DARK`).
+        code_text: 0x222228,
+        code_comment: 0x686d76,
+        code_keyword: 0x9b4fa0,
+        code_string: 0x245824,
+        code_number: 0xb07a22,
+        code_function: 0x17497c,
+        code_type: 0x2f8f89,
+        code_const: 0xb5573a,
+        code_operator: 0x545960,
         highlight_bg: 0xf5e0a3,
         // Dark amber, as `dark` is light amber: a query's characters have to
         // clear the highlighted row, which a colour this pale would not.
@@ -179,10 +299,25 @@ impl Palette {
         table_header_bg: 0xe9e9ee,
         callout_bg: 0xeef1f6,
         ui_bg: 0xf0f0f2,
+        ui_fg: 0x222228,
+        ui_dim: 0x686d76,
         ui_status_bg: 0xe6e6e9,
         ui_border: 0xcfcfd4,
+        ui_active_border: 0x17497c,
         ui_hover_bg: 0xe4e4e8,
         ui_active_bg: 0xd8d8de,
+        // A field is a white box cut into the chrome, as it is in every light
+        // editor; the panel is a raised sheet, sunk into the note instead.
+        ui_field_bg: 0xffffff,
+        ui_tab_bg: 0xd8dbe2,
+        ui_tab_active_bg: 0xbdc2cd,
+        popup_bg: 0xdfe3ec,
+        popup_border: 0xb9bcc4,
+        popup_hover_bg: 0xd0d5e0,
+        graph_node: 0x17497c,
+        graph_node_active: 0x7a4d00,
+        graph_edge: 0xc9c9cf,
+        graph_text: 0x545960,
         callout_note: 0x5b7590,
         callout_teal: 0x2f8f89,
         callout_question: 0x9b4fa0,
@@ -257,6 +392,7 @@ impl Palette {
             bg,
             fg,
             cursor,
+            cursor_line_bg,
             selection,
             link,
             link_unresolved,
@@ -265,18 +401,41 @@ impl Palette {
             quote,
             accent,
             tag,
+            spell,
             code_bg,
             code_block_bg,
+            code_text,
+            code_comment,
+            code_keyword,
+            code_string,
+            code_number,
+            code_function,
+            code_type,
+            code_const,
+            code_operator,
             highlight_bg,
             match_text,
             table_line,
             table_header_bg,
             callout_bg,
             ui_bg,
+            ui_fg,
+            ui_dim,
             ui_status_bg,
             ui_border,
+            ui_active_border,
             ui_hover_bg,
             ui_active_bg,
+            ui_field_bg,
+            ui_tab_bg,
+            ui_tab_active_bg,
+            popup_bg,
+            popup_border,
+            popup_hover_bg,
+            graph_node,
+            graph_node_active,
+            graph_edge,
+            graph_text,
             callout_note,
             callout_teal,
             callout_question,
@@ -289,6 +448,7 @@ impl Palette {
             (&mut out.bg, bg),
             (&mut out.fg, fg),
             (&mut out.cursor, cursor),
+            (&mut out.cursor_line_bg, cursor_line_bg),
             (&mut out.selection, selection),
             (&mut out.link, link),
             (&mut out.link_unresolved, link_unresolved),
@@ -297,18 +457,41 @@ impl Palette {
             (&mut out.quote, quote),
             (&mut out.accent, accent),
             (&mut out.tag, tag),
+            (&mut out.spell, spell),
             (&mut out.code_bg, code_bg),
             (&mut out.code_block_bg, code_block_bg),
+            (&mut out.code_text, code_text),
+            (&mut out.code_comment, code_comment),
+            (&mut out.code_keyword, code_keyword),
+            (&mut out.code_string, code_string),
+            (&mut out.code_number, code_number),
+            (&mut out.code_function, code_function),
+            (&mut out.code_type, code_type),
+            (&mut out.code_const, code_const),
+            (&mut out.code_operator, code_operator),
             (&mut out.highlight_bg, highlight_bg),
             (&mut out.match_text, match_text),
             (&mut out.table_line, table_line),
             (&mut out.table_header_bg, table_header_bg),
             (&mut out.callout_bg, callout_bg),
             (&mut out.ui_bg, ui_bg),
+            (&mut out.ui_fg, ui_fg),
+            (&mut out.ui_dim, ui_dim),
             (&mut out.ui_status_bg, ui_status_bg),
             (&mut out.ui_border, ui_border),
+            (&mut out.ui_active_border, ui_active_border),
             (&mut out.ui_hover_bg, ui_hover_bg),
             (&mut out.ui_active_bg, ui_active_bg),
+            (&mut out.ui_field_bg, ui_field_bg),
+            (&mut out.ui_tab_bg, ui_tab_bg),
+            (&mut out.ui_tab_active_bg, ui_tab_active_bg),
+            (&mut out.popup_bg, popup_bg),
+            (&mut out.popup_border, popup_border),
+            (&mut out.popup_hover_bg, popup_hover_bg),
+            (&mut out.graph_node, graph_node),
+            (&mut out.graph_node_active, graph_node_active),
+            (&mut out.graph_edge, graph_edge),
+            (&mut out.graph_text, graph_text),
             (&mut out.callout_note, callout_note),
             (&mut out.callout_teal, callout_teal),
             (&mut out.callout_question, callout_question),
@@ -362,6 +545,9 @@ pub struct ThemeFile {
     /// The normal-mode cursor block.
     #[serde(default, deserialize_with = "deserialize_color")]
     pub cursor: Option<u32>,
+    /// Background band across the cursor's line.
+    #[serde(default, deserialize_with = "deserialize_color")]
+    pub cursor_line_bg: Option<u32>,
     /// Visual-mode selection.
     #[serde(default, deserialize_with = "deserialize_color")]
     pub selection: Option<u32>,
@@ -386,12 +572,42 @@ pub struct ThemeFile {
     /// A `#tag`.
     #[serde(default, deserialize_with = "deserialize_color")]
     pub tag: Option<u32>,
+    /// The checker's wavy underline.
+    #[serde(default, deserialize_with = "deserialize_color")]
+    pub spell: Option<u32>,
     /// Background of an inline code span.
     #[serde(default, deserialize_with = "deserialize_color")]
     pub code_bg: Option<u32>,
     /// Background of a fenced code block's lines.
     #[serde(default, deserialize_with = "deserialize_color")]
     pub code_block_bg: Option<u32>,
+    /// Ordinary text in a fenced code block.
+    #[serde(default, deserialize_with = "deserialize_color")]
+    pub code_text: Option<u32>,
+    /// A comment in a fenced code block.
+    #[serde(default, deserialize_with = "deserialize_color")]
+    pub code_comment: Option<u32>,
+    /// A keyword in a fenced code block.
+    #[serde(default, deserialize_with = "deserialize_color")]
+    pub code_keyword: Option<u32>,
+    /// A string literal in a fenced code block.
+    #[serde(default, deserialize_with = "deserialize_color")]
+    pub code_string: Option<u32>,
+    /// A number literal in a fenced code block.
+    #[serde(default, deserialize_with = "deserialize_color")]
+    pub code_number: Option<u32>,
+    /// A function name in a fenced code block.
+    #[serde(default, deserialize_with = "deserialize_color")]
+    pub code_function: Option<u32>,
+    /// A type name in a fenced code block.
+    #[serde(default, deserialize_with = "deserialize_color")]
+    pub code_type: Option<u32>,
+    /// A constant or builtin in a fenced code block.
+    #[serde(default, deserialize_with = "deserialize_color")]
+    pub code_const: Option<u32>,
+    /// An operator or delimiter in a fenced code block.
+    #[serde(default, deserialize_with = "deserialize_color")]
+    pub code_operator: Option<u32>,
     /// Background of `==highlighted==` text.
     #[serde(default, deserialize_with = "deserialize_color")]
     pub highlight_bg: Option<u32>,
@@ -422,6 +638,45 @@ pub struct ThemeFile {
     /// The file-tree row that names the open note.
     #[serde(default, deserialize_with = "deserialize_color")]
     pub ui_active_bg: Option<u32>,
+    /// Text on a window surface rather than in the note.
+    #[serde(default, deserialize_with = "deserialize_color")]
+    pub ui_fg: Option<u32>,
+    /// Quiet text on a window surface.
+    #[serde(default, deserialize_with = "deserialize_color")]
+    pub ui_dim: Option<u32>,
+    /// Background of a picker's or the prompt's text field.
+    #[serde(default, deserialize_with = "deserialize_color")]
+    pub ui_field_bg: Option<u32>,
+    /// The rule around the focused pane or field.
+    #[serde(default, deserialize_with = "deserialize_color")]
+    pub ui_active_border: Option<u32>,
+    /// A tab that does not hold the open note.
+    #[serde(default, deserialize_with = "deserialize_color")]
+    pub ui_tab_bg: Option<u32>,
+    /// The tab that holds the open note.
+    #[serde(default, deserialize_with = "deserialize_color")]
+    pub ui_tab_active_bg: Option<u32>,
+    /// Background of the note's popup panel.
+    #[serde(default, deserialize_with = "deserialize_color")]
+    pub popup_bg: Option<u32>,
+    /// The rule around that panel.
+    #[serde(default, deserialize_with = "deserialize_color")]
+    pub popup_border: Option<u32>,
+    /// That panel's highlighted row.
+    #[serde(default, deserialize_with = "deserialize_color")]
+    pub popup_hover_bg: Option<u32>,
+    /// A note's dot in the graph view.
+    #[serde(default, deserialize_with = "deserialize_color")]
+    pub graph_node: Option<u32>,
+    /// The graph's focused or hovered node.
+    #[serde(default, deserialize_with = "deserialize_color")]
+    pub graph_node_active: Option<u32>,
+    /// A graph edge.
+    #[serde(default, deserialize_with = "deserialize_color")]
+    pub graph_edge: Option<u32>,
+    /// A graph node's label.
+    #[serde(default, deserialize_with = "deserialize_color")]
+    pub graph_text: Option<u32>,
     /// Note callout accent.
     #[serde(default, deserialize_with = "deserialize_color")]
     pub callout_note: Option<u32>,
@@ -630,30 +885,204 @@ mod tests {
     }
 
     /// The built-in palettes have to be usable in their own right: a theme whose
-    /// text matches its background is not a theme. The thresholds are the WCAG
-    /// body-text floor for the roles a reader has to parse (note text, headings,
-    /// links, tags) and a lower bar for the roles that are meant to recede
-    /// (syntax markers, unresolved links, quoted text).
+    /// text matches its background is not a theme.
+    ///
+    /// Every role is judged against the surface it is actually drawn on, which
+    /// is the note's background for most of them, the code block's for the
+    /// `code_*` tokens, and the window's for the `ui_*` ones. The thresholds are
+    /// the WCAG body-text floor for the roles a reader has to parse (note text,
+    /// headings, links, tags, code) and a lower bar for the roles that are meant
+    /// to recede (syntax markers, unresolved links, quoted text, comments) or
+    /// only to be *distinguishable* rather than read (a rule, a tab's edge, a
+    /// graph's edges). Roles that are not painted yet are still checked, so a
+    /// reserved colour cannot quietly be a useless one.
     #[test]
     fn the_built_in_palettes_are_readable() {
+        // (role, the role it is drawn over, floor)
+        let roles = |p: &Palette| -> Vec<(&str, u32, &str, u32, f32)> {
+            vec![
+                ("note text", p.fg, "the note background", p.bg, 4.5),
+                ("heading text", p.heading, "the note background", p.bg, 4.5),
+                ("a resolved link", p.link, "the note background", p.bg, 3.0),
+                ("a tag", p.tag, "the note background", p.bg, 3.0),
+                ("quoted text", p.quote, "the note background", p.bg, 2.5),
+                ("syntax markers", p.dim, "the note background", p.bg, 2.0),
+                (
+                    "an unresolved link",
+                    p.link_unresolved,
+                    "the note background",
+                    p.bg,
+                    2.0,
+                ),
+                (
+                    "the checker's squiggle",
+                    p.spell,
+                    "the note background",
+                    p.bg,
+                    2.0,
+                ),
+                (
+                    "ordinary code",
+                    p.code_text,
+                    "the code block",
+                    p.code_block_bg,
+                    4.0,
+                ),
+                (
+                    "a code comment",
+                    p.code_comment,
+                    "the code block",
+                    p.code_block_bg,
+                    2.0,
+                ),
+                // A token colour only has to be distinguishable from the code
+                // around it: `code_text` carries the body-text floor, and every
+                // family's own syntax theme is the authority on its tokens.
+                (
+                    "a keyword",
+                    p.code_keyword,
+                    "the code block",
+                    p.code_block_bg,
+                    2.0,
+                ),
+                (
+                    "a string",
+                    p.code_string,
+                    "the code block",
+                    p.code_block_bg,
+                    2.0,
+                ),
+                (
+                    "a number",
+                    p.code_number,
+                    "the code block",
+                    p.code_block_bg,
+                    2.0,
+                ),
+                (
+                    "a function name",
+                    p.code_function,
+                    "the code block",
+                    p.code_block_bg,
+                    2.0,
+                ),
+                (
+                    "a type name",
+                    p.code_type,
+                    "the code block",
+                    p.code_block_bg,
+                    2.0,
+                ),
+                (
+                    "a constant",
+                    p.code_const,
+                    "the code block",
+                    p.code_block_bg,
+                    2.0,
+                ),
+                (
+                    "an operator",
+                    p.code_operator,
+                    "the code block",
+                    p.code_block_bg,
+                    2.0,
+                ),
+                ("window text", p.ui_fg, "the window", p.ui_bg, 4.5),
+                ("a hint line", p.ui_dim, "the window", p.ui_bg, 2.0),
+                (
+                    "a focused rule",
+                    p.ui_active_border,
+                    "the window",
+                    p.ui_bg,
+                    1.2,
+                ),
+                ("a tab", p.ui_tab_bg, "the window", p.ui_bg, 1.1),
+                (
+                    "the open tab",
+                    p.ui_tab_active_bg,
+                    "the window",
+                    p.ui_bg,
+                    1.25,
+                ),
+                ("the panel", p.popup_bg, "the note", p.bg, 1.1),
+                (
+                    "the panel's rule",
+                    p.popup_border,
+                    "the panel",
+                    p.popup_bg,
+                    1.2,
+                ),
+                ("a graph node", p.graph_node, "the note", p.bg, 1.5),
+                (
+                    "the focused node",
+                    p.graph_node_active,
+                    "the note",
+                    p.bg,
+                    2.0,
+                ),
+                ("a graph edge", p.graph_edge, "the note", p.bg, 1.1),
+                ("a node label", p.graph_text, "the note", p.bg, 2.5),
+            ]
+        };
+        // A background role and the text role drawn on it, with the floor that
+        // pair has to clear. A highlighted row gets a lower floor than body
+        // text: it is transient, its text is short, and it has to be *visible*
+        // against the surface it sits on, which for a palette whose text is a
+        // mid-tone pulls the other way. Solarized's own tone table rates body
+        // text on its secondary background as less than optimal reading, which
+        // is why the cursor's line is held to 4.0 rather than 4.5.
+        let pairs = |p: &Palette| -> Vec<(&str, u32, &str, u32, f32)> {
+            vec![
+                (
+                    "the status bar's text",
+                    p.ui_fg,
+                    "the status bar",
+                    p.ui_status_bg,
+                    4.5,
+                ),
+                (
+                    "what you type",
+                    p.ui_fg,
+                    "the prompt field",
+                    p.ui_field_bg,
+                    4.5,
+                ),
+                (
+                    "the open tab's label",
+                    p.ui_fg,
+                    "the open tab",
+                    p.ui_tab_active_bg,
+                    3.0,
+                ),
+                ("the panel's text", p.ui_fg, "the panel", p.popup_bg, 4.5),
+                (
+                    "a panel row's text",
+                    p.ui_fg,
+                    "the highlighted row",
+                    p.popup_hover_bg,
+                    3.5,
+                ),
+                (
+                    "text on the cursor's line",
+                    p.fg,
+                    "the cursor's line",
+                    p.cursor_line_bg,
+                    4.0,
+                ),
+            ]
+        };
         for (name, palette) in Palette::BUILT_INS {
-            for (role, colour, floor) in [
-                ("note text", palette.fg, 4.5),
-                ("heading text", palette.heading, 4.5),
-                ("a resolved link", palette.link, 3.0),
-                ("a tag", palette.tag, 3.0),
-                ("quoted text", palette.quote, 2.5),
-                ("syntax markers", palette.dim, 2.0),
-                ("an unresolved link", palette.link_unresolved, 2.0),
-            ] {
+            for (role, colour, on, against, floor) in roles(palette) {
                 assert!(
-                    contrast(palette.bg, colour) > floor,
-                    "{name}: {role} is too faint on the note background",
+                    contrast(against, colour) > floor,
+                    "{name}: {role} is too faint on {on}",
                 );
             }
+            // The cursor's line is a band, not a highlight: it has to be
+            // visible without competing with the text on it.
             assert!(
-                contrast(palette.ui_status_bg, palette.fg) > 4.5,
-                "{name}: the status bar draws the note's foreground colour",
+                contrast(palette.bg, palette.cursor_line_bg) > 1.05,
+                "{name}: the cursor's line is indistinguishable from the note",
             );
             // A picker's rows are drawn on the window's background, and the
             // highlighted one on `ui_active_bg`. Matched characters are short,
@@ -668,6 +1097,12 @@ mod tests {
                 contrast(palette.ui_active_bg, palette.match_text) > 2.5,
                 "{name}: a query's matched characters are too faint on the chosen row",
             );
+            for (what, colour, on, against, floor) in pairs(palette) {
+                assert!(
+                    contrast(against, colour) > floor,
+                    "{name}: {what} is too faint on {on}",
+                );
+            }
         }
         assert_ne!(Palette::DARK.bg, Palette::LIGHT.bg);
         // Every callout role reads off the palette it was given, so a theme can
