@@ -58,6 +58,9 @@ fn keymap_matches_the_linux_keystroke_shape() {
         (false, "$", "shale_editor::VimDollar"),
         (false, ".", "shale_editor::VimDot"),
         (false, "^", "shale_editor::VimCaret"),
+        // vim's command line: Linux delivers shift+`;` as the `:` keysym with
+        // the shift modifier dropped, so it is bound as the symbol itself.
+        (false, ":", "shale_editor::VimColon"),
     ] {
         let typed = gpui::Keystroke {
             modifiers: gpui::Modifiers {
@@ -177,7 +180,7 @@ fn keymap_matches_the_linux_keystroke_shape() {
         (true, true, "n", "shale::NewFolder"),
         (true, true, "r", "shale::RenameNote"),
         (true, true, "d", "shale::DeleteNote"),
-        (true, false, "b", "shale::FocusTree"),
+        (true, true, "p", "shale::CommandPalette"),
         (false, false, "j", "shale::TreeDown"),
         (false, false, "k", "shale::TreeUp"),
         (false, false, "enter", "shale::TreeOpen"),
@@ -289,6 +292,52 @@ fn resolved(keymap: &gpui::Keymap, key: &str, contexts: &[gpui::KeyContext]) -> 
         .iter()
         .map(|b| b.action().name().to_string())
         .collect()
+}
+
+/// `ctrl-w h` and `ctrl-w l` are two-stroke chords, which gpui matches natively:
+/// the first stroke is held as pending input and the second decides. Checking
+/// the held half matters, because a chord that resolved on the first stroke
+/// would move the keyboard before the user finished typing.
+#[test]
+fn the_window_chords_wait_for_their_second_stroke() {
+    let keymap = gpui::Keymap::new(keybindings());
+    let contexts = vec![gpui::KeyContext::try_from("vim-normal").unwrap()];
+    let typed = |modifiers: gpui::Modifiers, key: &str| gpui::Keystroke {
+        modifiers,
+        key: key.to_string(),
+        key_char: None,
+    };
+    let names = |bindings: &[gpui::KeyBinding]| {
+        bindings
+            .iter()
+            .map(|b| b.action().name().to_string())
+            .collect::<Vec<_>>()
+    };
+
+    let (bindings, pending) =
+        keymap.bindings_for_input(&[typed(gpui::Modifiers::control(), "w")], &contexts);
+    assert!(pending, "`ctrl-w` waits for the key that finishes it");
+    assert!(bindings.is_empty(), "and runs nothing until it arrives");
+
+    for (key, action) in [("h", "shale::WindowLeft"), ("l", "shale::WindowRight")] {
+        let (bindings, pending) = keymap.bindings_for_input(
+            &[
+                typed(gpui::Modifiers::control(), "w"),
+                typed(gpui::Modifiers::none(), key),
+            ],
+            &contexts,
+        );
+        assert!(!pending, "`ctrl-w {key}` is a complete chord");
+        assert_eq!(names(&bindings), vec![action], "`ctrl-w {key}`");
+    }
+
+    // `space` is deliberately *not* a keymap prefix: it is vim's right motion,
+    // and a `space f` chord here would make gpui hold every space until the
+    // next key. That is why the chord lives in the vim engine instead.
+    let (bindings, pending) =
+        keymap.bindings_for_input(&[typed(gpui::Modifiers::none(), "space")], &contexts);
+    assert!(!pending, "`space` is a motion, not a prefix");
+    assert_eq!(names(&bindings), vec!["shale_editor::VimSpace"]);
 }
 
 /// The table keys have to work through the real keymap, not just the core

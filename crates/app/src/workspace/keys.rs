@@ -17,9 +17,16 @@ pub(crate) fn keybindings() -> Vec<KeyBinding> {
         KeyBinding::new("ctrl-shift-n", NewFolder, None),
         KeyBinding::new("ctrl-shift-r", RenameNote, None),
         KeyBinding::new("ctrl-shift-d", DeleteNote, None),
-        KeyBinding::new("ctrl-b", FocusTree, None),
         // Quick-open: jump to a note by typing part of its name or path.
         KeyBinding::new("ctrl-o", QuickOpen, None),
+        // The command palette. `ctrl-shift-p` is the shape the user asked for;
+        // vim's `:` is bound in the note's own context (see below).
+        KeyBinding::new("ctrl-shift-p", CommandPalette, None),
+        // Moving the keyboard between panels, vim-window style. gpui matches a
+        // two-stroke binding natively: `ctrl-w` alone is kept as pending input
+        // and replayed if the next key does not finish the chord.
+        KeyBinding::new("ctrl-w h", WindowLeft, None),
+        KeyBinding::new("ctrl-w l", WindowRight, None),
     ];
     macro_rules! bind {
         ($ctx:expr, [ $( $key:literal => $action:ident ),* $(,)? ]) => {
@@ -110,6 +117,11 @@ pub(crate) fn keybindings() -> Vec<KeyBinding> {
         "shift-r" => VimUpperR,
         "shift-m" => VimUpperM,
         "shift-e" => VimUpperE,
+        // vim's command line. Shale has no ex commands yet, so `:` opens the
+        // command palette, which is the same list of commands with a fuzzy field.
+        // Linux delivers shift+`;` as the `:` keysym with shift dropped, so this
+        // is bindable directly.
+        ":" => VimColon,
     ]);
     bind!("vim-insert", [
         "escape" => VimEscape,
@@ -127,7 +139,7 @@ pub(crate) fn keybindings() -> Vec<KeyBinding> {
         "ctrl-shift-c" => CopyText,
         "ctrl-shift-v" => PasteText,
     ]);
-    // The sidebar, while it has the keyboard (`ctrl-b`). `escape` hands the
+    // The sidebar, while it has the keyboard (`ctrl-w h`). `escape` hands the
     // keyboard back to the note. The same four vault edits are bound here so a
     // folder or note can be created, renamed or deleted without leaving the tree.
     bind!("tree", [

@@ -145,7 +145,7 @@ impl EntityInputHandler for MarkdownEditor {
         &mut self,
         range_utf16: Option<Range<usize>>,
         new_text: &str,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         // Normal and visual mode swallow typed input, except for the literal
@@ -155,7 +155,7 @@ impl EntityInputHandler for MarkdownEditor {
             if self.vim.waiting_for_literal() {
                 if let Some(c) = new_text.chars().next() {
                     if new_text.chars().count() == 1 {
-                        self.normal(Key::Char(c), cx);
+                        self.normal(Key::Char(c), window, cx);
                     }
                 }
             }

@@ -88,7 +88,7 @@ fn the_tree_walks_with_j_and_k(cx: &mut TestAppContext) {
     let (_dir, window) = workspace(cx, &["Welcome.md", "notes/First.md", "notes/Second.md"]);
     let cx = &mut VisualTestContext::from_window(window.into(), cx);
 
-    cx.simulate_keystrokes("ctrl-b");
+    cx.simulate_keystrokes("ctrl-w h");
     let selected = window
         .update(cx, |ws, _window, _cx| ws.tree_selection())
         .unwrap();
@@ -123,7 +123,7 @@ fn h_closes_a_folder_and_j_steps_over_what_it_hid(cx: &mut TestAppContext) {
     let (_dir, window) = workspace(cx, &["Welcome.md", "notes/First.md"]);
     let cx = &mut VisualTestContext::from_window(window.into(), cx);
 
-    cx.simulate_keystrokes("ctrl-b h");
+    cx.simulate_keystrokes("ctrl-w h h");
     let (rows, _) = state(&window, cx);
     assert_eq!(
         rows,
@@ -144,7 +144,7 @@ fn rename_moves_the_note_on_disk(cx: &mut TestAppContext) {
     let cx = &mut VisualTestContext::from_window(window.into(), cx);
 
     // Select the row and open it, so the rename has an open note to follow.
-    cx.simulate_keystrokes("ctrl-b enter r");
+    cx.simulate_keystrokes("ctrl-w h enter r");
     // The field starts with the current stem, so only the change is typed.
     cx.simulate_input("ed");
     cx.simulate_keystrokes("enter");
@@ -166,7 +166,7 @@ fn delete_waits_for_a_yes(cx: &mut TestAppContext) {
     let (dir, window) = workspace(cx, &["Welcome.md"]);
     let cx = &mut VisualTestContext::from_window(window.into(), cx);
 
-    cx.simulate_keystrokes("ctrl-b shift-d");
+    cx.simulate_keystrokes("ctrl-w h shift-d");
     cx.simulate_input("no");
     cx.simulate_keystrokes("enter");
     assert!(

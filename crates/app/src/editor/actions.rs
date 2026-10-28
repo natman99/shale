@@ -2,7 +2,7 @@
 //! handlers its key context wires to actions. `render` binds these; the keys
 //! themselves are mapped in `crate::acts`.
 
-use gpui::{Context, Window};
+use gpui::{Action, Context, Window};
 use shale_core::continuation::{enter_action, EnterAction};
 use shale_core::mdstyle::Style;
 use shale_core::vim::{Key, Mode, Outcome};
@@ -31,7 +31,7 @@ impl MarkdownEditor {
             format!(" {count}{op}{motion}")
         }
     }
-    pub(super) fn normal(&mut self, key: Key, cx: &mut Context<Self>) {
+    pub(super) fn normal(&mut self, key: Key, window: &mut Window, cx: &mut Context<Self>) {
         let before = self.buffer.text().to_string();
         let outcome = self.vim.handle_normal_key(key, &mut self.buffer);
         let changed = self.buffer.text() != before;
@@ -55,6 +55,12 @@ impl MarkdownEditor {
                 self.refresh_links();
                 self.follow_link_at(cursor, cx);
             }
+            // The engine decided a chord that asks for something the window owns
+            // (a picker, not an edit). Dispatching the action rather than calling
+            // into the workspace is what keeps the editor free of it: the action
+            // travels up from here to the window that handles it, exactly as the
+            // key would have.
+            Outcome::QuickOpen => window.dispatch_action(QuickOpen.boxed_clone(), cx),
             Outcome::Stay | Outcome::Unhandled => {}
         }
         self.ensure_cursor_visible();
@@ -81,6 +87,13 @@ impl MarkdownEditor {
         self.buffer.clear_selection();
         self.buffer.end_undo_group();
         cx.notify();
+    }
+
+    /// `:` — vim's command line. Shale has no ex commands yet, so it opens the
+    /// command palette, which is the same list of commands with a fuzzy field in
+    /// front of it.
+    pub(super) fn on_colon(&mut self, _: &VimColon, window: &mut Window, cx: &mut Context<Self>) {
+        window.dispatch_action(CommandPalette.boxed_clone(), cx);
     }
 
     /// Enter in insert mode. Ordinary rows get a newline; a row that opens a

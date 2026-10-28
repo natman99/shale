@@ -7,6 +7,7 @@
 //! so they reach `Workspace`'s private state directly; anything one of them calls
 //! on another is `pub(super)`.
 
+pub(crate) mod commands;
 mod edits;
 mod keys;
 mod open;
@@ -14,6 +15,7 @@ mod render;
 mod tree;
 
 pub(crate) use keys::keybindings;
+pub(crate) use open::PickerTarget;
 
 use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
@@ -68,8 +70,9 @@ pub(crate) struct Workspace {
     /// palette later.
     picker: Option<Entity<picker::Picker>>,
     /// What each row of the open picker stands for, indexed the way the picker
-    /// indexes its items, so a chosen row can be turned back into a path.
-    picker_targets: Vec<PathBuf>,
+    /// indexes its items, so a chosen row can be turned back into a note to open
+    /// or a command to run.
+    picker_targets: Vec<PickerTarget>,
     /// What had the keyboard when the picker opened, so closing it puts the
     /// keyboard back where the user was working.
     picker_return_focus: Option<gpui::FocusHandle>,
@@ -225,6 +228,37 @@ impl Workspace {
         cx.notify();
     }
 
+    /// `ctrl-w h`: move the keyboard to the panel on the left.
+    ///
+    /// Today the window has two panels, so this is the sidebar; a tiling split
+    /// view will make it step sideways between panes instead. The command is
+    /// ignored while a prompt or a picker is up, because those own the keyboard
+    /// and moving focus out from under them would leave them open and unreachable.
+    pub(super) fn window_left(
+        &mut self,
+        _: &WindowLeft,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.prompt.is_some() || self.picker.is_some() {
+            return;
+        }
+        self.focus_tree(&FocusTree, window, cx);
+    }
+
+    /// `ctrl-w l`: move the keyboard to the note.
+    pub(super) fn window_right(
+        &mut self,
+        _: &WindowRight,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.prompt.is_some() || self.picker.is_some() {
+            return;
+        }
+        self.focus_editor(&FocusEditor, window, cx);
+    }
+
     /// Fold a change made outside Shale into the window.
     ///
     /// The tree always follows the disk. The open note is re-read only when Shale
@@ -342,14 +376,36 @@ impl Workspace {
     }
 
     /// The note the open picker would choose, or `None` while no picker is open:
-    /// how a test checks what a typed query narrowed the list to.
+    /// how a test checks what a typed query narrowed the list to. A command row
+    /// reads as its label.
     #[cfg(test)]
     pub(crate) fn picker_choice(&self, cx: &gpui::App) -> Option<String> {
         self.picker
             .as_ref()
             .and_then(|picker| picker.read(cx).chosen())
             .and_then(|idx| self.picker_targets.get(idx))
-            .map(|path| path.display().to_string())
+            .map(|target| match target {
+                PickerTarget::Note(path) => path.display().to_string(),
+                PickerTarget::Command(command) => command.label().to_string(),
+            })
+    }
+
+    /// Where the note's first display line sits, in window coordinates: how a
+    /// test checks the editor's margins, and that a picker floats over the text
+    /// instead of moving it. `(top edge, x of the first character)`.
+    #[cfg(test)]
+    pub(crate) fn note_origin<C: gpui::AppContext>(
+        &self,
+        cx: &C,
+    ) -> Option<(gpui::Pixels, gpui::Pixels)> {
+        self.editor.read_with(cx, |editor, _cx| {
+            let top = editor.hit_line_edges(0)?.0;
+            // `hit_line_x` is the painted line's left edge in window
+            // coordinates; `x_for_offset` is relative to the line, so it would
+            // always report 0 and prove nothing about the margins.
+            let left = editor.hit_line_x(0)?.0;
+            Some((top, left))
+        })
     }
 
     /// How many rows the open picker is offering.

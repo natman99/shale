@@ -193,70 +193,192 @@ impl Render for MarkdownEditor {
             .size_full()
             .cursor(CursorStyle::IBeam)
             // Vim normal-mode keys.
-            .on_action(cx.listener(|this, _: &VimH, _, cx| this.normal(Key::Char('h'), cx)))
-            .on_action(cx.listener(|this, _: &VimJ, _, cx| this.normal(Key::Char('j'), cx)))
-            .on_action(cx.listener(|this, _: &VimK, _, cx| this.normal(Key::Char('k'), cx)))
-            .on_action(cx.listener(|this, _: &VimL, _, cx| this.normal(Key::Char('l'), cx)))
-            .on_action(cx.listener(|this, _: &VimW, _, cx| this.normal(Key::Char('w'), cx)))
-            .on_action(cx.listener(|this, _: &VimB, _, cx| this.normal(Key::Char('b'), cx)))
-            .on_action(cx.listener(|this, _: &VimE, _, cx| this.normal(Key::Char('e'), cx)))
-            .on_action(cx.listener(|this, _: &VimF, _, cx| this.normal(Key::Char('f'), cx)))
-            .on_action(cx.listener(|this, _: &VimUpperF, _, cx| this.normal(Key::Char('F'), cx)))
-            .on_action(cx.listener(|this, _: &VimT, _, cx| this.normal(Key::Char('t'), cx)))
-            .on_action(cx.listener(|this, _: &VimUpperT, _, cx| this.normal(Key::Char('T'), cx)))
-            .on_action(cx.listener(|this, _: &VimSpace, _, cx| this.normal(Key::Char(' '), cx)))
-            .on_action(cx.listener(|this, _: &VimZero, _, cx| this.normal(Key::Char('0'), cx)))
-            .on_action(cx.listener(|this, _: &VimCaret, _, cx| this.normal(Key::Char('^'), cx)))
-            .on_action(cx.listener(|this, _: &VimDollar, _, cx| this.normal(Key::Char('$'), cx)))
-            .on_action(cx.listener(|this, _: &VimG, _, cx| this.normal(Key::Char('g'), cx)))
-            .on_action(cx.listener(|this, _: &VimUpperG, _, cx| this.normal(Key::Char('G'), cx)))
-            .on_action(cx.listener(|this, _: &VimX, _, cx| this.normal(Key::Char('x'), cx)))
-            .on_action(cx.listener(|this, _: &VimD, _, cx| this.normal(Key::Char('d'), cx)))
-            .on_action(cx.listener(|this, _: &VimC, _, cx| this.normal(Key::Char('c'), cx)))
-            .on_action(cx.listener(|this, _: &VimY, _, cx| this.normal(Key::Char('y'), cx)))
-            .on_action(cx.listener(|this, _: &VimP, _, cx| this.normal(Key::Char('p'), cx)))
-            .on_action(cx.listener(|this, _: &VimUpperP, _, cx| this.normal(Key::Char('P'), cx)))
-            .on_action(cx.listener(|this, _: &VimU, _, cx| this.normal(Key::Char('u'), cx)))
-            .on_action(cx.listener(|this, _: &VimDigit1, _, cx| this.normal(Key::Char('1'), cx)))
-            .on_action(cx.listener(|this, _: &VimDigit2, _, cx| this.normal(Key::Char('2'), cx)))
-            .on_action(cx.listener(|this, _: &VimDigit3, _, cx| this.normal(Key::Char('3'), cx)))
-            .on_action(cx.listener(|this, _: &VimDigit4, _, cx| this.normal(Key::Char('4'), cx)))
-            .on_action(cx.listener(|this, _: &VimDigit5, _, cx| this.normal(Key::Char('5'), cx)))
-            .on_action(cx.listener(|this, _: &VimDigit6, _, cx| this.normal(Key::Char('6'), cx)))
-            .on_action(cx.listener(|this, _: &VimDigit7, _, cx| this.normal(Key::Char('7'), cx)))
-            .on_action(cx.listener(|this, _: &VimDigit8, _, cx| this.normal(Key::Char('8'), cx)))
-            .on_action(cx.listener(|this, _: &VimDigit9, _, cx| this.normal(Key::Char('9'), cx)))
-            .on_action(cx.listener(|this, _: &VimI, _, cx| this.normal(Key::Char('i'), cx)))
-            .on_action(cx.listener(|this, _: &VimUpperI, _, cx| this.normal(Key::Char('I'), cx)))
-            .on_action(cx.listener(|this, _: &VimA, _, cx| this.normal(Key::Char('a'), cx)))
-            .on_action(cx.listener(|this, _: &VimUpperA, _, cx| this.normal(Key::Char('A'), cx)))
-            .on_action(cx.listener(|this, _: &VimO, _, cx| this.normal(Key::Char('o'), cx)))
-            .on_action(cx.listener(|this, _: &VimUpperO, _, cx| this.normal(Key::Char('O'), cx)))
-            .on_action(cx.listener(|this, _: &VimV, _, cx| this.normal(Key::Char('v'), cx)))
-            .on_action(cx.listener(|this, _: &VimUpperV, _, cx| this.normal(Key::Char('V'), cx)))
-            .on_action(cx.listener(|this, _: &VimUpperH, _, cx| this.normal(Key::Char('H'), cx)))
-            .on_action(cx.listener(|this, _: &VimUpperJ, _, cx| this.normal(Key::Char('J'), cx)))
-            .on_action(cx.listener(|this, _: &VimUpperK, _, cx| this.normal(Key::Char('K'), cx)))
-            .on_action(cx.listener(|this, _: &VimUpperL, _, cx| this.normal(Key::Char('L'), cx)))
-            .on_action(cx.listener(|this, _: &VimUpperD, _, cx| this.normal(Key::Char('D'), cx)))
-            .on_action(cx.listener(|this, _: &VimPipe, _, cx| this.normal(Key::Char('|'), cx)))
             .on_action(
-                cx.listener(|this, _: &VimBackslash, _, cx| this.normal(Key::Char('\\'), cx)),
+                cx.listener(|this, _: &VimH, window, cx| this.normal(Key::Char('h'), window, cx)),
             )
+            .on_action(
+                cx.listener(|this, _: &VimJ, window, cx| this.normal(Key::Char('j'), window, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &VimK, window, cx| this.normal(Key::Char('k'), window, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &VimL, window, cx| this.normal(Key::Char('l'), window, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &VimW, window, cx| this.normal(Key::Char('w'), window, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &VimB, window, cx| this.normal(Key::Char('b'), window, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &VimE, window, cx| this.normal(Key::Char('e'), window, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &VimF, window, cx| this.normal(Key::Char('f'), window, cx)),
+            )
+            .on_action(cx.listener(|this, _: &VimUpperF, window, cx| {
+                this.normal(Key::Char('F'), window, cx)
+            }))
+            .on_action(
+                cx.listener(|this, _: &VimT, window, cx| this.normal(Key::Char('t'), window, cx)),
+            )
+            .on_action(cx.listener(|this, _: &VimUpperT, window, cx| {
+                this.normal(Key::Char('T'), window, cx)
+            }))
+            .on_action(
+                cx.listener(|this, _: &VimSpace, window, cx| {
+                    this.normal(Key::Char(' '), window, cx)
+                }),
+            )
+            .on_action(
+                cx.listener(|this, _: &VimZero, window, cx| {
+                    this.normal(Key::Char('0'), window, cx)
+                }),
+            )
+            .on_action(
+                cx.listener(|this, _: &VimCaret, window, cx| {
+                    this.normal(Key::Char('^'), window, cx)
+                }),
+            )
+            .on_action(cx.listener(|this, _: &VimDollar, window, cx| {
+                this.normal(Key::Char('$'), window, cx)
+            }))
+            .on_action(
+                cx.listener(|this, _: &VimG, window, cx| this.normal(Key::Char('g'), window, cx)),
+            )
+            .on_action(cx.listener(|this, _: &VimUpperG, window, cx| {
+                this.normal(Key::Char('G'), window, cx)
+            }))
+            .on_action(
+                cx.listener(|this, _: &VimX, window, cx| this.normal(Key::Char('x'), window, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &VimD, window, cx| this.normal(Key::Char('d'), window, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &VimC, window, cx| this.normal(Key::Char('c'), window, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &VimY, window, cx| this.normal(Key::Char('y'), window, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &VimP, window, cx| this.normal(Key::Char('p'), window, cx)),
+            )
+            .on_action(cx.listener(|this, _: &VimUpperP, window, cx| {
+                this.normal(Key::Char('P'), window, cx)
+            }))
+            .on_action(
+                cx.listener(|this, _: &VimU, window, cx| this.normal(Key::Char('u'), window, cx)),
+            )
+            .on_action(cx.listener(|this, _: &VimDigit1, window, cx| {
+                this.normal(Key::Char('1'), window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &VimDigit2, window, cx| {
+                this.normal(Key::Char('2'), window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &VimDigit3, window, cx| {
+                this.normal(Key::Char('3'), window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &VimDigit4, window, cx| {
+                this.normal(Key::Char('4'), window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &VimDigit5, window, cx| {
+                this.normal(Key::Char('5'), window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &VimDigit6, window, cx| {
+                this.normal(Key::Char('6'), window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &VimDigit7, window, cx| {
+                this.normal(Key::Char('7'), window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &VimDigit8, window, cx| {
+                this.normal(Key::Char('8'), window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &VimDigit9, window, cx| {
+                this.normal(Key::Char('9'), window, cx)
+            }))
+            .on_action(
+                cx.listener(|this, _: &VimI, window, cx| this.normal(Key::Char('i'), window, cx)),
+            )
+            .on_action(cx.listener(|this, _: &VimUpperI, window, cx| {
+                this.normal(Key::Char('I'), window, cx)
+            }))
+            .on_action(
+                cx.listener(|this, _: &VimA, window, cx| this.normal(Key::Char('a'), window, cx)),
+            )
+            .on_action(cx.listener(|this, _: &VimUpperA, window, cx| {
+                this.normal(Key::Char('A'), window, cx)
+            }))
+            .on_action(
+                cx.listener(|this, _: &VimO, window, cx| this.normal(Key::Char('o'), window, cx)),
+            )
+            .on_action(cx.listener(|this, _: &VimUpperO, window, cx| {
+                this.normal(Key::Char('O'), window, cx)
+            }))
+            .on_action(
+                cx.listener(|this, _: &VimV, window, cx| this.normal(Key::Char('v'), window, cx)),
+            )
+            .on_action(cx.listener(|this, _: &VimUpperV, window, cx| {
+                this.normal(Key::Char('V'), window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &VimUpperH, window, cx| {
+                this.normal(Key::Char('H'), window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &VimUpperJ, window, cx| {
+                this.normal(Key::Char('J'), window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &VimUpperK, window, cx| {
+                this.normal(Key::Char('K'), window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &VimUpperL, window, cx| {
+                this.normal(Key::Char('L'), window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &VimUpperD, window, cx| {
+                this.normal(Key::Char('D'), window, cx)
+            }))
+            .on_action(
+                cx.listener(|this, _: &VimPipe, window, cx| {
+                    this.normal(Key::Char('|'), window, cx)
+                }),
+            )
+            .on_action(cx.listener(|this, _: &VimBackslash, window, cx| {
+                this.normal(Key::Char('\\'), window, cx)
+            }))
             // The table row and column moves: alt-held keys, which the engine
             // keeps apart from the plain motions.
-            .on_action(cx.listener(|this, _: &VimAltH, _, cx| this.normal(Key::AltChar('h'), cx)))
-            .on_action(cx.listener(|this, _: &VimAltJ, _, cx| this.normal(Key::AltChar('j'), cx)))
-            .on_action(cx.listener(|this, _: &VimAltK, _, cx| this.normal(Key::AltChar('k'), cx)))
-            .on_action(cx.listener(|this, _: &VimAltL, _, cx| this.normal(Key::AltChar('l'), cx)))
+            .on_action(cx.listener(|this, _: &VimAltH, window, cx| {
+                this.normal(Key::AltChar('h'), window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &VimAltJ, window, cx| {
+                this.normal(Key::AltChar('j'), window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &VimAltK, window, cx| {
+                this.normal(Key::AltChar('k'), window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &VimAltL, window, cx| {
+                this.normal(Key::AltChar('l'), window, cx)
+            }))
             // Folding. `z` opens the command and the engine reads the second key,
             // so `za`/`zc`/`zo`/`zd` arrive through the actions those keys already
             // have; only the shifted command letters need bindings of their own.
-            .on_action(cx.listener(|this, _: &VimZ, _, cx| this.normal(Key::Char('z'), cx)))
-            .on_action(cx.listener(|this, _: &VimUpperR, _, cx| this.normal(Key::Char('R'), cx)))
-            .on_action(cx.listener(|this, _: &VimUpperM, _, cx| this.normal(Key::Char('M'), cx)))
-            .on_action(cx.listener(|this, _: &VimUpperE, _, cx| this.normal(Key::Char('E'), cx)))
-            .on_action(cx.listener(|this, _: &VimDot, _, cx| this.normal(Key::Char('.'), cx)))
+            .on_action(
+                cx.listener(|this, _: &VimZ, window, cx| this.normal(Key::Char('z'), window, cx)),
+            )
+            .on_action(cx.listener(|this, _: &VimUpperR, window, cx| {
+                this.normal(Key::Char('R'), window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &VimUpperM, window, cx| {
+                this.normal(Key::Char('M'), window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &VimUpperE, window, cx| {
+                this.normal(Key::Char('E'), window, cx)
+            }))
+            .on_action(
+                cx.listener(|this, _: &VimDot, window, cx| this.normal(Key::Char('.'), window, cx)),
+            )
+            // vim's command line, which opens the command palette.
+            .on_action(cx.listener(Self::on_colon))
             // Shared editing keys.
             .on_action(cx.listener(Self::on_escape))
             .on_action(cx.listener(Self::on_newline))

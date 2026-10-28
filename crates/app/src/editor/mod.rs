@@ -369,6 +369,17 @@ impl MarkdownEditor {
             .map(|hit| (hit.bounds.top(), hit.bounds.bottom()))
     }
 
+    /// The left and right x of display line `index` as it was painted, in window
+    /// coordinates: where the text actually starts, which is what the editor's
+    /// margins are measured against.
+    #[cfg(test)]
+    pub fn hit_line_x(&self, index: usize) -> Option<(Pixels, Pixels)> {
+        self.hit_lines
+            .iter()
+            .find(|hit| hit.index == index)
+            .map(|hit| (hit.bounds.left(), hit.bounds.right()))
+    }
+
     /// Cursor position in display coordinates (wrapped segments counted as
     /// lines, column counted in characters from the segment start), like a vim
     /// ruler.

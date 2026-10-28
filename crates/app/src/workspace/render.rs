@@ -69,7 +69,11 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::rename_note))
             .on_action(cx.listener(Self::delete_note))
             .on_action(cx.listener(Self::focus_tree))
+            .on_action(cx.listener(Self::focus_editor))
+            .on_action(cx.listener(Self::window_left))
+            .on_action(cx.listener(Self::window_right))
             .on_action(cx.listener(Self::quick_open))
+            .on_action(cx.listener(Self::command_palette))
             .child(
                 div()
                     .flex_1()
@@ -143,19 +147,27 @@ impl Render for Workspace {
                     )
                     .child(
                         div()
+                            .relative()
                             .flex_1()
                             .min_w_0()
                             .h_full()
                             .flex()
                             .flex_col()
-                            // A picker sits above the note rather than over it: no
-                            // overlay machinery, and the note shrinks while the
-                            // list is up. Like the prompt it is a sibling of the
-                            // editor, so the vim contexts stay out of its way.
+                            // The note gets some air: text hard against the sidebar,
+                            // the top of the window and the status bar is cramped, and
+                            // the first and last lines look cut off.
+                            .px_4()
+                            .pt_3()
+                            .pb_2()
+                            .child(div().flex_1().min_h_0().child(self.editor.clone()))
+                            // A picker *overlays* the note rather than pushing it
+                            // down: it is painted after the text, so opening one does
+                            // not re-wrap every line underneath. Like the prompt it is
+                            // a sibling of the editor, so the vim contexts stay out of
+                            // its way.
                             .when_some(picker, |d, picker| {
-                                d.child(div().p_2().pb_0().child(picker))
-                            })
-                            .child(div().flex_1().min_h_0().child(self.editor.clone())),
+                                d.child(div().absolute().top_2().left_4().right_4().child(picker))
+                            }),
                     ),
             )
             .child(

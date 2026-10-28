@@ -64,6 +64,7 @@ actions!(
         VimUpperR,
         VimUpperM,
         VimUpperE,
+        VimColon,
         VimDot,
         VimEscape,
         Newline,
@@ -97,6 +98,11 @@ actions!(
         TreeExpand,
         TreeOpen,
         QuickOpen,
+        CommandPalette,
+        // Moving the keyboard between the window's panels (`ctrl-w h`/`ctrl-w l`).
+        // A split view will grow these into stepping sideways between panes.
+        WindowLeft,
+        WindowRight,
         // The keys a one-line field takes that are not printable text. The prompt
         // and every picker bind these in their own context, because the field is
         // the same widget in both.

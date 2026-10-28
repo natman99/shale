@@ -770,3 +770,37 @@ fn editing_a_styled_note(cx: &mut TestAppContext) {
         .unwrap();
     assert_eq!(painted.len(), 2, "two display lines after the edit");
 }
+
+/// The note is not flush against the window's chrome, and a picker floats *over*
+/// it: opening one used to shrink the text area, which re-wrapped and shifted
+/// every line on screen.
+#[gpui::test]
+fn the_note_has_margins_and_the_picker_floats_over_it(cx: &mut TestAppContext) {
+    let (_dir, window) = workspace(cx, &["Welcome.md"]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    cx.simulate_keystrokes("i");
+    cx.simulate_input("hello");
+    cx.simulate_keystrokes("escape");
+
+    let origin = |window: &WindowHandle<Workspace>, cx: &mut VisualTestContext| {
+        window
+            .update(cx, |ws, _window, cx| ws.note_origin(cx))
+            .unwrap()
+    };
+    let before = origin(&window, cx);
+    let (top, left) = before.expect("the note is painted");
+    // The sidebar is 260px wide, so anything at its edge would report 260; the
+    // note's padding has to put the text clearly to the right of that.
+    assert!(
+        left > px(260.) + px(8.),
+        "the text is inset from the sidebar, got {left:?}"
+    );
+    assert!(top > px(8.), "the text is inset from the top, got {top:?}");
+
+    cx.simulate_keystrokes("ctrl-o");
+    assert_eq!(
+        origin(&window, cx),
+        before,
+        "an open picker must not move a single line of the note"
+    );
+}
