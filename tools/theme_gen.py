@@ -21,7 +21,11 @@ Two things make it worth keeping around as well as the convenience:
   as `theme::tests::the_built_in_palettes_are_readable` before emitting, and
   prints the ratios it measured. A palette that would fail that test is
   reported as a problem instead of being written silently, and roles given a
-  candidate list take the first colour that clears the floor.
+  candidate list take the first colour that clears the floor. One role is
+  judged against the picker's backgrounds rather than the note's: `match_text`
+  is the text a picker paints for the characters the query matched, so it has
+  to read on `ui_bg` (an ordinary row) and on `ui_active_bg` (the highlighted
+  one).
 
 Shale's own `dark`/`light` and the Catppuccin flavours are hand-written in the
  crate (Catppuccin's hexes come from its own `palette.json`, and the role
@@ -33,7 +37,8 @@ import os
 FIELDS = [
     "bg", "fg", "cursor", "selection", "link", "link_unresolved", "dim",
     "heading", "quote", "accent", "tag", "code_bg", "code_block_bg",
-    "highlight_bg", "table_line", "table_header_bg", "callout_bg", "ui_bg",
+    "highlight_bg", "match_text", "table_line", "table_header_bg", "callout_bg",
+    "ui_bg",
     "ui_status_bg", "ui_border", "ui_hover_bg", "ui_active_bg", "callout_note",
     "callout_teal", "callout_question", "callout_warning", "callout_failure",
     "callout_danger",
@@ -44,6 +49,14 @@ FLOORS = {
     "fg": 4.5, "heading": 4.5, "link": 3.0, "tag": 3.0, "quote": 2.5,
     "dim": 2.0, "link_unresolved": 2.0,
 }
+
+# `match_text` is judged against the surfaces a picker draws its rows on, not
+# against the note: an ordinary row sits on `ui_bg`, the highlighted row on
+# `ui_active_bg`. The floors are the WCAG floor for short text over the plain
+# row, and a lower one for the highlighted row, where the rest of the row is
+# still body text at full contrast.
+MATCH_BGS = ("ui_bg", "ui_active_bg")
+MATCH_FLOORS = (3.0, 2.5)
 
 
 def H(x):
@@ -155,10 +168,36 @@ class Theme:
         v, kind, label = self.resolve(specs[0])
         return v, kind, label
 
+    def pick_match(self, field, spec):
+        """`match_text`, tried against both of the picker's backgrounds."""
+        specs = spec[1] if isinstance(spec, tuple) and spec[0] == "cand" else [spec]
+        tried = []
+        for inner in specs:
+            v, kind, label = self.resolve(inner)
+            ratios = [contrast(self.chosen[f][0], v) for f in MATCH_BGS]
+            tried.append(f"{label}({'/'.join(format(r, '.2f') for r in ratios)})")
+            if all(r > floor for r, floor in zip(ratios, MATCH_FLOORS)):
+                return v, kind, label
+        self.problems.append(
+            f"{self.name}: {field} has no colour clearing "
+            f"{'/'.join(str(f) for f in MATCH_FLOORS)} on {MATCH_BGS}: "
+            + "; ".join(tried))
+        return self.resolve(specs[0])
+
     def build(self):
         self.problems = []
+        self.chosen = {}
         bg = self.pick("bg", self.roles["bg"], 0)[0]
+        # The picker's two surfaces are needed by `match_text`, which sits
+        # earlier in FIELDS than they do, so they are settled up front.
+        for field in MATCH_BGS:
+            self.chosen[field] = self.pick(field, self.roles[field], bg)
         for field in FIELDS:
+            if field in self.chosen:
+                continue
+            if field == "match_text":
+                self.chosen[field] = self.pick_match(field, self.roles[field])
+                continue
             if field == "bg":
                 value, kind, label = self.resolve(self.roles["bg"])
                 self.chosen[field] = (value, kind, label)
@@ -194,6 +233,9 @@ class Theme:
                 for field in FLOORS]
         rows.append("status " + format(
             contrast(self.chosen["fg"][0], self.chosen["ui_status_bg"][0]), ".2f"))
+        rows += [f"match_{f[3:]} " + format(
+            contrast(self.chosen[f][0], self.chosen["match_text"][0]), ".2f")
+            for f in MATCH_BGS]
         return f"{self.name:<18} " + " ".join(rows)
 
 
@@ -240,6 +282,9 @@ def tokyo_roles():
         "code_bg": "bg_highlight",
         "code_block_bg": "bg_dark",
         "highlight_bg": ("blend", "bg", "yellow", 0.25),
+        # Tokyo Night's orange: the palette's loudest accent, which is what a
+        # query's matched characters have to be next to ordinary row text.
+        "match_text": ("cand", ["orange", "yellow", "magenta"]),
         "table_line": "fg_gutter",
         "table_header_bg": "bg_highlight",
         "callout_bg": "bg_highlight",
@@ -293,6 +338,10 @@ def gruvbox_roles():
         "code_bg": "bg2",
         "code_block_bg": "bg1",
         "highlight_bg": ("blend", "bg0", "yellow", 0.25),
+        # Yellow in dark mode, orange in light: gruvbox re-binds these as its
+        # `bright` and `faded` accents, and only the one its mode carries stays
+        # legible on a highlighted row.
+        "match_text": ("cand", ["yellow", "orange"]),
         "table_line": "bg3",
         "table_header_bg": "bg1",
         "callout_bg": "bg1",
@@ -370,6 +419,9 @@ def rose_pine_roles(dawn):
         "code_bg": "overlay",
         "code_block_bg": ("overlay" if dawn else "surface"),
         "highlight_bg": ("blend", "base", "gold", 0.25),
+        # Gold is Rosé Pine's highlight colour, and dawn's is too pale to read
+        # as text, so dawn falls back to its pine.
+        "match_text": ("cand", ["gold", "pine", "iris"]),
         "table_line": "overlay",
         "table_header_bg": ("surface" if dawn else "overlay"),
         "callout_bg": ("surface" if dawn else "overlay"),
@@ -415,6 +467,16 @@ def one(hue, sat, bright, mono, hues, light_variant):
         modified = hsl(40, 60, 70)
     fg = hsl(h, m1[0], m1[1])
     guide_v = over(hsl(h, s, l), fg, guide)
+    # A query's matched characters take the theme's warm end: `modified` (a soft
+    # amber) reads best in dark mode, `orange` (its darkened twin) in light,
+    # where the softer one cannot clear a raised row. Tried in that order.
+    warm = [
+        ("val", modified, "the theme's modified colour"),
+        ("val", orange2, "orange's lighter twin"),
+        ("val", orange, "orange"),
+    ]
+    if light_variant:
+        warm.reverse()
     return {
         "bg": ("val", hsl(h, s, l), f"hsl({h}, {s}%, {l}%)"),
         "fg": ("val", fg, f"mono-1: hsl({h}, {m1[0]}%, {m1[1]}%)"),
@@ -431,6 +493,9 @@ def one(hue, sat, bright, mono, hues, light_variant):
         "code_block_bg": ("val", deep, "the app-level pane shade"),
         "highlight_bg": ("val", over(hsl(h, s, l), orange2, 0.25),
                          f"{hx(orange2)} at 25% over the background"),
+        # The theme's `modified` colour in dark mode (a soft amber) and its
+        # `orange` in light, where the softer one cannot clear a raised row.
+        "match_text": ("cand", warm),
         "table_line": ("val", guide_v,
                        f"the {round(guide * 100)}% foreground fade the theme uses for guides"),
         "table_header_bg": ("val", panes, "the raised panel shade"),
@@ -503,6 +568,9 @@ THEMES = [
         "code_bg": "code_bg",
         "code_block_bg": "chrome",
         "highlight_bg": ("blend", "bg", "yellow", 0.25),
+        # The light theme's orange, the dark variants' orange darkened: its
+        # yellow is only 3.9:1 on the theme's own chrome.
+        "match_text": ("cand", ["orange", "yellow", "link"]),
         "table_line": "deep",
         "table_header_bg": "line_hl",
         "callout_bg": "line_hl",
@@ -556,6 +624,9 @@ THEMES = [
         "code_bg": "nord2",
         "code_block_bg": "nord1",
         "highlight_bg": ("blend", "nord0", "nord13", 0.25),
+        # nord8 is Nord's own emphasis colour: the frost the palette puts on the
+        # things it wants read.
+        "match_text": ("cand", ["nord8", "nord7", "nord13"]),
         "table_line": "nord2",
         "table_header_bg": "nord1",
         "callout_bg": "nord1",
@@ -589,6 +660,7 @@ THEMES = [
         "code_block_bg": ("blend", "bg", "000000", 0.12,
                           "Background darkened 12%: Dracula has no deeper pane"),
         "highlight_bg": ("blend", "bg", "yellow", 0.25),
+        "match_text": ("cand", ["orange", "yellow"]),
         "table_line": ("blend", "bg", "comment", 0.40),
         "table_header_bg": ("blend", "bg", "comment", 0.30),
         "callout_bg": ("blend", "bg", "comment", 0.30),
@@ -626,6 +698,11 @@ THEMES = [
                     "base02 with base01 lifted into it; base02 alone is the code block"),
         "code_block_bg": "base02",
         "highlight_bg": ("blend", "base03", "yellow", 0.25),
+        # Solarized's yellow is the palette's highlight, and it just clears the
+        # floor for a highlighted row; the lighter blends are what it falls back
+        # to if that row's background is ever made brighter.
+        "match_text": ("cand", ["yellow", ("blend", "yellow", "base2", 0.30),
+                                ("blend", "yellow", "base1", 0.20)]),
         "table_line": "base01",
         "table_header_bg": ("blend", "base02", "base01", 0.25),
         "callout_bg": ("blend", "base02", "base01", 0.25),
@@ -661,6 +738,10 @@ THEMES = [
         "code_bg": "base2",
         "code_block_bg": "base2",
         "highlight_bg": ("blend", "base3", "yellow", 0.25),
+        # Its yellow is not dark enough against the cream ladder to read as a
+        # highlight, so a query's characters take orange; violet is the fallback
+        # if the ladder's raised row is ever made fainter.
+        "match_text": ("cand", ["orange", "yellow", "violet"]),
         "table_line": ("cand", ["base1", "base01"]),
         "table_header_bg": ("blend", "base2", "base1", 0.30),
         "callout_bg": ("blend", "base2", "base1", 0.30),

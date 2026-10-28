@@ -80,6 +80,12 @@ pub struct Palette {
     pub code_block_bg: u32,
     /// Background of `==highlighted==` text.
     pub highlight_bg: u32,
+    /// The characters a picker's query matched, drawn as text in this colour
+    /// rather than as a box behind them: quick-open, the command palette and
+    /// vault search all read it off the palette. It has to stay legible on
+    /// `ui_bg` (an ordinary picker row) and on `ui_active_bg` (the highlighted
+    /// one), which is what keeps it a different colour from `fg`.
+    pub match_text: u32,
     /// The grid lines drawn around table cells, in place of the source pipes,
     /// and the rule a thematic break is drawn as.
     pub table_line: u32,
@@ -129,6 +135,10 @@ impl Palette {
         code_bg: 0x2f2f2f,
         code_block_bg: 0x262626,
         highlight_bg: 0x4a3f1f,
+        // The same amber `==highlight==` is drawn on, but as text: it reads on
+        // both of the picker's row backgrounds, where the note's own colours do
+        // not stand out enough to look like a hit.
+        match_text: 0xe0a55e,
         table_line: 0x3f3f46,
         table_header_bg: 0x2a2a2e,
         callout_bg: 0x252a33,
@@ -162,6 +172,9 @@ impl Palette {
         code_bg: 0xe8e8e8,
         code_block_bg: 0xefefef,
         highlight_bg: 0xf5e0a3,
+        // Dark amber, as `dark` is light amber: a query's characters have to
+        // clear the highlighted row, which a colour this pale would not.
+        match_text: 0x7a4d00,
         table_line: 0xc9c9cf,
         table_header_bg: 0xe9e9ee,
         callout_bg: 0xeef1f6,
@@ -255,6 +268,7 @@ impl Palette {
             code_bg,
             code_block_bg,
             highlight_bg,
+            match_text,
             table_line,
             table_header_bg,
             callout_bg,
@@ -286,6 +300,7 @@ impl Palette {
             (&mut out.code_bg, code_bg),
             (&mut out.code_block_bg, code_block_bg),
             (&mut out.highlight_bg, highlight_bg),
+            (&mut out.match_text, match_text),
             (&mut out.table_line, table_line),
             (&mut out.table_header_bg, table_header_bg),
             (&mut out.callout_bg, callout_bg),
@@ -380,6 +395,9 @@ pub struct ThemeFile {
     /// Background of `==highlighted==` text.
     #[serde(default, deserialize_with = "deserialize_color")]
     pub highlight_bg: Option<u32>,
+    /// A picker's matched characters, as text colour.
+    #[serde(default, deserialize_with = "deserialize_color")]
+    pub match_text: Option<u32>,
     /// Table grid lines and the thematic-break rule.
     #[serde(default, deserialize_with = "deserialize_color")]
     pub table_line: Option<u32>,
@@ -636,6 +654,19 @@ mod tests {
             assert!(
                 contrast(palette.ui_status_bg, palette.fg) > 4.5,
                 "{name}: the status bar draws the note's foreground colour",
+            );
+            // A picker's rows are drawn on the window's background, and the
+            // highlighted one on `ui_active_bg`. Matched characters are short,
+            // so they get the floor for short text on an ordinary row and a
+            // lower one on the highlighted row, where the rest of the row is
+            // still body text at full contrast.
+            assert!(
+                contrast(palette.ui_bg, palette.match_text) > 3.0,
+                "{name}: a query's matched characters are too faint on a picker row",
+            );
+            assert!(
+                contrast(palette.ui_active_bg, palette.match_text) > 2.5,
+                "{name}: a query's matched characters are too faint on the chosen row",
             );
         }
         assert_ne!(Palette::DARK.bg, Palette::LIGHT.bg);

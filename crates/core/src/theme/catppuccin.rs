@@ -7,7 +7,7 @@
 //! so the hexes may be copied into this Apache-2.0 crate), so a Shale note
 //! matches the rest of a user's Catppuccin setup.
 //!
-//! The palette's 26 named colours do not line up with Shale's 28 roles, so each
+//! The palette's 26 named colours do not line up with Shale's 29 roles, so each
 //! role is filled from the flavour by the mapping in Catppuccin's own style
 //! guide (https://github.com/catppuccin/catppuccin/blob/main/docs/style-guide.md):
 //!
@@ -25,6 +25,7 @@
 //! | `code_bg`           | Surface 1                           |
 //! | `code_block_bg`     | Mantle (a secondary pane)           |
 //! | `highlight_bg`      | Yellow over Base, 25%               |
+//! | `match_text`        | Peach, or Mauve for Latte (see below) |
 //! | `table_line`        | Surface 2                           |
 //! | `table_header_bg`   | Surface 0                           |
 //! | `callout_bg`        | Surface 0 (a surface element)       |
@@ -48,6 +49,12 @@
 //! `heading` is Text rather than an accent because that is what the guide says
 //! for a main headline; a Shale heading is already larger and bold, so it does
 //! not need a hue to separate it from body text.
+//!
+//! A query's matched characters take Peach, the accent the flavours use for a
+//! hit. Latte's Peach (`#fe640b`) measures 2.5:1 on that flavour's highlighted
+//! row, which is not enough for a few letters among the rest of a row, so the
+//! light flavour falls back to its Mauve accent -- the same fallback the guide
+//! permits when a colour cannot carry text.
 
 use super::Palette;
 
@@ -69,6 +76,9 @@ pub const LATTE: Palette = Palette {
     code_block_bg: 0xe6e9ef,
     // Yellow `#df8e1d` over Base at 25%.
     highlight_bg: 0xebd8bf,
+    // Latte's Peach is too faint as text on a highlighted row, so the light
+    // flavour matches with its Mauve accent instead.
+    match_text: 0x8839ef,
     table_line: 0xacb0be,
     table_header_bg: 0xccd0da,
     callout_bg: 0xccd0da,
@@ -103,6 +113,8 @@ pub const FRAPPE: Palette = Palette {
     code_block_bg: 0x292c3c,
     // Yellow `#e5c890` over Base at 25%.
     highlight_bg: 0x5d5958,
+    // Peach: the flavour's accent for a hit.
+    match_text: 0xef9f76,
     table_line: 0x626880,
     table_header_bg: 0x414559,
     callout_bg: 0x414559,
@@ -137,6 +149,8 @@ pub const MACCHIATO: Palette = Palette {
     code_block_bg: 0x1e2030,
     // Yellow `#eed49f` over Base at 25%.
     highlight_bg: 0x565253,
+    // Peach: the flavour's accent for a hit.
+    match_text: 0xf5a97f,
     table_line: 0x5b6078,
     table_header_bg: 0x363a4f,
     callout_bg: 0x363a4f,
@@ -172,6 +186,8 @@ pub const MOCHA: Palette = Palette {
     code_block_bg: 0x181825,
     // Yellow `#f9e2af` over Base at 25%.
     highlight_bg: 0x554f4e,
+    // Peach: the flavour's accent for a hit.
+    match_text: 0xfab387,
     table_line: 0x585b70,
     table_header_bg: 0x313244,
     callout_bg: 0x313244,

@@ -38,6 +38,7 @@ pub const DARK: Palette = Palette {
     code_bg: 0x1b444f, // base02 with base01 lifted into it; base02 alone is the code block
     code_block_bg: 0x073642,
     highlight_bg: 0x2d4228, // yellow #b58900 at 25% over #002b36
+    match_text: 0xb58900,
     table_line: 0x586e75,
     table_header_bg: 0x1b444f, // base01 #586e75 at 25% over #073642
     callout_bg: 0x1b444f,      // base01 #586e75 at 25% over #073642
@@ -75,6 +76,7 @@ pub const LIGHT: Palette = Palette {
     code_bg: 0xeee8d5,
     code_block_bg: 0xeee8d5,
     highlight_bg: 0xebdbaa, // yellow #b58900 at 25% over #fdf6e3
+    match_text: 0xcb4b16,
     table_line: 0x93a1a1,
     table_header_bg: 0xd3d3c5, // base1 #93a1a1 at 30% over #eee8d5
     callout_bg: 0xd3d3c5,      // base1 #93a1a1 at 30% over #eee8d5

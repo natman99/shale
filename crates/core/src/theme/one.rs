@@ -34,6 +34,7 @@ pub const DARK: Palette = Palette {
     code_bg: 0x3a3f4b,         // one step off the note background
     code_block_bg: 0x21252b,   // the app-level pane shade
     highlight_bg: 0x575146,    // #e5c07b at 25% over the background
+    match_text: 0xe0c285,      // the theme's modified colour
     table_line: 0x3c4049,      // the 15% foreground fade the theme uses for guides
     table_header_bg: 0x31363f, // the raised panel shade
     callout_bg: 0x31363f,      // the raised panel shade
@@ -69,6 +70,7 @@ pub const LIGHT: Palette = Palette {
     code_bg: 0xe5e5e6,         // one step off the note background
     code_block_bg: 0xeaeaeb,   // the app-level pane shade
     highlight_bg: 0xecdcbc,    // #c18401 at 25% over the background
+    match_text: 0x986801,      // orange
     table_line: 0xd3d4d5,      // the 20% foreground fade the theme uses for guides
     table_header_bg: 0xf0f0f0, // the raised panel shade
     callout_bg: 0xf0f0f0,      // the raised panel shade

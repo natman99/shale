@@ -196,8 +196,10 @@ Workspace layout:
   third-party palette modules in `crates/core/src/theme/` from upstream colour
   names, and runs the same WCAG contrast checks as the crate's readability test
   before writing anything, so a palette that would fail that test is reported
-  instead of emitted. Running it and then `cargo fmt --all` reproduces those
-  files byte for byte; `git diff` on them is the check that tool and crate agree.
+  instead of emitted — including `match_text`, the one role judged against the
+  picker's two backgrounds rather than against the note's. Running it and then
+  `cargo fmt --all` reproduces those files byte for byte; `git diff` on them is
+  the check that tool and crate agree.
 
 ### GPUI gotchas (learned the hard way — re-read before touching the UI)
 
@@ -814,6 +816,29 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
       `the_other_families_are_built_ins` plus `the_built_in_list_is_a_set` cover
       the names, the aliases, `base`, uniqueness, and that every name is a plain
       file stem.
+    - **A picker row's matched characters are a colour, not a box
+      (2026-10-27).** Quick-open, the command palette and vault search used to
+      wrap every matched character in its own `div` with `highlight_bg` behind
+      it. That was ugly twice over: the row is a flex container with `gap_2`, so
+      each single-letter box sat eight pixels from the next, and the box was the
+      colour `==highlight==` uses in the note. A row is now **one
+      `gpui::StyledText`** whose runs come from `picker::runs`: matched stretches
+      in `Palette::match_text`, everything else in `Palette::fg`, no background.
+      The matcher's adjacent single-character ranges are coalesced first, so a
+      matched word is one run and keeps its kerning.
+    - **`match_text` is a new `Palette` role** — 29 roles now, filled by
+      `theme_gen.py`'s tables for the seven families and by hand for the
+      Catppuccin flavours and `dark`/`light` — and a theme file can set it
+      (`match_text = "#fab387"`). It is judged against the two surfaces a picker
+      draws on rather than against the note: 3.0:1 on `ui_bg` (an ordinary row)
+      and 2.5:1 on `ui_active_bg` (the highlighted row, where the rest of the row
+      is still body text at full contrast). Both floors are in the crate's
+      readability test and in the generator. Each family takes its warm accent —
+      Tokyo Night's orange, Gruvbox yellow in dark and orange in light, Nord's
+      nord8, Dracula's orange, Solarized's yellow and orange, One's `modified`
+      and `orange`, Rosé Pine's gold — except where that colour cannot clear the
+      floors: Latte falls back to its Mauve (its Peach is 1.6:1 on a highlighted
+      row) and Rosé Pine Dawn to its pine (its gold is 1.5:1 on its own base).
     - **Next: a theme picker.** Not started — the user is specifying what they want
       from it first. Today a theme change means editing `shale.toml` and restarting.
   - **Not done here**: no way to change the theme at runtime (restart to pick one

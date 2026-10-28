@@ -20,9 +20,9 @@ use std::ops::Range;
 use std::rc::Rc;
 
 use gpui::{
-    div, prelude::*, px, App, Bounds, Context, EntityInputHandler, EventEmitter, FocusHandle,
-    Focusable, InteractiveElement, IntoElement, ParentElement, Pixels, Point, Render, SharedString,
-    Styled, UTF16Selection, Window,
+    div, font, prelude::*, px, rgb, App, Bounds, Context, EntityInputHandler, EventEmitter,
+    FocusHandle, Focusable, Font, InteractiveElement, IntoElement, ParentElement, Pixels, Point,
+    Render, SharedString, Styled, StyledText, TextRun, UTF16Selection, Window,
 };
 use shale_core::theme::Palette;
 
@@ -370,33 +370,66 @@ fn substring_ranges(label: &str, query: &str) -> Vec<(usize, usize)> {
     }
 }
 
-/// The label split into runs at the characters the query matched, so a row shows
-/// *why* it matched. The ranges are byte ranges the fuzzy matcher produced, so
-/// they land on character boundaries and never overlap.
-fn runs(label: &str, matched: &[(usize, usize)], palette: &Palette) -> Vec<gpui::Div> {
-    let mut out = Vec::new();
+/// The label split into `gpui::TextRun`s at the characters the query matched, so
+/// a row shows *why* it matched. Matched characters are drawn in
+/// [`Palette::match_text`] rather than on a box behind them: one run per stretch
+/// of matched or unmatched text, in one text element, so the letters keep their
+/// normal spacing.
+///
+/// The ranges are byte ranges the fuzzy matcher produced, so they land on
+/// character boundaries and never overlap. They are one character long each -- a
+/// matched word arrives as several adjacent ranges -- which is why they are
+/// coalesced before the runs are built: a run per letter would break kerning and
+/// line-breaking inside the word the user typed.
+fn runs(
+    label: &str,
+    matched: &[(usize, usize)],
+    base_font: &Font,
+    palette: &Palette,
+) -> Vec<TextRun> {
+    // (range, is a match) first, so neighbours of the same kind can merge.
+    let mut parts: Vec<(Range<usize>, bool)> = Vec::new();
     let mut from = 0;
     for &(start, end) in matched {
         if start > from {
-            out.push(div().child(label[from..start].to_string()));
+            parts.push((from..start, false));
         }
-        out.push(
-            div()
-                .bg(gpui::rgb(palette.highlight_bg))
-                .child(label[start..end].to_string()),
-        );
+        match parts.last_mut() {
+            Some(last) if last.1 && last.0.end == start => last.0.end = end,
+            _ => parts.push((start..end, true)),
+        }
         from = end;
     }
     if from < label.len() {
-        out.push(div().child(label[from..].to_string()));
+        parts.push((from..label.len(), false));
     }
-    out
+    parts
+        .into_iter()
+        .map(|(range, is_match)| TextRun {
+            len: range.len(),
+            font: base_font.clone(),
+            color: rgb(if is_match {
+                palette.match_text
+            } else {
+                palette.fg
+            })
+            .into(),
+            background_color: None,
+            underline: None,
+            strikethrough: None,
+        })
+        .collect()
 }
 
 impl<T: Clone + 'static> Render for Picker<T> {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let entity = cx.entity();
         let palette = Rc::clone(&self.palette);
+        // Unlike the plain text children this replaces, a `TextRun` carries its
+        // own font, so the rows ask for the editor's family -- the same one the
+        // query field above them is drawn in. Their size still comes from the
+        // surrounding text style.
+        let base_font = font(self.family.clone());
         let start = self.window_start();
         let end = (start + VISIBLE_ROWS).min(self.ranked.len());
         let rows: Vec<gpui::Div> = (start..end)
@@ -411,7 +444,12 @@ impl<T: Clone + 'static> Render for Picker<T> {
                     .when(n == self.selected, |d| {
                         d.bg(gpui::rgb(palette.ui_active_bg))
                     })
-                    .children(runs(item.label.as_str(), &row.label_ranges, &palette))
+                    .child(StyledText::new(item.label.clone()).with_runs(runs(
+                        item.label.as_str(),
+                        &row.label_ranges,
+                        &base_font,
+                        &palette,
+                    )))
                     .child(
                         div()
                             .text_color(gpui::rgb(palette.dim))
@@ -489,5 +527,61 @@ impl<T: Clone + 'static> Render for Picker<T> {
                         self.matches()
                     )),
             )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// What each run is: how many bytes it covers and whether it was painted as
+    /// a match rather than as ordinary row text.
+    fn painted(label: &str, matched: &[(usize, usize)], palette: &Palette) -> Vec<(usize, bool)> {
+        runs(label, matched, &font("monospace"), palette)
+            .into_iter()
+            .map(|r| (r.len, r.color == rgb(palette.match_text).into()))
+            .collect()
+    }
+
+    /// An empty query leaves the row as one run of ordinary text, which is also
+    /// the case for a row that matched only in its search text, not its label.
+    #[test]
+    fn a_row_that_matched_nothing_in_its_label_is_one_run() {
+        let palette = Palette::DEFAULT;
+        assert_eq!(painted("Welcome.md", &[], &palette), vec![(10, false)]);
+    }
+
+    /// The matcher returns one range per character, so a matched word arrives as
+    /// a heap of adjacent ones. They have to become one run: a run per letter is
+    /// what put gaps inside matched words.
+    #[test]
+    fn adjacent_matches_are_merged_into_one_run() {
+        let palette = Palette::DEFAULT;
+        assert_eq!(
+            painted("New note", &[(0, 1), (1, 2), (2, 3)], &palette),
+            vec![(3, true), (5, false)]
+        );
+    }
+
+    /// Matches that are not next to each other stay separate, so the letters in
+    /// between keep the row's own colour.
+    #[test]
+    fn a_match_in_the_middle_splits_the_row_into_three_runs() {
+        let palette = Palette::DEFAULT;
+        assert_eq!(
+            painted("Note Book", &[(0, 1), (5, 6)], &palette),
+            vec![(1, true), (4, false), (1, true), (3, false)]
+        );
+    }
+
+    /// Runs are counted in bytes, like the ranges they come from, so a match on a
+    /// multi-byte letter covers the whole letter.
+    #[test]
+    fn a_match_on_a_multibyte_letter_is_whole() {
+        let palette = Palette::DEFAULT;
+        assert_eq!(
+            painted("caf\u{e9} note", &[(3, 5)], &palette),
+            vec![(3, false), (2, true), (5, false)]
+        );
     }
 }

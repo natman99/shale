@@ -1,4 +1,5 @@
 target/
 styles/
+__pycache__/
 # Local-only upstream docs (vim help files, Obsidian help pages). See refs/README.md.
 refs/

@@ -36,6 +36,7 @@ pub const MAIN: Palette = Palette {
     code_bg: 0x26233a,
     code_block_bg: 0x1f1d2e,
     highlight_bg: 0x504239, // gold #f6c177 at 25% over #191724
+    match_text: 0xf6c177,
     table_line: 0x26233a,
     table_header_bg: 0x26233a,
     callout_bg: 0x26233a,
@@ -69,6 +70,7 @@ pub const MOON: Palette = Palette {
     code_bg: 0x393552,
     code_block_bg: 0x2a273f,
     highlight_bg: 0x584946, // gold #f6c177 at 25% over #232136
+    match_text: 0xf6c177,
     table_line: 0x393552,
     table_header_bg: 0x393552,
     callout_bg: 0x393552,
@@ -106,6 +108,7 @@ pub const DAWN: Palette = Palette {
     code_bg: 0xf2e9e1,
     code_block_bg: 0xf2e9e1,
     highlight_bg: 0xf6debf, // gold #ea9d34 at 25% over #faf4ed
+    match_text: 0x286983,
     table_line: 0xf2e9e1,
     table_header_bg: 0xfffaf3,
     callout_bg: 0xfffaf3,

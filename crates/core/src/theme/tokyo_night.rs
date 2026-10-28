@@ -37,6 +37,7 @@ pub const NIGHT: Palette = Palette {
     code_bg: 0x292e42,
     code_block_bg: 0x16161e,
     highlight_bg: 0x4c4036, // yellow #e0af68 at 25% over #1a1b26
+    match_text: 0xff9e64,
     table_line: 0x3b4261,
     table_header_bg: 0x292e42,
     callout_bg: 0x292e42,
@@ -73,6 +74,7 @@ pub const STORM: Palette = Palette {
     code_bg: 0x292e42,
     code_block_bg: 0x1f2335,
     highlight_bg: 0x534a46, // yellow #e0af68 at 25% over #24283b
+    match_text: 0xff9e64,
     table_line: 0x3b4261,
     table_header_bg: 0x292e42,
     callout_bg: 0x292e42,
@@ -110,6 +112,7 @@ pub const LIGHT: Palette = Palette {
     code_bg: 0xdadce3,
     code_block_bg: 0xd6d8df,
     highlight_bg: 0xd0c5b7, // yellow #8f5e15 at 25% over #e6e7ed
+    match_text: 0x965027,
     table_line: 0xc1c2c7,
     table_header_bg: 0xdcdee3,
     callout_bg: 0xdcdee3,
