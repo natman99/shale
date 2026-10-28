@@ -124,8 +124,8 @@ impl Render for Workspace {
                                     .on_action(cx.listener(|this, _: &TreeUp, _window, cx| {
                                         this.move_tree_selection(-1, cx)
                                     }))
-                                    .on_action(cx.listener(|this, _: &TreeOpen, _window, cx| {
-                                        this.open_tree_row(cx)
+                                    .on_action(cx.listener(|this, _: &TreeOpen, window, cx| {
+                                        this.open_tree_row(window, cx)
                                     }))
                                     .on_action(cx.listener(
                                         |this, _: &TreeCollapse, _window, cx| {

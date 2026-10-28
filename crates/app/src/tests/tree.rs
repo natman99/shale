@@ -138,13 +138,53 @@ fn h_closes_a_folder_and_j_steps_over_what_it_hid(cx: &mut TestAppContext) {
     assert_eq!(selected, Some(PathBuf::from("Welcome.md")));
 }
 
+/// `enter` on a note row opens the note *and* moves the keyboard to it: the tree
+/// is where you go to find a note, so the next thing typed is meant for the note.
+#[gpui::test]
+fn enter_on_a_note_row_moves_to_the_editor(cx: &mut TestAppContext) {
+    let (_dir, window) = workspace(cx, &["Welcome.md"]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    cx.simulate_keystrokes("ctrl-w h enter i");
+    cx.simulate_input("typed");
+    assert_eq!(
+        window
+            .update(cx, |ws, _window, cx| ws.buffer_text(cx))
+            .unwrap(),
+        "typed",
+        "the note has the keyboard, so `i` is vim's insert and not a tree binding"
+    );
+    let (_, active) = state(&window, cx);
+    assert_eq!(active, "Welcome.md", "and it is the note that row names");
+}
+
+/// A folder row is the other case: `enter` opens or closes it and the sidebar
+/// keeps the keyboard, because the next key is another tree motion.
+#[gpui::test]
+fn enter_on_a_folder_row_stays_in_the_tree(cx: &mut TestAppContext) {
+    let (_dir, window) = workspace(cx, &["notes/First.md"]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    // The first row is the folder; `r` is bound only in the tree's context, so the
+    // prompt it opens is proof the sidebar still had the keyboard.
+    cx.simulate_keystrokes("ctrl-w h enter r");
+    assert!(
+        window
+            .update(cx, |ws, _window, cx| ws.prompt_text(cx))
+            .unwrap()
+            .is_some(),
+        "the folder row left the keyboard where it was"
+    );
+}
+
 #[gpui::test]
 fn rename_moves_the_note_on_disk(cx: &mut TestAppContext) {
     let (dir, window) = workspace(cx, &["Welcome.md"]);
     let cx = &mut VisualTestContext::from_window(window.into(), cx);
 
-    // Select the row and open it, so the rename has an open note to follow.
-    cx.simulate_keystrokes("ctrl-w h enter r");
+    // Select the row and open it, so the rename has an open note to follow. The
+    // note takes the keyboard, so the rename comes from the global binding.
+    cx.simulate_keystrokes("ctrl-w h enter ctrl-shift-r");
     // The field starts with the current stem, so only the change is typed.
     cx.simulate_input("ed");
     cx.simulate_keystrokes("enter");

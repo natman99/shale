@@ -459,6 +459,10 @@ impl<T: Clone + 'static> Render for Picker<T> {
             }))
             .border_1()
             .border_color(gpui::rgb(palette.ui_border))
+            // Opaque, because the picker *overlays* the note: a panel that lets
+            // the text through is unreadable, which is the price of not pushing
+            // the note down.
+            .bg(gpui::rgb(palette.ui_bg))
             .child(
                 div()
                     .text_xs()

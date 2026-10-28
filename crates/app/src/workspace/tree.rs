@@ -136,7 +136,12 @@ impl Workspace {
     }
 
     /// Open the selected note, or open and close the selected folder.
-    pub(super) fn open_tree_row(&mut self, cx: &mut Context<Self>) {
+    ///
+    /// A note row also hands the keyboard to the note: the tree is where you go to
+    /// *find* a note, so the next thing typed is almost always meant for it. A
+    /// folder row keeps the sidebar's keyboard, because the next key is another
+    /// tree motion.
+    pub(super) fn open_tree_row(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(path) = self.tree_selection.clone() else {
             return;
         };
@@ -145,6 +150,7 @@ impl Workspace {
             cx.notify();
         } else {
             self.open_note(&path, cx);
+            self.focus_editor(&FocusEditor, window, cx);
         }
     }
 
