@@ -2,11 +2,13 @@
 //! painted text runs.
 //!
 //! Colours are *not* here: they are [`shale_core::theme::Palette`], a bag of
-//! 0xRRGGBB roles that the built-in themes (dark, light and the four Catppuccin
-//! flavours) and any TOML theme file produce, and that the editor hands to every
-//! paint site. What this module owns is the part that needs gpui: turning a `shale_core::mdstyle::Style`
-//! (which knows nothing about painting) plus a palette into a [`RunStyle`], which
-//! is what keeps the parser and the presentation separate.
+//! 0xRRGGBB roles that the built-in themes (Shale's `dark`/`light` and the
+//! Catppuccin, Tokyo Night, Gruvbox, Nord, Dracula, Solarized, One and Rosé Pine
+//! palettes) and any TOML theme file produce, and that the editor hands to every
+//! paint site. What this module owns is the part that needs gpui: turning a
+//! `shale_core::mdstyle::Style` (which knows nothing about painting) plus a
+//! palette into a [`RunStyle`], which is what keeps the parser and the
+//! presentation separate.
 
 use gpui::{px, rgb, Font, StrikethroughStyle, TextRun, UnderlineStyle};
 use shale_core::mdstyle::Style;

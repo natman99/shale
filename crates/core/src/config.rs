@@ -40,10 +40,11 @@ impl Default for EditorConfig {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AppearanceConfig {
-    /// The palette the editor draws with: a built-in (`dark`, `light`, or a
-    /// Catppuccin flavour — `latte`, `frappe`, `macchiato`, `mocha`), or the name
-    /// of a `<vault>/.shale/themes/<name>.toml` file (see [`crate::theme`]).
-    /// The default is [`Palette::DEFAULT_NAME`].
+    /// The palette the editor draws with: a built-in (`dark`, `light`, or one of
+    /// the family palettes — Catppuccin, Tokyo Night, Gruvbox, Nord, Dracula,
+    /// Solarized, One and Rosé Pine; see [`crate::theme::Palette::BUILT_INS`] for
+    /// the names), or the name of a `<vault>/.shale/themes/<name>.toml` file (see
+    /// [`crate::theme`]). The default is [`Palette::DEFAULT_NAME`].
     pub theme: String,
     /// UI font size in points.
     pub font_size: f32,

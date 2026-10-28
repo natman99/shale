@@ -7,11 +7,18 @@ line_wrap = true
 show_file_tree = true
 
 [appearance]
-# The palette: a built-in ("dark", "light", or a Catppuccin flavour - "latte",
-# "frappe", "macchiato", "mocha", also spelled "catppuccin-mocha"), or the name
-# of a file in .shale/themes/<name>.toml. The default is "mocha". A theme file
-# starts from one of the built-ins (`base = "light"`) and overrides only the
-# colours it cares about, by role:
+# The palette: a built-in, or the name of a file in .shale/themes/<name>.toml.
+# The built-ins are Shale's own "dark" and "light" plus the families it ships:
+#   Catppuccin   "latte" "frappe" "macchiato" "mocha" (also "catppuccin-mocha")
+#   Tokyo Night  "tokyo-night" "tokyo-night-storm" "tokyo-night-light"
+#   Gruvbox      "gruvbox-dark" "gruvbox-light"
+#   Nord, Dracula   "nord" "dracula"
+#   Solarized    "solarized-dark" "solarized-light"
+#   One          "one-dark" "one-light"
+#   Rose Pine    "rose-pine" "rose-pine-moon" "rose-pine-dawn"
+# The default is "mocha", the darkest Catppuccin flavour. A theme file starts
+# from one of the built-ins (`base = "light"`) and overrides only the colours it
+# cares about, by role:
 #
 #   base = "dark"
 #   bg = "#282828"

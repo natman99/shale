@@ -7,9 +7,12 @@
 //! palette it is given.
 //!
 //! A theme is named in `shale.toml` as `appearance.theme`. The built-in names
-//! are `dark` and `light` plus the four Catppuccin flavours (`latte`, `frappe`,
-//! `macchiato`, `mocha`, each also spelled with a `catppuccin-` prefix); the
-//! default is `mocha`. Any other name is looked up as
+//! are `dark` and `light` plus the palettes of seven popular theme families --
+//! the four Catppuccin flavours (`latte`, `frappe`, `macchiato`, `mocha`, each
+//! also spelled with a `catppuccin-` prefix), three Tokyo Night variants, two
+//! Gruvbox modes, Nord, Dracula, both Solarized modes, Atom's One Dark and One
+//! Light, and the three Rosé Pine variants. The default is `mocha`; see
+//! [`Palette::BUILT_INS`] for the whole list. Any other name is looked up as
 //! `<vault>/.shale/themes/<name>.toml`, which may start from any built-in
 //! (`base = "light"`) and override the keys it cares about:
 //!
@@ -29,6 +32,14 @@ use crate::mdstyle::CalloutKind;
 
 /// The Catppuccin flavours, as palettes built from the upstream palette file.
 pub mod catppuccin;
+/// Atom's One Dark and One Light, evaluated from their upstream HSL definitions.
+pub mod dracula;
+pub mod gruvbox;
+pub mod nord;
+pub mod one;
+pub mod rose_pine;
+pub mod solarized;
+pub mod tokyo_night;
 
 /// The directory under the vault root where theme files live.
 pub const THEME_DIR: &str = ".shale/themes";
@@ -175,8 +186,10 @@ impl Palette {
     /// config default, the loader and the app's fallback cannot drift apart.
     pub const DEFAULT_NAME: &'static str = "mocha";
 
-    /// The built-in palettes, by (lowercase) name: Shale's own two and the four
-    /// Catppuccin flavours.
+    /// The built-in palettes, by (lowercase) name: Shale's own two, then the
+    /// palettes of the families this module keeps a file for. A family's variants
+    /// are listed in the order upstream lists them, which for the families with a
+    /// light variant puts the dark one first.
     pub const BUILT_INS: &[(&str, Palette)] = &[
         ("dark", Self::DARK),
         ("light", Self::LIGHT),
@@ -184,15 +197,39 @@ impl Palette {
         ("frappe", catppuccin::FRAPPE),
         ("macchiato", catppuccin::MACCHIATO),
         ("mocha", catppuccin::MOCHA),
+        ("tokyo-night", tokyo_night::NIGHT),
+        ("tokyo-night-storm", tokyo_night::STORM),
+        ("tokyo-night-light", tokyo_night::LIGHT),
+        ("gruvbox-dark", gruvbox::DARK),
+        ("gruvbox-light", gruvbox::LIGHT),
+        ("nord", nord::PALETTE),
+        ("dracula", dracula::PALETTE),
+        ("solarized-dark", solarized::DARK),
+        ("solarized-light", solarized::LIGHT),
+        ("one-dark", one::DARK),
+        ("one-light", one::LIGHT),
+        ("rose-pine", rose_pine::MAIN),
+        ("rose-pine-moon", rose_pine::MOON),
+        ("rose-pine-dawn", rose_pine::DAWN),
     ];
 
     /// A built-in palette by name, or `None` for anything else.
     ///
-    /// The Catppuccin flavours are found by their own names (`mocha`) and also
-    /// with a `catppuccin-` prefix, since that is the name a reader who has
-    /// never seen Shale's config is most likely to guess.
+    /// Names are matched case-insensitively. Two spellings are accepted that are
+    /// not in [`Self::BUILT_INS`]: a Catppuccin flavour with the `catppuccin-`
+    /// prefix (`catppuccin-mocha`), and a dark variant that adds a `-dark`
+    /// suffix to a family whose dark variant carries the bare name
+    /// (`tokyo-night-dark`, `rose-pine-dark`).
     pub fn built_in(name: &str) -> Option<Palette> {
         let name = without_flavour_prefix(name);
+        Self::lookup(name).or_else(|| match trailing_dark(name) {
+            Some(stem) => Self::lookup(stem),
+            None => None,
+        })
+    }
+
+    /// A built-in palette by its exact registry name, ignoring case.
+    fn lookup(name: &str) -> Option<Palette> {
         Self::BUILT_INS
             .iter()
             .find(|(n, _)| name.eq_ignore_ascii_case(n))
@@ -410,6 +447,20 @@ fn without_flavour_prefix(name: &str) -> &str {
     }
 }
 
+/// The family name behind a `-dark` suffix, for the families whose dark variant
+/// is the bare name: `tokyo-night-dark` and `rose-pine-dark` both ask for the
+/// variant that is listed without a suffix. `None` if `name` does not end that
+/// way, so a family that spells its own variants `-dark`/`-light` (Gruvbox,
+/// Solarized, One) is left to its exact names.
+fn trailing_dark(name: &str) -> Option<&str> {
+    const SUFFIX: &str = "-dark";
+    if name.len() > SUFFIX.len() && name[name.len() - SUFFIX.len()..].eq_ignore_ascii_case(SUFFIX) {
+        Some(&name[..name.len() - SUFFIX.len()])
+    } else {
+        None
+    }
+}
+
 /// `#rrggbb` (the `#` optional) as a 0xRRGGBB integer.
 fn parse_color(text: &str) -> anyhow::Result<u32> {
     let hex = text.trim().trim_start_matches('#');
@@ -434,12 +485,12 @@ where
 
 /// The palette a vault asks for.
 ///
-/// `name` (from `appearance.theme`) is a built-in — `dark`, `light`, or one of
-/// the Catppuccin flavours — or the stem of `<vault>/.shale/themes/<name>.toml`,
-/// whose `base` says which built-in to start from. An empty name is
-/// [`Palette::DEFAULT_NAME`]. An unknown name is an error, which lets the caller
-/// tell the user their theme was not found instead of quietly drawing the
-/// default.
+/// `name` (from `appearance.theme`) is a built-in -- `dark`, `light`, or one of
+/// the family palettes in [`Palette::BUILT_INS`] -- or the stem of
+/// `<vault>/.shale/themes/<name>.toml`, whose `base` says which built-in to
+/// start from. An empty name is [`Palette::DEFAULT_NAME`]. An unknown name is an
+/// error, which lets the caller tell the user their theme was not found instead
+/// of quietly drawing the default.
 pub fn palette_for(vault_root: &Path, name: &str) -> anyhow::Result<Palette> {
     let name = name.trim();
     let name = if name.is_empty() {
@@ -621,11 +672,7 @@ mod tests {
         }
         // The flavours are the four upstream ones, lightest first, and they are
         // distinct palettes rather than one palette copied four times.
-        assert_eq!(
-            catppuccin::FLAVORS.len(),
-            Palette::BUILT_INS.len() - 2,
-            "every flavour is a built-in and nothing else was added"
-        );
+        assert_eq!(catppuccin::FLAVORS.len(), 4);
         assert_eq!(catppuccin::FLAVORS[0].0, "latte");
         assert_eq!(catppuccin::FLAVORS[3].0, "mocha");
         assert_eq!(catppuccin::MOCHA.bg, 0x1e1e2e);
@@ -638,5 +685,79 @@ mod tests {
         let out = palette_for(dir.path(), "mocha-warm").unwrap();
         assert_eq!(out.bg, 0x1e1e28);
         assert_eq!(out.link, catppuccin::MOCHA.link, "the rest is Mocha");
+    }
+
+    /// The other theme families are selectable by name and as the `base` of a
+    /// theme file, in the spellings their own users type: mixed case, and for a
+    /// family whose dark variant carries the bare name, a `-dark` suffix.
+    #[test]
+    fn the_other_families_are_built_ins() {
+        let named: &[(&str, Palette)] = &[
+            ("tokyo-night", tokyo_night::NIGHT),
+            ("tokyo-night-storm", tokyo_night::STORM),
+            ("tokyo-night-light", tokyo_night::LIGHT),
+            ("gruvbox-dark", gruvbox::DARK),
+            ("gruvbox-light", gruvbox::LIGHT),
+            ("nord", nord::PALETTE),
+            ("dracula", dracula::PALETTE),
+            ("solarized-dark", solarized::DARK),
+            ("solarized-light", solarized::LIGHT),
+            ("one-dark", one::DARK),
+            ("one-light", one::LIGHT),
+            ("rose-pine", rose_pine::MAIN),
+            ("rose-pine-moon", rose_pine::MOON),
+            ("rose-pine-dawn", rose_pine::DAWN),
+        ];
+        let dir = tempfile::tempdir().unwrap();
+        let path = ThemeFile::path(dir.path(), "mine");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        for (name, palette) in named {
+            assert_eq!(Palette::built_in(name), Some(*palette), "{name}");
+            assert_eq!(
+                palette_for(dir.path(), &name.to_uppercase()).unwrap(),
+                *palette,
+                "{name} is found whatever case it is written in"
+            );
+            // Any of them can be the base a vault's own theme file edits.
+            std::fs::write(&path, format!("base = \"{name}\"\nbg = \"#010203\"\n")).unwrap();
+            let out = palette_for(dir.path(), "mine").unwrap();
+            assert_eq!(out.bg, 0x010203, "{name} as a theme file's base");
+            assert_eq!(out.accent, palette.accent, "the rest of {name} is kept");
+        }
+
+        // The two spellings people reach for that are not themselves names.
+        assert_eq!(
+            Palette::built_in("Tokyo-Night-Dark"),
+            Some(tokyo_night::NIGHT)
+        );
+        assert_eq!(Palette::built_in("rose-pine-dark"), Some(rose_pine::MAIN));
+        assert_eq!(
+            Palette::built_in("solarized-dark"),
+            Some(solarized::DARK),
+            "a family that spells its own variants -dark keeps that name"
+        );
+        // A family name on its own would have to guess between its variants.
+        assert_eq!(Palette::built_in("gruvbox"), None);
+        assert_eq!(Palette::built_in("one"), None);
+    }
+
+    /// The registry the picker will list has to be a set: no two entries sharing
+    /// a name, and no two entries that are the same colours under different names.
+    #[test]
+    fn the_built_in_list_is_a_set() {
+        for (i, (name, palette)) in Palette::BUILT_INS.iter().enumerate() {
+            for (other, other_palette) in &Palette::BUILT_INS[i + 1..] {
+                assert!(!name.eq_ignore_ascii_case(other), "{name} is listed twice");
+                assert_ne!(*palette, *other_palette, "{name} and {other} are identical");
+            }
+        }
+        // A name is a file stem, so nothing in the list may need quoting.
+        for (name, _) in Palette::BUILT_INS {
+            assert!(
+                name.bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-'),
+                "{name} is not a plain lowercase file stem"
+            );
+        }
     }
 }
