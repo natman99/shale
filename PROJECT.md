@@ -38,7 +38,7 @@ Shale is an obsidian-style markdown editor with extra developer focused features
 - Markdown tasks should support mouse clicks to check, and a "partly complete" icon for `[/]` in preview mode. 
 - Fuzzy search for the file picker
 
-Gui pickers should have a search bar with fuzzy search, but arrow keys + enter can select options manually, or the mouse can.
+Gui pickers should have a search bar with fuzzy search, but arrow keys + enter can select options manually, or the mouse can. The same picker logic and UI should be reused for the command pallette and commands as much as possible to provide a consistent experience.
 
 ## Non-Goals
 
@@ -138,8 +138,16 @@ Workspace layout:
   Tokyo Night ×3, Gruvbox ×2, Nord, Dracula, Solarized ×2, One ×2 and Rosé Pine
   ×3 — default `mocha` — or a `<vault>/.shale/themes/<name>.toml` file, and
   `appearance.font_size` sizes the text),
-  ctrl+s save. Split into `main.rs` (workspace, keymap, actions) with its
-  headless tests in `tests/` (`keys.rs`, `paint.rs`), `editor/` (the view: `mod.rs`
+  ctrl+s save, and a file tree that can create, rename and delete notes and
+  folders through a one-line prompt (`prompt.rs`). Split into `main.rs` (the
+  command line and the window it opens), `acts.rs` (every action the keymap
+  names — the two namespaces its `actions!` calls generate are what the keymap
+  and the tests match on, so they are load-bearing, not just namespaces),
+  `workspace/` (`mod.rs` the state, `keys.rs` the keymap, `tree.rs` the sidebar's
+  keyboard state and its rows, `edits.rs` the prompt and the vault edits behind
+  its answers, `render.rs` the frame), `tree.rs` (turning the vault's entries
+  into rows) and its headless tests in `tests/` (`keys.rs`, `paint.rs`,
+  `tree.rs`), `editor/` (the view: `mod.rs`
   holds the state and accessors, `wrap.rs` the display model, `render.rs` builds
   the frame and the key context, `actions.rs` the key handlers, `input.rs` the
   IME/paste/click surface), `line.rs` (the `LineElement` that paints one display
@@ -870,6 +878,51 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
     the test that checks the marker is not its own step uses `A <enter> <esc> u`.
     Needs a live check by the user (no key-injection tool is installed).
 
+- **File tree: create, rename, delete — done (2026-10-27).**
+  `shale_core::Vault` gained the checked edits: `create_note` (adds `.md`, never
+  overwrites), `create_dir`, `rename`, `delete` and `delete_dir`. Every name goes
+  through `checked_rel` (rejects `..`, absolute paths and `FORBIDDEN_NAME_CHARS`)
+  and `guard_unprotected`, which refuses anything under a dot directory so
+  `.shale` and `.git` stay untouched. `delete_dir` refuses a non-empty folder,
+  and `list_dirs` exists so an empty folder still gets a row.
+  **The prompt is a sibling of the tree, not a child.** gpui enables a binding
+  when its context appears *anywhere* in the focused element's stack
+  (`Keymap::binding_enabled`), so rendering the prompt inside `tree-scroll` would
+  let the tree's `j`/`k` swallow the letters being typed. `prompt.rs` is a
+  `Prompt` entity (`EntityInputHandler` + `Render` + `Focusable`) whose field is
+  a custom `PromptField` element that registers an `ElementInputHandler` during
+  `paint` — that is how typed characters arrive without any key binding. (An
+  `Element` impl also needs `impl IntoElement` or `.child()` will not take it.)
+  **Bindings.** Global `ctrl-n` new note, `ctrl-shift-n` new folder,
+  `ctrl-shift-r` rename, `ctrl-shift-d` delete, `ctrl-b` focus the tree. In the
+  tree context: `j/k/up/down`, `h/l/left/right`, `enter`/`space` open, `escape`
+  to the editor, `n`, `shift-n`, `r`, `shift-d`. In the prompt context only
+  `enter`/`escape`/`backspace`/`delete`/`left`/`right`, because printables come
+  from the input handler and binding them would open a second path to the same
+  text.
+  **Decisions worth remembering.** A delete happens only when the answer is
+  exactly `yes` (case-insensitive); anything else closes the prompt with "delete
+  cancelled". An *invalid* name leaves the prompt open with the text in it so it
+  can be fixed: `apply_prompt` returns `Result<()>` and `answer_prompt` handles
+  the declined delete, because `?` only works in a `Result`-returning fn.
+  Closing a prompt returns focus to whatever held it (`prompt_return_focus`), so
+  a rename started in the tree keeps you in the tree. Rename prefills the file's
+  *stem* and `sibling_path` puts the `.md` back. New notes and folders land in
+  `target_dir()` — the selected folder, else the folder of the selected note,
+  else the folder of the open note, else the vault root. Every folder starts
+  expanded.
+  **Not done here.** Renaming or deleting does **not** rewrite the wiki-links
+  that point at the note (Obsidian does rewrite them); that needs a decision
+  about aliases and embeds first. File watching is still missing, so an edit
+  made outside Shale is invisible until restart.
+  **Test findings.** `WindowHandle::update` plus `window.dispatch_keystroke` in
+  the same closure panics ("already being updated"), so a live keystroke sequence
+  cannot be driven that way. And because focus returns to the editor when a
+  prompt closes, a tree-context key typed afterwards lands in vim instead — that
+  is what broke one of these tests. New tests: six in `vault.rs`, ten in
+  `tests/tree.rs`, which exercise the whole path (`ctrl-n`, type the name through
+  the input handler, Enter, then read what reached the disk). Live check: the
+  prompt renders and the user's own keystrokes landed in the field.
 - **Module sizes.** `editor.rs` and `main.rs` both passed the 1000-line mark in
   `AGENTS.md`, so they are now directories: `editor/{mod,wrap,render,actions,input}.rs`
   (a submodule can reach `MarkdownEditor`'s private state because they are all
@@ -877,9 +930,12 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   and `tests/{mod,keys,paint}.rs`. `mdstyle.rs` passed it too and is now
   `mdstyle/{mod,block,inline}.rs` (450 / 398 / 277): `mod.rs` holds `Style`,
   `CalloutKind`, `StyleSpan`, the line walk and the tests, `block.rs` classifies
-  each line, `inline.rs` styles the text inside it. Largest files now: `vim.rs`
-  2219, `buffer.rs` 1786, `line.rs` 897, `tests/keys.rs` 825, `tests/paint.rs`
-  772, `core/theme/mod.rs` 763, `main.rs` 632. `vim.rs` and `buffer.rs` are still
+  each line, `inline.rs` styles the text inside it. `main.rs` passed it again
+  with the file tree, and is now `main.rs` (116) + `acts.rs` + `workspace/`.
+  Largest files now: `vim.rs` 2219, `buffer.rs` 1786, `tests/keys.rs` 903,
+  `line.rs` 897, `tests/paint.rs` 772, `core/theme/mod.rs` 763, `vault.rs` 708,
+  `prompt.rs` 488, `tests/tree.rs` 290, and the `workspace/` submodules at
+  269/262/209/160/158. `vim.rs` and `buffer.rs` are still
   over the rule — split them the next time either one is touched; `line.rs` (the
   element, the run builder and the table grid paint) is the next candidate after
   those.
@@ -934,7 +990,12 @@ Next steps, roughly in order:
     nothing but an embed is drawn as the picture (stage 2b). What is left is an
     image embedded *inside* a paragraph, and an `|alias` suffix on an embed is
     currently read as "no size".
-12. File tree: new/rename/delete, file watching.
+12. ~~File tree: new/rename/delete~~ Done (see Open threads). Left here: file
+    watching — prefer a dependency-free `Vault::signature()` returning a
+    `BTreeMap<rel, (mtime, len)>` plus a `diff` into added/removed/modified,
+    polled from the app on a `background_executor` timer, because the database
+    goal needs the same "what changed on disk" pass (`notify`, MIT, is the
+    alternative) — and rewriting the wiki-links that point at a renamed note.
 13. **Database tables (Obsidian bases)** — the user's goal, see the Database
     section above. Nothing built yet, but the shape of it is already useful:
     a query result is a table that is *not* buffer text, and the grid paint
