@@ -480,10 +480,14 @@ mobile, Canvas, slide mode, themes). The gaps, with rulings:
      the DB index → confirm dialog showing the resolved path verbatim.
   5. The URI carries pointers only, never content — no temp-file surface.
 
-### Table editing feel 🔭 (awaiting ruling)
+### Table editing feel ❄️ (parked, user call 2026-10-29)
 - `Tab` in a table cell → next cell (wraps to next row; at the last cell,
   creates a new row); `Shift-Tab` → previous. `table` keymap context;
   insert-mode Tab elsewhere untouched. Pairs with the `cit` text object.
+- Parked as pure parity: normal-mode filling is already `cit` + `f|`
+  (redundant with existing vim motions); the only gain is insert-mode
+  chaining, which vim users won't reach for. Trivial to add later if
+  table-filling turns out to be a real workflow.
 
 ### Math ❄️ / Mermaid ❄️
 - Both parked (user call, 2026-10-28). Revisit after live-preview core lands;
