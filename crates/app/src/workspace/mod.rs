@@ -479,7 +479,9 @@ impl Workspace {
     /// process, and with it the underlines and any panel about one of them.
     /// Turning it on starts the server the config names and hands it the note that
     /// is open; a server that is not installed is reported the way a missing one is
-    /// at startup — a missing feature rather than a broken editor.
+    /// at startup — a missing feature rather than a broken editor. The note waits
+    /// for the server's handshake, so it is checked whether the handshake wins the
+    /// race or the note does.
     pub(super) fn set_checker(&mut self, on: bool, cx: &mut Context<Self>) {
         if self.spell.is_some() == on {
             self.status = if on {
@@ -498,7 +500,12 @@ impl Workspace {
                     self._spell_events = Some(events);
                     self.spell = Some(spell);
                     self.status = "spellcheck on".into();
-                    // This server has never seen the note on screen.
+                    // This server has never seen the note on screen. Handing it
+                    // over in the same breath as starting the server is safe only
+                    // because the checker stages the open until its handshake is
+                    // answered: a `didOpen` the server reads while it is still
+                    // starting is one it throws away, and the note is then never
+                    // checked (`:harper on` used to leave exactly that).
                     if let Some(path) = self.active.clone() {
                         let text = self.editor.read_with(cx, |editor, _cx| editor.text());
                         self.checker_opened(&path, &text, cx);

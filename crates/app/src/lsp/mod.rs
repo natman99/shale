@@ -7,7 +7,7 @@
 //! that is all a single-note editor needs, and `harper-ls` advertises exactly
 //! that (`textDocumentSync.change = 1`, full).
 //!
-//! Two things about this server are load-bearing and easy to get wrong:
+//! Three things about this server are load-bearing and easy to get wrong:
 //!
 //! - It **asks the client questions** (`workspace/configuration`,
 //!   `client/registerCapability`) and does not process `didOpen` until they are
@@ -15,7 +15,13 @@
 //! - Grammar rules are off unless `initialize` carries
 //!   `initializationOptions.grammarOpacity = "all"`. Spell checking alone is what
 //!   the defaults give, which is half of what the user asked for.
+//! - The **handshake comes first**. A `didOpen` the server reads before it has
+//!   answered `initialize` is dropped, and it then holds no document at all, so
+//!   every later `didChange` is answered with notes about nothing. That is what a
+//!   checker switched back on with `:harper on` looks like: `count=0` in the log
+//!   forever, and no underline until the note is closed and opened again.
 
+mod document;
 mod mapping;
 mod wire;
 
@@ -31,6 +37,8 @@ use serde_json::{json, Value};
 use shale_core::config::SpellcheckConfig;
 
 pub(crate) use mapping::{Diagnostic, Fix};
+
+use document::Document;
 
 /// How long to wait after the last keystroke before asking again. Long enough
 /// that typing a word is one request rather than one per character, short enough
@@ -56,11 +64,10 @@ pub(crate) struct Spell {
     /// handshake and the code actions, and telling them apart is what decides
     /// whether to start checking or to fill a popup.
     pending: Vec<(wire::Id, Pending)>,
-    /// The document the server holds, and the version it holds it at.
-    open: Option<(String, i64)>,
-    /// The text we last sent. The ranges that come back are positions in it, so
-    /// they can only be placed against it.
-    sent_text: String,
+    /// The document the server holds, and the frames that keep it there. The open
+    /// is staged until the handshake is answered, because one the server reads
+    /// before then is thrown away (see [`Document`]).
+    doc: Document,
     /// The current document's diagnostics, in buffer byte offsets.
     diagnostics: Vec<Diagnostic>,
     /// The fixes the server offered last, and the buffer range they were asked
@@ -117,8 +124,7 @@ impl Spell {
             stdin,
             next_id: 1,
             pending: Vec::new(),
-            open: None,
-            sent_text: String::new(),
+            doc: Document::new(),
             diagnostics: Vec::new(),
             fixes: Vec::new(),
             revision: 0,
@@ -156,6 +162,10 @@ impl Spell {
     }
 
     /// The handshake. `initializationOptions` is where grammar is switched on.
+    ///
+    /// Its answer is what turns the checker on: `receive` reads it as
+    /// [`Action::Ready`], which sends `initialized` and the document the window
+    /// opened while the server was still starting.
     fn initialize(&mut self) {
         let id = self.next_id;
         self.next_id += 1;
@@ -192,16 +202,16 @@ impl Spell {
     }
 
     /// Tell the server about a document it has not seen.
+    ///
+    /// Before the handshake is answered this only records the document: a `didOpen`
+    /// the server reads while it is still initializing is thrown away, and it is
+    /// then left holding nothing. The newest text is kept and goes out as one
+    /// `didOpen` when the answer arrives — see [`Document`].
     pub(crate) fn open(&mut self, path: &Path, text: &str, cx: &mut Context<Self>) {
         let uri = file_uri(path);
-        self.send(&wire::notification(
-            "textDocument/didOpen",
-            json!({
-                "textDocument": { "uri": uri, "languageId": LANGUAGE, "version": 1, "text": text }
-            }),
-        ));
-        self.open = Some((uri, 1));
-        self.sent_text = text.to_string();
+        if let Some(frame) = self.doc.opened(&uri, text) {
+            self.send(&frame);
+        }
         self.diagnostics.clear();
         self.fixes.clear();
         cx.notify();
@@ -228,19 +238,13 @@ impl Spell {
     /// Whole-document sync: the server advertised `change = 1`, so the new text
     /// is sent in full rather than as a patch.
     fn send_change(&mut self, text: &str, cx: &mut Context<Self>) {
-        let Some((uri, version)) = self.open.clone() else {
+        let Some(frame) = self.doc.changed(text) else {
+            // No note open, or the server has never seen this one and the text is
+            // staged for the `didOpen` that will carry it. Either way there is
+            // nothing to write, and nothing checked to forget.
             return;
         };
-        let version = version + 1;
-        self.open = Some((uri.clone(), version));
-        self.send(&wire::notification(
-            "textDocument/didChange",
-            json!({
-                "textDocument": { "uri": uri, "version": version },
-                "contentChanges": [{ "text": text }]
-            }),
-        ));
-        self.sent_text = text.to_string();
+        self.send(&frame);
         // The old notes are about text that no longer exists, and so is any
         // `codeAction` answer still on its way: a popup filled from text the user
         // has since edited would offer fixes for words that are not there.
@@ -251,16 +255,13 @@ impl Spell {
     }
 
     /// Tell the server the document it holds is gone: the note was closed or
-    /// deleted, so there is nothing left to check.
+    /// deleted, so there is nothing left to check. A note it was never told about
+    /// is forgotten instead — see [`Document::closed`].
     pub(crate) fn close(&mut self, cx: &mut Context<Self>) {
-        let Some((uri, _version)) = self.open.take() else {
+        let Some(frame) = self.doc.closed() else {
             return;
         };
-        self.send(&wire::notification(
-            "textDocument/didClose",
-            json!({ "textDocument": { "uri": uri } }),
-        ));
-        self.sent_text.clear();
+        self.send(&frame);
         self.diagnostics.clear();
         self.fixes.clear();
         self.pending.retain(|(_, kind)| *kind != Pending::Fixes);
@@ -281,19 +282,28 @@ impl Spell {
     /// diagnostics we pass will need the payload kept, which is the follow-up
     /// noted in the plan.
     pub(crate) fn fixes_at(&mut self, start: usize, end: usize, cx: &mut Context<Self>) {
-        let Some((uri, _)) = self.open.clone() else {
+        let Some(uri) = self.doc.uri().map(str::to_string) else {
             return;
         };
+        if !self.doc.is_ready() {
+            // The same trap as an early `didOpen`: a request the server reads
+            // before it has finished initializing is not answered. The panel keeps
+            // the complaint, which is the part the user asked for, and the offers
+            // arrive the next time the word is asked about.
+            tracing::debug!("asked for fixes before the checker was ready");
+            return;
+        }
         let id = self.next_id;
         self.next_id += 1;
         self.pending.push((wire::Id::Number(id), Pending::Fixes));
         self.fixes.clear();
+        let range = mapping::lsp_range(self.doc.text(), start, end);
         self.send(&wire::request(
             id,
             "textDocument/codeAction",
             json!({
                 "textDocument": { "uri": uri },
-                "range": mapping::lsp_range(&self.sent_text, start, end),
+                "range": range,
                 "context": { "diagnostics": [] }
             }),
         ));
@@ -330,8 +340,8 @@ impl Spell {
 
     fn receive(&mut self, message: wire::Message, cx: &mut Context<Self>) {
         let session = Session {
-            sent_text: &self.sent_text,
-            uri: self.open.as_ref().map(|(uri, _)| uri.as_str()),
+            sent_text: self.doc.text(),
+            uri: self.doc.uri(),
             pending: &self.pending,
         };
         // Read the answer *before* settling it: `decide` works out what a response
@@ -356,6 +366,12 @@ impl Spell {
                 cx.notify();
             }
             Action::Ready => {
+                // The handshake's other half, and the note that has been on screen
+                // since before the server was ready to hear about it. What they are,
+                // and in that order, is [`Document::handshake`]'s decision.
+                for frame in self.doc.handshake() {
+                    self.send(&frame);
+                }
                 tracing::debug!("spellcheck server ready");
             }
             Action::Ignore => {}
