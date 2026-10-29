@@ -212,6 +212,20 @@ lines, the popup and the picker both scroll, `/` and the three views work,
   notes are the source of truth.
 - **P1.7 `:wordcount [folder]`** + status-bar count — first DB-backed feature;
   proves the spine end to end.
+- **P1.8 Session state — what the vault looked like last time** (the user asked
+  for it 2026-10-29; simple, and it belongs with the `.shale/` work). Save on a
+  graceful quit and on the autosave's beat; restore on open. Contents: the open
+  note with its **cursor and scroll offset**, which folders are **expanded in the
+  file tree**, which **view** the note was in, and — once P3.1/P3.2 land — the
+  **tabs and the pane layout**, including which pane held the keyboard and which
+  were pinned. The jump chain is worth saving too: `ctrl-o` back through notes
+  from before the restart is what the feature is for.
+  **File, not DB:** `.shale/session.json`. The DB is a cache that may be rebuilt
+  and is derived from the notes; this is state the user chose, and it has to
+  survive a rebuild. Same atomic write as P1.5.
+  **Not gating Phase 1's exit.** The half that needs no new feature (open note,
+  cursor, folds, view) can land as soon as the view is a setting; the tab/pane
+  half lands with P3.1/P3.2 and only extends the same file.
 
 **Exit criteria:** DB rebuilds from an empty `.shale` in <1s on the demo vault;
 external edit picked up within the watch interval; provenance correct for
@@ -274,14 +288,21 @@ app both up and down.
     prefix: `gt` `gT` and `:tabnew` / `:tabclose` / `:tabonly` / `:tabmove` /
     `:tabnext` / `:tabprev`. The `g` prefix currently uses `gg`, `gx`, `gf`, so
     `g t` and `g T` are free.
-  - **Decision (2026-10-29): the three views do *not* go under `ctrl-w`.**
-    `ctrl-w p` / `r` / `t` are all taken by vim (`p` put-register, `r` rotate,
-    `t` new tab with the window). They go on the existing **`space` leader** —
-    `space r` raw, `space p` preview, and `space v` (or `space l`) live — beside
-    `space f` quick-open and `space s` vault search. They must be **vim-engine
-    chords** (`Vim::after_space`), not keymap prefixes: `space` is vim's right
-    motion, and a keymap prefix would make every space in normal mode feel dead.
-    `:raw` / `:live` / `:preview` stay the way in until that lands.
+  - **Decision (2026-10-29): the three views do *not* go under `ctrl-w`, and they
+    landed the same day on the `space` leader.** `ctrl-w p` / `r` / `t` are all
+    taken by vim (`p` put-register, `r` rotate, `t` new tab with the window), so
+    the views are `space r` (raw), `space l` (live) and `space p` (preview),
+    beside `space f` quick-open and `space s` vault search. They are **vim-engine
+    chords** (`Vim::after_space` in `crates/core/src/vim/mod.rs`), not keymap
+    prefixes: `space` is vim's right motion, and a keymap prefix would make every
+    space in normal mode feel dead. `space l` is the one that matters most — a
+    note in preview refuses typing, so the way out cannot need the command line.
+    `:raw` / `:live` / `:preview` stay as the ex way in.
+    **The rule this exposed:** every key a leader chord uses must be bound in the
+    keymap in its own right, or the keystroke never reaches the engine to be read
+    as a chord. `f`, `l`, `p` and `s` already were; `r` had to be bound (`VimR`)
+    even though vim's replace-the-character is not implemented here — the same
+    reason `s` is bound. An unbound printable key in normal mode reaches nothing.
 - **P3.2 Tiling splits** (goal) — same pane model as tabs; `:pin` (note
   pinning, brainstorm ✅) is a pane flag: dimmed, excluded from the jump chain,
   auto-closing.

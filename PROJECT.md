@@ -16,6 +16,7 @@ Shale is an obsidian-style markdown editor with extra developer focused features
 - [ ] Pdf export notes
 - [ ] Tabs
 - [ ] Tiling split view (like Obsidian)
+- [ ] Remember the workspace between sessions: the open note with its cursor and scroll, which folders are expanded in the tree, the note's view, the jump chain, and once they exist the tabs and panes (roadmap P1.8, in `.shale/session.json`)
 - [x] Command pallette (vim `:` and Vscode's `ctrl+shift+p` to open. Vim version supports vim features like `s/x/x` replacement. Fuzzy search for commands) — palette, `:` line, and fuzzy all done; the `s/x/x`-style ex features are not (see roadmap P2.7)
 - [x] Note search and full vault search (command pallette, vim `/`) — vault search done (`ctrl-shift-f`); in-buffer `/` done (roadmap P0.5)
 - [ ] Templates: save standard notes as templates to be copied in to other notes with a command. Also add a gui picker.
@@ -315,10 +316,10 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
 - Run the test binaries under `ulimit -v` when working on anything that scans
   text (a scanner bug can allocate until the OOM killer takes the editor down —
   see the table postmortem).
-  Current peak RSS of the test binaries (2026-10-29, app 213 / core 303 with 10
+  Current peak RSS of the test binaries (2026-10-29, app 214 / core 304 with 10
   ignored / mcp 6 tests — core's count includes the graph agent's `graph::` tests,
-  which are committed and green): core 7.6 MB, app 68 MB,
-  mcp 3.4 MB. The
+  which are committed and green): core 7.3 MB, app 69 MB,
+  mcp 3.5 MB. The
   app binary's *address space* (not RSS) is far larger because of gpui/wgpu
   reservations, and it now needs **4 GB or more** — a 1 GB cap makes it die in an
   80-byte allocation. Build with `cargo test --workspace --no-run`, then run each
@@ -1859,8 +1860,7 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   module gained reach. Splitting a `mod tests { … }` block the same way works,
   but note that a child test module's `use super::*` reaches the parent's own
   `use`s, so the extra `use crate::vim::*` lines are dead weight.
-  Largest files now (2026-10-29, after the autosave and the preview checker
-  rules): `tests/popup.rs` 1104, `line.rs` 1085,
+  Largest files now (2026-10-29, after the leader's view chords): `tests/popup.rs` 1104, `line.rs` 1085,
   `workspace/mod.rs` 1050, `graph/sim.rs` 908,
   `tests/paint.rs` 806, `editor/mod.rs` 784, `vault.rs` 750,
   `graph/quadtree.rs` 719, `buffer/tests.rs` 701, `lsp/mod.rs` 687,
@@ -1868,18 +1868,18 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   `table/edit.rs` 640, `graph/index.rs` 602, `editor/render.rs` 599,
   `table/mod.rs` 590, `tests/tree.rs` 547, `mdstyle/mod.rs` 530,
   `lsp/mapping.rs` 496, `graph/proj.rs` 491, `graph/geom.rs` 488,
-  `tests/keys.rs` 468, `theme/tests.rs` 444, `workspace/edits.rs` 443,
+  `tests/keys.rs` 474, `theme/tests.rs` 444, `workspace/edits.rs` 443,
   `tests/motions.rs` 442, `mdstyle/block.rs` 432, `workspace/popups.rs` 428,
   `markdown.rs` 416, `editor/wrap.rs` 416, `graph/hues.rs` 411,
   `config/mod.rs` 405, `tests/search.rs` 385, `workspace/render.rs` 375,
   `vim/motions.rs` 355, `field.rs` 353, `workspace/open.rs` 352,
   `core/fold.rs` 332, `popup.rs` 331, `config/edit.rs` 327, `fuzzy.rs` 324,
   `preview.rs` 298, `tests/autosave.rs` 269, `prompt.rs` 280,
-  `tests/views.rs` 305,
+  `tests/views.rs` 342,
   `buffer/edits.rs` 278, `lsp/document.rs` 257, `core/search.rs` 244,
-  `workspace/keys.rs` 234, `workspace/search.rs` 231, `workspace/tree.rs` 215,
+  `workspace/keys.rs` 238, `workspace/search.rs` 231, `workspace/tree.rs` 215,
   `rename.rs` 195, `workspace/jumps.rs` 184, `workspace/themes.rs` 176,
-  `workspace/commands.rs` 163, `acts.rs` 165, `ex.rs` 136,
+  `workspace/commands.rs` 163, `acts.rs` 168, `ex.rs` 136,
   `workspace/views.rs` 68.
   The graph track's own largest are `graph/sim.rs` 908
   and `graph/quadtree.rs` 719; that tree is the other agent's to split.
@@ -2041,6 +2041,11 @@ Next steps, roughly in order:
       counts (`picker::VISIBLE_ROWS` 12, `popup::VISIBLE_ROWS` 8), the note's
       padding (`px_4`/`pt_3`/`pb_2` in `workspace/render.rs`), and the grace period
       P1.5 wants before a quit. Each is one field and one `edit::set` away.
+      **Where the view setting belongs:** roadmap **P1.8, session state** — the
+      vault's open note, cursor and scroll, the file tree's expanded folders, the
+      view, the jump chain, and later the tabs and panes, in `.shale/session.json`
+      rather than the DB (the DB is a rebuildable cache; this is state the user
+      chose). The view is the first piece of that to land.
 
 16. **`/` search in the open note** — Done (2026-10-28, P0.5). Decided: the open
     buffer, not the vault, which stays `ctrl-shift-f`'s job.
@@ -2180,10 +2185,24 @@ Next steps, roughly in order:
       panel the user cannot explain.
     - **The view is *not* in the config yet**: `[appearance] live_preview` is still
       parsed but no longer read by anything, and the view is per-session. Thread 15
-      carries the plan (`[editor] view`) and the migration wrinkle.
-    - **Left**: preview still draws a cursor, and there is no keybinding for the
-      views yet. The plan is the `space` leader (`space r` / `space p`), not
-      `ctrl-w`, which belongs to the windows — see roadmap P3.1.
+      carries the plan (`[editor] view`) and the migration wrinkle, and roadmap
+      P1.8 (session state) is where remembering it properly belongs.
+    - **Keys**: `space r` raw, `space l` live, `space p` preview — the leader's
+      chords, in the vim engine (`Vim::after_space`) rather than the keymap, so a
+      lone `space` is still vim's right motion and never feels dead. They dispatch
+      the same actions the palette and the command line dispatch, which is what
+      makes `space p` close a checker's panel and move the badge instead of being a
+      second way to set a flag. `space l` is the one that matters: a note in
+      preview refuses typing, so the way out cannot need the command line.
+      **The rule this exposed** — every key a leader chord uses must be bound in
+      the keymap in its own right, or the keystroke never reaches the engine: `f`,
+      `l`, `p` and `s` already were, `r` had to be bound (`VimR`) even though vim's
+      replace-the-character is not implemented here.
+    - **The badge names all three views** (2026-10-29, at the user's request), so
+      the slot does not appear and disappear between them. Live is drawn in the
+      chrome's quiet colour (`ui_dim`) and the two that change what the note will
+      do in the accent.
+    - **Left**: preview still draws a cursor rather than none.
 
 ## Parked threads (agreed 2026-10-28; not being worked now)
 
