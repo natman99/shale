@@ -310,10 +310,10 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
 - Run the test binaries under `ulimit -v` when working on anything that scans
   text (a scanner bug can allocate until the OOM killer takes the editor down —
   see the table postmortem).
-  Current peak RSS of the test binaries (2026-10-28, app 162 / core 281 with 5
+  Current peak RSS of the test binaries (2026-10-28, app 164 / core 295 with 6
   ignored / mcp 6 tests — core's count includes the graph agent's `graph::` tests,
-  which are committed and green): core 7.4 MB, app 50 MB,
-  mcp 3.4 MB. The
+  which are committed and green): core 7.6 MB, app 51 MB,
+  mcp 3.3 MB. The
   app binary's *address space* (not RSS) is far larger because of gpui/wgpu
   reservations, and it now needs **4 GB or more** — a 1 GB cap makes it die in an
   80-byte allocation. Build with `cargo test --workspace --no-run`, then run each
@@ -1484,7 +1484,8 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   - **Shale does not autosave** — the user's assumption was wrong, so `:w` is a
     real save (free when the note is clean) rather than a no-op, and `:q`, `:wq`
     and `ctrl-q` all go through `Workspace::quit`, which writes a dirty note first
-    and refuses to close if the write failed. Real autosave is on the parked list.
+    and refuses to close if the write failed. (Real autosave came later, with
+    P0.2 — and `:w` stayed a real save through it, for this reason.)
   - `s` had no binding at all in normal mode, so the `space s` chord could not
     reach the vim engine. It is bound to `VimS` now and the engine decides: after a
     plain `space` it is `Outcome::SearchVault`, otherwise it is unhandled and does
@@ -1680,11 +1681,30 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   **On blur:** `attach_window` adds `cx.observe_window_activation`, and saves when
   `!window.is_window_active()`. **On quit** the old guarantee still holds — `:q`,
   `:wq` and `ctrl-q` write a dirty note first — and `quit`'s comment says so.
-  **There is no on-close hook to write:** gpui v1.25.3 has no window-teardown
-  observer an app can subscribe to (`WindowHandle`'s close path only reaches
-  `App::quit()` → `platform.quit()`, and the test platform's `quit()` is empty).
-  A WM close button therefore relies on the debounce and the blur, not on a
-  shutdown write; revisit if a later gpui adds one.
+  **On close, there is a hook — and it is per-window, not app-level.**
+  `Window::on_window_should_close(cx, |window, cx| -> bool)` (gpui
+  `src/window.rs:6870`) is the one that matters: on Wayland it is
+  `xdg_toplevel::Event::Close` that calls it
+  (`gpui_linux/src/linux/wayland/window.rs:1282`), and returning `false` vetoes the
+  close. `attach_window` registers it, writes a dirty note through `save` (not
+  `autosave` — see above), and returns whether the note is now clean, so an
+  unwritable note keeps its window open exactly as `:q` refuses to quit. Zed uses
+  the same hook for the same reason (`crates/zed/src/zed.rs:493`).
+  The two app-level hooks are the wrong tools here, and it is worth knowing why:
+  `App::on_window_closed` (`src/app.rs:2751`) fires *after* `cx.windows.remove(...)`
+  — its own doc says "the window is no longer accessible" — and `App::on_app_quit`
+  runs from `App::shutdown()` (`src/app.rs:1157`, driven by `platform.on_quit`) with
+  `SHUTDOWN_TIMEOUT` of 200 ms. Both hand you `&mut App` with no window, and by
+  then the window's root view has been dropped, so reaching the buffer from either
+  would mean holding a strong `Entity<Workspace>` somewhere outside the window.
+  `on_window_should_close` still has the window, which is why the write is easy.
+  Also worth knowing: Shale never sets `quit_mode`, so `QuitMode::Default` means
+  the app quits when the last window closes on non-macOS (`src/app.rs:3182`) — a WM
+  close really is an exit, not just a window going away.
+  **Test harness:** `VisualTestContext::simulate_close()` calls the registered
+  `should_close_handler` and returns its boolean, so both halves (write-then-close,
+  and refuse-the-close) are testable. It does not remove the window, so the test can
+  still assert on the buffer afterwards.
   **Test gotcha worth remembering:** gpui's test platform opens a window *without*
   activating it, and `VisualTestContext::deactivate_window` only sends the blur to
   the window it believes is active — so a blur test must call
@@ -1916,9 +1936,10 @@ conversation. Roughly in order of what they have said they want.
 7. **Horizontal scrolling** for a table wider than the window, and for long
    unwrapped rows. Also the wide-glyph column widths, which the shaped-geometry
    display columns would settle along with j/k accuracy.
-8. ~~Autosave~~ **Done 2026-10-28** (P0.2): a 2 s idle debounce, on blur, and the
-   existing write-before-quit. See the autosave thread in Open threads — including
-   why there is no on-close hook in this gpui. `:w` is still a real save, which is
+8. ~~Autosave~~ **Done 2026-10-28** (P0.2): a 2 s idle debounce, on blur, on the
+   window-manager close, and the existing write-before-quit. See the autosave
+   thread in Open threads — including the gpui hook that covers the close, which
+   this project first believed did not exist. `:w` is still a real save, which is
    the one part of the user's assumption this did *not* give them.
 9. ~~Persisting a live theme switch~~ **Done 2026-10-28** with (12): a theme the
    user chooses is spliced into `<vault>/.shale/config.toml` at once. See the

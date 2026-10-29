@@ -2,10 +2,12 @@
 //!
 //! The countdown is gpui's simulated clock, so these tests advance it rather than
 //! sleeping — which is what makes them prove the *debounce* and not just the
-//! write. The quit path is not exercised here: it predates autosave, still writes
-//! a dirty note before closing, and gpui's test platform has no meaningful
-//! `quit()` to observe.
+//! write. The three ways out of a note are all here: the pause running out, the
+//! window losing focus, and the window being closed. The `quit` *action* is not:
+//! it predates autosave, still writes a dirty note first, and gpui's test platform
+//! has no meaningful `quit()` to observe.
 
+use std::os::unix::fs::PermissionsExt;
 use std::time::Duration;
 
 use gpui::BackgroundExecutor;
@@ -199,6 +201,53 @@ fn autosave_off_leaves_the_note_to_its_owner(cx: &mut TestAppContext) {
     assert!(!dirty(&window, cx));
 }
 
+/// The window manager's close button never reaches the `quit` action, so the hook
+/// `attach_window` registers is what writes a note that is ahead of the disk. This
+/// is the case the debounce and the blur cannot cover.
+#[gpui::test]
+fn closing_the_window_writes_the_note(cx: &mut TestAppContext) {
+    let (dir, window) = workspace(cx, &["a.md"]);
+    open(&window, cx, "a.md");
+    let clock = Clock(cx.executor());
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    cx.simulate_keystrokes("i");
+    cx.simulate_input("closed mid-countdown");
+    clock.pause(cx, Duration::from_millis(200));
+    assert_eq!(on_disk(&dir, "a.md"), "", "the pause has not run out");
+
+    assert!(
+        cx.simulate_close(),
+        "the note was written, so the window is allowed to go"
+    );
+    assert_eq!(on_disk(&dir, "a.md"), "closed mid-countdown");
+}
+
+/// A note that cannot be written keeps its window open, the way `:q` refuses to
+/// quit: the alternative is a silent loss, and a window is where the user can
+/// still see what went wrong.
+#[gpui::test]
+fn a_note_that_cannot_be_written_keeps_its_window(cx: &mut TestAppContext) {
+    let (dir, window) = workspace(cx, &["a.md"]);
+    open(&window, cx, "a.md");
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    cx.simulate_keystrokes("i");
+    cx.simulate_input("nowhere to write this");
+
+    std::fs::set_permissions(
+        dir.path().join("a.md"),
+        std::fs::Permissions::from_mode(0o444),
+    )
+    .unwrap();
+
+    assert!(
+        !cx.simulate_close(),
+        "the close is refused while the note is unwritten"
+    );
+    assert!(dirty(&window, cx), "and the dot stays lit");
+}
+
 /// The write is gated on there being something to write: opening a note is not an
 /// edit, so a window that has only been looked at never rewrites the vault.
 #[gpui::test]
@@ -214,4 +263,7 @@ fn a_note_that_was_not_touched_is_not_written(cx: &mut TestAppContext) {
         .unwrap();
     assert_eq!(on_disk(&dir, "a.md"), "left alone\n");
     assert_eq!(dot(&window, cx), "");
+
+    // And the close hook finds nothing to do either, so the window goes.
+    assert!(cx.simulate_close());
 }

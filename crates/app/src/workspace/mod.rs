@@ -289,6 +289,10 @@ impl Workspace {
     /// Called once per window, by the frame that builds it. Until it is, the window
     /// simply never hovers — which is why the rest of the window can be built, and
     /// tested, without one.
+    ///
+    /// This is also where the two window-shaped save hooks live: losing focus, and
+    /// the window manager asking to close. Both need a window, so neither can live
+    /// in `new`.
     pub(crate) fn attach_window(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self._hover_events.is_some() {
             return;
@@ -314,6 +318,28 @@ impl Workspace {
                 ws.autosave(cx);
             }
         }));
+
+        // The window manager's close button is the one exit that does not come
+        // through `quit`, and gpui gives the window a hook for it: the callback
+        // returns whether the window may close. On Wayland it is
+        // `xdg_toplevel::Event::Close` that calls it.
+        //
+        // The write here is the one `quit` does rather than the autosave, because
+        // `editor.autosave = false` means "do not write while I am working", not
+        // "lose the note when the window goes away". A note that cannot be written
+        // keeps the window open, exactly as `:q` refuses to quit: the status bar
+        // says why, and there is still a window to act on that from.
+        let weak = cx.entity().downgrade();
+        window.on_window_should_close(cx, move |window, cx| {
+            weak.update(cx, |ws, cx| {
+                if !ws.editor.read_with(cx, |editor, _cx| editor.is_dirty()) {
+                    return true;
+                }
+                ws.save(&Save, window, cx);
+                !ws.editor.read_with(cx, |editor, _cx| editor.is_dirty())
+            })
+            .unwrap_or(true)
+        });
     }
 
     pub(crate) fn open_note(&mut self, path: &PathBuf, cx: &mut Context<Self>) {
@@ -563,7 +589,8 @@ impl Workspace {
     /// of the countdown, and work the user can see on screen must not be lost to a
     /// keystroke timing. `ctrl-q`, `:q` and `:wq` all come through here because the
     /// danger is the same; `:wq` asks for the write whether or not the note is
-    /// dirty.
+    /// dirty. Closing the window from outside Shale — the window manager's button —
+    /// does not reach this action, so `attach_window` makes the same promise there.
     pub(super) fn quit(&mut self, _: &Quit, window: &mut Window, cx: &mut Context<Self>) {
         let dirty = self.editor.read_with(cx, |editor, _cx| editor.is_dirty());
         if dirty {
@@ -642,8 +669,10 @@ impl Workspace {
     /// did not have to stop typing for.
     ///
     /// `editor.autosave` is checked here rather than only where the countdown is
-    /// parked, so the setting governs every way in: the timer, the blur, and any
-    /// shutdown path that calls this later.
+    /// parked, so the setting governs both ways the countdown-driven path is
+    /// entered: the timer and the blur. The two exits that end the session — `quit`
+    /// and the window manager's close — write through `save` instead, because
+    /// turning autosave off is not a wish to lose the note.
     fn autosave(&mut self, cx: &mut Context<Self>) {
         if !self.config.editor.autosave {
             return;
@@ -671,7 +700,9 @@ impl Workspace {
     }
 
     /// What the countdown and the blur hook do, without waiting for either: how a
-    /// test checks the write, and what a future shutdown path calls.
+    /// test reaches the write. The two session exits (`quit`, and the window
+    /// manager's close) go through `save` instead, so that a note can be written
+    /// with autosave off.
     #[cfg(test)]
     pub(crate) fn autosave_now(&mut self, cx: &mut Context<Self>) {
         self.autosave(cx);

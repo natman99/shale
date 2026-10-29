@@ -33,9 +33,10 @@ Database (SQLite), Database tables/Obsidian-bases, PDF export, Templates,
 
 **Parked threads** (PROJECT.md, the other agent's list): `/` search, scrolling
 popup panel, scrolling picker list, hover-capability check, live grammar fixes,
-`K` with count, horizontal scrolling, **autosave**, **persisting theme
-switch**, **config → `<vault>/.shale/`**, **module splits** (`vim.rs` 2333,
-`buffer.rs` 1786 lines), `bench/` work.
+`K` with count, horizontal scrolling, `bench/` work. Four that were on this list
+are now done in Phase 0: **autosave**, **persisting the theme switch**,
+**config → `<vault>/.shale/`**, and **module splits** (nothing is over 1000 lines
+anymore).
 
 **Key insight:** three foundations unlock most of the brainstormed feature set:
 1. **The DB + provenance + event log** → query notes, word counts, tag tree,
@@ -93,13 +94,14 @@ Small, unblocking, and three of them are already-parked user requests.
   `.gitignore`, so app-written config and the future DB never dirty the tree.
   **This landed before the DB**, so the DB's home is decided once: `.shale/`.
 - **P0.2 Autosave** (parked #8) — **DONE 2026-10-28.** **2 s idle debounce**
-  (`editor.autosave_after_ms`) + **on blur** (`observe_window_activation`) + the
-  write-before-quit that already existed. `editor.autosave` defaults **on**. The
-  status bar's `●` is the report; only a failed write prints. **Not** a no-op `:w`
-  — with the setting off a no-op would lose work, so `:w` and `ctrl-s` stay real
-  saves. There is no on-close hook in gpui v1.25.3, so a WM close is covered by the
-  debounce and the blur only. Pairs with P1's shutdown rule. Snapshot triggers
-  deliberately do NOT key off
+  (`editor.autosave_after_ms`) + **on blur** (`observe_window_activation`) +
+  **on window close** (`Window::on_window_should_close`, which also *refuses* the
+  close when the note cannot be written) + the write-before-quit that already
+  existed. `editor.autosave` defaults **on**. The status bar's `●` is the report;
+  only a failed write prints. **Not** a no-op `:w` — with the setting off a no-op
+  would lose work, so `:w` and `ctrl-s` stay real saves, and the close and quit
+  paths write through `save` for the same reason. Pairs with P1's shutdown rule.
+  Snapshot triggers deliberately do NOT key off
   autosaves (see brainstorm "Autosave × time machine").
 - **P0.3 Module splits** (parked #10) — **DONE 2026-10-28.** The three over the
   rule are directories: `vim.rs` (2397) → `vim/{mod,motions,operators,tables,visual}.rs`
