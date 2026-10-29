@@ -4,13 +4,85 @@ This file belongs to the **graph agent** (working from `graph-view-plan.md`).
 PROJECT.md belongs to the other agent; we keep our log here to avoid edit
 conflicts. Design detail: `graph-view-plan.md`; placement: `roadmap.md` P3.3.
 
-## Status: M1a complete — core graph module, 25 tests green
+## Status: M2 core math complete — dimension-generic sim + projection
 
 `crates/core/src/graph/` — new module. Touched elsewhere: `pub mod graph;` in
 `crates/core/src/lib.rs`, `petgraph = "0.8"` (MIT, pure Rust) in the workspace
 and core `Cargo.toml`. No app files touched.
 
-### What's there
+### What's there (M2 additions)
+
+- **`sim.rs` is now `Sim<const D: usize>`** — one codebase, monomorphized
+  per dimension. `Sim<2>` is the flat graph (quadtree repulsion);
+  `Sim<3>` is the 3D layout behind the projected view (octree). Same
+  forces, same tuning, same determinism guarantees. Seeding: phyllotaxis
+  spiral in 2D, Fibonacci sphere in 3D. `positions()` returns
+  `&[[f32; D]]`.
+- **`quadtree.rs` is now `Tree<const D: usize>`** — the flat-cell,
+  iterative-stack Barnes-Hut generalizes to 8 children for D=3 (quadtree
+  uses 4 of the 8 slots; `1 << D` is not a stable const-generic array
+  length, so the children array is fixed `[u32; 8]`). θ=0.7 validated
+  against the naive loop in both dimensions.
+- **`proj.rs` — `Cam3` + `Projected`**: the projected pseudo-3D camera.
+  yaw/pitch/pan/zoom/dist; per-point rotate → perspective divide →
+  screen transform. `project_all` fills a caller-owned buffer (no
+  per-frame allocs); `paint_order` is the painter's-algorithm sort
+  (far→near); `screen_to_world_at_depth` inverts a screen point at a
+  fixed *view-space* depth — that's the drag invariant while the world
+  rotates under the cursor. Depth cues (fade/fog) are a scalar factor on
+  `Projected.scale`; hit-testing projects to 2D and reuses `geom::Grid`.
+- **Hot-loop fix**: the sim's inner loops indexed `self.pos[i][d]` per
+  axis — double bounds-checking in the hottest code in the module.
+  Destructuring once (`let pi = self.pos[i]`) roughly halved link+
+  repulsion cost at n=5000 (naive repulsion 68.7→? see table; BH
+  repulsion-only 4.9→5.6ms is noise-level, the win is in springs/
+  collide).
+
+### M2 verification
+
+- `cargo test -p shale-core --lib`: **295 passed, 0 failed** (6 ignored
+  benches). New coverage: 3D determinism, 3D settling, octree mass
+  conservation in both dims, BH-vs-naive accuracy in 3D, projection
+  round-trips (project→screen→world at fixed view depth), painter order
+  monotonicity, behind-camera culling.
+- clippy clean (the `needless_range_loop` allow on sim.rs is justified in
+  a comment — const-generic dim loops can't be iterator-rewritten).
+- Peak RSS: **7.3 MB** (was 6.8; the 3D tests add octrees, still
+  nowhere near the 200 MB rule).
+
+### M2 perf (release, 2026-10-28)
+
+Mid-drag tick (reheat + one step, settle excluded — the earlier
+`bench_tick` accidentally averaged the settle in; fixed):
+
+| n    | 2D tick  | 3D tick  |
+|------|----------|----------|
+| 500  | 0.54 ms  | 0.81 ms  |
+| 2000 | 5.14 ms  | 7.32 ms  |
+| 5000 | 25.5 ms  | 33.0 ms  |
+
+3D costs ~40% more than 2D (one more axis, 8-way octree). At the ≤2k
+target both fit the 16.6 ms frame with room for painting. Settle
+(300 ticks): 2D n=2000 1.48 s, 3D n=2000 2.15 s.
+
+**glam: measured, rejected for the sim, not adopted.** `bench_proj`
+(dev-dep only) compares the native scalar projection against glam
+`Affine3A` + `Vec3A` per point:
+
+| n     | native  | glam    |
+|-------|---------|---------|
+| 2000  | 6.5 µs  | 5.5 µs  |
+| 5000  | 16.3 µs | 13.7 µs |
+| 10000 | 33.1 µs | 28.0 µs |
+
+glam wins ~20%, but projection at n=5000 is **16 µs against a 16,600 µs
+frame budget** — 0.1%. The 2.6 µs delta is noise next to the painter
+sort and the sim tick. Not worth a runtime dependency (the tech-stack
+rule says as little in the tree as possible); glam stays a dev-dep for
+the bench. The projection layer stays hand-rolled scalar — it's ~10
+flops/point and LLVM already vectorizes the divide.
+
+### What's there (M1a core)
 
 - **`index.rs` — `GraphIndex`**: petgraph `UnGraph` over typed nodes
   (`Note | Attachment | Ghost | Tag`). Link resolution goes through the
@@ -33,9 +105,10 @@ and core `Cargo.toml`. No app files touched.
   pass). Pure data — no gpui, no IO — so it runs on a background thread per
   the idling contract; `is_settled()` is the "stop ticking, stop dirtying"
   signal. Node radius convention: `4 + 2*sqrt(degree)`.
-- **`quadtree.rs` — Barnes-Hut**: swapped in above `NAIVE_LIMIT = 2048`.
-  θ=0.5 (d3 uses 0.9; the 1/d law needs the tighter bound to hold 5% per
-  node against the exact loop — validated on a 4000-point scatter).
+- **`quadtree.rs` — Barnes-Hut**: swapped in above `NAIVE_LIMIT = 256`
+  (measured crossover). θ=0.7 (d3 uses 0.9; the 1/d law needs the tighter
+  bound to hold 5% per node against the exact loop — validated on a
+  4000-point scatter in both dimensions).
 - **`filter.rs` — `GraphFilter`**: orphans / existing-only / tags / fuzzy
   search (label + path, via `core::fuzzy`) / folder scope (constellation
   seed, M3) → visibility bitmask. Edges need no mask: drawn iff both ends
@@ -73,11 +146,9 @@ traversal, θ 0.5→0.7 — still passes the 5% accuracy test):
 - Old recursive BH cost ~23 ns/visit; the rewrite is ~7 ns/visit incl.
   tree build. The first bench table (in git history) showed the pre-fix
   numbers.
-- **glam: parked.** Not in the tree (gpui v1.25.3 has its own geometry);
-  the sim is SoA scalar f32 that LLVM already vectorizes, and glam's
-  `Vec2` is one SSE lane wide — no win there, same 8 bytes. Revisit at
-  M2 for the *projection/camera layer only* (Mat4/Vec3A beats
-  hand-rolled 4x4 math).
+- **glam: see the M2 verdict above** — measured at the projection layer,
+  ~20% win on a 0.1%-of-frame workload, rejected as a runtime dep.
+  (The earlier "parked" note from M1a is superseded.)
 - Memory: core test binary peaks at 6.8 MB RSS incl. the 4k-node BH
   validation. Keep watching it as the module grows.
 
@@ -116,3 +187,13 @@ traversal, θ 0.5→0.7 — still passes the 5% accuracy test):
   untracked for them.
 - Scope note: staying in `crates/core/src/graph/` — no `app/` files
   until the graph tab is unblocked (user instruction, 2026-10-28).
+- 2026-10-28 (M2 core math): `Sim<const D>` + `Tree<const D>`
+  dimension-generic (quadtree→octree, fixed `[u32; 8]` children since
+  `1 << D` isn't a stable array length); new `proj.rs` (Cam3,
+  perspective divide, painter sort, drag inverse at fixed view-space
+  depth — the first test caught the inverse being written against
+  world-z instead of view-z); hoisted `pos[i]` out of the per-axis
+  loops (double bounds-checking was ~2x the spring cost); fixed
+  `bench_tick` averaging the settle into the "mid-drag" number; benched
+  glam vs native projection and rejected glam (tables above). glam is a
+  dev-dep for the bench only.

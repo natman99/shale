@@ -12,6 +12,7 @@ pub mod filter;
 pub mod geom;
 pub mod hues;
 pub mod index;
+pub mod proj;
 pub mod quadtree;
 pub mod sim;
 
@@ -19,4 +20,5 @@ pub use filter::{apply as apply_filter, GraphFilter};
 pub use geom::{local_mask, mst_edges, Camera, Grid, MAX_ZOOM, MIN_ZOOM, ZOOM_STEP};
 pub use hues::TagHues;
 pub use index::{extract_tags, GraphIndex, NodeKind, NodeMeta};
+pub use proj::{Cam3, Projected};
 pub use sim::{node_radius, Sim, SimParams, NAIVE_LIMIT};

@@ -6,13 +6,25 @@
 //!
 //! The sim is pure data: [`Sim::step`] touches no gpui type and no IO, so it
 //! runs on a background thread and ships positions to the UI as one
-//! `Vec<[f32; 2]>` per tick (PROJECT.md's idling rules: the sim sleeps at
+//! `Vec<[f32; D]>` per tick (PROJECT.md's idling rules: the sim sleeps at
 //! `is_settled`, and the UI thread stops drawing when it does).
 //!
-//! Determinism: initial placement is a seeded phyllotaxis spiral (the same
-//! construction d3-force uses), so the same vault and the same seed produce
-//! byte-identical layouts — which is what makes the static-mode cache
-//! (graph-view-plan.md M3) and the headless tests meaningful.
+//! Dimension-generic: `Sim<2>` is the flat graph, `Sim<3>` is the projected
+//! 3D view (M2) — same forces, same tuning, one code path monomorphized per
+//! dimension (d3-force-3d is the same library with one extra axis, so this
+//! mirrors Obsidian's own structure). The Barnes-Hut tree generalizes the
+//! same way: quadtree for D=2, octree for D=3 ([`super::quadtree`]).
+//!
+//! Determinism: initial placement is seeded (phyllotaxis spiral in 2D,
+//! Fibonacci sphere in 3D — the same construction d3-force uses), so the
+//! same vault and the same seed produce byte-identical layouts — which is
+//! what makes the static-mode cache (graph-view-plan.md M3) and the
+//! headless tests meaningful.
+
+// The dimension loops (`for d in 0..D`) are inherently index-based: D is a
+// const generic and the loops index two or three arrays at once, which is
+// exactly what needless_range_loop wants to rewrite away. It can't here.
+#![allow(clippy::needless_range_loop)]
 
 /// Below this node count the sim uses the O(n²) pair loop; above it, the
 /// Barnes-Hut quadtree in [`super::quadtree`]. Measured crossover on this
@@ -57,12 +69,13 @@ impl Default for SimParams {
 }
 
 /// The simulation state: SoA arrays indexed by `NodeIndex::index()`.
+/// `D` is the number of spatial dimensions (2 or 3).
 #[derive(Debug, Clone)]
-pub struct Sim {
+pub struct Sim<const D: usize> {
     /// World positions.
-    pub pos: Vec<[f32; 2]>,
+    pub pos: Vec<[f32; D]>,
     /// Velocities; d3's velocity-Verlet keeps them between ticks.
-    pub vel: Vec<[f32; 2]>,
+    pub vel: Vec<[f32; D]>,
     /// Node radii (from degree), used by collide and by the renderer.
     pub radius: Vec<f32>,
     /// Pinned nodes ignore forces and hold their position (drag, orbit
@@ -80,10 +93,15 @@ pub struct Sim {
     rng: u64,
 }
 
-impl Sim {
-    /// Build a sim for `n` nodes with `edges` given as index pairs. Positions
-    /// start on a seeded phyllotaxis spiral.
+impl<const D: usize> Sim<D> {
+    /// Build a sim for `n` nodes with `edges` given as index pairs.
+    /// Positions start on a seeded phyllotaxis spiral (2D) or Fibonacci
+    /// sphere (3D).
     pub fn new(n: usize, edges: &[[u32; 2]], params: SimParams, seed: u64) -> Self {
+        assert!(
+            (2..=3).contains(&D),
+            "the graph sim runs in 2 or 3 dimensions"
+        );
         let mut degree = vec![0u32; n];
         for &[a, b] in edges {
             if (a as usize) < n && (b as usize) < n {
@@ -95,21 +113,37 @@ impl Sim {
 
         // d3-force's initial placement: a phyllotaxis spiral, golden angle
         // (π·(3−√5); spelled as a literal because const math has no sqrt).
+        // In 3D the same construction becomes a Fibonacci sphere at the
+        // spiral's outer radius, keeping node density comparable.
         const GOLDEN: f32 = 2.399_963_2;
         let mut pos = Vec::with_capacity(n);
         let mut rng = seed | 1; // splitmix64 tolerates any state but never 0
         for i in 0..n {
-            let r = 10.0 * (i as f32 + 0.5).sqrt();
+            let mut p = [0.0f32; D];
             let a = i as f32 * GOLDEN;
+            if D == 2 {
+                let r = 10.0 * (i as f32 + 0.5).sqrt();
+                p[0] = r * a.cos();
+                p[1] = r * a.sin();
+            } else {
+                let z = 1.0 - 2.0 * (i as f32 + 0.5) / n.max(1) as f32;
+                let rr = (1.0 - z * z).max(0.0).sqrt();
+                let s = 10.0 * (n.max(1) as f32).sqrt();
+                p[0] = rr * a.cos() * s;
+                p[1] = rr * a.sin() * s;
+                p[2] = z * s;
+            }
             // A touch of jitter breaks the perfect symmetry that would
-            // otherwise leave the spiral's forces balanced forever.
-            let j = (next_f32(&mut rng) - 0.5) * 2.0;
-            pos.push([r * a.cos() + j, r * a.sin() + j]);
+            // otherwise leave the placement's forces balanced forever.
+            for d in 0..D {
+                p[d] += (next_f32(&mut rng) - 0.5) * 2.0;
+            }
+            pos.push(p);
         }
 
         Self {
             pos,
-            vel: vec![[0.0; 2]; n],
+            vel: vec![[0.0; D]; n],
             radius,
             pinned: vec![false; n],
             alpha: 1.0,
@@ -140,7 +174,7 @@ impl Sim {
 
     /// World positions, for the renderer and hit-testing (the tab ships a
     /// copy per painted frame; the sim keeps ownership).
-    pub fn positions(&self) -> &[[f32; 2]] {
+    pub fn positions(&self) -> &[[f32; D]] {
         &self.pos
     }
 
@@ -158,23 +192,35 @@ impl Sim {
         let strength = self.params.link_strength;
         for &[a, b] in &self.edges {
             let (a, b) = (a as usize, b as usize);
-            let [ax, ay] = self.pos[a];
-            let [bx, by] = self.pos[b];
-            let dx = bx - ax;
-            let dy = by - ay;
-            let len = (dx * dx + dy * dy).sqrt().max(0.001);
+            // Destructure once: indexing self.pos[a][d] per axis re-checks
+            // the outer bounds every iteration (the hot loops of the whole
+            // sim; measured 2x cost if left un-hoisted).
+            let pa = self.pos[a];
+            let pb = self.pos[b];
+            let mut delta = [0.0f32; D];
+            let mut d2 = 0.0f32;
+            for d in 0..D {
+                delta[d] = pb[d] - pa[d];
+                d2 += delta[d] * delta[d];
+            }
+            let len = d2.sqrt().max(0.001);
             let da = self.degree[a].max(1) as f32;
             let db = self.degree[b].max(1) as f32;
             let bias = da / (da + db);
             let k = (len - dist) / len * alpha * strength;
-            let (fx, fy) = (dx * k, dy * k);
-            if !self.pinned[b] {
-                self.vel[b][0] -= fx * bias;
-                self.vel[b][1] -= fy * bias;
+            let pin_a = self.pinned[a];
+            let pin_b = self.pinned[b];
+            if !pin_b {
+                let vb = &mut self.vel[b];
+                for d in 0..D {
+                    vb[d] -= delta[d] * k * bias;
+                }
             }
-            if !self.pinned[a] {
-                self.vel[a][0] += fx * (1.0 - bias);
-                self.vel[a][1] += fy * (1.0 - bias);
+            if !pin_a {
+                let va = &mut self.vel[a];
+                for d in 0..D {
+                    va[d] += delta[d] * k * (1.0 - bias);
+                }
             }
         }
 
@@ -185,38 +231,41 @@ impl Sim {
                 if self.pinned[i] {
                     continue;
                 }
-                let [px, py] = self.pos[i];
-                let mut fx = 0.0f32;
-                let mut fy = 0.0f32;
+                let pi = self.pos[i];
+                let mut f = [0.0f32; D];
                 for j in 0..self.pos.len() {
                     if i == j {
                         continue;
                     }
-                    let [qx, qy] = self.pos[j];
+                    let pj = self.pos[j];
+                    let mut delta = [0.0f32; D];
+                    let mut d2 = 0.0f32;
+                    for d in 0..D {
+                        delta[d] = pj[d] - pi[d];
+                        d2 += delta[d] * delta[d];
+                    }
                     // d3-force's many-body law, exactly: force on i =
                     // delta * (strength * alpha / d²), delta being (j - i).
                     // The magnitude therefore falls off as 1/d (d3's own
                     // falloff); strength is negative, so the force points
                     // away from j. d² is clamped so near-touching nodes do
                     // not explode.
-                    let dx = qx - px;
-                    let dy = qy - py;
-                    let d2 = dx * dx + dy * dy;
                     if d2 < 0.01 {
                         // Coincident nodes: nudge apart deterministically so
                         // the force never divides by zero.
-                        let jx = next_f32(&mut self.rng) - 0.5;
-                        let jy = next_f32(&mut self.rng) - 0.5;
-                        fx += jx * 10.0;
-                        fy += jy * 10.0;
+                        for d in 0..D {
+                            f[d] += (next_f32(&mut self.rng) - 0.5) * 10.0;
+                        }
                         continue;
                     }
                     let w = repel * alpha / d2.max(1.0);
-                    fx += dx * w;
-                    fy += dy * w;
+                    for d in 0..D {
+                        f[d] += delta[d] * w;
+                    }
                 }
-                self.vel[i][0] += fx;
-                self.vel[i][1] += fy;
+                for d in 0..D {
+                    self.vel[i][d] += f[d];
+                }
             }
         } else {
             crate::graph::quadtree::apply_repulsion(
@@ -234,33 +283,37 @@ impl Sim {
             if self.pinned[i] {
                 continue;
             }
-            self.vel[i][0] -= self.pos[i][0] * center;
-            self.vel[i][1] -= self.pos[i][1] * center;
+            for d in 0..D {
+                self.vel[i][d] -= self.pos[i][d] * center;
+            }
         }
 
-        // Collide: push overlapping circles apart by their radii.
+        // Collide: push overlapping spheres apart by their radii.
         if self.params.collide {
             for i in 0..self.pos.len() {
+                let pi = self.pos[i];
                 for j in (i + 1)..self.pos.len() {
-                    let [px, py] = self.pos[i];
-                    let [qx, qy] = self.pos[j];
-                    let dx = qx - px;
-                    let dy = qy - py;
+                    let pj = self.pos[j];
+                    let mut delta = [0.0f32; D];
+                    let mut d2 = 0.0f32;
+                    for d in 0..D {
+                        delta[d] = pj[d] - pi[d];
+                        d2 += delta[d] * delta[d];
+                    }
                     let want = self.radius[i] + self.radius[j] + 2.0;
-                    let d2 = dx * dx + dy * dy;
                     if d2 >= want * want || d2 < 0.0001 {
                         continue;
                     }
                     let d = d2.sqrt();
                     let push = (want - d) / d * 0.5 * alpha;
-                    let (ox, oy) = (dx * push, dy * push);
-                    if !self.pinned[i] {
-                        self.vel[i][0] -= ox;
-                        self.vel[i][1] -= oy;
-                    }
-                    if !self.pinned[j] {
-                        self.vel[j][0] += ox;
-                        self.vel[j][1] += oy;
+                    for k in 0..D {
+                        let o = delta[k] * push;
+                        if !self.pinned[i] {
+                            self.vel[i][k] -= o;
+                        }
+                        if !self.pinned[j] {
+                            self.vel[j][k] += o;
+                        }
                     }
                 }
             }
@@ -270,18 +323,16 @@ impl Sim {
         // any source must not poison the whole layout.
         for i in 0..self.pos.len() {
             if self.pinned[i] {
-                self.vel[i] = [0.0; 2];
+                self.vel[i] = [0.0; D];
                 continue;
             }
-            let v = &mut self.vel[i];
-            v[0] *= 0.6;
-            v[1] *= 0.6;
-            let p = &mut self.pos[i];
-            p[0] += v[0];
-            p[1] += v[1];
-            if !p[0].is_finite() || !p[1].is_finite() {
-                *p = [0.0, 0.0];
-                *v = [0.0, 0.0];
+            for d in 0..D {
+                self.vel[i][d] *= 0.6;
+                self.pos[i][d] += self.vel[i][d];
+            }
+            if !self.pos[i].iter().all(|v| v.is_finite()) {
+                self.pos[i] = [0.0; D];
+                self.vel[i] = [0.0; D];
             }
         }
 
@@ -321,15 +372,15 @@ mod tests {
     #[test]
     fn same_seed_gives_the_same_layout() {
         let edges = chain(30);
-        let mut a = Sim::new(30, &edges, SimParams::default(), 7);
-        let mut b = Sim::new(30, &edges, SimParams::default(), 7);
+        let mut a = Sim::<2>::new(30, &edges, SimParams::default(), 7);
+        let mut b = Sim::<2>::new(30, &edges, SimParams::default(), 7);
         for _ in 0..200 {
             a.step();
             b.step();
         }
         assert_eq!(a.pos, b.pos, "determinism is what the static cache needs");
 
-        let mut c = Sim::new(30, &edges, SimParams::default(), 8);
+        let mut c = Sim::<2>::new(30, &edges, SimParams::default(), 8);
         for _ in 0..200 {
             c.step();
         }
@@ -337,9 +388,21 @@ mod tests {
     }
 
     #[test]
+    fn same_seed_gives_the_same_layout_3d() {
+        let edges = chain(30);
+        let mut a = Sim::<3>::new(30, &edges, SimParams::default(), 7);
+        let mut b = Sim::<3>::new(30, &edges, SimParams::default(), 7);
+        for _ in 0..200 {
+            a.step();
+            b.step();
+        }
+        assert_eq!(a.pos, b.pos);
+    }
+
+    #[test]
     fn it_settles() {
         let edges = chain(50);
-        let mut sim = Sim::new(50, &edges, SimParams::default(), 1);
+        let mut sim = Sim::<2>::new(50, &edges, SimParams::default(), 1);
         let mut ticks = 0;
         while sim.step() {
             ticks += 1;
@@ -349,11 +412,23 @@ mod tests {
     }
 
     #[test]
+    fn it_settles_3d() {
+        let edges = chain(50);
+        let mut sim = Sim::<3>::new(50, &edges, SimParams::default(), 1);
+        let mut ticks = 0;
+        while sim.step() {
+            ticks += 1;
+            assert!(ticks < 5000);
+        }
+        assert!(sim.is_settled());
+    }
+
+    #[test]
     fn two_components_separate() {
         // Two triangles with no edge between them: repulsion must push the
         // clusters apart beyond a link distance.
         let edges = vec![[0u32, 1], [1, 2], [2, 0], [3, 4], [4, 5], [5, 3]];
-        let mut sim = Sim::new(6, &edges, SimParams::default(), 3);
+        let mut sim = Sim::<2>::new(6, &edges, SimParams::default(), 3);
         for _ in 0..600 {
             if !sim.step() {
                 break;
@@ -378,7 +453,7 @@ mod tests {
 
     #[test]
     fn a_link_pulls_its_endpoints_together() {
-        let mut sim = Sim::new(2, &[[0u32, 1]], SimParams::default(), 1);
+        let mut sim = Sim::<2>::new(2, &[[0u32, 1]], SimParams::default(), 1);
         sim.pos[0] = [-400.0, 0.0];
         sim.pos[1] = [400.0, 0.0];
         for _ in 0..600 {
@@ -392,7 +467,7 @@ mod tests {
 
     #[test]
     fn pinned_nodes_hold() {
-        let mut sim = Sim::new(3, &[[0u32, 1], [1, 2]], SimParams::default(), 1);
+        let mut sim = Sim::<2>::new(3, &[[0u32, 1], [1, 2]], SimParams::default(), 1);
         sim.pinned[1] = true;
         sim.pos[1] = [123.0, -45.0];
         for _ in 0..300 {
@@ -403,17 +478,17 @@ mod tests {
 
     #[test]
     fn degenerate_graphs_never_nan() {
-        let mut empty = Sim::new(0, &[], SimParams::default(), 1);
+        let mut empty = Sim::<2>::new(0, &[], SimParams::default(), 1);
         assert!(!empty.step(), "nothing to simulate");
 
-        let mut single = Sim::new(1, &[], SimParams::default(), 1);
+        let mut single = Sim::<2>::new(1, &[], SimParams::default(), 1);
         for _ in 0..100 {
             single.step();
         }
         assert!(single.pos[0][0].is_finite());
 
         // Coincident nodes: the jitter path, not a divide-by-zero.
-        let mut twin = Sim::new(2, &[[0u32, 1]], SimParams::default(), 1);
+        let mut twin = Sim::<2>::new(2, &[[0u32, 1]], SimParams::default(), 1);
         twin.pos = vec![[0.0, 0.0], [0.0, 0.0]];
         for _ in 0..300 {
             twin.step();
@@ -425,8 +500,18 @@ mod tests {
     }
 
     #[test]
+    fn degenerate_graphs_never_nan_3d() {
+        let mut twin = Sim::<3>::new(2, &[[0u32, 1]], SimParams::default(), 1);
+        twin.pos = vec![[0.0; 3], [0.0; 3]];
+        for _ in 0..300 {
+            twin.step();
+        }
+        assert!(twin.pos.iter().all(|p| p.iter().all(|v| v.is_finite())));
+    }
+
+    #[test]
     fn reheat_wakes_a_settled_sim() {
-        let mut sim = Sim::new(4, &chain(4), SimParams::default(), 1);
+        let mut sim = Sim::<2>::new(4, &chain(4), SimParams::default(), 1);
         while sim.step() {}
         assert!(sim.is_settled());
         sim.reheat(1.0);
@@ -455,7 +540,7 @@ fn bench_sim() {
                 edges.push([i as u32, j as u32]);
             }
         }
-        let mut sim = Sim::new(n, &edges, SimParams::default(), 7);
+        let mut sim = Sim::<2>::new(n, &edges, SimParams::default(), 7);
         let t0 = Instant::now();
         let mut ticks = 0;
         while sim.step() && ticks < 400 {
@@ -463,9 +548,65 @@ fn bench_sim() {
         }
         let dt = t0.elapsed();
         println!(
-            "n={n:5}  settled in {ticks} ticks  {:>7.2?} total  {:>6.2?}/tick",
+            "2D n={n:5}  settled in {ticks} ticks  {:>7.2?} total  {:>6.2?}/tick",
             dt,
             dt / ticks as u32
         );
+        let mut sim = Sim::<3>::new(n, &edges, SimParams::default(), 7);
+        let t0 = Instant::now();
+        let mut ticks = 0;
+        while sim.step() && ticks < 400 {
+            ticks += 1;
+        }
+        let dt = t0.elapsed();
+        println!(
+            "3D n={n:5}  settled in {ticks} ticks  {:>7.2?} total  {:>6.2?}/tick",
+            dt,
+            dt / ticks as u32
+        );
+    }
+}
+
+/// What one tick costs mid-drag (alpha re-heated, not cold): the
+/// number that decides whether physics can run at 60 fps.
+#[test]
+#[ignore]
+fn bench_tick() {
+    use std::time::Instant;
+    for n in [500usize, 2000, 5000] {
+        let mut edges = Vec::with_capacity(n * 2);
+        let mut r = 0x1234_5678_9abc_def0u64;
+        for i in 1..n {
+            for _ in 0..2 {
+                r = r
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
+                let j = (r >> 33) as usize % i;
+                edges.push([i as u32, j as u32]);
+            }
+        }
+        for dim in 0..2 {
+            if dim == 0 {
+                let mut sim = Sim::<2>::new(n, &edges, SimParams::default(), 7);
+                while sim.step() {}
+                let t0 = Instant::now();
+                for _ in 0..100 {
+                    sim.reheat(1.0);
+                    sim.step();
+                }
+                let dt = t0.elapsed();
+                println!("n={n:5}  {dim}D mid-drag tick {:>7.2?}", dt / 100);
+            } else {
+                let mut sim = Sim::<3>::new(n, &edges, SimParams::default(), 7);
+                while sim.step() {}
+                let t0 = Instant::now();
+                for _ in 0..100 {
+                    sim.reheat(1.0);
+                    sim.step();
+                }
+                let dt = t0.elapsed();
+                println!("n={n:5}  {dim}D mid-drag tick {:>7.2?}", dt / 100);
+            }
+        }
     }
 }

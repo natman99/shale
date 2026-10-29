@@ -12,3 +12,6 @@ petgraph.workspace = true
 
 [dev-dependencies]
 tempfile = "3"
+# Perf comparison only (proj bench: glam vs native projection math). Not a
+# runtime dependency — see PROGRESS.md for the outcome and the decision.
+glam = "0.32"
