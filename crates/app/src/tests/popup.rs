@@ -438,6 +438,47 @@ fn walking_down_from_a_word_beside_the_panel_keeps_it(cx: &mut TestAppContext) {
     );
 }
 
+/// Two marked words on consecutive lines. The way down from the upper one to a
+/// row of its panel crosses the lower word, and reopening the panel for that word
+/// moves the panel out from under the row the pointer was reaching for — which is
+/// what the user saw: the top warning closing just as the mouse got to its fixes.
+#[gpui::test]
+fn a_marked_word_under_the_panel_does_not_move_it(cx: &mut TestAppContext) {
+    let (_dir, window) = marked_note(
+        cx,
+        "Thier spelling is wrogn.\nAnd anotehr mistake here.\n",
+        &[
+            ("Did you mean to spell `thier` this way?", 0, 5),
+            ("Did you mean to spell `anotehr` this way?", 29, 36),
+        ],
+    );
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    paint(cx);
+
+    hover_at(cx, &window, 0, 2);
+    assert_eq!(
+        saying(cx, &window).as_deref(),
+        Some("Did you mean to spell `thier` this way?")
+    );
+
+    // Straight down from the word, through the strip between the line and its
+    // panel — which belongs to the line below, and is marked there.
+    let (_left, _top, bottom) = line_box(cx, &window, 0);
+    let x = x_over(cx, &window, 1, 32);
+    hover_point(cx, gpui::point(x, bottom + gpui::px(2.)));
+    assert_eq!(
+        saying(cx, &window).as_deref(),
+        Some("Did you mean to spell `thier` this way?"),
+        "the panel the pointer is on the way to is still the one that is up"
+    );
+
+    // Walking away below it still ends it: the guard covers the panel's own
+    // height, not the space under it.
+    let bottom = panel_bottom(cx, &window);
+    hover_point(cx, gpui::point(x, bottom + gpui::px(60.)));
+    assert!(!shown(cx, &window), "walking away below the panel ends it");
+}
+
 /// A panel the pointer opened has to end when the pointer walks away below it,
 /// not just when it walks away above: the panel swallows the moves over its own
 /// rows, and the space under it belongs to no line, so nothing else would ever

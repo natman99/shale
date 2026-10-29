@@ -63,7 +63,9 @@ impl Workspace {
     /// Hovering is a request, not a command: it only opens a popup when the
     /// pointer is over a word the checker marked, and it only closes one it
     /// opened itself. A popup asked for with `K` is the user asking, and moving
-    /// the mouse is not their answer to it.
+    /// the mouse is not their answer to it. And a popup the pointer opened keeps
+    /// the height it occupies to itself, so the walk from its word down to one of
+    /// its rows survives passing over other marked words on the way.
     pub(super) fn pointer_hovered(
         &mut self,
         offset: usize,
@@ -105,6 +107,16 @@ impl Workspace {
         if self.popup.is_some() && !self.popup_from_pointer {
             return;
         }
+        // ...but only as far as the panel's own height. The panel hangs below its
+        // word, so the way down to one of its rows crosses the line underneath,
+        // and when that line holds another marked word the pointer lands on it
+        // mid-trip. Reopening there moves the panel out from under the row the
+        // user is reaching for, which is the bug this guards: inside the band the
+        // panel occupies, the pointer is still travelling to a row rather than
+        // asking a new question.
+        if self.popup_from_pointer && self.pointer_on_panel(at, cx) {
+            return;
+        }
         self.open_popup_for(offset, line, true, window, cx);
     }
 
@@ -117,6 +129,11 @@ impl Workspace {
     /// right end of a long line sits above the space beside the panel, and a user
     /// walking straight down from it is on their way to a row just as much as
     /// someone above the panel's own text.
+    ///
+    /// Two questions are answered by this one band: whether a move over unmarked
+    /// text is still inside the panel (keep it), and whether a move that lands on
+    /// *another* marked word is a new question or the same trip (see
+    /// [`Workspace::pointer_hovered`]).
     fn pointer_on_panel(&self, at: Point<Pixels>, cx: &gpui::App) -> bool {
         let Some(placed) = self.popup_place(cx) else {
             return false;

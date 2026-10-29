@@ -22,8 +22,9 @@
 use std::rc::Rc;
 
 use gpui::{
-    div, prelude::*, px, App, Context, EventEmitter, FocusHandle, Focusable, InteractiveElement,
-    IntoElement, ParentElement, Pixels, Render, SharedString, Size, Styled, Window,
+    div, prelude::*, px, App, Context, CursorStyle, EventEmitter, FocusHandle, Focusable,
+    InteractiveElement, IntoElement, ParentElement, Pixels, Render, SharedString, Size, Styled,
+    Window,
 };
 use shale_core::theme::Palette;
 
@@ -190,6 +191,11 @@ impl Render for Popup {
                 let hovered = entity.clone();
                 div()
                     .id(("popup-row", n))
+                    // A row is a button, and the pointer should say so. Without
+                    // this the note's IBeam (set on the editor's root) shows
+                    // through the panel, because the panel is drawn over the note
+                    // rather than inside it.
+                    .cursor(CursorStyle::PointingHand)
                     .h(row_height(self.size))
                     .px_1()
                     .flex()
@@ -212,6 +218,10 @@ impl Render for Popup {
         div()
             .key_context(CONTEXT)
             .track_focus(&self.focus_handle)
+            // The panel itself is not a thing to click — only its rows are — so
+            // the message line gets the ordinary arrow rather than a hand, and
+            // certainly not the note's text caret.
+            .cursor(CursorStyle::Arrow)
             .w(WIDTH)
             .px(PAD)
             .py(PAD)
