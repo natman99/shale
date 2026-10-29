@@ -57,11 +57,6 @@ fn view(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> View {
     window.update(cx, |ws, _window, cx| ws.view(cx)).unwrap()
 }
 
-/// What the window said last.
-fn status(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> String {
-    window.update(cx, |ws, _window, _cx| ws.status()).unwrap()
-}
-
 /// The open note's text.
 fn note_text(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> String {
     window
@@ -69,6 +64,49 @@ fn note_text(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> St
             ws.editor().read_with(cx, |editor, _cx| editor.text())
         })
         .unwrap()
+}
+
+/// What the frame is allowed to draw as the checker's underlines.
+fn drawn_marks(
+    editor: &WindowHandle<MarkdownEditor>,
+    cx: &mut VisualTestContext,
+) -> Vec<(usize, usize)> {
+    editor
+        .read_with(cx, |editor, _cx| editor.marks_drawn())
+        .unwrap()
+}
+
+/// Preview draws no checker underlines — a wavy underline is a writing aid, and
+/// preview is the view a note is read in — and the live view draws them again
+/// without waiting for the server to answer a second time.
+#[gpui::test]
+fn preview_draws_no_checker_underlines(cx: &mut TestAppContext) {
+    let (editor, mut cx) = painted_editor(cx);
+    let cx = &mut cx;
+    editor
+        .update(cx, |editor, _window, cx| {
+            editor.set_marks(vec![(6, 10), (22, 26)], cx);
+        })
+        .unwrap();
+    assert_eq!(
+        drawn_marks(&editor, cx),
+        vec![(6, 10), (22, 26)],
+        "the default view draws what the checker reported"
+    );
+
+    set_view(&editor, cx, View::Preview);
+    assert_eq!(
+        drawn_marks(&editor, cx),
+        Vec::<(usize, usize)>::new(),
+        "preview draws none"
+    );
+
+    set_view(&editor, cx, View::Live);
+    assert_eq!(
+        drawn_marks(&editor, cx),
+        vec![(6, 10), (22, 26)],
+        "and they come back on their own, because preview hid them rather than\n        dropping them"
+    );
 }
 
 /// Live preview — Shale's default — hides the markers on every row but the one
@@ -174,8 +212,9 @@ fn raw_still_edits(cx: &mut TestAppContext) {
     );
 }
 
-/// The command line's three words move the note between views, and the window
-/// says which one it moved to.
+/// The command line's three words move the note between views. It reports nothing
+/// itself: the status bar's badge is the one place the view is named, and a
+/// message saying it as well would be the same label twice.
 #[gpui::test]
 fn the_command_line_moves_between_views(cx: &mut TestAppContext) {
     let (_dir, window) = vault_with(cx, &[("a.md", NOTE)]);
@@ -183,31 +222,17 @@ fn the_command_line_moves_between_views(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("space f enter");
     assert_eq!(view(&window, cx), View::Live, "live is the default");
 
-    // Each step moves to a different view, so the status line reports a change
-    // every time; `source` is the alias, checked last so it is not a no-op.
-    for (word, want) in [
-        ("preview", View::Preview),
-        ("raw", View::Raw),
-        ("live", View::Live),
-        ("source", View::Raw),
-    ] {
+    for word in ["preview", "raw", "live", "source"] {
+        let want = match word {
+            "preview" => View::Preview,
+            "live" => View::Live,
+            _ => View::Raw,
+        };
         cx.simulate_keystrokes(":");
         cx.simulate_input(word);
         cx.simulate_keystrokes("enter");
         assert_eq!(view(&window, cx), want, "`:{word}`");
-        assert_eq!(
-            status(&window, cx),
-            format!("{} view", want.word()),
-            "`:{word}`"
-        );
     }
-
-    // Asking for the view the note is already in says so rather than pretending
-    // to have changed something. The loop left the note in raw.
-    cx.simulate_keystrokes(":");
-    cx.simulate_input("raw");
-    cx.simulate_keystrokes("enter");
-    assert_eq!(status(&window, cx), "already in the raw view");
 }
 
 /// Preview stops the typing, and `:live` starts it again — the way the user

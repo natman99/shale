@@ -295,6 +295,49 @@ fn a_click_in_the_note_ends_the_panel(cx: &mut TestAppContext) {
     );
 }
 
+/// The preview view shows no checker at all: a panel that was up does not survive
+/// the view change, and neither `K` nor the pointer can open one while preview is
+/// on. Back in the default view both work again, because preview hides the
+/// checker's notes rather than dropping them.
+#[gpui::test]
+fn the_preview_view_shows_no_checker(cx: &mut TestAppContext) {
+    let (_dir, window) = marked_note(
+        cx,
+        "Thier spelling is wrogn.\n",
+        &[("Did you mean to spell `thier` this way?", 0, 5)],
+    );
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    paint(cx);
+
+    // A panel is up, and it holds the keyboard — so the way to the preview view
+    // from here is the palette, whose key is bound with no context.
+    cx.simulate_keystrokes("^ shift-k");
+    assert!(shown(cx, &window), "a panel is up in the default view");
+    cx.simulate_keystrokes("ctrl-shift-p");
+    cx.simulate_input("preview");
+    cx.simulate_keystrokes("enter");
+    assert!(
+        !shown(cx, &window),
+        "the panel did not outlive the view it cannot belong to"
+    );
+
+    cx.simulate_keystrokes("shift-k");
+    assert!(!shown(cx, &window), "`K` asks for nothing in preview");
+    hover_at(cx, &window, 0, 2);
+    assert!(!shown(cx, &window), "and neither does the pointer");
+
+    // The note has the keyboard back (the panel closed and returned it), so the
+    // command line reaches it.
+    cx.simulate_keystrokes(":");
+    cx.simulate_input("live");
+    cx.simulate_keystrokes("enter");
+    cx.simulate_keystrokes("^ shift-k");
+    assert!(
+        shown(cx, &window),
+        "and the default view shows the checker again"
+    );
+}
+
 /// A picker and a panel are never up together. The picker is modal in a way the
 /// panel is not, so it closes the panel on its way in. `ctrl-shift-p` is the key
 /// that gets there: the panel holds the keyboard, so the vim chords that live in

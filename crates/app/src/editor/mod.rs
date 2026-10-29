@@ -310,6 +310,13 @@ impl MarkdownEditor {
         &self.marks
     }
 
+    /// The checker's ranges the frame is allowed to draw, which is what the view
+    /// decides. Only the tests ask.
+    #[cfg(test)]
+    pub(crate) fn marks_drawn(&self) -> Vec<(usize, usize)> {
+        self.drawn_marks().to_vec()
+    }
+
     /// The `/` matches to draw, and which one is current. Empty hits and `None`
     /// clear them, which is what `escape` does.
     pub(crate) fn set_hits(
@@ -694,11 +701,24 @@ impl MarkdownEditor {
             .collect()
     }
 
+    /// The checker's ranges the frame is allowed to draw: none in preview, and
+    /// the ones the workspace pushed in every other view.
+    ///
+    /// Preview hides them rather than dropping them, so leaving preview brings the
+    /// underlines straight back without waiting for the server to answer again.
+    fn drawn_marks(&self) -> &[(usize, usize)] {
+        if self.view == View::Preview {
+            &[]
+        } else {
+            &self.marks
+        }
+    }
+
     /// The checker's ranges that overlap `start..end`, clipped to it. Like
     /// [`Self::spans_in`] these are buffer byte offsets; the line element rebases
     /// them onto the text it actually paints.
     fn marks_in(&self, start: usize, end: usize) -> Vec<(usize, usize)> {
-        self.marks
+        self.drawn_marks()
             .iter()
             .filter(|(s, e)| *s < end && *e > start)
             .map(|&(s, e)| (s.max(start), e.min(end)))

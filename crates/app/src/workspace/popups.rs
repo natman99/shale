@@ -12,12 +12,13 @@
 //!   popup on the way in, and no popup opens while one of them is up.
 //! - **They close.** `escape`, choosing a row, the pointer leaving the word, the
 //!   pointer walking off the bottom of the panel, an edit under the cursor,
-//!   opening a note, opening a prompt or a picker: each drops the popup and
-//!   refocuses what had the keyboard before it.
+//!   opening a note, opening a prompt or a picker, and coming into the preview
+//!   view: each drops the popup and refocuses what had the keyboard before it.
 
 use gpui::{px, AppContext, Bounds, Context, Entity, Focusable, Pixels, Point, Window};
 
 use crate::acts::ShowNote;
+use crate::editor::View;
 use crate::lsp::{Diagnostic, Fix};
 use crate::popup::{Popup, PopupEvent};
 
@@ -65,6 +66,11 @@ impl Workspace {
         if self.prompt.is_some() || self.picker.is_some() {
             return;
         }
+        // Preview mode shows no checker at all: its underlines are not drawn, and
+        // every row a panel offers is an edit the view refuses to make.
+        if self.editor.read(cx).view() == View::Preview {
+            return;
+        }
         let offset = self
             .editor
             .read_with(cx, |editor, _cx| editor.cursor_offset());
@@ -100,11 +106,12 @@ impl Workspace {
             return;
         }
         // Insert mode is typing. A popup that took the keyboard the moment the
-        // pointer brushed a word would be worse than no popup at all.
-        if !self
-            .editor
-            .read_with(cx, |editor, _cx| editor.is_normal_mode())
-        {
+        // pointer brushed a word would be worse than no popup at all. Preview mode
+        // is reading: it draws no underlines, so a panel appearing over the word
+        // the pointer happens to cross would be a surprise with nothing to offer.
+        if !self.editor.read_with(cx, |editor, _cx| {
+            editor.is_normal_mode() && editor.view() != View::Preview
+        }) {
             return;
         }
         let note = self.note_at(offset);

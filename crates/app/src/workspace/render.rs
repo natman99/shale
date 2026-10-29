@@ -95,11 +95,16 @@ impl Render for Workspace {
         // noise.
         let view = self.editor.read(cx).view();
         // The checker's count, so "no underlines" can be told apart from "the
-        // checker has not answered yet".
-        let spell = match self.checker_notes.len() {
-            0 => String::new(),
-            1 => "1 spellcheck note".into(),
-            n => format!("{n} spellcheck notes"),
+        // checker has not answered yet". Preview draws no underlines at all, so it
+        // has nothing to count either.
+        let spell = if view == View::Preview {
+            String::new()
+        } else {
+            match self.checker_notes.len() {
+                0 => String::new(),
+                1 => "1 spellcheck note".into(),
+                n => format!("{n} spellcheck notes"),
+            }
         };
         // Which match of how many the cursor is on, while a `/` search is up.
         let search = self.search_label();
@@ -315,9 +320,12 @@ impl Render for Workspace {
                     .text_color(gpui::rgb(self.palette.ui_fg))
                     .child(format!("{mode}{pending}"))
                     // The view gets its own badge whenever the note is not in the
-                    // default one. Preview looks almost exactly like live preview
-                    // and simply refuses to type, so the user has to be able to see
-                    // why — and `:live` is how they get back.
+                    // default one, and it is the only place the view is named: the
+                    // command line deliberately leaves the status line alone, so
+                    // `:preview` is one accent label rather than the same word
+                    // twice. It matters most for preview, which looks almost exactly
+                    // like live preview and simply refuses to type — `:live` is how
+                    // the user gets back.
                     .when(view != View::Live, |d| {
                         d.child(
                             div()
