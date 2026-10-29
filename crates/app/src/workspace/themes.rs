@@ -29,9 +29,15 @@ use super::open::PickerTarget;
 use super::Workspace;
 
 impl Workspace {
-    /// The theme picker: every built-in palette, then the vault's own theme
-    /// files. The row the pointer or the selection is on is applied as a preview;
-    /// `enter` keeps it and `escape` puts the old one back.
+    /// The theme picker: the theme on screen first, then every other built-in
+    /// palette, then the vault's own theme files. The row the pointer or the
+    /// selection is on is applied as a preview; `enter` keeps it and `escape` puts
+    /// the old one back.
+    ///
+    /// The current theme leads because the picker opens with its first row
+    /// highlighted: unless that row *is* the theme on screen, the top of the list
+    /// is a theme the user is not looking at, and the row they meant is somewhere
+    /// below their own selection.
     pub(super) fn change_theme(
         &mut self,
         _: &ChangeTheme,
@@ -47,6 +53,22 @@ impl Workspace {
                 .iter()
                 .map(|name| theme_row(name, "vault theme")),
         );
+        // Rotated rather than sorted: the rest of the list is in the order the
+        // palettes are documented, and a user who knows a theme's name should not
+        // have to hunt for it in alphabetical noise. Matched on the palette rather
+        // than the name, because the same palette can be reached by more than one
+        // name (an alias, a `-dark` suffix, a vault file that copies a built-in).
+        let root = self.vault.root();
+        let current = rows
+            .iter()
+            .position(|(item, _)| {
+                theme::palette_for(root, item.label.as_str())
+                    .is_ok_and(|palette| palette == *self.palette)
+            })
+            .unwrap_or(0);
+        let (mut item, target) = rows.remove(current);
+        item.detail = format!("{} · now", item.detail).into();
+        rows.insert(0, (item, target));
         // What `escape` goes back to. Set before the picker opens, because the
         // first preview happens as soon as the picker has a highlighted row.
         self.theme_backup = Some(Rc::clone(&self.palette));
