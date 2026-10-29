@@ -615,6 +615,81 @@ build; the rest is configuration of things that already exist.
 - Scope line if it ever un-parks: reference/annotation only — no tokens,
   no grid, no movement (same VTT guard as the initiative tracker).
 
+### Spotlight ledger 🔭 (awaiting ruling)
+- The DB knows session-note text; PC notes are wikilinked there. Count
+  PC-name mentions (wikilinks + `aliases:` prop) per session → spotlight
+  time per player as a bar chart in the GM screen. "Is someone getting
+  shafted?" becomes a query instead of a vibe.
+- Data source is the existing backlinks/mentions index; the only new part
+  is a `mentions(note, session, count)` rollup updated on save, and a
+  chart render in the GM screen (custom renderer draws bars).
+- Murder-hobo variant for free: same rollup over `tag:deed` /
+  `tag:wronged` conventions → "which factions have we wronged" is a
+  backlink walk. Convention only, no subsystem.
+
+### Print surfaces ✅ (export-to-PDF; the renderer's second sink)
+- General path: the custom renderer already lays out text — PDF export is
+  the same layout written to a different sink (via a small pure-Rust PDF
+  writer; no webview, no headless browser).
+- One export command with presets: plain note, handout (secret blocks
+  stripped — rides the secret-block rule), statblock card, broadsheet.
+- Print CSS analog: note-type render profiles select layout (columns,
+  drop caps, rules) — the same callout/type machinery, not a stylesheet.
+- Exports are provenance-logged (what was printed, when, which preset) —
+  "what did the GM hand out" stays a query.
+
+### Broadsheet ✅ (rides print surfaces + recap generator)
+- `broadsheet` note type: the print-surface layout profile typesets it as
+  an in-world newspaper (columns, drop caps, rules, date masthead).
+- Content source: the session-recap idea (template + `.shq` aggregates +
+  rolls table) rewritten in tavern-gossip voice — the agent drafts, the GM
+  edits, provenance marks the draft.
+- The most shareable artifact of the toolkit: print it or export PDF and
+  post it after every session.
+
+### Graph lenses 🔭 (awaiting ruling)
+- **Session lens**: `:graph session:12` filters to nodes touched in that
+  session (backlink timestamps) — the shape of one episode; the discrete
+  version of the time-lapse scrubber.
+- **Faction tension**: `allied:`/`rival:` frontmatter edges render as a
+  colored edge layer — conflict geometry at a glance.
+- **Hook→payoff arcs**: `#hook` edges pointing at `#payoff` notes;
+  unresolved arcs render dashed into nothing = "what's still dangling",
+  drawn.
+- **Region clustering**: `region:` property feeds the community layout —
+  arcs become visible clusters; a too-small arc or two clusters that never
+  interact are a missed connection you can *see*.
+- **Party graph**: PC↔NPC edges from session mentions (the spotlight
+  ledger's data, drawn).
+- All of it is graph filters + edge layers over existing index data; no
+  new storage.
+
+### NPC knowledge graph ❄️ (parked, user call 2026-10-29)
+- Fact notes + `knows:` frontmatter → graph-reachability as an NPC's mind;
+  `:talk <npc>` scoped persona (leak-proof by vault slice), alibi
+  timelines, `:gossip` propagation with `twist:` degradation.
+- Parked: too far from the app's center of gravity right now (it pulls
+  toward world-simulation). The parts that stay alive regardless: fact
+  notes as a convention, and `in:` influence edges (used by the graph
+  lenses). Revisit only if the vault's shape already grows fact notes.
+
+### Puzzle notes ❌ (rejected, user call 2026-10-29)
+- Input-locked secret blocks (answer/dial/order/key locks, chain locks) —
+  rejected: requires players using the app/vault, which is out of scope
+  (see vault slices rejection). The lock *predicates* are sound ideas but
+  have no host without player access; do not re-pitch without one.
+
+### Per-player vault slices ❌ (rejected, user call 2026-10-29)
+- Scoped player views of the GM vault — rejected: turns Shale into a
+  full table app; not the route. This rejection also sinks puzzle notes
+  and any player-facing surface. GM-side only.
+
+### World clock ❌ / Overland travel graph ❌ (rejected, user call 2026-10-29)
+- World clock (auto-advancing faction plans): rejected — world simulation
+  is not the product. Overland travel graph: rejected — user doesn't
+  track travel time; the graph stays a *relationship* graph, not a
+  distance graph.
+
 ### Free rides (no new subsystems — note the conventions, don't build)
 - Statblocks: `type: monster` + `cr/hp/ac` frontmatter → props index + `.shq`
   queries; a `statblock` callout type for pretty two-column rendering later.
