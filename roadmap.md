@@ -110,9 +110,17 @@ Small, unblocking, and three of them are already-parked user requests.
   `theme/tests.rs`. **Nothing is over 1000 lines now**; `line.rs` (971) and
   `workspace/mod.rs` (970) are sitting on the line and split when next touched
   (see the module-sizes thread in Open threads for how each would go).
-- **P0.4 Scrolling popup + scrolling picker** (parked #2, #3) — one shared
-  height/scroll model, fixes the eighth-harper-offer cutoff and big-vault
-  quick-open truncation.
+- **P0.4 Scrolling popup + scrolling picker** (parked #2, #3) — **DONE
+  2026-10-28.** One model, `crates/app/src/list.rs` (`window_start` = minimal
+  slide, never past the end), asked by both. The panel keeps a height it can show
+  (`popup::VISIBLE_ROWS` = 8), numbers its rows absolutely so a digit still names
+  the row it can see, says `{code} · {total} offers` when the list is longer than
+  the panel, and **flips above its line** near the bottom of the window — which is
+  why the dismiss edge is the one away from the note. `Popup::drawn()` is the one
+  answer for the render, the panel's height and the click corridor. Picker:
+  `RANK_LIMIT` 200 → 1000. **Left deliberately:** picker `VISIBLE_ROWS` still a
+  fixed 12 (needs a measured row height), and no mouse-wheel scrolling. See the
+  shared scroll model bullet in Open threads.
 - **P0.5 `/` search** (parked #1) — **decided: open buffer** (vault search
   stays `ctrl-shift-f`); `n`/`N` next/prev, `escape` one-press out.
 - **P0.5b Keybinding: free `ctrl-o` from QuickOpen** → jump-back (`ctrl-i`
@@ -130,7 +138,8 @@ Small, unblocking, and three of them are already-parked user requests.
 
 **Exit criteria:** config lives in `.shale/` and a root `shale.toml` is *moved*
 there on open rather than read from, autosave on by default, no file over 1000
-lines, `/` and raw mode work, all existing tests green.
+lines, the popup and the picker both scroll, `/` and raw mode work, all existing
+tests green.
 
 ---
 

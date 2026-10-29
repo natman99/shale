@@ -72,10 +72,6 @@ pub(crate) struct Workspace {
     /// frame, so the panel follows the note as it scrolls and goes away when the
     /// line does.
     popup_anchor: Option<usize>,
-    /// Where the panel was actually drawn last frame, which the hover path uses to
-    /// decide whether the pointer is on its way onto the panel rather than away
-    /// from the word. Written by the render, read by the pointer.
-    popup_placed: Option<gpui::Bounds<gpui::Pixels>>,
     /// Whether the pointer opened the popup. Only then does moving off the word
     /// close it; a popup asked for with `K` stays until the user says otherwise.
     popup_from_pointer: bool,
@@ -251,7 +247,6 @@ impl Workspace {
             popup: None,
             popup_return_focus: None,
             popup_anchor: None,
-            popup_placed: None,
             popup_from_pointer: false,
             popup_note: None,
             popup_fixes: Vec::new(),
@@ -424,6 +419,16 @@ impl Workspace {
     #[cfg(test)]
     pub(crate) fn has_popup(&self) -> bool {
         self.popup.is_some()
+    }
+
+    /// Which of the popup's offer rows it is drawing. Only the tests ask, to check
+    /// that a long list scrolls without the panel changing height.
+    #[cfg(test)]
+    pub(crate) fn popup_drawn(&self, cx: &gpui::App) -> std::ops::Range<usize> {
+        self.popup
+            .as_ref()
+            .map(|popup| popup.read_with(cx, |popup, _cx| popup.drawn()))
+            .unwrap_or(0..0)
     }
 
     /// The complaint the popup is showing. Only the tests ask, to check that the

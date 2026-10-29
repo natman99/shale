@@ -310,9 +310,9 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
 - Run the test binaries under `ulimit -v` when working on anything that scans
   text (a scanner bug can allocate until the OOM killer takes the editor down —
   see the table postmortem).
-  Current peak RSS of the test binaries (2026-10-28, app 164 / core 295 with 6
+  Current peak RSS of the test binaries (2026-10-28, app 174 / core 295 with 6
   ignored / mcp 6 tests — core's count includes the graph agent's `graph::` tests,
-  which are committed and green): core 7.6 MB, app 51 MB,
+  which are committed and green): core 7.6 MB, app 63 MB,
   mcp 3.3 MB. The
   app binary's *address space* (not RSS) is far larger because of gpui/wgpu
   reservations, and it now needs **4 GB or more** — a 1 GB cap makes it die in an
@@ -1353,7 +1353,9 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   word, so the short trip from the word to one of its rows crosses text the checker
   never marked, and leaving a marked word closed the panel. Now, when nothing is
   marked under the pointer, the panel is kept if the pointer is at the height the
-  panel was drawn at — `popup_placed`, the bounds the render recorded, rather than a
+  panel was drawn at (`popup_placed`, the bounds the render recorded, then; the
+  place is worked out again now, and the height is only one of the two edges — see
+  the two bullets below) rather than a
   guess below the line, because near the bottom of the window `snap_to_window`
   draws it above the line instead. Only the height is compared, not the column: a
   marked word near the right end of a long line sits above the space *beside* the
@@ -1379,7 +1381,8 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   drift from where it is drawn. gpui v1.25.3 has no `.absolute()/.left()/.top()` on
   `Styled`; overlays are `gpui::anchored().position(point)` with
   `AnchoredPositionMode::Window`, which also keeps the panel inside the window
-  (`snap_to_window`).
+  (`snap_to_window`) — a last-resort safety net now, since `popup_place` already
+  keeps the panel inside and the click corridor is built from its answer.
   **The notes live on the window.** `Workspace::checker_notes` keeps the
   `Diagnostic`s the server published (it used to keep only their count), so `K` and
   a resting pointer can find the note under the cursor **without asking the server
@@ -1463,12 +1466,56 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
     deepest hit element outwards: the line's handler runs first and may have just
     moved the panel to a new word, and a stale place would have dismissed the
     panel the pointer was now standing on.
-  - Only the bottom edge is decided there. Everywhere else the line the pointer is
-    over still answers, which is what lets a panel follow the pointer from word to
-    word; a `K`-asked panel is untouched by any of it (`popup_from_pointer`).
+  - Only the panel's **outer** edge is decided there. A panel that flipped above
+    its line is walked away from upwards, so watching its bottom edge would close
+    it while the pointer is still on its own word (see the shared scroll model
+    bullet below). Everywhere else the line the pointer is over still answers,
+    which is what lets a panel follow the pointer from word to word; a `K`-asked
+    panel is untouched by any of it (`popup_from_pointer`).
   - **Tests:** app 148 (was 135) — `the_panel_ends_when_the_pointer_walks_off_its_bottom`
     (4 px past the edge keeps it, 60 px ends it) and
     `a_panel_asked_for_with_k_survives_the_pointer_leaving_below_it`.
+- **One height and scroll model for the panel and the picker — done
+  (2026-10-28, P0.4 / parked #2, #3).** `crates/app/src/list.rs` is the whole
+  model: `window_start(selected, total, visible)` slides the window the *minimum*
+  needed to keep the selection on screen and never past the end of the list
+  (`start = min(selected - (visible - 1), total - visible)`), and `window(...)`
+  turns that into a `Range`. The popup panel and the picker both ask it.
+  - **The panel:** `popup::VISIBLE_ROWS` is 8 and `Popup::drawn()` — the rows it is
+    actually painting — is the single source of truth: the render iterates it,
+    `popup_place` builds the panel's height from it (`panel_size(drawn.len(),
+    size)`), and the click corridor is built from the same answer. Before this the
+    render drew every row, so the panel grew with the list and harper's eighth
+    offer fell off the bottom of the window.
+  - **Row numbers stay absolute** (`n + 1` across the drawn window), so the digit
+    `3` always means the row printed `3.` even after the list scrolled. A digit can
+    only choose a row that is on screen, which is what a number on the screen ought
+    to mean; `j`/`k` are how the rest are reached.
+  - When the list is longer than the panel, the dim code slot at the bottom reads
+    `{code} · {total} offers`, so eight offered and five shown is visible rather
+    than looking like a mistake.
+  - **The panel flips above its line** when it would not fit below it:
+    `popup_place` returns `PlacedPopup { bounds, below }`, and the edge that ends a
+    panel is the one *away* from the note (`below ? bottom + LEEWAY : top - LEEWAY`).
+    Watching the bottom edge of a flipped panel closed it the moment the pointer
+    moved down onto its own word — the word sits just under the panel — and the
+    close was invisible, because the same mouse move reopened the panel on that
+    word. That is why the test checks that a scrolled selection survived rather
+    than just that a panel is up.
+  - **The picker:** `RANK_LIMIT` 200 → 1000. A quick-open that silently dropped
+    matches was the reported failure; ranking 1000 rows costs nothing and the
+    window still draws 12. `VISIBLE_ROWS` stays **12** — letting it follow the
+    window height needs a measured row height (rows are `line_height(size)` plus
+    the ~4 px of `py_0p5` padding), which is deliberately not done yet. Mouse-wheel
+    scrolling is also not done.
+  - **Tests:** app 174 (was 164) — `list::tests` (3),
+    `a_long_list_of_offers_does_not_grow_the_panel`,
+    `the_panel_scrolls_to_follow_the_keyboard`,
+    `scrolling_the_list_does_not_move_the_panel`,
+    `a_digit_chooses_the_row_it_names`,
+    `a_panel_near_the_bottom_of_the_window_goes_above_its_line`,
+    `a_flipped_panel_is_walked_away_from_upwards`,
+    `a_big_vault_is_not_truncated_at_the_old_cap`.
 - **`:` is a command line, not the palette (2026-10-28).** The user asked for vim
   aliases (`e` open, `q` quit, `w` a no-op because "we autosave") and separately
   noticed that a fuzzy palette would turn `:w` into whatever ranks best for the
@@ -1916,13 +1963,18 @@ conversation. Roughly in order of what they have said they want.
    decision about what `/` means in a note editor: the open buffer, or the vault.
    `n`/`N` for the next and previous match, and a way out that is not `escape`
    twice.
-2. **A scrolling popup panel.** Harper's seven offers just fit the panel; an eighth
-   is cut off. One height model has to be shared by the render, `popup::panel_size`
-   and the window's click corridor (`workspace::popups::pointer_on_panel` and
-   `pointer_moved`), or the panel's place and the pointer's leeway drift apart.
-3. **A scrolling picker list.** Same shape as (2) and the same fix: `VISIBLE_ROWS`
-   is 12 and `window_start()` only scrolls enough to keep the selection visible.
-   A big vault's quick-open already truncates at `RANK_LIMIT`.
+2. ~~A scrolling popup panel~~ **Done 2026-10-28** (P0.4): the panel keeps a
+   height it can show, scrolls to follow the keyboard, and flips above its line
+   near the bottom of the window. See the shared scroll model bullet in Open
+   threads — it is one model (`crates/app/src/list.rs`) for the panel and the
+   picker, and `Popup::drawn()` is the single answer to "which rows are there",
+   which is what keeps the render, the panel's height and the click corridor from
+   drifting apart.
+3. ~~A scrolling picker list~~ **Done 2026-10-28** (P0.4): `RANK_LIMIT` is 1000,
+   so a big vault's quick-open is no longer truncated, and the list scrolls on the
+   same model as the panel. `VISIBLE_ROWS` is still a fixed 12 rather than the
+   window's height, and there is no mouse-wheel scrolling; both are recorded in
+   the same Open threads bullet.
 4. **`textDocument/hover` behind a capability check.** Harper 2.8 does not
    implement hover (`-32601`), so `K` answers from the notes we already hold.
    Ask a server that advertises `hoverProvider` in its `initialize` answer, and

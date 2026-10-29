@@ -59,6 +59,32 @@ fn typing_narrows_the_list_to_the_best_match(cx: &mut TestAppContext) {
     assert_eq!(active, "notes/Another Note.md");
 }
 
+/// A vault bigger than the cap the ranking used to stop at. The scan is every
+/// note either way — `ranked` has to see all of them to know which are best — so
+/// a low cap buys nothing except a list that quietly leaves the note the user was
+/// looking for out.
+#[gpui::test]
+fn a_big_vault_is_not_truncated_at_the_old_cap(cx: &mut TestAppContext) {
+    let names: Vec<String> = (0..300).map(|i| format!("note{i}.md")).collect();
+    let names: Vec<&str> = names.iter().map(|name| name.as_str()).collect();
+    let (_dir, window) = workspace(cx, &names);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    cx.simulate_keystrokes("ctrl-o");
+    assert_eq!(
+        matches(&window, cx),
+        Some(300),
+        "an empty query is every note"
+    );
+
+    cx.simulate_input("note");
+    assert_eq!(
+        matches(&window, cx),
+        Some(300),
+        "and a query that matches all of them keeps all of them, past the 200 the list used to stop at"
+    );
+}
+
 /// The arrows move the highlighted row, and the note under the cursor is never
 /// touched: the picker is a list, not the buffer.
 #[gpui::test]

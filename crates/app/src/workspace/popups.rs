@@ -26,15 +26,32 @@ use super::Workspace;
 /// How far below the line the panel starts.
 const GAP: Pixels = px(4.);
 
-/// How far past the panel's bottom edge the pointer may go before the panel is
+/// How far past the panel's outer edge the pointer may go before the panel is
 /// dismissed.
 ///
 /// The pointer has to cross the gap between the word and the panel to reach a
 /// row, so the edge cannot be exact; but a panel that survives the pointer
-/// walking away below it survives forever, because the panel swallows the moves
+/// walking away from it survives forever, because the panel swallows the moves
 /// over its own rows and there is nothing under it to report one. The note
 /// column's mouse-move handler ([`Workspace::pointer_moved`]) is what notices.
 const DISMISS_LEEWAY: Pixels = px(14.);
+
+/// How far from the window's own edge a panel may be drawn.
+const EDGE_MARGIN: Pixels = px(8.);
+
+/// Where the panel is, and which side of its line it hangs on.
+///
+/// The side matters because the edge that ends a panel is the one *away* from the
+/// note: a panel that flipped above its line is walked away from upwards, and
+/// watching its bottom edge would close it the moment the pointer moved down onto
+/// its own word.
+#[derive(Debug, PartialEq)]
+pub(crate) struct PlacedPopup {
+    /// The panel's bounds, in window coordinates.
+    pub(crate) bounds: Bounds<Pixels>,
+    /// Whether the panel hangs below the line it belongs to.
+    pub(crate) below: bool,
+}
 
 impl Workspace {
     // ----- asking for a popup -------------------------------------------
@@ -91,7 +108,7 @@ impl Workspace {
             // whole point of having them. The panel's place is worked out again
             // rather than read off the last frame, because near the bottom of the
             // window it is drawn above the line instead.
-            if self.popup_from_pointer && !self.pointer_on_panel(at, cx) {
+            if self.popup_from_pointer && !self.pointer_on_panel(at, window, cx) {
                 self.close_popup(window, cx);
             }
             return;
@@ -114,7 +131,7 @@ impl Workspace {
         // user is reaching for, which is the bug this guards: inside the band the
         // panel occupies, the pointer is still travelling to a row rather than
         // asking a new question.
-        if self.popup_from_pointer && self.pointer_on_panel(at, cx) {
+        if self.popup_from_pointer && self.pointer_on_panel(at, window, cx) {
             return;
         }
         self.open_popup_for(offset, line, true, window, cx);
@@ -134,12 +151,12 @@ impl Workspace {
     /// text is still inside the panel (keep it), and whether a move that lands on
     /// *another* marked word is a new question or the same trip (see
     /// [`Workspace::pointer_hovered`]).
-    fn pointer_on_panel(&self, at: Point<Pixels>, cx: &gpui::App) -> bool {
-        let Some(placed) = self.popup_place(cx) else {
+    fn pointer_on_panel(&self, at: Point<Pixels>, window: &Window, cx: &gpui::App) -> bool {
+        let Some(placed) = self.popup_place(window, cx) else {
             return false;
         };
         let slack = GAP + px(3.);
-        at.y >= placed.origin.y - (GAP + slack) && at.y <= placed.bottom() + slack
+        at.y >= placed.bounds.origin.y - (GAP + slack) && at.y <= placed.bounds.bottom() + slack
     }
 
     /// The pointer moved anywhere in the note column, including the empty space
@@ -148,8 +165,9 @@ impl Workspace {
     /// This is the only thing that ends a panel the pointer walked away from
     /// *downwards*: the panel itself swallows the moves over its rows, and once
     /// the pointer is below it there may be no text there to report the move, so a
-    /// panel left like that never goes away. Anything past the panel's bottom edge
-    /// plus [`DISMISS_LEEWAY`] is a way away from it.
+    /// panel left like that never goes away. Anything past the panel's outer edge
+    /// — the edge away from the note, which is its top when it had to be drawn
+    /// above its line — plus [`DISMISS_LEEWAY`] is a way away from it.
     ///
     /// Only that one edge is decided here. Everywhere else the line the pointer is
     /// over answers (see [`Workspace::pointer_hovered`]), which is what lets a
@@ -166,10 +184,15 @@ impl Workspace {
         // Worked out again rather than read off the last frame: the pointer may
         // have just moved onto another marked word, which moved the panel with it,
         // and a stale place would dismiss the panel the pointer is now on.
-        let Some(placed) = self.popup_place(cx) else {
+        let Some(placed) = self.popup_place(window, cx) else {
             return;
         };
-        if at.y > placed.bottom() + DISMISS_LEEWAY {
+        let away = if placed.below {
+            at.y > placed.bounds.bottom() + DISMISS_LEEWAY
+        } else {
+            at.y < placed.bounds.top() - DISMISS_LEEWAY
+        };
+        if away {
             self.close_popup(window, cx);
         }
     }
@@ -331,15 +354,23 @@ impl Workspace {
         popup.update(cx, |popup, cx| popup.set_rows(rows, cx));
     }
 
-    /// Where the popup panel goes: its bounds in window coordinates, or `None`
-    /// when there is no popup or the line it belongs to is not on screen.
+    /// Where the popup panel goes: its bounds in window coordinates and which side
+    /// of its line it hangs on, or `None` when there is no popup or the line it
+    /// belongs to is not on screen.
     ///
-    /// Asked each frame, and answered from the line's bounds *as they were
-    /// painted*, which is what lets a popup follow the note as it scrolls and
-    /// vanish when its line scrolls away. The render draws the panel here and hands
-    /// the same bounds back to the hover path, so "where the panel is" is one
-    /// answer rather than two that can disagree.
-    pub(crate) fn popup_place(&self, cx: &gpui::App) -> Option<Bounds<Pixels>> {
+    /// Asked each frame, and answered from the line's bounds *as they were painted*,
+    /// which is what lets a popup follow the note as it scrolls and vanish when its
+    /// line scrolls away. The render draws the panel here and hands the same bounds
+    /// back to the hover path, so "where the panel is" is one answer rather than two
+    /// that can disagree.
+    ///
+    /// The panel hangs below its line, because that is where the pointer came from.
+    /// Near the bottom of the window there is no room there, and a panel that runs
+    /// off the edge has rows nobody can reach — so it goes above the line instead.
+    /// That is also why the render's `snap_to_window` is only a last resort: the
+    /// place is already inside the window, and a snap the corridor does not know
+    /// about is a corridor over empty space.
+    pub(crate) fn popup_place(&self, window: &Window, cx: &gpui::App) -> Option<PlacedPopup> {
         let anchor = self.popup_anchor?;
         let (line, size, visible) = self.editor.read_with(cx, |editor, _cx| {
             (
@@ -352,7 +383,14 @@ impl Workspace {
         if !visible {
             return None;
         }
-        let rows = self.popup_fixes.len();
+        // The panel's height comes from the panel itself: how many offer rows it
+        // is drawing. Asking it, rather than counting the window's own copy of the
+        // fixes, is what keeps the click corridor on the rows the user can see.
+        let rows = self
+            .popup
+            .as_ref()
+            .map(|popup| popup.read_with(cx, |popup, _cx| popup.drawn().len()))
+            .unwrap_or(0);
         let size = crate::popup::panel_size(rows, size);
         let mut x = line.left();
         if x + size.width > line.right().max(x) {
@@ -360,7 +398,19 @@ impl Workspace {
             // the text column rather than off the side of the window.
             x = (line.right() - size.width).max(line.left());
         }
-        Some(Bounds::new(Point::new(x, line.bottom() + GAP), size))
+        let below = line.bottom() + GAP + size.height <= window.bounds().bottom() - EDGE_MARGIN;
+        let y = if below {
+            line.bottom() + GAP
+        } else {
+            // Above the line. Clamped to the window rather than left off the top:
+            // a panel with nowhere to go is still better than unreachable rows,
+            // and the note scrolls, so this is a momentary state.
+            (line.top() - GAP - size.height).max(EDGE_MARGIN)
+        };
+        Some(PlacedPopup {
+            bounds: Bounds::new(Point::new(x, y), size),
+            below,
+        })
     }
 
     /// The popup entity, for the render.

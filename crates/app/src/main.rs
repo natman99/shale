@@ -9,6 +9,7 @@ mod ex;
 mod field;
 mod image;
 mod line;
+mod list;
 mod lsp;
 mod picker;
 mod popup;

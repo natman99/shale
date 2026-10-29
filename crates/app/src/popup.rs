@@ -53,12 +53,32 @@ const BORDER: Pixels = px(1.);
 /// How many characters of a message or a title fit on one line. Longer ones are
 /// clipped, because a wrapped line would make [`panel_size`] a guess.
 const LINE_CHARS: usize = 48;
+/// How many offers are drawn at once.
+///
+/// The panel is placed below the word it is about, so an unbounded list runs off
+/// the bottom of the window and the offers at the end are unreachable — which is
+/// what happened with harper's eighth. The panel keeps a height it can actually
+/// show, and [`crate::list::window`] slides it to keep the highlighted offer on it.
+pub(crate) const VISIBLE_ROWS: usize = 8;
 
-/// The panel's size for `rows` action rows drawn at the note's text `size`.
+/// How many rows the panel draws for `total` offers: all of them when they fit,
+/// [`VISIBLE_ROWS`] when they do not.
+///
+/// The window's *height*, so it does not depend on which row is highlighted —
+/// which is what lets the window's click corridor and the render agree on where
+/// the panel is even while the list scrolls.
+fn visible_rows(total: usize) -> usize {
+    total.min(VISIBLE_ROWS)
+}
+
+/// The panel's size for a panel that draws `rows` action rows at the note's text
+/// `size`.
 ///
 /// The window uses this both to place the panel and to decide whether the pointer
 /// is over it, and the render below builds the panel out of the same constants, so
-/// the two cannot drift apart.
+/// the two cannot drift apart. Pass [`visible_rows`], not the number of offers: a
+/// panel that promises more height than it draws moves the corridor away from the
+/// rows the user can see.
 pub(crate) fn panel_size(rows: usize, size: f32) -> Size<Pixels> {
     gpui::size(
         WIDTH,
@@ -168,6 +188,21 @@ impl Popup {
             cx.notify();
         }
     }
+
+    /// Which rows the panel draws: the window [`crate::list`] puts around the
+    /// highlighted offer, over [`visible_rows`] many slots.
+    ///
+    /// This is the one answer to "how many rows does the panel show". The render
+    /// draws these, and the window sizes the click corridor from
+    /// [`panel_size`]`(visible_rows(...))`, so the two cannot drift apart — and if
+    /// they did, the corridor would be somewhere the rows are not.
+    pub(crate) fn drawn(&self) -> std::ops::Range<usize> {
+        crate::list::window(
+            self.selected,
+            self.rows.len(),
+            visible_rows(self.rows.len()),
+        )
+    }
 }
 
 impl Focusable for Popup {
@@ -182,11 +217,14 @@ impl Render for Popup {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let palette = Rc::clone(&self.palette);
         let entity = cx.entity();
-        let rows: Vec<gpui::Stateful<gpui::Div>> = self
-            .rows
-            .iter()
-            .enumerate()
-            .map(|(n, row)| {
+        // The panel draws a window over the offers, not all of them; the numbers
+        // stay absolute, so the `9.` on a row is the `9` that would choose it
+        // whether or not that row is on the panel right now.
+        let drawn = self.drawn();
+        let rows: Vec<gpui::Stateful<gpui::Div>> = drawn
+            .clone()
+            .map(|n| {
+                let row = self.rows[n].clone();
                 let clicked = entity.clone();
                 let hovered = entity.clone();
                 div()
@@ -202,7 +240,7 @@ impl Render for Popup {
                     .gap_2()
                     .text_ellipsis()
                     .child(div().w(px(14.)).child(format!("{}.", n + 1)))
-                    .child(gpui::StyledText::new(row.clone()))
+                    .child(gpui::StyledText::new(row))
                     .when(n == self.selected, |d| {
                         d.bg(gpui::rgb(palette.popup_hover_bg))
                     })
@@ -214,6 +252,13 @@ impl Render for Popup {
                     })
             })
             .collect();
+        // Offers the panel had to leave off are said out loud next to the checker's
+        // code, so a list of twelve does not look like a list of eight.
+        let code: SharedString = if drawn.len() < self.rows.len() {
+            format!("{} · {} offers", self.code, self.rows.len()).into()
+        } else {
+            self.code.clone()
+        };
 
         div()
             .key_context(CONTEXT)
@@ -268,7 +313,7 @@ impl Render for Popup {
                     .child(
                         div()
                             .text_color(gpui::rgb(palette.ui_dim))
-                            .child(gpui::StyledText::new(self.code.clone())),
+                            .child(gpui::StyledText::new(code)),
                     ),
             )
             .child(div().children(rows))

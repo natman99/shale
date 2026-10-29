@@ -18,7 +18,8 @@
 //!
 //! The list is a *window* over the ranked rows rather than a scrolling element:
 //! the window slides to keep the selection inside it, which is all a keyboard
-//! user needs and needs no scroll state of its own.
+//! user needs and needs no scroll state of its own. [`crate::list`] holds that
+//! arithmetic, shared with the popup panel.
 
 use std::ops::Range;
 use std::rc::Rc;
@@ -44,11 +45,20 @@ use crate::field::{approx_char_width, Field, FieldElement, FieldOwner};
 pub(crate) const CONTEXT: &str = "picker";
 
 /// How many rows are visible at once.
+///
+/// Fixed rather than worked out from the window's height, which is what keeps the
+/// panel's height predictable; a window much shorter than this clips the bottom
+/// rows, and the selection scrolls out of the clip rather than off the panel.
 const VISIBLE_ROWS: usize = 12;
 
 /// How many ranked rows to keep. A vault with more notes than this is only
 /// searched for the best matches, which is also what keeps a keystroke cheap.
-const RANK_LIMIT: usize = 200;
+///
+/// The scan is every note either way — `ranked` has to look at all of them to know
+/// which are best — so this only bounds the list the picker holds and draws a
+/// window over. It used to be 200, which a few thousand notes quietly outran: the
+/// note the user was looking for was ranked and then thrown away.
+const RANK_LIMIT: usize = 1000;
 
 /// What the user did with the picker.
 #[derive(Clone)]
@@ -264,9 +274,11 @@ impl<T: Clone + 'static> Picker<T> {
         self.selected = moved.clamp(0, last as isize) as usize;
     }
 
-    /// The first ranked row to draw, so the selection is always inside the window.
-    fn window_start(&self) -> usize {
-        self.selected.saturating_sub(VISIBLE_ROWS - 1)
+    /// The rows to draw: the window [`crate::list`] puts around the highlighted
+    /// row. The same model the popup scrolls with, so neither widget can put its
+    /// own selection outside its own panel.
+    fn drawn(&self) -> std::ops::Range<usize> {
+        crate::list::window(self.selected, self.ranked.len(), VISIBLE_ROWS)
     }
 }
 
@@ -461,9 +473,9 @@ impl<T: Clone + 'static> Render for Picker<T> {
         // query field above them is drawn in. Their size still comes from the
         // surrounding text style.
         let base_font = font(self.family.clone());
-        let start = self.window_start();
-        let end = (start + VISIBLE_ROWS).min(self.ranked.len());
-        let rows: Vec<gpui::Stateful<gpui::Div>> = (start..end)
+        let rows_range = self.drawn();
+        let rows: Vec<gpui::Stateful<gpui::Div>> = rows_range
+            .clone()
             .map(|n| {
                 let row = &self.ranked[n];
                 let (item, _target) = &self.items[row.item];

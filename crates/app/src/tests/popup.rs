@@ -144,8 +144,11 @@ fn pointer_over(
 /// Where the panel was drawn: the y of its bottom edge, in window coordinates.
 fn panel_bottom(cx: &mut VisualTestContext, window: &WindowHandle<Workspace>) -> gpui::Pixels {
     window
-        .update(cx, |ws, _window, cx| {
-            ws.popup_place(cx).expect("the panel has a place").bottom()
+        .update(cx, |ws, window, cx| {
+            ws.popup_place(window, cx)
+                .expect("the panel has a place")
+                .bounds
+                .bottom()
         })
         .unwrap()
 }
@@ -337,6 +340,188 @@ fn an_offer_with_no_edit_still_closes_the_panel(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("1");
     assert_eq!(text(cx, &window), "Thier spelling is wrogn.\n");
     assert!(!shown(cx, &window));
+}
+
+/// How tall the panel is, as the window measures it — the height the pointer's
+/// corridor is built from, and the height the render has to deliver.
+fn panel_height(cx: &mut VisualTestContext, window: &WindowHandle<Workspace>) -> gpui::Pixels {
+    window
+        .update(cx, |ws, window, cx| {
+            ws.popup_place(window, cx)
+                .expect("the panel has a place")
+                .bounds
+                .size
+                .height
+        })
+        .unwrap()
+}
+
+/// The note's text size, which is what sets the panel's row height.
+fn text_size(cx: &mut VisualTestContext, window: &WindowHandle<Workspace>) -> f32 {
+    window
+        .update(cx, |ws, _window, cx| {
+            ws.editor().read_with(cx, |editor, _cx| editor.font_size())
+        })
+        .unwrap()
+}
+
+/// Which offer rows the panel is drawing.
+fn drawn_rows(
+    cx: &mut VisualTestContext,
+    window: &WindowHandle<Workspace>,
+) -> std::ops::Range<usize> {
+    window
+        .update(cx, |ws, _window, cx| ws.popup_drawn(cx))
+        .unwrap()
+}
+
+/// Put `n` offers in front of the panel, the way a checker with opinions would.
+fn give_offers(cx: &mut VisualTestContext, window: &WindowHandle<Workspace>, n: usize) {
+    window
+        .update(cx, |ws, _window, cx| {
+            ws.offer_test_fixes(
+                (0..n)
+                    .map(|i| Fix {
+                        title: format!("Offer {}", i + 1),
+                        edits: Vec::new(),
+                        command: None,
+                    })
+                    .collect(),
+                cx,
+            )
+        })
+        .unwrap();
+}
+
+/// A panel is placed below the word it is about, so a list of offers that simply
+/// grows runs off the bottom of the window and the last offers become unreachable
+/// — which is what harper's eighth was. The panel keeps a height it can show.
+#[gpui::test]
+fn a_long_list_of_offers_does_not_grow_the_panel(cx: &mut TestAppContext) {
+    let (_dir, window) = marked_note(
+        cx,
+        "Thier spelling is wrogn.\n",
+        &[("Did you mean to spell `thier` this way?", 0, 5)],
+    );
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    cx.simulate_keystrokes("^ shift-k");
+
+    let size = text_size(cx, &window);
+    give_offers(cx, &window, 12);
+    assert_eq!(
+        offers(cx, &window).len(),
+        12,
+        "the panel holds every offer the checker gave"
+    );
+    assert_eq!(
+        panel_height(cx, &window),
+        crate::popup::panel_size(crate::popup::VISIBLE_ROWS, size).height,
+        "but it is as tall as the rows it draws, not the rows it was offered"
+    );
+}
+
+/// The panel scrolls to the offer the keyboard is on, so walking `j` down a long
+/// list ends on a row that is actually on screen.
+#[gpui::test]
+fn the_panel_scrolls_to_follow_the_keyboard(cx: &mut TestAppContext) {
+    let (_dir, window) = marked_note(
+        cx,
+        "Thier spelling is wrogn.\n",
+        &[("Did you mean to spell `thier` this way?", 0, 5)],
+    );
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    cx.simulate_keystrokes("^ shift-k");
+    give_offers(cx, &window, 12);
+    assert_eq!(
+        drawn_rows(cx, &window),
+        0..crate::popup::VISIBLE_ROWS,
+        "the first offers, in the checker's order"
+    );
+
+    for _ in 0..11 {
+        cx.simulate_keystrokes("j");
+    }
+    let drawn = drawn_rows(cx, &window);
+    assert!(
+        drawn.contains(&11),
+        "the last offer is on the panel rather than below the window: {drawn:?}"
+    );
+    assert_eq!(
+        drawn.len(),
+        crate::popup::VISIBLE_ROWS,
+        "and the panel did not shrink to do it"
+    );
+}
+
+/// Scrolling the list must not move the panel. The pointer's corridor — how far
+/// below the panel it may go before the panel is dismissed — is the panel's
+/// height, so a panel that changed height as the list scrolled would put the
+/// corridor somewhere the rows are not.
+#[gpui::test]
+fn scrolling_the_list_does_not_move_the_panel(cx: &mut TestAppContext) {
+    let (_dir, window) = marked_note(
+        cx,
+        "Thier spelling is wrogn.\n",
+        &[("Did you mean to spell `thier` this way?", 0, 5)],
+    );
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    cx.simulate_keystrokes("^ shift-k");
+    give_offers(cx, &window, 12);
+
+    let bottom = panel_bottom(cx, &window);
+    cx.simulate_keystrokes("j j j j j j j j j");
+    assert_eq!(
+        panel_bottom(cx, &window),
+        bottom,
+        "the panel stayed where it was put"
+    );
+}
+
+/// The number printed beside an offer is the key that chooses it, on the panel or
+/// off it: a scrolled list that renumbered its rows would make `3` mean whatever
+/// happened to be third from the top.
+#[gpui::test]
+fn a_digit_chooses_the_row_it_names(cx: &mut TestAppContext) {
+    let (_dir, window) = marked_note(
+        cx,
+        "Thier spelling is wrogn.\n",
+        &[("Did you mean to spell `thier` this way?", 0, 5)],
+    );
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    cx.simulate_keystrokes("^ shift-k");
+    window
+        .update(cx, |ws, _window, cx| {
+            ws.offer_test_fixes(
+                (0..12)
+                    .map(|i| Fix {
+                        title: format!("Offer {}", i + 1),
+                        edits: if i == 2 {
+                            vec![(0, 5, "Their".into())]
+                        } else {
+                            Vec::new()
+                        },
+                        command: None,
+                    })
+                    .collect(),
+                cx,
+            )
+        })
+        .unwrap();
+
+    // Scroll the third offer off the top of the panel, then name it. Eleven `j`s
+    // because the panel keeps the window minimal: it only slides as far as the
+    // highlighted row needs.
+    cx.simulate_keystrokes("j j j j j j j j j j j");
+    assert!(
+        !drawn_rows(cx, &window).contains(&2),
+        "the third offer is off the panel now"
+    );
+    cx.simulate_keystrokes("3");
+    assert_eq!(
+        text(cx, &window),
+        "Their spelling is wrogn.\n",
+        "and `3` still means the third offer"
+    );
 }
 
 /// Resting the pointer on a marked word asks the same question as `K`.
@@ -647,7 +832,7 @@ fn the_panel_follows_its_line(cx: &mut TestAppContext) {
 
     cx.simulate_keystrokes("^ shift-k");
     let before = window
-        .update(cx, |ws, _window, cx| ws.popup_place(cx))
+        .update(cx, |ws, window, cx| ws.popup_place(window, cx))
         .unwrap();
     assert!(before.is_some(), "the panel has a place");
 
@@ -662,10 +847,131 @@ fn the_panel_follows_its_line(cx: &mut TestAppContext) {
         .unwrap();
     paint(cx);
     let after = window
-        .update(cx, |ws, _window, cx| ws.popup_place(cx))
+        .update(cx, |ws, window, cx| ws.popup_place(window, cx))
         .unwrap();
     assert_eq!(
         after, None,
         "a line that is not on screen has no panel over it"
+    );
+}
+
+/// A note long enough that its marked word sits against the bottom of the window.
+///
+/// Returns the offset of the marked word and its display line. The note ends with
+/// a newline, so vim's `G` lands on the empty line *after* it; `G k` is what puts
+/// the cursor on the marked line, which is the last one with text on it.
+fn bottom_note(
+    cx: &mut TestAppContext,
+) -> (tempfile::TempDir, WindowHandle<Workspace>, usize, usize) {
+    let mut text: String = (1..=119)
+        .map(|n| format!("line {n} of the note\n"))
+        .collect();
+    text.push_str("and the wrogn word at the bottom\n");
+    let start = text.find("wrogn").expect("the marked word is there");
+    let (_dir, window) = marked_note(
+        cx,
+        &text,
+        &[("Did you mean to spell `wrogn` this way?", start, start + 5)],
+    );
+    (_dir, window, start, 119)
+}
+
+/// Where the panel is: which side of its line it hangs on, and its top and bottom.
+fn place(
+    cx: &mut VisualTestContext,
+    window: &WindowHandle<Workspace>,
+) -> (bool, gpui::Pixels, gpui::Pixels) {
+    window
+        .update(cx, |ws, window, cx| {
+            let placed = ws.popup_place(window, cx).expect("a place");
+            (placed.below, placed.bounds.top(), placed.bounds.bottom())
+        })
+        .unwrap()
+}
+
+/// Near the bottom of the window there is no room under the line, and a panel
+/// whose rows run off the edge has rows nobody can reach. It goes above the line
+/// instead, and stays inside the window.
+#[gpui::test]
+fn a_panel_near_the_bottom_of_the_window_goes_above_its_line(cx: &mut TestAppContext) {
+    let (_dir, window, _start, _line) = bottom_note(cx);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    // `G k` to the last line with text on it, `^ w w` onto the marked word, ask
+    // about it, then give the checker enough to say that the panel cannot fit.
+    cx.simulate_keystrokes("G k ^ w w shift-k");
+    give_offers(cx, &window, 12);
+    paint(cx);
+    assert!(shown(cx, &window), "the panel is up");
+
+    let (below, top, bottom) = place(cx, &window);
+    assert!(!below, "there is no room under a line at the bottom");
+
+    let (window_top, window_bottom) = window
+        .update(cx, |_ws, window, _cx| {
+            (window.bounds().top(), window.bounds().bottom())
+        })
+        .unwrap();
+    assert!(
+        bottom <= window_bottom && top >= window_top,
+        "the whole panel is drawn inside the window rather than off its edge"
+    );
+}
+
+/// A panel that flipped above its line is walked away from *upwards*. Its bottom
+/// edge is against its own word, so watching that edge would close the panel the
+/// moment the pointer moved down onto the word it is about — the very move the
+/// corridor exists to allow.
+#[gpui::test]
+fn a_flipped_panel_is_walked_away_from_upwards(cx: &mut TestAppContext) {
+    let (_dir, window, start, line) = bottom_note(cx);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    // The line has to be on screen before the pointer can rest on it, and the
+    // only way to put the last line there is to take the cursor to it.
+    cx.simulate_keystrokes("G k");
+    paint(cx);
+
+    hover_at(cx, &window, line, start + 2);
+    assert!(shown(cx, &window), "the pointer is over the word");
+    give_offers(cx, &window, 12);
+    let (below, top, _) = place(cx, &window);
+    assert!(!below, "the panel had to go above the line");
+
+    // Walk the selection down the list first. A panel that gets closed and
+    // reopened under the pointer comes back at the top of its list, so this is how
+    // one that was merely left alone can be told from one that was not.
+    cx.simulate_keystrokes("j j j j j j j j");
+    let slid = drawn_rows(cx, &window);
+    assert_eq!(slid.start, 1, "the list has scrolled down a row");
+
+    let x = x_over(cx, &window, line, start + 2);
+    let (_left, _top, line_bottom) = line_box(cx, &window, line);
+
+    // Down onto the word's own line, near its bottom edge: that is the trip from
+    // the panel to the word it is about, not leaving. It is also well past the
+    // panel's bottom edge, so watching *that* edge would end the panel with the
+    // pointer still on the word it belongs to.
+    hover_point(cx, gpui::point(x, line_bottom - gpui::px(1.)));
+    assert!(
+        shown(cx, &window),
+        "the panel's own word is below it, and that is not leaving"
+    );
+    assert_eq!(
+        drawn_rows(cx, &window),
+        slid,
+        "and the panel was not closed and reopened under the pointer"
+    );
+    assert!(
+        shown(cx, &window),
+        "the panel's own word is below it, and that is not leaving"
+    );
+
+    // Up past the panel's top edge is the way away from it, and the note's lines
+    // are up there to report the move.
+    hover_point(cx, gpui::point(x, top - gpui::px(60.)));
+    assert!(
+        !shown(cx, &window),
+        "walking away above a flipped panel ends it"
     );
 }
