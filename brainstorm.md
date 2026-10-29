@@ -4,7 +4,7 @@ Status legend: ✅ agreed / 🔭 solid maybe, needs more thought / ❄️ parked
 This file is refined as ideas are discussed; move decisions into PROJECT.md when they
 graduate from brainstorm. (Graph-specific design lives in `graph-view-plan.md`.)
 
-Last refined: 2026-10-28.
+Last refined: 2026-10-28 (Obsidian parity audit added).
 
 ---
 
@@ -338,6 +338,128 @@ Last refined: 2026-10-28.
     directly (no screenshot tool dependency).
   - *Stats timeline ✅:* word-count-over-time sparkline above the scrubber (DB
     word_count history) — the graph plus "how big was the vault then".
+
+---
+
+## Obsidian parity audit (2026-10-28)
+
+Swept Obsidian's built-ins + core plugins + top community plugins against this
+document. Everything not listed here is either already covered (quick switcher,
+palette, bookmarks, hover preview, rename propagation, word count, file
+recovery→time machine, Bases/Dataview→`.shq`) or a deliberate out (sync,
+mobile, Canvas, slide mode, themes). The gaps, with rulings:
+
+### Properties: frontmatter as data ✅ (P1 schema decision — do it in the DB spine)
+- The DB indexes YAML frontmatter: `note_props(note, key, value)` updated on
+  save/index. Without this, `.shq` can't answer "all notes with
+  `status: draft`" — the query-note feature is crippled without it.
+- Editor: a Properties strip at the top of the note (editable key/value table,
+  rendered from the raw YAML block — buffer stays plain text, same principle as
+  the outliner). Key autocomplete from the DB's distinct-key set.
+- Light type inference (date, number, list) for sorting/queries; no schema
+  enforcement — frontmatter stays free-form.
+- Rename a property key vault-wide → link-health machinery applies.
+- Search + tag tree + graph filters can all consult props once indexed.
+
+### Tasks as data ✅ (cheap DB win)
+- DB table `tasks(note, line, text, done, due, status)` updated incrementally
+  on save (the markdown parser already sees checkboxes).
+- Enables: task dashboard `.shq`s for free; toggle-done from query results
+  edits the source text (same compile-to-text-edits rule as the outliner);
+  "open tasks in this note" counts in the status bar.
+- Due-date convention: parse `📅 YYYY-MM-DD` and `due:YYYY-MM-DD` suffixes
+  into the `due` column (text stays as written). No recurrence engine —
+  that's Tasks-plugin territory, out of scope.
+
+### Search operators ✅
+- `ctrl-shift-f` grammar: `tag:work`, `path:projects/`, `file:name`,
+  `"exact phrase"`, `/regex/`, `todo:`/`done:`, `created:>2026-01-01`,
+  `modified:week`, `agent:` (provenance — ours alone), `prop:key=value`
+  (rides the props index).
+- All DB-backed → instant. `/` open-buffer stays plain fuzzy; operators are
+  the vault-search grammar.
+
+### Daily notes ✅
+- `:today` opens/creates `journal/YYYY-MM-DD.md` (folder configurable);
+  `:day 2026-10-28` jumps to a specific one.
+- Calendar popover: month grid, dots on days that have a note (the DB knows),
+  click to jump. `:calendar`.
+- Creation seeds a minimal skeleton (frontmatter + `# date` heading). Full
+  templates stay an open question; daily notes don't wait on it.
+- Composes with the scrubber's session view and capture (capture can append
+  to today's daily instead of inbox — config).
+
+### Attachment capture ✅
+- `ctrl-v` with an image on the clipboard → save under `attachments/`
+  (vault-root or adjacent, config) → insert `![[name]]`. Drag-drop a file
+  onto the editor does the same.
+- Naming: `YYYY-MM-DD-HHMM-<original-or-hash>.ext` (sortable, collision-free).
+- Graph already models attachment nodes; this feeds them.
+
+### Trash ✅ (user: "very important")
+- Every delete (file tree, `:Gdelete`, `:Gmove` leftovers) goes to the **OS
+  trash** via the `trash` crate (MIT, pure Rust, cross-platform) — not
+  vault-local (stays out of git, restorable from any file manager).
+- The DB event log records the deletion (path + timestamp + provenance), so
+  "what did the agent delete" is a query, and links to the deleted note
+  degrade to ghosts as already specced.
+- 30-day recovery is the OS's job; the time machine keeps the *content*
+  history if the note ever had one.
+
+### Workspaces ✅ (session restore is the base; named workspaces are sugar)
+- Pane layout + open tabs + active pane + per-pane cursor saved as JSON in
+  `.shale/workspaces/<name>.json`.
+- **Auto-save the session continuously** (cheap) and restore on launch —
+  this is the "we need to save it anyways" part, and it makes crash-recovery
+  feel like nothing happened.
+- `:ws save name` / `:ws load name` / `:ws list` on top. MCP can list/load
+  (agent sets up a working context).
+
+### Block references ✅ (hooks straight into transclusion + hover preview)
+- `^abc123` anchor at the end of a paragraph/bullet; `![[note#^abc123]]`
+  embeds it; `[[note#^abc123]]` links to it (jump = scroll to block).
+- ID generation: command appends `^` + 6 random chars (stable once written;
+  content-hashed IDs break on edit, rejected).
+- mdstyle gains a block-anchor span; the transclusion resolver grows from
+  note/section to block granularity — and editable transclusion gets its
+  finest atom for free. Hover preview on a block ref shows just that block.
+- Graph edges stay note-level (Obsidian's rule); block refs enrich the
+  backlinks panel with the exact block.
+
+### Outline pane ✅
+- Heading tree in a sidebar: click to jump, current heading highlighted while
+  scrolling, respects folds. Distinct from outliner *editing* — this is
+  navigation. Reuses the parser's heading spans.
+
+### Unresolved link → create note ✅
+- The editor half of ghost nodes: command on cursor-over-link (`ctrl-enter`
+  or `o` in a popup) creates the note at the path `Vault::resolve_link` says
+  it would resolve to, and opens it.
+- Graph: click a ghost ring → same create. Ghosts stop being dead ends.
+
+### Random note ✅
+- `:random [folder]` — one SQL query (exclude current note; respects active
+  filters). Zettelkasten staple, trivial on the DB.
+
+### Vault switcher ✅
+- Recent vaults list in `.shale/recent.json`; startup picker when no vault
+  arg; `:vault` to switch. One vault per app instance (switch = close +
+  reopen) — keeps window/DB state simple.
+
+### `shale://` URI scheme ✅
+- `shale://open/<vault>/<path>` (+ `?line=`) → browser/external handoff.
+  Linux: `.desktop` entry + xdg-open; Windows: registry key. Security: only
+  paths inside a *known* (recent) vault open without confirmation.
+
+### Table editing feel 🔭 (awaiting ruling)
+- `Tab` in a table cell → next cell (wraps to next row; at the last cell,
+  creates a new row); `Shift-Tab` → previous. `table` keymap context;
+  insert-mode Tab elsewhere untouched. Pairs with the `cit` text object.
+
+### Math ❄️ / Mermaid ❄️
+- Both parked (user call, 2026-10-28). Revisit after live-preview core lands;
+  math may take the "clean source + hover-render" middle path rather than
+  full typesetting in the custom renderer.
 
 ---
 
