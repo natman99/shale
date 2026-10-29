@@ -4,20 +4,20 @@ Shale is an obsidian-style markdown editor with extra developer focused features
 
 ## Goals
 
-- [ ] "Live preview" (obsidian-style) Markdown editor with vim binding support
-- [ ] File tree and interface
-- [ ] Wiki-links
-- [ ] MCP server
-- [ ] Spellcheck and grammar checking using HarperLS. Support for custom language servers.
+- [x] "Live preview" (obsidian-style) Markdown editor with vim binding support
+- [x] File tree and interface
+- [x] Wiki-links
+- [x] MCP server (stdio first pass; two-mode HTTP+stdio design in roadmap P2.3)
+- [x] Spellcheck and grammar checking using HarperLS. Support for custom language servers.
 - [ ] Near-perfect compatibility with Obsidian vaults
-- [ ] Image support in notes using Obsidian style
-- [ ] Theming support and support for custom themes. Include light and dark themes.
-- [ ] Graph view
+- [x] Image support in notes using Obsidian style
+- [x] Theming support and support for custom themes. Include light and dark themes.
+- [ ] Graph view (planned: graph-view-plan.md + roadmap P3)
 - [ ] Pdf export notes
 - [ ] Tabs
 - [ ] Tiling split view (like Obsidian)
-- [ ] Command pallette (vim `:` and Vscode's `ctrl+shift+p` to open. Vim version supports vim features like `s/x/x` replacement. Fuzzy search for commands)
-- [ ] Note search and full vault search (command pallette, vim `/`)
+- [x] Command pallette (vim `:` and Vscode's `ctrl+shift+p` to open. Vim version supports vim features like `s/x/x` replacement. Fuzzy search for commands) — palette, `:` line, and fuzzy all done; the `s/x/x`-style ex features are not (see roadmap P2.7)
+- [x] Note search and full vault search (command pallette, vim `/`) — vault search done (`ctrl-shift-f`); in-buffer `/` is parked (roadmap P0.5)
 - [ ] Templates: save standard notes as templates to be copied in to other notes with a command. Also add a gui picker.
 - [ ] "Raw" mode (disables syntax highlighting and markdown rendering)
 - [ ] "Database" tables (Obsidian bases) see below
@@ -46,7 +46,12 @@ Gui pickers should have a search bar with fuzzy search, but arrow keys + enter c
 
 ### Tech Stack
 
-Keep as much in Rust as possible, no bindings external libraries. Update the tech stack as needed.
+Keep as much in Rust as possible, no bindings external libraries. Update the
+tech stack as needed. **Ruled exceptions (2026-10-28):** bundled build-time C
+dependencies are fine where they're the right tool — **SQLite** (`rusqlite`,
+for the vault DB) and **tree-sitter** (code-block highlighting, developer-
+friendly feature wanted). The rule still stands against runtime-linked system
+libraries and FFI-heavy deps.
 
 - Tokio for async
 - GPUI for UI — **from Zed's repo, tag `v1.25.3`** (`gpui` + `gpui_platform`
@@ -647,7 +652,11 @@ row)], width, IndentAdjustment::NoIndent)`, whose `Boundary.ix` is a **byte
   the model's ranges equal the painted ranges.
   Screen vs logical motions (vim's own split): `0`, `^`, `$` (and `d$`, `c$`)
   are **display-line** motions; `A` and `I` stay **row**-wise
-  (`Buffer::row_first_non_blank` / `row_last_char_motion`). `desired_col` is a
+  (`Buffer::row_first_non_blank` / `row_last_char_motion`). `A` steps off the
+  row's last character with `move_right_stay_on_line`, never `move_right`: an
+  empty row has no last character to step off, and a step that may cross the
+  newline begins the append on the row below (the same trap in the visual-mode
+  `A`; both tested). `desired_col` is a
   character column within the display line, and the ruler reports character
   columns.
   Still open in this area:

@@ -211,7 +211,7 @@ Small popover (reuse popup styling) with the four v1 toggles + a fuzzy search li
 
 - **M2 Local graph + 3D.** Local graph = BFS depth-N subgraph from the active note (depth slider). 3D = same sim in `[f32;3]`, rotation via drag, perspective divide, painter's sort; `+`/`-`/arrows unchanged.
 - **M3 Constellations + static mode.** Folder anchors + attraction force; parent-folder filter; nested anchors. Static mode: run sim to convergence off-thread, cache layout (positions keyed by path) in the `.shale` DB when it exists, else a `.shale/graph-layout.json` sidecar; deterministic seed ⇒ stable across launches.
-- **M4 Heatmap + groups + arrows + time-lapse.** Heatmap colors from DB open/edit counts; Obsidian-style color groups (search-term → color rules); arrowheads on edges (second batched path); time-lapse animation (nodes appear by creation time).
+- **M4 Heatmap + groups + arrows.** Heatmap colors from DB open/edit counts; Obsidian-style color groups (search-term → color rules); arrowheads on edges (second batched path). (Time-lapse dropped as novelty — superseded by the vault history scrubber in brainstorm.md.)
 
 ## Milestone M5 — signature features (approved; ordered as sub-milestones)
 
@@ -221,9 +221,11 @@ These are what make Shale's graph not Obsidian's. All are circles, curves, gradi
 
 Wire the existing ctrl+o/ctrl+i jump-chain history (`workspace/` jump tracking) into `GraphView`: a ring buffer of the last ~12 visited node indexes with timestamps. Render as a **glowing polyline** through those nodes (bezier through the chain points, drawn as 2–3 stacked strokes: wide low-alpha accent under, thin bright over = fake glow), brightest at the present end, alpha decaying back through history. Beads: small filled dots at each visited node; click a bead to jump back along history. Updates live as the user navigates. Cheap: ≤12 nodes, one path batch. Headless test: chain of 3 opened notes ⇒ filament path exists with 3 beads.
 
-### M5b: MCP pulses
+### M5b: MCP pulses + freshness glow
 
 The MCP server (crates/mcp) already informs the app of edits (toasts feature). Extend that event to the graph: each externally-changed path spawns a **ripple** — an expanding hollow ring (one `paint_quad` circle outline per ripple, radius growing, alpha decaying over ~1.5 s, max ~20 concurrent ripples). Ripples are render-only: they never touch the sim, so an agent editing 50 files causes zero physics churn. If the graph tab is open while the agent works, the vault visibly shimmers where it's writing. Test: push edit event, assert ripple list length and expiry.
+
+**Freshness glow (replaces replayed ripples for closed-tab edits):** edits that happened while the graph tab was closed are NOT replayed on open (a 50-edit burst would explode). Instead, nodes with recent DB edit timestamps get an age-decaying halo (edits newer than ~10 min glow; intensity = f(age)). This is derived state from the DB, not event replay — and it shares the age→color machinery with M5i (link-age) and the M4 heatmap.
 
 ### M5c: Real constellations (MST star-lines + labels)
 
@@ -288,10 +290,10 @@ A small (~180×120 px, resizable, position: bottom-right of the editor, over the
 - **Tabs dependency:** M1b is blocked on the tabs goal; M1a is not.
 - **petgraph version drift:** pin `0.8`; the vendored zed tree doesn't use it, so it's a fresh download — fine, MIT.
 
-## Open questions (non-blocking, revisit at M2/M3)
+## Open questions — all resolved (see brainstorm.md for full rationale)
 
-1. Tag nodes: color by tag or by the note's palette? (Obsidian colors by group; we said "color nodes based on tags" in PROJECT.md — propose: tag nodes get a hue from a stable hash, notes keep theme color unless a tag-group filter is active.)
-2. Should dragging a node pin it permanently (Obsidian doesn't pin) or unpin on release (proposed default, Shift to pin)?
-3. Time-lapse animation (M4) — worth it at all, or skip?
+1. **Tag-node coloring:** stable hash of the tag name → hue (no manual coloring). Constraint: hues must be visually distinct and strong enough — minimum saturation/lightness band, no repeated muted greys.
+2. **Drag-pin:** unpin on release (node rejoins the sim); Shift-drag pins permanently.
+3. **Time-lapse:** skip the plain creation-date animation (pure novelty). Replaced concept: **vault history scrubber** (brainstorm.md) — scrub the graph to any past date using time-machine snapshots + link `first_seen`; playback button = the time-lapse, now actually useful.
 
-Resolved since drafting: arcs-on-by-default for edges (user approved); graph lives as a tab; 3D is projected pseudo-3D; own sim + petgraph; target scale ≤2k notes; v1 filters and keyboard as specced.
+Resolved since drafting: arcs-on-by-default for edges (user approved); graph lives as a tab; 3D is projected pseudo-3D; own sim + petgraph; target scale ≤2k notes; v1 filters and keyboard as specced; freshness glow (age-decaying halo from DB edit timestamps) replaces replayed ripples for edits that happened while the tab was closed.
