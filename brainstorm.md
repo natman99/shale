@@ -4,7 +4,7 @@ Status legend: ✅ agreed / 🔭 solid maybe, needs more thought / ❄️ parked
 This file is refined as ideas are discussed; move decisions into PROJECT.md when they
 graduate from brainstorm. (Graph-specific design lives in `graph-view-plan.md`.)
 
-Last refined: 2026-10-28 (Obsidian parity audit added).
+Last refined: 2026-10-29 (TTRPG/D&D toolkit section added).
 
 ---
 
@@ -460,6 +460,58 @@ mobile, Canvas, slide mode, themes). The gaps, with rulings:
 - Both parked (user call, 2026-10-28). Revisit after live-preview core lands;
   math may take the "clean source + hover-render" middle path rather than
   full typesetting in the custom renderer.
+
+---
+
+## TTRPG / D&D toolkit (2026-10-29)
+
+D&D is the flagship domain vault: most of it rides already-approved spine
+features (props index, `.shq`, tasks table, block refs, graph filters,
+callout rendering). Only the two below are new subsystems worth their own
+build; the rest is configuration of things that already exist.
+
+### Secret blocks ✅
+- `> [!secret]` callout variant: renders collapsed/dimmed with a lock affordance;
+  click (or `:reveal`) expands in place. Source stays plain markdown — the
+  buffer never changes, same principle as all live-preview rendering.
+- `:reveal-all` / `:hide-all` toggle for the whole buffer (GM display mode;
+  config default per-vault: revealed for a GM vault, hidden for a player vault).
+- **Player-handout export**: command (and MCP tool) that exports a note to
+  markdown/HTML with every secret block *stripped* — the handout is what gets
+  printed or sent, not the source note. Nested secrets strip with the parent.
+  Provenance: export is recorded in the DB event log (what was handed out, when).
+- Composes with transclusion: embedding a note that contains secrets shows the
+  secret blocks in their collapsed state, never silently expanded.
+- Rationale: no markdown app distinguishes GM knowledge from player knowledge;
+  the custom renderer makes it a callout-type decision, not a plugin hack.
+
+### Inline dice ✅
+- Syntax: `!r 1d20+5` (also `!r 2d8+1d6-2`, `!r 4d6kh3` keep-highest for stats,
+  `!r 1d%` for percentile). Renders as the expression + result + individual
+  dice, styled inline; re-render never re-rolls.
+- Determinism: the roll is resolved once and the result is written back into
+  the source as an annotation — `!r 1d20+5 → 17 [12, +5]` — so the file stays
+  the single source of truth, plain text survives export, and the app is
+  crash-safe. Re-running the roll is an explicit command (`:reroll` on cursor).
+- DB `rolls(note, expr, result, dice, ts)` table → "every nat 1 this campaign",
+  per-session roll history, average-damage queries via `.shq`.
+- `!r` in a *table cell* is the hook for random tables later (see parked) —
+  syntax reserves nothing extra, so tables can be added without a redesign.
+- No dice-notation crate dependency unless it's tiny/MIT; the grammar
+  (`NdN[+/-m][khN|klN]`) is small enough for shale-core + tests.
+
+### Random tables ❄️ (parked, user call 2026-10-29)
+- Markdown tables as rollables (`:rolltable <name>` → weighted row pick,
+  highlight + log). Parked, not rejected: the inline-dice `!r` syntax and the
+  rolls table leave the door open; revisit once inline dice ships.
+
+### Free rides (no new subsystems — note the conventions, don't build)
+- Statblocks: `type: monster` + `cr/hp/ac` frontmatter → props index + `.shq`
+  queries; a `statblock` callout type for pretty two-column rendering later.
+- Quests = tasks table (checkboxes + `due:`); campaign/session notes =
+  daily-notes pattern with a `campaign:` property (`:session 12`).
+- Block refs (`^id`) for exact NPC quotes in session notes; relationship
+  graph (NPC↔faction↔location) is just the existing graph + tag coloring.
 
 ---
 
