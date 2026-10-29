@@ -180,8 +180,9 @@ pub(crate) fn keybindings() -> Vec<KeyBinding> {
         "right" => FieldRight,
     ]);
     // A picker: the same field keys, plus the two that move the highlighted row.
-    // `j`/`k` are free here because the picker is drawn outside the tree and the
-    // editor, so neither of their key contexts is in the focused stack.
+    // The arrows, and deliberately not `j`/`k`: the picker is a text field, and a
+    // query may contain any letter at all. (`j`/`k` still work in the popup, which
+    // has no field to type into.)
     bind!("picker", [
         "enter" => FieldSubmit,
         "escape" => FieldCancel,
@@ -189,8 +190,6 @@ pub(crate) fn keybindings() -> Vec<KeyBinding> {
         "delete" => FieldDelete,
         "left" => FieldLeft,
         "right" => FieldRight,
-        "j" => PickerDown,
-        "k" => PickerUp,
         "down" => PickerDown,
         "up" => PickerUp,
     ]);

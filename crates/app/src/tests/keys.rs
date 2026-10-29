@@ -256,8 +256,9 @@ fn keymap_matches_the_linux_keystroke_shape() {
         );
     }
 
-    // A picker: the same field keys, plus `j`/`k` for the highlighted row — and
-    // nothing else, because every other letter is part of the query being typed.
+    // A picker: the same field keys, plus the arrows for the highlighted row —
+    // and nothing else, because every other letter is part of the query being
+    // typed. `j`/`k` are letters here, unlike in the popup, which has no field.
     let contexts = vec![gpui::KeyContext::try_from("picker").unwrap()];
     for (key, action) in [
         ("enter", "shale::FieldSubmit"),
@@ -266,8 +267,6 @@ fn keymap_matches_the_linux_keystroke_shape() {
         ("delete", "shale::FieldDelete"),
         ("left", "shale::FieldLeft"),
         ("right", "shale::FieldRight"),
-        ("j", "shale::PickerDown"),
-        ("k", "shale::PickerUp"),
         ("down", "shale::PickerDown"),
         ("up", "shale::PickerUp"),
     ] {
@@ -277,7 +276,7 @@ fn keymap_matches_the_linux_keystroke_shape() {
             "the picker: typed {key} should resolve to {action}"
         );
     }
-    for key in ["x", "r", "n", "h", "l", "i"] {
+    for key in ["x", "r", "n", "h", "l", "i", "j", "k"] {
         assert!(
             resolved(&keymap, key, &contexts).is_empty(),
             "the picker must not answer {key}, which is a character being typed"

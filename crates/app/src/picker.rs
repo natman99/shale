@@ -4,7 +4,11 @@
 //! The same shape as the prompt — a [`Field`] on top, keys handled through the
 //! same actions — plus the two things a prompt does not need: the rows are
 //! re-ranked with [`shale_core::fuzzy`] on every keystroke, and one row is
-//! highlighted so `enter` or `j`/`k` can choose it without the mouse.
+//! highlighted so `enter` or the arrow keys can choose it without the mouse.
+//!
+//! Every other printable key belongs to the field. That is why the motions are
+//! the arrows and not `j`/`k`: a picker is a text field first, and a user typing
+//! `json` into quick-open means the note called json.
 //!
 //! A picker is generic over what a row stands for (`PickerTarget` in the
 //! workspace), and the payload travels *inside* the row list rather than in a
@@ -20,9 +24,9 @@ use std::ops::Range;
 use std::rc::Rc;
 
 use gpui::{
-    div, font, prelude::*, px, rgb, App, Bounds, Context, EntityInputHandler, EventEmitter,
-    FocusHandle, Focusable, Font, InteractiveElement, IntoElement, ParentElement, Pixels, Point,
-    Render, SharedString, Styled, StyledText, TextRun, UTF16Selection, Window,
+    div, font, prelude::*, px, rgb, App, Bounds, Context, CursorStyle, EntityInputHandler,
+    EventEmitter, FocusHandle, Focusable, Font, InteractiveElement, IntoElement, ParentElement,
+    Pixels, Point, Render, SharedString, Styled, StyledText, TextRun, UTF16Selection, Window,
 };
 use shale_core::theme::Palette;
 
@@ -35,7 +39,8 @@ use crate::field::{approx_char_width, Field, FieldElement, FieldOwner};
 /// The key context the picker's bindings live in. Like the prompt it is drawn as
 /// a *sibling* of the tree and the editor, because gpui enables a context's
 /// bindings whenever that context is in the focused element's stack: nested
-/// inside either one, their `j`/`k` would swallow the letters being typed.
+/// inside either one, their `j`/`k` would swallow the letters being typed — which
+/// is also why the picker's own bindings leave every printable key to the field.
 pub(crate) const CONTEXT: &str = "picker";
 
 /// How many rows are visible at once.
@@ -466,6 +471,10 @@ impl<T: Clone + 'static> Render for Picker<T> {
                 let clicked = entity.clone();
                 div()
                     .id(("picker-row", n))
+                    // A row is what a click chooses, so the pointer says so; the
+                    // panel is drawn over the note, whose IBeam would otherwise
+                    // show through it.
+                    .cursor(CursorStyle::PointingHand)
                     .flex()
                     .gap_2()
                     .px_1()

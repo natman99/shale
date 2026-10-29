@@ -59,19 +59,19 @@ fn typing_narrows_the_list_to_the_best_match(cx: &mut TestAppContext) {
     assert_eq!(active, "notes/Another Note.md");
 }
 
-/// `j`/`k` belong to the picker while it is open: they move the highlighted row
-/// rather than the vim cursor, and the note under the cursor does not move.
+/// The arrows move the highlighted row, and the note under the cursor is never
+/// touched: the picker is a list, not the buffer.
 #[gpui::test]
-fn j_and_k_move_the_highlight_not_the_cursor(cx: &mut TestAppContext) {
+fn the_arrow_keys_move_the_highlight(cx: &mut TestAppContext) {
     let (_dir, window) = workspace(cx, &["Welcome.md", "notes/Another Note.md"]);
     let cx = &mut VisualTestContext::from_window(window.into(), cx);
 
-    cx.simulate_keystrokes("ctrl-o j");
+    cx.simulate_keystrokes("ctrl-o down");
     assert_eq!(
         choice(&window, cx).as_deref(),
         Some("notes/Another Note.md")
     );
-    cx.simulate_keystrokes("k");
+    cx.simulate_keystrokes("up");
     assert_eq!(choice(&window, cx).as_deref(), Some("Welcome.md"));
     assert_eq!(
         window
@@ -80,6 +80,29 @@ fn j_and_k_move_the_highlight_not_the_cursor(cx: &mut TestAppContext) {
         "",
         "the note was never touched"
     );
+}
+
+/// `j` and `k` are letters, and a picker is a text field: they have to be typed,
+/// not spent on moving the selection. A vault with a note called `json.md` is the
+/// reason — with `j` bound, that note cannot be reached by typing its name.
+#[gpui::test]
+fn j_and_k_are_typing_in_a_picker(cx: &mut TestAppContext) {
+    let (_dir, window) = workspace(cx, &["Welcome.md", "notes/json.md"]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    cx.simulate_keystrokes("ctrl-o");
+    assert_eq!(matches(&window, cx), Some(2));
+    cx.simulate_keystrokes("j");
+    assert_eq!(
+        matches(&window, cx),
+        Some(1),
+        "`j` narrowed the list, so it went into the query"
+    );
+    cx.simulate_keystrokes("s o n");
+    assert_eq!(choice(&window, cx).as_deref(), Some("notes/json.md"));
+    cx.simulate_keystrokes("enter");
+    let (_, active) = state(&window, cx);
+    assert_eq!(active, "notes/json.md", "and the query chose it");
 }
 
 /// Backspace widens the list again, which is how a mistyped query is fixed.
@@ -252,13 +275,22 @@ fn palette(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> Pale
     *window.update(cx, |ws, _window, _cx| ws.palette()).unwrap()
 }
 
-/// The theme picker previews the row it points at, keeps the row that is chosen,
-/// and puts back the palette it was opened from when nothing was chosen.
+/// The theme picker opens on the theme in use, previews the row it points at,
+/// keeps the row that is chosen, and puts back the palette it was opened from
+/// when nothing was chosen.
 #[gpui::test]
 fn the_theme_picker_previews_and_keeps(cx: &mut TestAppContext) {
     let (_dir, window) = workspace(cx, &["Welcome.md"]);
     let cx = &mut VisualTestContext::from_window(window.into(), cx);
-    let start = palette(&window, cx);
+
+    // Not the first built-in, which is the case that matters: a picker that opens
+    // on a theme the user is not looking at puts a row they did not choose at the
+    // top, and the theme they meant is somewhere under their own selection.
+    cx.simulate_keystrokes(":");
+    cx.simulate_input("theme gruvbox-dark");
+    cx.simulate_keystrokes("enter");
+    let in_use = Palette::built_in("gruvbox-dark").unwrap();
+    assert_eq!(palette(&window, cx), in_use, "the window is drawn in it");
 
     cx.simulate_keystrokes(":");
     cx.simulate_input("theme");
@@ -268,26 +300,32 @@ fn the_theme_picker_previews_and_keeps(cx: &mut TestAppContext) {
         Some(Palette::BUILT_INS.len()),
         "every built-in is a row"
     );
-    assert_eq!(palette(&window, cx), start, "opening changes nothing");
+    assert_eq!(
+        choice(&window, cx).as_deref(),
+        Some("gruvbox-dark"),
+        "the theme on screen is the row the picker opens highlighted on"
+    );
+    assert_eq!(palette(&window, cx), in_use, "opening changes nothing");
 
-    // `j` moves the highlight, which previews the row it landed on.
-    let light = Palette::built_in("light").unwrap();
-    cx.simulate_keystrokes("j");
-    assert_eq!(choice(&window, cx).as_deref(), Some("light"));
-    assert_eq!(palette(&window, cx), light, "the preview is on screen");
+    // The arrows move the highlight, which previews the row they land on.
+    cx.simulate_keystrokes("down");
+    let previewed = choice(&window, cx).expect("a row to preview");
+    assert_ne!(previewed, "gruvbox-dark", "a different row");
+    let painted = palette(&window, cx);
+    assert_ne!(painted, in_use, "the preview is on screen");
 
     cx.simulate_keystrokes("escape");
     assert_eq!(matches(&window, cx), None);
-    assert_eq!(palette(&window, cx), start, "escape was not an answer");
+    assert_eq!(palette(&window, cx), in_use, "escape was not an answer");
 
     // Choosing a row keeps it.
     cx.simulate_keystrokes(":");
     cx.simulate_input("theme");
-    cx.simulate_keystrokes("enter j enter");
-    assert_eq!(palette(&window, cx), light);
+    cx.simulate_keystrokes("enter down enter");
+    assert_eq!(palette(&window, cx), painted);
     assert_eq!(
         window.update(cx, |ws, _window, _cx| ws.status()).unwrap(),
-        "theme: light"
+        format!("theme: {previewed}")
     );
 }
 
@@ -350,7 +388,7 @@ fn ctrl_shift_f_finds_the_lines_that_hold_the_query(cx: &mut TestAppContext) {
         Some("Welcome.md:2"),
         "a row is the note and the line, in the order the notes were read"
     );
-    cx.simulate_keystrokes("j");
+    cx.simulate_keystrokes("down");
     assert_eq!(choice(&window, cx).as_deref(), Some("notes/Deep.md:1"));
 
     cx.simulate_keystrokes("backspace backspace backspace backspace backspace backspace");

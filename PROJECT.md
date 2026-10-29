@@ -301,8 +301,8 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
 - Run the test binaries under `ulimit -v` when working on anything that scans
   text (a scanner bug can allocate until the OOM killer takes the editor down —
   see the table postmortem).
-  Current peak RSS of the test binaries (2026-10-28, app 148 / core 220 / mcp 6
-  tests): core 6 MB, app 49 MB, mcp 3.4 MB. The
+  Current peak RSS of the test binaries (2026-10-28, app 154 / core 220 / mcp 6
+  tests): core 6 MB, app 50 MB, mcp 3.5 MB. The
   app binary's *address space* (not RSS) is far larger because of gpui/wgpu
   reservations, and it now needs **4 GB or more** — a 1 GB cap makes it die in an
   80-byte allocation. Build with `cargo test --workspace --no-run`, then run each
@@ -1558,6 +1558,70 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
     struct/FIELDS order in the generator (every background must come before the
     roles judged against it), `ThemeFile`, the eight family tables, `FLOORS` /
     `PAIRS`, and the readability test. Do all of it in one pass.
+- **A round of live feedback: the panel's cursor, a picker you can type in, and
+  `:harper on` (2026-10-28).** Four things found by using it.
+  - **The pointing hand.** The panel's and the picker's rows are clickable, but the
+    cursor over them was the note's IBeam: the editor's root sets
+    `.cursor(CursorStyle::IBeam)` (`editor/render.rs`) and the panels are drawn
+    *over* the note rather than inside it, so nothing of their own said otherwise.
+    gpui resolves the cursor per hitbox, last-painted-first — `Frame::cursor_style`
+    folds `cursor_styles` in reverse and takes the first hovered request — so
+    `.cursor(PointingHand)` on each row and `.cursor(Arrow)` on the popup's root is
+    the whole fix. Two things worth knowing: a div only gets a hitbox (and only
+    then reports a cursor) if it has an id, a listener, `track_focus`, or a cursor
+    (`Div::should_insert_hitbox`), which is why the popup's root works; and the
+    picker's root is deliberately left alone, because its field sets no cursor of
+    its own and the note's IBeam showing through a text field is the right answer.
+  - **A second marked word under the panel.** Reported live: with warnings on two
+    consecutive lines, walking down from the upper word to one of its rows closed
+    the top panel and opened the lower one mid-click. The strip between a line and
+    its panel belongs to the line *below*, so when that line is marked the hover
+    path reopened the panel there. `pointer_hovered` now refuses to reopen while a
+    pointer-opened panel occupies the band the pointer is in — the same
+    `pointer_on_panel` band that keeps a trip over *unmarked* text alive. Inside the
+    height the panel occupies the pointer is still travelling to a row, not asking
+    a new question. Pinned by `a_marked_word_under_the_panel_does_not_move_it`,
+    which reproduces the report exactly: without the guard the panel's message
+    becomes the lower word's.
+  - **`j`/`k` type in a picker; the arrows move the row.** The user wants to be able
+    to type those letters, and a picker is a text field first. Its keymap now binds
+    only `enter`, `escape`, the field keys and `up`/`down`; `j`/`k` stay bound in
+    the popup, which has no field to type into. `j_and_k_are_typing_in_a_picker`
+    types `json` into quick-open (with `j` bound, a note called `json.md` cannot be
+    reached by its name), `the_arrow_keys_move_the_highlight` keeps the motion, and
+    `tests/keys.rs` asserts both halves at the keymap level.
+  - **`:harper on` left the note unchecked**, the log repeating `spellcheck
+    diagnostics count=0`, until the note was closed and opened again.
+    `set_checker(true)` starts a server and hands it the note on screen in the same
+    breath, so `textDocument/didOpen` was written before the `initialize` answer
+    arrived. Probed against harper-ls 2.8 directly: with the `didOpen` sent early
+    the server answers `initialize` and then says *nothing at all*; sent after the
+    answer it publishes its diagnostics. So the open is **staged** until the
+    handshake is answered, and the answer sends `initialized` (the protocol's other
+    half, and what Harper does its follow-up questions on) followed by exactly one
+    `didOpen` carrying the *newest* text at the version the note has reached by
+    now. A `didChange` for a document the server never saw is not sent, and closing
+    a note it never saw sends no `didClose`; `fixes_at` refuses to ask before the
+    handshake for the same reason.
+    - That state machine now lives in `lsp/document.rs` (`Document`: `opened`,
+      `changed`, `closed`, `handshake`, each returning the frames to write), so the
+      ordering is tested as data. It could not be tested through `Spell`:
+      `Spell::start` spawns a reader thread, and gpui's `TestScheduler` panics
+      ("Your test is not deterministic") when that thread wakes a gpui task from
+      outside the test thread — the same hazard the harness already dodges by
+      turning `[spellcheck]` off.
+  - **The theme picker opens on the theme in use.** Its row is rotated to the front
+    and its detail says `built-in · now`, so the row the picker opens highlighted is
+    the palette the window is already drawn in and the preview matches the screen
+    the moment it opens. Rotated rather than sorted (the rest of the list stays in
+    the documented order), and matched on the *resolved palette* rather than the
+    name, because one palette is reachable by more than one name (an alias, a
+    `-dark` suffix, a vault file that copies a built-in).
+  - **Tests:** app 154 (was 148) — the panel/second-word case, the picker typing
+    case, and four in `lsp/document.rs` (open before the handshake, open after,
+    closing a note the server never saw, closing one it holds). core 220 and mcp 6
+    unchanged; peak RSS unchanged. **Not verified live:** the cursor shape (no
+    headless assertion for `Frame::cursor_style`) and the theme preview.
 - **Module sizes.** `editor.rs` and `main.rs` both passed the 1000-line mark in
   `AGENTS.md`, so they are now directories: `editor/{mod,wrap,render,actions,input}.rs`
   (a submodule can reach `MarkdownEditor`'s private state because they are all
@@ -1569,17 +1633,18 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   with the file tree, and is now `main.rs` (122) + `acts.rs` + `workspace/`.
   Largest files now: `vim.rs` 2357, `buffer.rs` 1786, `core/theme/mod.rs` 1270,
   `line.rs` 971, `workspace/mod.rs` 837, `tests/paint.rs`
-  806, `vault.rs` 750, `lsp/mod.rs` 671, `picker.rs` 632, `tests/popup.rs` 630,
+  806, `vault.rs` 750, `lsp/mod.rs` 687, `lsp/document.rs` 257,
+  `picker.rs` 641, `tests/popup.rs` 671,
   `editor/mod.rs` 617, `table/edit.rs` 640, `table/mod.rs` 590,
   `editor/render.rs` 570,
   `tests/tree.rs` 515, `lsp/mapping.rs` 454,
-  `tests/motions.rs` 442, `tests/picker.rs` 421, `markdown.rs` 416,
+  `tests/motions.rs` 442, `tests/picker.rs` 459, `markdown.rs` 416,
   `workspace/edits.rs` 415, `editor/wrap.rs` 395,
-  `workspace/popups.rs` 353, `tests/keys.rs` 347, `mdstyle/block.rs` 403,
+  `workspace/popups.rs` 370, `tests/keys.rs` 347, `mdstyle/block.rs` 403,
   `mdstyle/mod.rs` 454, `field.rs` 335, `fold.rs` 332, `prompt.rs` 259,
-  `fuzzy.rs` 324, `workspace/open.rs` 306, `popup.rs` 276, `rename.rs` 195, and the other
+  `fuzzy.rs` 324, `workspace/open.rs` 306, `popup.rs` 286, `rename.rs` 195, and the other
   `workspace/` submodules at 256/217/215/138/133 (`render`, `keys`, `tree`,
-  `commands`, `themes`). New this round: `ex.rs` 114 and `workspace/themes.rs` 133. `tests/keys.rs`
+  `commands`, `themes`). New this round: `ex.rs` 114 and `workspace/themes.rs` 155. `tests/keys.rs`
   reached the rule's line and is now three: `keys.rs` (344: the keystroke shapes,
   what each key resolves to per context, the chords), `motions.rs` (442: vim
   motions, operators, text objects, visual mode, `.` and the undo chords driven
@@ -1649,8 +1714,10 @@ Next steps, roughly in order:
     drawn as wavy underlines and counted in the status bar, and its `codeAction`s
     and its complaint reach the user through the popup (`K`, or the pointer on a
     marked word), and `:harper on|off|1|0` starts and stops the server without a
-    restart. Left here: asking a server that advertises `hoverProvider` (Harper
-    does not implement hover), and
+    restart. The handshake ordering is now the client's problem to get right —
+    a note opened before `initialize` is answered is staged, not thrown away (see
+    the live-feedback bullet). Left here: asking a server that advertises
+    `hoverProvider` (Harper does not implement hover), and
     "support for custom language servers" is only half true — the config takes any
     command, but diagnostics and code actions are all Shale consumes. A popup that
     can list more rows than fit (Harper's seven just fit) and a grammar fix applied
@@ -1683,7 +1750,8 @@ Next steps, roughly in order:
     all done — see Open threads. `:` is its own thing now (vim's command line,
     matched exactly), which is what keeps a one-letter command out of the fuzzy
     list. What is left there is polish: ~~clickable rows~~ done (the pointer picks
-    the row it is over, and a click is `enter`), a scrolling
+    the row it is over, and a click is `enter`; the arrows move the highlighted row
+    and every letter types into the query), a scrolling
     list once a vault outgrows the 12-row window, search options in the UI, a
     prefix that switches what the picker searches, and jumping to the matched
     column rather than the start of the line.
@@ -1727,7 +1795,16 @@ conversation. Roughly in order of what they have said they want.
 9. **Persisting a live theme switch.** `:theme` and the picker change the session;
    `appearance.theme` in `shale.toml` is not rewritten. Writing config back needs
    care: the file is the user's, and comments in it are not preserved by a
-   serialize-and-write.
+   serialize-and-write. Do it together with (12), below, so the first write lands in
+   the new place.
+12. **Config and vault metadata in `<vault>/.shale/`.** The user wants Shale's own
+   files out of the vault's root: `shale.toml` today sits *in* the vault, while
+   themes already live in `<vault>/.shale/themes/`. Move the config to
+   `<vault>/.shale/config.toml` (keeping the current command-line/config-path
+   override), read the old root location for a while for compatibility, and put the
+   planned database and any cache in the same directory — which is what the Database
+   section already promises. `Vault::guard_unprotected` already refuses to let a
+   rename or delete touch a dot directory, so `.shale` is safe from the file tree.
 10. **Module splits** (the `AGENTS.md` rule): `vim.rs` 2333 and `buffer.rs` 1786
     are over it, and `line.rs` (973) is next — probably `line.rs` (the element) and
     `runs.rs` (the run builder and the style map).
