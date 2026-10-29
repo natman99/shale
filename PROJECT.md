@@ -310,14 +310,25 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
 - Run the test binaries under `ulimit -v` when working on anything that scans
   text (a scanner bug can allocate until the OOM killer takes the editor down —
   see the table postmortem).
-  Current peak RSS of the test binaries (2026-10-28, app 155 / core 223 / mcp 6
-  tests): core 6 MB, app 49 MB, mcp 3.5 MB. The
+  Current peak RSS of the test binaries (2026-10-28, app 156 / core 256 / mcp 6
+  tests — core's count includes the graph agent's in-flight `graph::` tests, six
+  of which were failing while this was written): core 7.5 MB, app 51 MB,
+  mcp 3.4 MB. The
   app binary's *address space* (not RSS) is far larger because of gpui/wgpu
   reservations, and it now needs **4 GB or more** — a 1 GB cap makes it die in an
   80-byte allocation. Build with `cargo test --workspace --no-run`, then run each
   `target/debug/deps/<name>-<hash>` binary under `sh -c 'ulimit -v N; /usr/bin/
   time -v ./binary'`; never wrap `cargo test` itself, and re-derive the hashes
   after a rebuild.
+- **Two agents, one `target/`.** The graph track — `crates/core/src/graph/**`,
+  `pub mod graph;` in `crates/core/src/lib.rs`, the `petgraph` lines in the two
+  Cargo.tomls, and `PROGRESS.md` — belongs to the other agent; nothing else is
+  shared, and neither edits the other's files. A build that fails inside `graph/`
+  is their work in progress, not a regression to fix from the outside. To check
+  `core` while that happens, copy the workspace to a scratch directory, delete
+  `crates/core/src/graph` and the `pub mod graph;` line **in the copy**, and run
+  `cargo test -p shale-core` there. The app crate needs core's *lib*, which
+  usually compiles well before core's test target does.
 - The headless harness (`tests/mod.rs::workspace`) turns `[spellcheck]` **off**.
   It would otherwise start a real `harper-ls` per window: several hundred
   megabytes of other people's dictionaries across the suite, and a gpui test
