@@ -378,6 +378,12 @@ mobile, Canvas, slide mode, themes). The gaps, with rulings:
   (rides the props index).
 - All DB-backed → instant. `/` open-buffer stays plain fuzzy; operators are
   the vault-search grammar.
+- **Legal note (checked 2026-10-29):** operator *syntax* is functional
+  interface — short command words aren't copyrightable expression
+  (idea/merger), the grammar predates Obsidian (Google's `site:`, Vim's
+  `:vimgrep`), and no asserted patents cover it. What would be infringement
+  is copying Obsidian's docs/UI wording — we write our own help text.
+  `agent:`/`prop:` are our own operators anyway.
 
 ### Daily notes ✅
 - `:today` opens/creates `journal/YYYY-MM-DD.md` (folder configurable);
@@ -396,15 +402,21 @@ mobile, Canvas, slide mode, themes). The gaps, with rulings:
 - Naming: `YYYY-MM-DD-HHMM-<original-or-hash>.ext` (sortable, collision-free).
 - Graph already models attachment nodes; this feeds them.
 
-### Trash ✅ (user: "very important")
-- Every delete (file tree, `:Gdelete`, `:Gmove` leftovers) goes to the **OS
-  trash** via the `trash` crate (MIT, pure Rust, cross-platform) — not
-  vault-local (stays out of git, restorable from any file manager).
-- The DB event log records the deletion (path + timestamp + provenance), so
-  "what did the agent delete" is a query, and links to the deleted note
-  degrade to ghosts as already specced.
-- 30-day recovery is the OS's job; the time machine keeps the *content*
-  history if the note ever had one.
+### Trash ✅ (user: "very important"; ruled vault-local, not OS trash)
+- Deletes (file tree, `:Gdelete`, `:Gmove` leftovers) move the file into
+  **`.shale/trash/`**, preserving the vault-relative path in the filename
+  (`projects--idea.md` style) plus a sidecar entry in the DB: original path,
+  deleted-at, provenance (who deleted it — "what did the agent delete" is a
+  query).
+- Commands: `:trash` (list), `:trash restore <name>` (back to the original
+  path, recreating folders), `:trash purge [name|all]`. Retention: 30 days
+  (configurable), then auto-purge. `.shale` is gitignored, so trash never
+  pollutes the vault's history.
+- Why vault-local over the OS trash: full control (restore knows the exact
+  original path even if the folder is gone), identical behavior on every OS,
+  no `trash`-crate dependency (tech-stack rule), and it composes with the DB
+  event log. Links to the deleted note degrade to ghosts as already specced;
+  restoring clears the ghost.
 
 ### Workspaces ✅ (session restore is the base; named workspaces are sugar)
 - Pane layout + open tabs + active pane + per-pane cursor saved as JSON in
@@ -418,8 +430,14 @@ mobile, Canvas, slide mode, themes). The gaps, with rulings:
 ### Block references ✅ (hooks straight into transclusion + hover preview)
 - `^abc123` anchor at the end of a paragraph/bullet; `![[note#^abc123]]`
   embeds it; `[[note#^abc123]]` links to it (jump = scroll to block).
-- ID generation: command appends `^` + 6 random chars (stable once written;
-  content-hashed IDs break on edit, rejected).
+- ID generation: command appends `^` + 6 random chars, lowercase base32
+  (`a-z2-7`) — stable once written. Rationale (2026-10-29): content-hashed
+  IDs die on every edit; sequential counters collide on merge/agent writes;
+  word-slugs collide and go stale on reword (hover already shows the block's
+  first words, so readability is covered). 6 chars = 16.7M values, birthday
+  collision needs ~4k IDs for 1% risk, and the create command checks the DB
+  regardless. Format-compatible with Obsidian's `^abc123` — notes authored
+  there just work.
 - mdstyle gains a block-anchor span; the transclusion resolver grows from
   note/section to block granularity — and editable transclusion gets its
   finest atom for free. Hover preview on a block ref shows just that block.
@@ -448,8 +466,19 @@ mobile, Canvas, slide mode, themes). The gaps, with rulings:
 
 ### `shale://` URI scheme ✅
 - `shale://open/<vault>/<path>` (+ `?line=`) → browser/external handoff.
-  Linux: `.desktop` entry + xdg-open; Windows: registry key. Security: only
-  paths inside a *known* (recent) vault open without confirmation.
+  Linux: `.desktop` entry + xdg-open; Windows: registry key.
+- **Security rules (threat: any webpage can invoke the scheme):**
+  1. *Vault allowlist:* only vaults present in `recent.json` are addressable;
+     unknown vault name → refuse outright (no prompt — prompts train
+     click-yes).
+  2. *Containment:* the path is fully normalized (percent-decode, `..`,
+     symlinks resolved) and must land inside the vault root; absolute paths
+     outside it are rejected, not confirmed.
+  3. *Read-only verbs:* the scheme may open a note and scroll to a line.
+     No write/delete/command verbs, ever — a URI is untrusted input.
+  4. *Confirm on unusual targets:* a path inside the vault but not yet in
+     the DB index → confirm dialog showing the resolved path verbatim.
+  5. The URI carries pointers only, never content — no temp-file surface.
 
 ### Table editing feel 🔭 (awaiting ruling)
 - `Tab` in a table cell → next cell (wraps to next row; at the last cell,
