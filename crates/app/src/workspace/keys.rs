@@ -144,6 +144,10 @@ pub(crate) fn keybindings() -> Vec<KeyBinding> {
         "escape" => VimEscape,
         "enter" => Newline,
         "backspace" => Backspace,
+        // `ctrl-backspace` deletes the word before the cursor, the same boundary
+        // `b` moves over. vim's own key for this is `ctrl-w`, which Shale leaves to
+        // the window commands (`ctrl-w h`/`ctrl-w l`).
+        "ctrl-backspace" => DeleteWordBack,
         "delete" => DeleteForward,
         "left" => MoveLeft,
         "right" => MoveRight,
@@ -184,6 +188,7 @@ pub(crate) fn keybindings() -> Vec<KeyBinding> {
         "escape" => FieldCancel,
         "backspace" => FieldBackspace,
         "delete" => FieldDelete,
+        "ctrl-backspace" => FieldDeleteWordBack,
         "left" => FieldLeft,
         "right" => FieldRight,
     ]);
@@ -196,6 +201,7 @@ pub(crate) fn keybindings() -> Vec<KeyBinding> {
         "escape" => FieldCancel,
         "backspace" => FieldBackspace,
         "delete" => FieldDelete,
+        "ctrl-backspace" => FieldDeleteWordBack,
         "left" => FieldLeft,
         "right" => FieldRight,
         "down" => PickerDown,

@@ -45,6 +45,38 @@ fn escape_backs_out_of_the_prompt_without_touching_the_vault(cx: &mut TestAppCon
     assert_eq!(rows, vec![PathBuf::from("Welcome.md")]);
 }
 
+/// `ctrl-backspace` in the prompt takes the word before the caret, so a name that
+/// went wrong is fixed a word at a time rather than character by character.
+#[gpui::test]
+fn ctrl_backspace_takes_a_word_out_of_a_name(cx: &mut TestAppContext) {
+    let (dir, window) = workspace(cx, &["Welcome.md"]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    cx.simulate_keystrokes("ctrl-n");
+    cx.simulate_input("Meeting Notes Draft");
+    cx.simulate_keystrokes("ctrl-backspace");
+    assert_eq!(
+        window
+            .update(cx, |ws, _window, cx| ws.prompt_text(cx))
+            .unwrap()
+            .as_deref(),
+        Some("Meeting Notes "),
+        "the word and the space in front of the caret are gone"
+    );
+
+    cx.simulate_keystrokes("ctrl-backspace");
+    cx.simulate_input("Plan");
+    cx.simulate_keystrokes("enter");
+    assert!(
+        dir.path().join("Meeting Plan.md").is_file(),
+        "the name that was left is what reached the disk"
+    );
+    assert!(
+        !dir.path().join("Meeting Notes Draft.md").exists(),
+        "and the word that was deleted did not"
+    );
+}
+
 /// While the prompt is open its keys win: a letter that vim would use is a
 /// letter here, and the editor stays in normal mode.
 #[gpui::test]

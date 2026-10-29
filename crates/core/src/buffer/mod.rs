@@ -58,6 +58,11 @@ mod lines;
 mod motions;
 mod words;
 
+/// The word boundary before an offset, shared by the buffer's backward word
+/// motion and by anything outside the buffer that has to agree with it (the
+/// one-line prompt and picker fields).
+pub use words::word_back;
+
 impl Buffer {
     pub fn new(text: String) -> Self {
         Self {

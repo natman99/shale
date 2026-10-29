@@ -149,48 +149,15 @@ impl Buffer {
         self.set_cursor(i);
     }
     /// Move to the start of the previous word (vim `b`).
+    ///
+    /// The boundary itself is [`word_back`], which the buffer shares with the
+    /// one-line fields so a "word" means the same thing in a note and in a query.
     pub fn word_backward(&mut self) {
         if self.cursor == 0 {
             return;
         }
-        let len = self.text.len();
-        let mut i = self.cursor;
-
-        // In the middle of a run: back up to that run's start.
-        if i < len {
-            if let Some(cls) = self.char_at(i).map(class_of) {
-                if cls != WordClass::Whitespace && cls != WordClass::Newline {
-                    while i > 0 && self.prev_char(i).map(class_of) == Some(cls) {
-                        i = self.prev_char_boundary(i);
-                    }
-                    if i < self.cursor {
-                        self.set_cursor(i);
-                        return;
-                    }
-                }
-            }
-        }
-
-        // At a run start (or on a blank): cross blanks, then back over the
-        // previous run.
-        while i > 0 {
-            match self.prev_char(i).map(class_of) {
-                Some(WordClass::Whitespace) | Some(WordClass::Newline) => {
-                    i = self.prev_char_boundary(i);
-                }
-                _ => break,
-            }
-        }
-        if i == 0 {
-            self.set_cursor(0);
-            return;
-        }
-        if let Some(cls) = self.prev_char(i).map(class_of) {
-            while i > 0 && self.prev_char(i).map(class_of) == Some(cls) {
-                i = self.prev_char_boundary(i);
-            }
-        }
-        self.set_cursor(i);
+        let to = super::word_back(&self.text, self.cursor);
+        self.set_cursor(to);
     }
     /// Move to the end of the current/next word (vim `e`).
     pub fn word_end(&mut self) {

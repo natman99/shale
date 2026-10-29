@@ -32,8 +32,8 @@ use gpui::{
 use shale_core::theme::Palette;
 
 use crate::acts::{
-    FieldBackspace, FieldCancel, FieldDelete, FieldLeft, FieldRight, FieldSubmit, PickerDown,
-    PickerUp,
+    FieldBackspace, FieldCancel, FieldDelete, FieldDeleteWordBack, FieldLeft, FieldRight,
+    FieldSubmit, PickerDown, PickerUp,
 };
 use crate::field::{approx_char_width, Field, FieldElement, FieldOwner};
 
@@ -539,6 +539,14 @@ impl<T: Clone + 'static> Render for Picker<T> {
             }))
             .on_action(cx.listener(|this, _: &FieldDelete, _window, cx| {
                 this.field.delete_forward();
+                this.rerank();
+                cx.notify();
+                cx.emit(PickerEvent::Highlight);
+            }))
+            // `ctrl-backspace`: the word before the caret, the same boundary the
+            // note editor deletes.
+            .on_action(cx.listener(|this, _: &FieldDeleteWordBack, _window, cx| {
+                this.field.delete_word_back();
                 this.rerank();
                 cx.notify();
                 cx.emit(PickerEvent::Highlight);

@@ -16,6 +16,7 @@ use gpui::{
     Entity, EntityInputHandler, FocusHandle, GlobalElementId, InspectorElementId, IntoElement,
     LayoutId, Pixels, ShapedLine, SharedString, Style as ElementStyle, UTF16Selection, Window,
 };
+use shale_core::buffer::word_back;
 use shale_core::theme::Palette;
 
 use crate::theme::{self, RunStyle};
@@ -81,6 +82,21 @@ impl Field {
             .map(|c| c.len_utf8())
             .unwrap_or(0);
         new.replace_range(self.caret..self.caret + width, "");
+        self.text = SharedString::from(new);
+    }
+
+    /// Delete the word before the caret — `ctrl-backspace`. The boundary comes
+    /// from [`word_back`], the same one the note editor's backward word motion
+    /// uses, so a word means the same thing in a query as in a note: the blanks
+    /// just before the caret go with the word in front of them.
+    pub(crate) fn delete_word_back(&mut self) {
+        let start = word_back(&self.text, self.caret);
+        if start >= self.caret {
+            return;
+        }
+        let mut new = self.text.to_string();
+        new.replace_range(start..self.caret, "");
+        self.caret = start;
         self.text = SharedString::from(new);
     }
 

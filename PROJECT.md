@@ -313,10 +313,10 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
 - Run the test binaries under `ulimit -v` when working on anything that scans
   text (a scanner bug can allocate until the OOM killer takes the editor down —
   see the table postmortem).
-  Current peak RSS of the test binaries (2026-10-28, app 190 / core 300 with 10
+  Current peak RSS of the test binaries (2026-10-28, app 193 / core 301 with 10
   ignored / mcp 6 tests — core's count includes the graph agent's `graph::` tests,
-  which are committed and green): core 7.4 MB, app 63 MB,
-  mcp 3.4 MB. The
+  which are committed and green): core 7.5 MB, app 63 MB,
+  mcp 3.3 MB. The
   app binary's *address space* (not RSS) is far larger because of gpui/wgpu
   reservations, and it now needs **4 GB or more** — a 1 GB cap makes it die in an
   80-byte allocation. Build with `cargo test --workspace --no-run`, then run each
@@ -1044,9 +1044,9 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   `ctrl-shift-r` rename, `ctrl-shift-d` delete, `ctrl-b` focus the tree. In the
   tree context: `j/k/up/down`, `h/l/left/right`, `enter`/`space` open, `escape`
   to the editor, `n`, `shift-n`, `r`, `shift-d`. In the prompt context only
-  `enter`/`escape`/`backspace`/`delete`/`left`/`right`, because printables come
-  from the input handler and binding them would open a second path to the same
-  text.
+  `enter`/`escape`/`backspace`/`ctrl-backspace`/`delete`/`left`/`right`, because
+  printables come from the input handler and binding them would open a second path
+  to the same text.
   **Decisions worth remembering.** A delete happens only when the answer is
   exactly `yes` (case-insensitive); anything else closes the prompt with "delete
   cancelled". An *invalid* name leaves the prompt open with the text in it so it
@@ -2049,6 +2049,31 @@ Next steps, roughly in order:
     - **Left out**: `*`/`#` (search the word under the cursor), `\c`/`\C` case
       overrides, regex, and showing the count beside the field rather than in the
       status bar (`3/17`, or `no match for x`).
+
+17. **`ctrl-backspace` — delete the word before the caret** — Done (2026-10-29),
+    in every surface that edits text: insert mode in the note, and the one-line
+    field in the prompt and the pickers.
+    - **One definition of "word".** `shale_core::buffer::word_back(text, at)` is a
+      free function over `&str`, and `Buffer::word_backward` (vim's `b`) is now a
+      two-line call to it. That is deliberate: the fields hold a `SharedString`
+      rather than a `Buffer`, and a word that meant one thing in a note and another
+      in a query would be a bug nobody could see. The existing word-motion tests are
+      what prove the extraction was faithful — they pass unchanged.
+    - **The rule is vim's `i_CTRL-W`**: the blanks between the cursor and the word
+      go with the word, so deleting after typing a space takes the word too. Word
+      classes are vim's (keyword runs, punctuation runs, whitespace), so
+      `ctrl-backspace` on `inbox/My` takes `My`, then `/`.
+    - **Why not `ctrl-w`**, which is vim's own key for this: `ctrl-w h`/`ctrl-w l`
+      are the focus chords, and binding `ctrl-w` in insert mode would shadow them
+      there. `ctrl-backspace` is what every other Linux editor uses and costs
+      nothing.
+    - **Keystroke shape** (the part a test has to pin): the Linux platform reports
+      the BackSpace keysym as the key named `backspace` with control set and **no**
+      `key_char`, so `ctrl-backspace` is bindable directly and no text arrives
+      through the input handler on the same press.
+    - **Undo**: the delete is an ordinary buffer edit, so in insert mode it joins the
+      session's undo group — one `u` brings back the typed text and the deletes
+      together.
 
 ## Parked threads (agreed 2026-10-28; not being worked now)
 

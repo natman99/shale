@@ -501,6 +501,57 @@ fn counted_deletes() {
     assert_eq!(b2.cursor(), 0);
 }
 
+/// `ctrl-backspace` in insert mode: the word before the cursor, and the blanks
+/// between the cursor and that word go with it — the same boundary `b` moves to,
+/// which is vim's `i_CTRL-W`.
+#[test]
+fn delete_word_back_takes_the_word_and_the_blanks() {
+    let mut b = Buffer::new("one two three".to_string());
+    b.set_cursor(13);
+    b.delete_word_back();
+    assert_eq!(b.text(), "one two ");
+    assert_eq!(b.cursor(), 8, "the cursor lands where the deletion started");
+
+    b.delete_word_back();
+    assert_eq!(
+        b.text(),
+        "one ",
+        "the space that was before the cursor went too"
+    );
+
+    // Mid-word: only the part before the cursor goes.
+    let mut b = Buffer::new("hello world".to_string());
+    b.set_cursor(8); // inside "world"
+    b.delete_word_back();
+    assert_eq!(b.text(), "hello rld");
+    assert_eq!(b.cursor(), 6);
+
+    // A punctuation run is a word (vim's word classes), so `db` on `a, b). c`
+    // takes the `c` and the space in front of it.
+    let mut b = Buffer::new("a, b). c".to_string());
+    b.set_cursor(8);
+    b.delete_word_back();
+    assert_eq!(b.text(), "a, b). ");
+
+    // At the start of the text there is nothing to delete, and nothing moves.
+    let mut b = Buffer::new("x".to_string());
+    b.delete_word_back();
+    assert_eq!(b.text(), "x");
+    assert_eq!(b.cursor(), 0);
+
+    // Multi-byte text: the boundary is a character boundary, never a byte step
+    // into the middle of a character.
+    let mut b = Buffer::new("naïve café".to_string());
+    let end = b.text().len();
+    b.set_cursor(end);
+    b.delete_word_back();
+    assert_eq!(b.text(), "naïve ");
+
+    // A delete is an edit, so it is undoable and lands in the insert session.
+    b.undo();
+    assert_eq!(b.text(), "naïve café");
+}
+
 #[test]
 fn linewise_helpers() {
     let b = Buffer::new("aa\nb\nccc".to_string());

@@ -40,6 +40,35 @@ fn ctrl_o_lists_every_note_and_enter_opens_the_top_row(cx: &mut TestAppContext) 
     assert_eq!(active, "Welcome.md", "the highlighted row was opened");
 }
 
+/// `ctrl-backspace` in a picker takes the last word of the query, which is the
+/// fastest way back from a query that narrowed too far.
+#[gpui::test]
+fn ctrl_backspace_widens_a_query_a_word_at_a_time(cx: &mut TestAppContext) {
+    let (_dir, window) = workspace(cx, &["today note.md", "today other.md"]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    cx.simulate_keystrokes("ctrl-o");
+    assert_eq!(
+        matches(&window, cx),
+        Some(2),
+        "an empty query is every note"
+    );
+
+    cx.simulate_input("today note");
+    assert_eq!(
+        matches(&window, cx),
+        Some(1),
+        "the second word narrowed the list"
+    );
+
+    cx.simulate_keystrokes("ctrl-backspace");
+    assert_eq!(
+        matches(&window, cx),
+        Some(2),
+        "and ctrl-backspace took that word back off"
+    );
+}
+
 /// Two frames, so the frame's hitboxes exist and a click or a hover lands on
 /// something the window drew.
 fn paint(cx: &mut VisualTestContext) {

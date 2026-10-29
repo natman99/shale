@@ -22,7 +22,10 @@ use gpui::{
 };
 use shale_core::theme::Palette;
 
-use crate::acts::{FieldBackspace, FieldCancel, FieldDelete, FieldLeft, FieldRight, FieldSubmit};
+use crate::acts::{
+    FieldBackspace, FieldCancel, FieldDelete, FieldDeleteWordBack, FieldLeft, FieldRight,
+    FieldSubmit,
+};
 use crate::field::{self, approx_char_width, Field, FieldElement, FieldOwner};
 
 /// The key context the prompt's bindings live in. While it is open its keys win
@@ -247,6 +250,13 @@ impl Render for Prompt {
             }))
             .on_action(cx.listener(|this, _: &FieldDelete, _window, cx| {
                 this.field.delete_forward();
+                cx.emit(PromptEvent::Changed(this.field.text().to_string().into()));
+                cx.notify();
+            }))
+            // `ctrl-backspace`: the word before the caret. Like every other edit
+            // it emits `Changed`, so a search narrows as it shortens.
+            .on_action(cx.listener(|this, _: &FieldDeleteWordBack, _window, cx| {
+                this.field.delete_word_back();
                 cx.emit(PromptEvent::Changed(this.field.text().to_string().into()));
                 cx.notify();
             }))

@@ -78,6 +78,9 @@ actions!(
         MoveDown,
         Backspace,
         DeleteForward,
+        // `ctrl-backspace` in insert mode: delete the word before the cursor, the
+        // same pair normal-mode `db` makes.
+        DeleteWordBack,
         Undo,
         Redo,
         CopyText,
@@ -130,6 +133,9 @@ actions!(
         FieldCancel,
         FieldBackspace,
         FieldDelete,
+        // `ctrl-backspace` in a field: the word before the caret. Bound in the
+        // prompt and picker contexts, which are the two that hold a field.
+        FieldDeleteWordBack,
         FieldLeft,
         FieldRight,
         // Moving the highlighted row of a picker.

@@ -107,6 +107,22 @@ impl Buffer {
         self.snapshot_for_edit();
         self.text.replace_range(self.cursor..end, "");
     }
+    /// Delete the word before the cursor — insert-mode `ctrl-backspace`, and the
+    /// same pair normal-mode `db` makes. Any blanks just before the cursor go with
+    /// the word, which is what vim's `i_CTRL-W` does, so deleting after typing a
+    /// space takes the word too rather than leaving it behind the cursor.
+    pub fn delete_word_back(&mut self) {
+        if self.selection.is_some() {
+            self.delete_selected();
+            return;
+        }
+        if self.cursor == 0 {
+            return;
+        }
+        let head = self.cursor;
+        let start = super::word_back(&self.text, head);
+        self.delete_range(start, head);
+    }
     /// Delete the `count` characters at the cursor (vim `x`, `2x`).
     pub fn delete_char(&mut self, count: usize) {
         let count = count.max(1);

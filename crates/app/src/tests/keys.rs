@@ -40,6 +40,47 @@ fn typing_in_insert_mode_inserts_text(cx: &mut TestAppContext) {
     assert_eq!(text, "hello", "normal mode should swallow typed input");
 }
 
+/// `ctrl-backspace` in insert mode deletes the word before the cursor, taking the
+/// blanks between the cursor and that word with it — vim's `i_CTRL-W`.
+#[gpui::test]
+fn ctrl_backspace_deletes_the_word_before_the_cursor(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.bind_keys(keybindings()));
+
+    let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+    let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+    editor
+        .update(cx, |editor, window, cx| {
+            let focus = editor.focus_handle(cx);
+            window.focus(&focus, cx);
+        })
+        .unwrap();
+
+    cx.simulate_keystrokes("i");
+    cx.simulate_input("one two three");
+    cx.simulate_keystrokes("ctrl-backspace");
+    assert_eq!(
+        editor.read_with(cx, |editor, _cx| editor.text()).unwrap(),
+        "one two ",
+        "the word and the space in front of the cursor are gone"
+    );
+
+    cx.simulate_keystrokes("ctrl-backspace");
+    let (text, mode) = editor
+        .read_with(cx, |editor, _cx| (editor.text(), editor.mode()))
+        .unwrap();
+    assert_eq!(text, "one ");
+    assert_eq!(mode, shale_core::vim::Mode::Insert, "and insert is kept");
+
+    // The whole insert session — typed text and both deletes — is one undo step,
+    // so `u` comes back as it was before `i`.
+    cx.simulate_keystrokes("ctrl-z");
+    assert_eq!(
+        editor.read_with(cx, |editor, _cx| editor.text()).unwrap(),
+        "",
+        "one undo takes back the whole session"
+    );
+}
+
 /// The Linux platform delivers ctrl+z as `key = "z"` with the control
 /// modifier and *no* `key_char` (control characters are filtered out of
 /// `key_char` by `keystroke_from_xkb`). Check that our keymap really matches
@@ -253,6 +294,36 @@ fn keymap_matches_the_linux_keystroke_shape() {
         assert!(
             bindings.is_empty(),
             "the prompt must not answer {key}, which is a character being typed"
+        );
+    }
+
+    // `ctrl-backspace` — the word before the caret — in every surface that edits
+    // text. The shape is the load-bearing part: the Linux platform reports the
+    // BackSpace keysym as the key named "backspace" with control set and no
+    // `key_char`, so a binding spelled any other way matches nothing real.
+    for (context, action) in [
+        ("prompt", "shale::FieldDeleteWordBack"),
+        ("picker", "shale::FieldDeleteWordBack"),
+        ("vim-insert", "shale_editor::DeleteWordBack"),
+    ] {
+        let contexts = vec![gpui::KeyContext::try_from(context).unwrap()];
+        let typed = gpui::Keystroke {
+            modifiers: gpui::Modifiers {
+                control: true,
+                ..Default::default()
+            },
+            key: "backspace".to_string(),
+            key_char: None,
+        };
+        let (bindings, pending) = keymap.bindings_for_input(&[typed], &contexts);
+        assert!(!pending, "ctrl-backspace should not leave pending input");
+        assert_eq!(
+            bindings
+                .iter()
+                .map(|b| b.action().name())
+                .collect::<Vec<_>>(),
+            vec![action],
+            "ctrl-backspace in the {context} context should resolve to {action}"
         );
     }
 

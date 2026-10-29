@@ -160,6 +160,65 @@ impl Buffer {
     // ----- edits (each pushes one undo snapshot) ------------------------
 }
 
+/// The offset vim's `b` motion lands on coming back from `at`: the start of the
+/// word before the cursor, crossing blanks first.
+///
+/// This is the one definition of "the word before an offset". The buffer's
+/// backward word motion, insert-mode `ctrl-backspace` and the one-line fields'
+/// delete-word all ask it, so a word means the same thing everywhere text is
+/// edited — and it is a free function over `&str` so the fields, which hold a
+/// `SharedString` rather than a [`Buffer`](super::Buffer), can ask it too.
+pub fn word_back(text: &str, at: usize) -> usize {
+    if at == 0 {
+        return 0;
+    }
+    let len = text.len();
+    let at = at.min(len);
+    // The character just before `i`, and the byte offset of its start. Walking
+    // back to a char boundary keeps this safe on text whose offsets came from
+    // somewhere else.
+    let start_of_prev = |i: usize| {
+        let mut s = i.saturating_sub(1);
+        while s > 0 && !text.is_char_boundary(s) {
+            s -= 1;
+        }
+        s
+    };
+    let prev_class = |i: usize| text[start_of_prev(i)..i].chars().next().map(class_of);
+
+    let mut i = at;
+    // In the middle of a run: back up to that run's start.
+    if i < len {
+        if let Some(cls) = text[i..].chars().next().map(class_of) {
+            if cls != WordClass::Whitespace && cls != WordClass::Newline {
+                while i > 0 && prev_class(i) == Some(cls) {
+                    i = start_of_prev(i);
+                }
+                if i < at {
+                    return i;
+                }
+            }
+        }
+    }
+    // At a run start (or on a blank): cross blanks, then back over the previous
+    // run.
+    while i > 0 {
+        match prev_class(i) {
+            Some(WordClass::Whitespace) | Some(WordClass::Newline) => i = start_of_prev(i),
+            _ => break,
+        }
+    }
+    if i == 0 {
+        return 0;
+    }
+    if let Some(cls) = prev_class(i) {
+        while i > 0 && prev_class(i) == Some(cls) {
+            i = start_of_prev(i);
+        }
+    }
+    i
+}
+
 /// Vim's word classes: keyword runs, punctuation runs, whitespace, and
 /// newlines (tracked separately so motions can reason about line ends).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

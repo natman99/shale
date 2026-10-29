@@ -177,6 +177,19 @@ impl MarkdownEditor {
         self.insert_edit("", cx);
     }
 
+    /// `ctrl-backspace` in insert mode: delete the word before the cursor, which
+    /// is vim's `i_CTRL-W` and the same pair normal-mode `db` makes. It joins the
+    /// insert session's undo group, exactly as the backspace key does.
+    pub(super) fn on_delete_word_back(
+        &mut self,
+        _: &DeleteWordBack,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.buffer.delete_word_back();
+        self.insert_edit("", cx);
+    }
+
     pub(super) fn on_move_left(
         &mut self,
         _: &MoveLeft,
