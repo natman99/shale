@@ -74,18 +74,33 @@ renderer alpha (exists) ──► focus mode, search illumination      ← cheap
 
 Small, unblocking, and three of them are already-parked user requests.
 
-- **P0.1 Config & metadata into `<vault>/.shale/`** (parked #12). `shale.toml`
-  → `.shale/config.toml`, keep reading the old root path for compatibility.
-  **This must land before the DB** so the DB's home is decided once.
-  Also: persist the live theme switch (parked #9) in the same pass — write-back
-  must preserve comments (use a line-splice writer, not serialize-and-write).
+- **P0.1 Config & metadata into `<vault>/.shale/`** (parked #12) — **DONE
+  2026-10-28, and the decision changed while it was being written:** there is no
+  "keep reading the old root path". Shale has **one** config location,
+  `<vault>/.shale/config.toml`. A vault that still holds a root `shale.toml` has
+  that file **moved** into `.shale` on open (`Config::load_or_create`), and a
+  vault with no config at all gets `Config::starter()` written: the core settings
+  at their defaults, each with the comment that explains it. A write-back is a
+  **splice** (`config/edit.rs`): one line's value is replaced, comments and the
+  note beside the line included, and a key or table that isn't there is added —
+  so the file stays incremental (only what differs from the default need be in
+  it). Writes are atomic (temp + rename).
+  **Persisting the live theme switch (parked #9) landed in the same pass:**
+  choosing a theme — the picker's `enter` or `:theme <name>` — rewrites
+  `appearance.theme` immediately; a *preview* never writes.
+  Git: the demo vault's `.shale/config.toml` is committed **once** as the
+  template (byte-identical to `Config::starter()`), then untracked and covered by
+  `.gitignore`, so app-written config and the future DB never dirty the tree.
+  **This landed before the DB**, so the DB's home is decided once: `.shale/`.
 - **P0.2 Autosave** (parked #8). **2 s idle debounce** + on-blur + on-quit
   (decided 2026-10-28); makes `:w` the no-op the user already assumes it is.
   Pairs with P1's shutdown rule. Snapshot triggers deliberately do NOT key off
   autosaves (see brainstorm "Autosave × time machine").
-- **P0.3 Module splits** (parked #10): `vim.rs` (2333) and `buffer.rs` (1786)
-  over the AGENTS 1000-line rule; `line.rs` (973) → `line.rs` + `runs.rs`.
-  Do this *before* the graph adds more app-side files.
+- **P0.3 Module splits** (parked #10). Measured 2026-10-28: `vim.rs` **2397**,
+  `buffer.rs` **1786**, `theme/mod.rs` **1270** (the roadmap's first draft missed
+  this one), `line.rs` **971** — at the line, and the natural split is `line.rs`
+  (the element) + `runs.rs` (the run builder and style map). Do this *before* the
+  graph adds more app-side files.
 - **P0.4 Scrolling popup + scrolling picker** (parked #2, #3) — one shared
   height/scroll model, fixes the eighth-harper-offer cutoff and big-vault
   quick-open truncation.
@@ -104,9 +119,9 @@ Small, unblocking, and three of them are already-parked user requests.
   renderer. Establishes the dimming machinery that search-illumination and
   note-pinning later reuse.
 
-**Exit criteria:** config lives in `.shale/` (old path still read), autosave on
-by default, no file over 1000 lines, `/` and raw mode work, all existing tests
-green.
+**Exit criteria:** config lives in `.shale/` and a root `shale.toml` is *moved*
+there on open rather than read from, autosave on by default, no file over 1000
+lines, `/` and raw mode work, all existing tests green.
 
 ---
 
@@ -283,6 +298,13 @@ and the DB; "notes the agent modified this week" returns the right set.
 
 - **Start P3.3 (graph core) now**, in parallel with P0 — it has zero
   dependencies and is pure `core` + tests, so it can't conflict with UI work.
+  **In flight (2026-10-28):** a second agent owns the graph track. Its files are
+  `crates/core/src/graph/**`, `pub mod graph;` in `crates/core/src/lib.rs`, the
+  `petgraph` lines in the workspace and core `Cargo.toml`, and `PROGRESS.md`.
+  The other agent owns `PROJECT.md`, `roadmap.md`, `brainstorm.md` and everything
+  else. Neither edits the other's files; `cargo` builds are still one at a time,
+  so a build that fails inside `graph/` is the graph agent's work in progress,
+  not a regression to fix from the outside.
 - **P0.1 before P1** (the DB's home), **P1 before P2.5/P4/P5** (provenance,
   snapshots, event log).
 - **P2.1 (registry) before P2.5/P2.7/P6.3** — commands, review actions,
@@ -297,12 +319,17 @@ and the DB; "notes the agent modified this week" returns the right set.
 
 ## Open decisions the roadmap needs
 
-1. **Tree-sitter = C bindings** — extend the SQLite-style exception, or drop
-   the goal? (P6.6)
+1. ~~Tree-sitter = C bindings~~ **RESOLVED 2026-10-28:** the SQLite-style
+   exception now covers it (PROJECT.md Tech Stack, and P6.6). Bundled C at build
+   time is fine; runtime-linked system libraries still are not.
 2. **Edit-review UX pass** before P2.5 — strip placement, keys, diff rendering.
-3. **`/` search scope** — open buffer vs vault (P0.5).
+3. ~~`/` search scope~~ **RESOLVED 2026-10-28:** `/` searches the **open buffer**;
+   the vault stays `ctrl-shift-f` (see P0.5).
 4. **PDF export route** — headless scene render vs external converter (P6.5).
-5. **Graduating `brainstorm.md` ✅ items into PROJECT.md** — pending action;
-   PROJECT.md's Goals list should also get checkmarks for what's already done
-   (live preview, vim, file tree, wiki-links, spellcheck, theming, images, MCP
-   are all ✅ in status but unchecked in the Goals list).
+5. ~~Graduating `brainstorm.md` ✅ items into PROJECT.md~~ **Half done
+   2026-10-28:** the Goals list now carries checkmarks for what is built. The ✅
+   feature designs themselves still live only in `brainstorm.md`; graduate them
+   into PROJECT.md's Open threads as each one starts, not before.
+6. **Config write-back shape** — settled in P0.1 (one location, a splice, a
+   generated starter). What is *not* settled: whether Shale should ever write a
+   key the user has never changed. Today it writes only what the user chose.

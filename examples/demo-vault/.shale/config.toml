@@ -1,7 +1,11 @@
-# Shale reads this file when it opens the vault. Every key is optional; what is
-# here is the default settings, written out so you can see what exists.
+# Shale reads this file when it opens the vault. Every key is optional, and
+# every value here is already the default: delete any line you do not care about
+# and Shale uses its default for it. Shale rewrites a line when it changes a
+# setting of its own (a theme you pick, say), and leaves the rest of the file,
+# comments included, exactly as it finds it.
 
 [editor]
+# Vim-style normal/insert bindings, soft wrap, and the file tree on startup.
 vim_mode = true
 line_wrap = true
 show_file_tree = true
@@ -16,16 +20,7 @@ show_file_tree = true
 #   Solarized    "solarized-dark" "solarized-light"
 #   One          "one-dark" "one-light"
 #   Rose Pine    "rose-pine" "rose-pine-moon" "rose-pine-dawn"
-# The default is "mocha", the darkest Catppuccin flavour. A theme file starts
-# from one of the built-ins (`base = "light"`) and overrides only the colours it
-# cares about, by role:
-#
-#   base = "dark"
-#   bg = "#282828"
-#   fg = "#ebdbb2"
-#   link = "#83a598"
-#
-# The full list of role names is the field list of `shale_core::theme::Palette`.
+# Picking a theme in the app rewrites this line, so the choice survives a restart.
 theme = "mocha"
 # Body text size in points; headings and line heights are scaled from it.
 font_size = 14.0
@@ -33,3 +28,10 @@ font_size = 14.0
 font_family = ""
 # Hide the markdown syntax of a row the cursor is not on.
 live_preview = true
+
+[spellcheck]
+# The language server that finds spelling and grammar notes. A server that is not
+# installed simply means nothing gets underlined.
+enabled = true
+command = "harper-ls"
+args = ["--stdio"]

@@ -133,6 +133,41 @@ fn theme_names_a_palette_and_switches_to_it(cx: &mut TestAppContext) {
     );
 }
 
+/// A theme the user picks is written back into the vault's config, so the next
+/// launch opens in it. The write is a splice: a config the user hand-edited keeps
+/// its comments, its other settings, and the note written beside the line that
+/// changed.
+#[gpui::test]
+fn a_chosen_theme_is_saved_to_the_vault_config(cx: &mut TestAppContext) {
+    let (dir, window) = workspace(cx, &["Welcome.md"]);
+    // The tests build a window straight from defaults, so the config file the
+    // live app writes when it opens a vault is written here instead.
+    let path = Config::path(dir.path());
+    std::fs::create_dir_all(Config::shale_dir(dir.path())).unwrap();
+    std::fs::write(
+        &path,
+        "[appearance]\n# the palette I look at all day\ntheme = \"mocha\" # warm\n\n[editor]\nvim_mode = true\n",
+    )
+    .unwrap();
+
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    type_command("theme gruvbox-dark", cx);
+    assert_eq!(status(&window, cx), "theme: gruvbox-dark");
+
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(
+        text.contains("theme = \"gruvbox-dark\" # warm"),
+        "the value changes and the note beside it stays: {text}"
+    );
+    assert!(text.contains("# the palette I look at all day"), "{text}");
+    assert!(text.contains("[editor]\nvim_mode = true"), "{text}");
+    assert_eq!(
+        Config::load(dir.path()).unwrap().appearance.theme,
+        "gruvbox-dark",
+        "and the file says what the window is drawn with"
+    );
+}
+
 /// `:harper off` is understood, and switching a checker that is not running off is
 /// a report rather than an error. (Starting one for real needs a `harper-ls`
 /// process, which the tests deliberately do not spawn — see `tests::spell` and

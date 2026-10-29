@@ -57,7 +57,12 @@ fn main() -> Result<()> {
         .with_writer(std::io::stderr)
         .init();
     let vault = Rc::new(Vault::open(&args.vault).context("opening vault")?);
-    let config = Rc::new(Config::load(vault.root())?);
+    // The vault's own `.shale/config.toml`: written from the starter when the
+    // vault has no config yet, and moved out of the vault root when it is still
+    // the old root-level `shale.toml`.
+    let (config, source) = Config::load_or_create(vault.root()).context("loading config")?;
+    tracing::info!(?source, path = %Config::path(vault.root()).display(), "config");
+    let config = Rc::new(config);
     let initial_note = args.note.clone();
 
     let app = gpui_platform::application();

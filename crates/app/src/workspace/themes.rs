@@ -20,6 +20,7 @@ use std::rc::Rc;
 
 use anyhow::Context as _;
 use gpui::{Context, Window};
+use shale_core::config::{self, Value};
 use shale_core::theme::{self, Palette};
 
 use crate::acts::ChangeTheme;
@@ -116,6 +117,26 @@ impl Workspace {
         self.theme_backup = None;
         self.theme_name = name.to_string();
         cx.notify();
+    }
+
+    /// Write a chosen theme into `<vault>/.shale/config.toml`, so the next launch
+    /// opens in it, and keep the config this session holds in step with the file.
+    ///
+    /// Every path that *commits* a theme — the picker's `enter`, `:theme <name>` —
+    /// has to call this; a preview must not. The error goes back to the caller
+    /// rather than being reported here: the theme is already on screen, so the
+    /// caller's "theme: X" is still true, and the two messages belong on one line.
+    pub(super) fn persist_theme(&mut self, name: &str) -> anyhow::Result<()> {
+        config::write_setting(
+            self.vault.root(),
+            "appearance",
+            "theme",
+            &Value::Str(name.to_string()),
+        )?;
+        let mut updated = (*self.config).clone();
+        updated.appearance.theme = name.to_string();
+        self.config = Rc::new(updated);
+        Ok(())
     }
 
     /// Put back the palette the theme picker started from, if a preview was in

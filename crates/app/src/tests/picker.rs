@@ -280,7 +280,11 @@ fn palette(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> Pale
 /// when nothing was chosen.
 #[gpui::test]
 fn the_theme_picker_previews_and_keeps(cx: &mut TestAppContext) {
-    let (_dir, window) = workspace(cx, &["Welcome.md"]);
+    let (dir, window) = workspace(cx, &["Welcome.md"]);
+    // The config file the live app writes when it opens a vault, so the saves the
+    // picker does have something to splice into.
+    std::fs::create_dir_all(Config::shale_dir(dir.path())).unwrap();
+    std::fs::write(Config::path(dir.path()), Config::starter()).unwrap();
     let cx = &mut VisualTestContext::from_window(window.into(), cx);
 
     // Not the first built-in, which is the case that matters: a picker that opens
@@ -317,6 +321,12 @@ fn the_theme_picker_previews_and_keeps(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("escape");
     assert_eq!(matches(&window, cx), None);
     assert_eq!(palette(&window, cx), in_use, "escape was not an answer");
+    assert!(
+        std::fs::read_to_string(Config::path(dir.path()))
+            .unwrap()
+            .contains("theme = \"gruvbox-dark\""),
+        "a preview is not a choice, so the file still names the theme that was chosen"
+    );
 
     // Choosing a row keeps it.
     cx.simulate_keystrokes(":");
@@ -326,6 +336,13 @@ fn the_theme_picker_previews_and_keeps(cx: &mut TestAppContext) {
     assert_eq!(
         window.update(cx, |ws, _window, _cx| ws.status()).unwrap(),
         format!("theme: {previewed}")
+    );
+    // And a choice is saved, so the next launch opens in the theme on screen.
+    assert!(
+        std::fs::read_to_string(Config::path(dir.path()))
+            .unwrap()
+            .contains(&format!("theme = \"{previewed}\"")),
+        "the config the next launch reads names the chosen theme"
     );
 }
 

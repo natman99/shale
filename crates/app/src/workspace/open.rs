@@ -265,7 +265,15 @@ impl Workspace {
                 self.open_note_at(&path, line, cx);
             }
             PickerTarget::Theme(name) => {
-                self.status = format!("theme: {name}").into();
+                // Chosen, so it is saved: the theme the picker was opened with is
+                // the one the next launch should open in.
+                self.status = match self.persist_theme(&name) {
+                    Ok(()) => format!("theme: {name}").into(),
+                    Err(err) => {
+                        tracing::warn!("could not save the theme: {err:#}");
+                        format!("theme: {name}, not saved: {err:#}").into()
+                    }
+                };
                 cx.notify();
             }
             PickerTarget::Command(command) => {

@@ -41,8 +41,9 @@ use crate::prompt;
 pub(crate) struct Workspace {
     focus_handle: gpui::FocusHandle,
     vault: Rc<Vault>,
-    /// What the user asked for in `shale.toml`. The window reads it when it starts
-    /// the checker, which `:harper on` does at any time.
+    /// What the user asked for in `<vault>/.shale/config.toml`. The window reads
+    /// it when it starts the checker, which `:harper on` does at any time, and
+    /// replaces it when it writes one of its own settings back into that file.
     config: Rc<Config>,
     /// The palette the whole window is drawn with, shared with the editor so a
     /// theme change repaints everything at once.

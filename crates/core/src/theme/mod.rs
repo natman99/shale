@@ -6,8 +6,8 @@
 //! one. Painting (which needs gpui types) stays in the app and just reads the
 //! palette it is given.
 //!
-//! A theme is named in `shale.toml` as `appearance.theme`. The built-in names
-//! are `dark` and `light` plus the palettes of seven popular theme families --
+//! A theme is named in `.shale/config.toml` as `appearance.theme`. The built-in
+//! names are `dark` and `light` plus the palettes of seven popular theme families --
 //! the four Catppuccin flavours (`latte`, `frappe`, `macchiato`, `mocha`, each
 //! also spelled with a `catppuccin-` prefix), three Tokyo Night variants, two
 //! Gruvbox modes, Nord, Dracula, both Solarized modes, Atom's One Dark and One

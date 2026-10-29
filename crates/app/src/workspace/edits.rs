@@ -135,7 +135,13 @@ impl Workspace {
             ex::Ex::Checker(on) => self.set_checker(on, cx),
             ex::Ex::ThemePicker => window.dispatch_action(ChangeTheme.boxed_clone(), cx),
             ex::Ex::Theme(name) => match self.set_theme(&name, cx) {
-                Ok(()) => self.status = format!("theme: {name}").into(),
+                Ok(()) => match self.persist_theme(&name) {
+                    Ok(()) => self.status = format!("theme: {name}").into(),
+                    Err(err) => {
+                        tracing::warn!("could not save the theme: {err:#}");
+                        self.status = format!("theme: {name}, not saved: {err:#}").into();
+                    }
+                },
                 Err(err) => self.status = format!("{err:#}").into(),
             },
             ex::Ex::Unknown(word) => self.status = format!("unknown command: {word}").into(),

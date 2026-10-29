@@ -120,8 +120,10 @@ These are equivalent to Obsidian bases, which allow dynamically updating views i
 
 Workspace layout:
 - `crates/core` (`shale-core`): vault model (path-traversal safe), wiki-link
-  extraction/resolution/backlinks, search, TOML config (`shale.toml` in the
-  vault), text `Buffer` with undo/redo, the vim mode engine, `mdstyle` (the
+  extraction/resolution/backlinks, search, TOML config (`config/`: the settings,
+  the file at `<vault>/.shale/config.toml`, the starter Shale writes for a vault
+  that has none, and the comment-preserving one-line splice writer), text
+  `Buffer` with undo/redo, the vim mode engine, `mdstyle` (the
   presentation-agnostic markdown style scanner, split into `mdstyle/mod.rs` for
   the vocabulary and the line walk, `mdstyle/block.rs` for what a line *is* and
   `mdstyle/inline.rs` for emphasis/links/tags inside it), `mdlayout` (which
@@ -166,7 +168,9 @@ Workspace layout:
   ×3 — default `mocha` — or a `<vault>/.shale/themes/<name>.toml` file, and
   `appearance.font_size` sizes the text; the theme can also be changed while the
   window is up, by `:theme <name>` or by the palette's *Change the theme*, which
-  previews the palette its highlighted row names — `escape` puts the old one back),
+  previews the palette its highlighted row names — `escape` puts the old one back,
+  and a theme that is actually chosen is written back to `appearance.theme` so
+  the next launch opens in it),
   ctrl+s save (`:w` does the same, and quitting writes a dirty note first so a
   `:q` cannot lose work), and a file tree that can create, rename and delete notes and
   folders through a one-line prompt (`prompt.rs`); a rename also rewrites the
@@ -1729,9 +1733,11 @@ Next steps, roughly in order:
    `appearance.font_size` is wired through the editor. ~~Switching themes without
    a restart~~ Done (2026-10-28): the palette's *Change the theme* and `:theme`
    both switch live, and the picker previews the palette its highlighted row
-   names. Follow-ups: writing the chosen theme back to `shale.toml` (a switch is
-   for the session today), and painting the `code_*` roles from tree-sitter — the
-   roles exist and `code_text` is used; the token roles are waiting for the parser.
+   names. ~~writing the chosen theme back to `shale.toml`~~ Done (2026-10-28, see
+   the config bullet): a chosen theme is spliced into
+   `<vault>/.shale/config.toml` the moment it is chosen. Follow-ups:
+   painting the `code_*` roles from tree-sitter — the roles exist and `code_text`
+   is used; the token roles are waiting for the parser.
 9. ~~Editor bindings round: list / task / quote continuation on Enter~~ Done —
    see the continuation bullet in Open threads. `shale_core::continuation` decides
    what Enter does, the insert-mode handler applies it so the marker joins the
@@ -1784,6 +1790,37 @@ Next steps, roughly in order:
     list once a vault outgrows the 12-row window, search options in the UI, a
     prefix that switches what the picker searches, and jumping to the matched
     column rather than the start of the line.
+15. ~~Config and vault metadata in `<vault>/.shale/`~~ and ~~persisting a live
+    theme switch~~ Done (2026-10-28). Shale has **one** config location:
+    `<vault>/.shale/config.toml`. `crates/core/src/config/` is the whole subject —
+    `mod.rs` the settings, the path (`Config::path`), `Config::load` (read-only)
+    and `Config::load_or_create` (what `main` calls: it writes
+    `Config::starter()` for a vault that has no config, and **moves** a vault's
+    old root-level `shale.toml` into `.shale` rather than reading from two places,
+    reporting which happened as a `ConfigSource`); `edit.rs` the writer.
+    **The writer is a splice, not a rewrite.** The config file is the user's: it
+    carries the comments that explain every key, and hand edits must survive. So
+    `edit::set` finds the line that sets the key, replaces only its value, and
+    keeps the indentation and the comment written beside it; a key the file never
+    mentioned is added inside its table, and a table that isn't there is appended.
+    A commented-out `# theme = "x"` is not a setting and stays a comment. CRLF
+    files stay CRLF. Writes are atomic (a temp file in the same directory, then a
+    rename), which is the same rule the DB inherits in P1.5. Because the writer
+    can add what is missing, the file can stay **incremental**: the starter holds
+    the core settings at their defaults, and a setting added later need not appear
+    until it changes.
+    **A chosen theme is saved the moment it is chosen** — the picker's `enter` and
+    `:theme <name>` both call `Workspace::persist_theme`, which rewrites
+    `appearance.theme` and replaces the `Rc<Config>` the window holds so the
+    session agrees with the file. A *preview* never writes, and `escape` still just
+    puts the old palette back. A write that fails is reported on the status line
+    (`theme: nord, not saved: …`) and survived: the theme is already on screen.
+    **Git:** `examples/demo-vault/.shale/config.toml` is committed once as the
+    template — generated straight out of `Config::starter()`, so template and
+    generated file cannot drift — then untracked, with `.shale/` in `.gitignore`
+    so config churn and the future `shale.db` never dirty the tree. The file tree
+    already refuses to show or touch a dot directory (`Vault::IGNORED_DIRS`,
+    `guard_unprotected`), so `.shale` is invisible to the vault by construction.
 
 ## Parked threads (agreed 2026-10-28; not being worked now)
 
@@ -1821,19 +1858,15 @@ conversation. Roughly in order of what they have said they want.
    `:q`, `:wq` and `ctrl-q` write a dirty note before closing so nothing is lost,
    and `:w` is a real save. A real autosave (debounced, on blur, on quit) is the
    thing that would make `:w` the no-op they expect.
-9. **Persisting a live theme switch.** `:theme` and the picker change the session;
-   `appearance.theme` in `shale.toml` is not rewritten. Writing config back needs
-   care: the file is the user's, and comments in it are not preserved by a
-   serialize-and-write. Do it together with (12), below, so the first write lands in
-   the new place.
-12. **Config and vault metadata in `<vault>/.shale/`.** The user wants Shale's own
-   files out of the vault's root: `shale.toml` today sits *in* the vault, while
-   themes already live in `<vault>/.shale/themes/`. Move the config to
-   `<vault>/.shale/config.toml` (keeping the current command-line/config-path
-   override), read the old root location for a while for compatibility, and put the
-   planned database and any cache in the same directory — which is what the Database
-   section already promises. `Vault::guard_unprotected` already refuses to let a
-   rename or delete touch a dot directory, so `.shale` is safe from the file tree.
+9. ~~Persisting a live theme switch~~ **Done 2026-10-28** with (12): a theme the
+   user chooses is spliced into `<vault>/.shale/config.toml` at once. See the
+   config thread in Open threads.
+12. ~~Config and vault metadata in `<vault>/.shale/`~~ **Done 2026-10-28** — the
+    config moved, the starter is generated, and the writer is a splice (see the
+    config thread in Open threads). What is left of this thread is the rest of the
+    directory's future tenants: the database and any cache, which P1 puts in
+    `.shale/` too. `Vault::guard_unprotected` already refuses to let a rename or
+    delete touch a dot directory, so `.shale` is safe from the file tree.
 10. **Module splits** (the `AGENTS.md` rule): `vim.rs` 2333 and `buffer.rs` 1786
     are over it, and `line.rs` (973) is next — probably `line.rs` (the element) and
     `runs.rs` (the run builder and the style map).
