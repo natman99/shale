@@ -503,7 +503,84 @@ build; the rest is configuration of things that already exist.
 ### Random tables ❄️ (parked, user call 2026-10-29)
 - Markdown tables as rollables (`:rolltable <name>` → weighted row pick,
   highlight + log). Parked, not rejected: the inline-dice `!r` syntax and the
-  rolls table leave the door open; revisit once inline dice ships.
+  rolls table leave the door open; revisit once inline dice ships. Likely
+  superseded by "random generators" below (tagged note-collections beat
+  hand-written tables for anything reusable).
+
+### Initiative tracker ✅ (a mode over a plain-text table, not a new surface)
+- The distinction from `.shq`: `.shq` is a read-only query projection;
+  initiative is an *editing mode* with a cursor (whose turn, which round) and
+  fast mutation at table speed. The tracker IS a plain markdown table in the
+  session note — `| Pos | Combatant | Init | HP | Conditions |` — and the
+  feature is the mode on top. No hidden state: the table is the state.
+- `combat` keymap context: `]t`/`[t` next/prev turn, `:damage 14` /
+  `:heal` on the active row, `:condition restrained 2` (counts tick down at
+  turn end), `:round` advances. Commands mutate rows the way `:Gmove`
+  mutates lines — plain text edits, undoable, provenance-logged.
+- **Manual initiative**: any Init cell can be typed by hand (real dice,
+  Roll20, a dice app). `!r 1d20+3` in the cell is optional sugar, not
+  required — the tracker never demands the roll happened in-app.
+- **Wikilinks in Combatant cells**: `[[morgoth]]`, `[[ara#statblock]]` —
+  the mode resolves the link to open/inspect the statblock or player sheet
+  (`:inspect` on the active row), and the agent can follow the same edges.
+  Hover preview works like everywhere else.
+- Renderer: active row highlighted + round counter in the table header,
+  dead/dying rows dimmed. All render-only; source stays a normal table.
+- **MCP**: the table's state (rows, active row, round) is readable via the
+  MCP server, and the agent can act on it (damage, condition, advance turn)
+  through the same row-mutating commands — agent edits carry `agent:`
+  provenance like every other edit.
+- Scope guard: narrative tracker only — no grid, no token-pushing (dragging
+  avatars on a battle map), no range/line-of-sight geometry. That's VTT
+  territory (Roll20/Foundry/Owlbear); we track turns and HP, positioning
+  lives at the physical table.
+- Synergy: initiative entries can be inline dice → every init roll lands in
+  the `rolls` table; after combat the table is just text, so `.shq` answers
+  "which combats lost someone", "average rounds per fight".
+
+### Random generators ✅ (the vault structure IS the table)
+- Generalize `:random` to filters: `:random tag:hook`,
+  `:random type:monster cr<=5`, `:random tag:name prefix:orc` — one SQL
+  query over the props/tags index (same machinery as search operators).
+  No table syntax at all; tagged note-collections replace hand-written
+  d100 tables.
+- Weighting via optional `weight:` property (default 1).
+- Exclude-recent: `not:seen-3-sessions` rides backlink timestamps so the
+  same hooks don't recur every game.
+- **Slot-machine spin**: the picker cycles candidates ~0.5s before landing
+  (trivial for the custom renderer; at a table it's *fun* — markdown apps
+  never get to be).
+- **Chained generation**: `:generate encounter` = random monster
+  (party-level filter) + random `tag:location` + random `tag:hook` →
+  assembled into a new note from a template, provenance recorded. A
+  random-encounter table with zero syntax; generalizes to names, treasure,
+  rumors.
+
+### GM screen ✅ (mostly saved queries + a pane flag)
+- A note that's a stack of named `.shq` blocks (party ACs/HP, active quests
+  with due dates, unresolved hooks, next-session date) + `:gm-screen`
+  opening it pinned in a side pane, auto-refreshing.
+- Only genuinely new machinery: `.shq` blocks get a `name:` so they're
+  saved, composable, and referenceable. Everything else is existing
+  surfaces.
+
+### Agent GM assistant 🔭 (note for later — mostly already built)
+- MCP + props + rolls + graph already answer: "which NPCs haven't appeared
+  in 5 sessions" (backlink timestamps), "which hooks are unresolved"
+  (ghost nodes tagged `#hook`), "what did the party swear revenge on"
+  (search). Secret-awareness rides handout-export rules (agent reads
+  secrets; exports strip them).
+- The missing piece is packaging: a **session-recap generator** — template
+  note + `.shq` aggregates + rolls table → draft recap the GM edits. A
+  prompt template + a template note, not a feature. Revisit once the
+  pieces above ship.
+
+### Image pins ❄️ (tabled, user call 2026-10-29)
+- Pins as data on an image note (normalized x/y + link + label in a
+  `shale:pins` block); renderer draws numbered markers, click opens the
+  note, drag reuses graph drag-pin machinery. Dungeon/city map as a hub.
+- Scope line if it ever un-parks: reference/annotation only — no tokens,
+  no grid, no movement (same VTT guard as the initiative tracker).
 
 ### Free rides (no new subsystems — note the conventions, don't build)
 - Statblocks: `type: monster` + `cr/hp/ac` frontmatter → props index + `.shq`
