@@ -56,8 +56,32 @@ and core `Cargo.toml`. No app files touched.
 - `cargo fmt` clean; clippy warnings in the new module addressed or
   pre-existing.
 
-### Notes for M1b (the graph tab — waits on tabs, roadmap P3.1)
+### Perf notes (measured 2026-10-28, release build, `bench_sim` + `probe_*` #[ignore] tests)
 
+Settle = 300 ticks, preferential-attachment graph. **After the quadtree
+rewrite** (flat 40-byte cells w/ stored centers, iterative explicit-stack
+traversal, θ 0.5→0.7 — still passes the 5% accuracy test):
+
+| n    | naive loop  | Barnes-Hut (new) |
+|------|-------------|------------------|
+| 500  | 446 µs/tick | ~230 µs/tick     |
+| 2000 | 7.3 ms/tick | 4.5 ms/tick (full sim) |
+| 5000 | 28.7 ms/tick| 22.8 ms/tick (full sim), 4.9 ms repulsion-only |
+
+- Crossover measured at ~250 nodes (`probe_crossover`), so
+  `NAIVE_LIMIT` dropped 2048→256. Visits at n=5000: 137/point (θ=0.7).
+- Old recursive BH cost ~23 ns/visit; the rewrite is ~7 ns/visit incl.
+  tree build. The first bench table (in git history) showed the pre-fix
+  numbers.
+- **glam: parked.** Not in the tree (gpui v1.25.3 has its own geometry);
+  the sim is SoA scalar f32 that LLVM already vectorizes, and glam's
+  `Vec2` is one SSE lane wide — no win there, same 8 bytes. Revisit at
+  M2 for the *projection/camera layer only* (Mat4/Vec3A beats
+  hand-rolled 4x4 math).
+- Memory: core test binary peaks at 6.8 MB RSS incl. the 4k-node BH
+  validation. Keep watching it as the module grows.
+
+### Notes for M1b (the graph tab — waits on tabs, roadmap P3.1)
 - `GraphIndex::set_note` is the hook the watcher/save path calls; re-heating
   (`sim.reheat(1.0)`) is the caller's job.
 - Node indexes are only stable until the next rebuild — the sim, hit-test
@@ -73,5 +97,15 @@ and core `Cargo.toml`. No app files touched.
   module; fixed petgraph-0.8 API drift (no inherent `degree`); aligned the
   repulsion law with d3's exactly (the first draft mixed 1/d² and 1/d³
   forms); θ 0.9→0.5 for the 5% bound; validated BH against the naive loop.
+- 2026-10-28: `geom.rs` (camera w/ cursor-anchored zoom + fit, grid
+  hit-test, `hjkl` cone search, local-graph BFS mask, Prim MST for
+  constellations) and `hues.rs` (OKLCH tag hues: stable hash, 20° root
+  separation, family windows for nested tags, chroma-pull instead of
+  clipping). Fixed an MST bug the new test caught (tree endpoints mixed
+  array positions with world indices).
+- 2026-10-28: perf pass on the quadtree after benching (see Perf notes):
+  flat cells + iterative traversal + θ 0.7 → 6.2x repulsion speedup at
+  n=5000; NAIVE_LIMIT 2048→256 at the measured crossover. glam evaluated
+  and parked (notes above).
 - Shared-target-dir note: the other agent is active; checked for running
   cargo builds before each of mine, used the default `target/` only.

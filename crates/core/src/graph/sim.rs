@@ -14,10 +14,11 @@
 //! byte-identical layouts — which is what makes the static-mode cache
 //! (graph-view-plan.md M3) and the headless tests meaningful.
 
-/// Above this node count the naive O(n²) repulsion is replaced by the
-/// Barnes-Hut quadtree (graph-view-plan.md Task 3). 2048² ≈ 4M pair
-/// evaluations per tick, which a release build handles at 60 Hz.
-pub const NAIVE_LIMIT: usize = 2048;
+/// Below this node count the sim uses the O(n²) pair loop; above it, the
+/// Barnes-Hut quadtree in [`super::quadtree`]. Measured crossover on this
+/// machine is ~250 (probe_crossover): the tree's build cost dominates
+/// until then, and BH wins 1.5x-6x beyond it.
+pub const NAIVE_LIMIT: usize = 256;
 
 /// Tunables, in d3-force's vocabulary so the settings panel maps 1:1.
 #[derive(Debug, Clone)]
@@ -90,7 +91,7 @@ impl Sim {
                 degree[b as usize] += 1;
             }
         }
-        let radius: Vec<f32> = degree.iter().map(|&d| node_radius(d as u32)).collect();
+        let radius: Vec<f32> = degree.iter().map(|&d| node_radius(d)).collect();
 
         // d3-force's initial placement: a phyllotaxis spiral, golden angle
         // (π·(3−√5); spelled as a literal because const math has no sqrt).
@@ -135,6 +136,12 @@ impl Sim {
     /// `4 + 2*sqrt(degree)`.
     pub fn radius_of(&self, node: usize) -> f32 {
         self.radius[node]
+    }
+
+    /// World positions, for the renderer and hit-testing (the tab ships a
+    /// copy per painted frame; the sim keeps ownership).
+    pub fn positions(&self) -> &[[f32; 2]] {
+        &self.pos
     }
 
     /// One tick: apply forces, integrate with damping, cool. Returns false
@@ -425,5 +432,40 @@ mod tests {
         sim.reheat(1.0);
         assert!(!sim.is_settled());
         assert!(sim.step());
+    }
+}
+
+/// Manual perf check (run with: cargo test --release -p shale-core \
+/// bench_sim -- --ignored --nocapture). Not part of the normal suite.
+#[test]
+#[ignore]
+fn bench_sim() {
+    use std::time::Instant;
+    for n in [500usize, 2000, 5000] {
+        // A power-law-ish random graph: preferential attachment, the
+        // shape real vaults roughly have.
+        let mut edges = Vec::with_capacity(n * 2);
+        let mut r = 0x1234_5678_9abc_def0u64;
+        for i in 1..n {
+            for _ in 0..2 {
+                r = r
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
+                let j = (r >> 33) as usize % i;
+                edges.push([i as u32, j as u32]);
+            }
+        }
+        let mut sim = Sim::new(n, &edges, SimParams::default(), 7);
+        let t0 = Instant::now();
+        let mut ticks = 0;
+        while sim.step() && ticks < 400 {
+            ticks += 1;
+        }
+        let dt = t0.elapsed();
+        println!(
+            "n={n:5}  settled in {ticks} ticks  {:>7.2?} total  {:>6.2?}/tick",
+            dt,
+            dt / ticks as u32
+        );
     }
 }

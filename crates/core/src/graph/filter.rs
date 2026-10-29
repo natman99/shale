@@ -49,9 +49,8 @@ pub fn apply(index: &GraphIndex, filter: &GraphFilter) -> Vec<bool> {
     // Folder scope first: notes and attachments by path prefix...
     if let Some(folder) = &filter.folder {
         let prefix = folder.trim_end_matches('/').to_string();
-        for i in 0..n {
-            let node = NodeIndex::new(i);
-            let meta = index.meta(node);
+        for (i, v) in visible.iter_mut().enumerate() {
+            let meta = index.meta(NodeIndex::new(i));
             match meta.kind {
                 NodeKind::Note | NodeKind::Attachment => {
                     let path = meta.path.as_ref().map(|p| p.to_string_lossy().into_owned());
@@ -59,40 +58,46 @@ pub fn apply(index: &GraphIndex, filter: &GraphFilter) -> Vec<bool> {
                         Some(p) => p == prefix || p.starts_with(&format!("{prefix}/")),
                         None => false,
                     };
-                    visible[i] = inside;
+                    *v = inside;
                 }
                 NodeKind::Tag | NodeKind::Ghost => {
                     // Decided by their neighbours, below.
-                    visible[i] = true;
+                    *v = true;
                 }
             }
         }
         // ...then tags and ghosts survive only if a visible note links them.
+        // (Two passes: the neighbor check reads `visible` while deciding, so
+        // the writes wait until every decision is made.)
+        let mut hide = Vec::new();
         for i in 0..n {
             let node = NodeIndex::new(i);
             if matches!(index.meta(node).kind, NodeKind::Tag | NodeKind::Ghost)
                 && !index.neighbors(node).any(|nb| visible[nb.index()])
             {
-                visible[i] = false;
+                hide.push(i);
             }
+        }
+        for i in hide {
+            visible[i] = false;
         }
     }
 
-    for i in 0..n {
+    for (i, v) in visible.iter_mut().enumerate() {
         let node = NodeIndex::new(i);
         let meta = index.meta(node);
         match meta.kind {
-            NodeKind::Ghost if filter.existing_only => visible[i] = false,
-            NodeKind::Tag if !filter.tags => visible[i] = false,
-            NodeKind::Note if !filter.orphans && index.degree(node) == 0 => visible[i] = false,
+            NodeKind::Ghost if filter.existing_only => *v = false,
+            NodeKind::Tag if !filter.tags => *v = false,
+            NodeKind::Note if !filter.orphans && index.degree(node) == 0 => *v = false,
             _ => {}
         }
     }
 
     if let Some(query) = &filter.search {
         if !query.trim().is_empty() {
-            for i in 0..n {
-                if !visible[i] {
+            for (i, v) in visible.iter_mut().enumerate() {
+                if !*v {
                     continue;
                 }
                 let node = NodeIndex::new(i);
@@ -106,7 +111,7 @@ pub fn apply(index: &GraphIndex, filter: &GraphFilter) -> Vec<bool> {
                 let matched = fuzzy_match(query, label).is_some()
                     || (!path.is_empty() && fuzzy_match(query, &path).is_some());
                 if !matched {
-                    visible[i] = false;
+                    *v = false;
                 }
             }
         }
