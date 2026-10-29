@@ -23,7 +23,7 @@
 mod block;
 mod inline;
 
-use block::scan_line;
+use block::{callout_header_range, scan_line};
 
 // The marker shapes a row can open with, shared with [`crate::continuation`],
 // which continues on Enter exactly what this scanner recognises.
@@ -172,6 +172,41 @@ pub fn style_spans(text: &str) -> Vec<StyleSpan> {
         );
     }
     out.sort_by_key(|s| (s.start, s.end));
+    out
+}
+
+/// The `[!type]` headers that open a callout, as byte ranges covering the
+/// brackets, the type name and Obsidian's optional `-`/`+` fold marker.
+///
+/// This is markup, not prose. Live preview hides the brackets, and a checker that
+/// has never heard of callouts reads the type name as the start of a sentence:
+/// harper-ls answers `SentenceCapitalization` for `info` and `warning`, so the
+/// one word the user has to get exactly right for the box to be a box is the one
+/// that comes back underlined. The spell and grammar client drops the notes that
+/// fall inside one of these ranges, and this is what it drops them against.
+///
+/// The walk keeps the same state as [`style_spans`], because only the line that
+/// *opens* a callout has a header: a body line that happens to start with
+/// `[!note]` is ordinary quote text, and stays where a checker can see it.
+pub fn callout_headers(text: &str) -> Vec<(usize, usize)> {
+    let mut out = Vec::new();
+    let mut offset = 0usize;
+    let mut open = false;
+    for line in text.split_inclusive('\n') {
+        let content_len = line.trim_end_matches(['\n', '\r']).len();
+        let content = &line[..content_len];
+        // A line that is not part of a blockquote ends the callout, exactly as
+        // `scan_line` decides it does.
+        if !content.trim_start().starts_with('>') {
+            open = false;
+        } else if !open {
+            if let Some((start, end)) = callout_header_range(content) {
+                out.push((offset + start, offset + end));
+                open = true;
+            }
+        }
+        offset += line.len();
+    }
     out
 }
 
@@ -372,6 +407,47 @@ mod tests {
         assert_eq!(CalloutKind::from_name("CAUTION"), CalloutKind::Warning);
         assert_eq!(CalloutKind::from_name("faq"), CalloutKind::Question);
         assert_eq!(CalloutKind::from_name("thing"), CalloutKind::Other);
+    }
+
+    /// The `[!type]` headers a checker has to be kept away from: the marker whole,
+    /// Obsidian's fold marker included. The blank line matters — consecutive
+    /// blockquote lines are one box, so the second header opens a second one.
+    #[test]
+    fn callout_header_ranges() {
+        let text = "> [!info] Heads up\n> body\n\n> [!warning]- Folded\n";
+        let found: Vec<&str> = callout_headers(text)
+            .iter()
+            .map(|(start, end)| &text[*start..*end])
+            .collect();
+        assert_eq!(found, ["[!info]", "[!warning]-"]);
+    }
+
+    /// Only the line that *opens* a callout has a header, and a bracket that is
+    /// not a bare word is not a header at all — the same rules [`style_spans`]
+    /// uses, so the ranges and the painted box can never disagree about which
+    /// lines are a box.
+    #[test]
+    fn only_a_real_header_opens_a_callout() {
+        let text = "> [!note]\n> [!note] again\n> [! not a header]\n> [!note!]\n";
+        let found: Vec<&str> = callout_headers(text)
+            .iter()
+            .map(|(start, end)| &text[*start..*end])
+            .collect();
+        assert_eq!(found, ["[!note]"], "the rest of it is quote text");
+    }
+
+    /// A header inside a callout that is already open is body text — which is also
+    /// how it is painted, so a checker is right to have its say about it.
+    #[test]
+    fn a_header_inside_an_open_callout_is_body_text() {
+        let text = "> [!info] Heads up\n> [!todo] Nested\n";
+        let found: Vec<&str> = callout_headers(text)
+            .iter()
+            .map(|(start, end)| &text[*start..*end])
+            .collect();
+        assert_eq!(found, ["[!info]"]);
+        // The same line on its own is a header, nested quote markers and all.
+        assert_eq!(callout_headers(">> [!todo] Nested\n").len(), 1);
     }
 
     #[test]

@@ -272,6 +272,35 @@ fn text_from(content: &str, offset: usize) -> &str {
     &content[offset..]
 }
 
+/// The `[!type]` header that opens a callout, as a byte range of `content`: from
+/// the `[` through the `]` and Obsidian's optional `-`/`+` fold marker.
+///
+/// `content` is a whole line, so the walk starts at its first byte — which is
+/// also where [`scan_line`] starts it, so the two agree that an indented `>` is
+/// ordinary quote text rather than a callout.
+pub(super) fn callout_header_range(content: &str) -> Option<(usize, usize)> {
+    let start = quote_content_start(content);
+    // `callout_header` counts from the `[!`, so its ends are relative to `start`.
+    let (_, _, header_end, _) = callout_header(&content[start..])?;
+    Some((start, start + header_end))
+}
+
+/// Where a blockquote line's content begins: past its `>` markers and the single
+/// optional space after each. The same walk [`scan_line`] does while it draws
+/// those markers; byte indexing is enough because `>` and a space are one byte
+/// each.
+fn quote_content_start(content: &str) -> usize {
+    let bytes = content.as_bytes();
+    let mut i = 0;
+    while bytes.get(i) == Some(&b'>') {
+        i += 1;
+        if bytes.get(i) == Some(&b' ') {
+            i += 1;
+        }
+    }
+    i
+}
+
 /// The `[!type]` header that opens a callout, matched against the text after a
 /// blockquote's `>` markers.
 ///

@@ -73,11 +73,17 @@ pub(crate) fn range(
 
 /// The diagnostics of one `textDocument/publishDiagnostics` notification, placed
 /// in `text`. A diagnostic whose range cannot be placed is skipped: a squiggle in
-/// the wrong place is worse than no squiggle.
+/// the wrong place is worse than no squiggle. One that falls entirely inside a
+/// callout's `[!type]` header is dropped too, because the checker does not know
+/// callouts and reads the type name as prose; a note that only touches the
+/// marker's edge is kept, because then part of it is about prose.
 pub(crate) fn diagnostics(params: &Value, text: &str) -> Vec<Diagnostic> {
     let Some(list) = params.get("diagnostics").and_then(Value::as_array) else {
         return Vec::new();
     };
+    // Markup the checker has never heard of. Worked out once per publish, which
+    // is cheap: publishes are debounced and a note is one document.
+    let markup = shale_core::mdstyle::callout_headers(text);
     let mut out = Vec::with_capacity(list.len());
     for entry in list {
         let Some(start) = position(entry, "start") else {
@@ -89,6 +95,12 @@ pub(crate) fn diagnostics(params: &Value, text: &str) -> Vec<Diagnostic> {
         let Some((start, end)) = range(text, start, end) else {
             continue;
         };
+        if markup
+            .iter()
+            .any(|&(mark_start, mark_end)| mark_start <= start && end <= mark_end)
+        {
+            continue;
+        }
         out.push(Diagnostic {
             start,
             end,
@@ -337,6 +349,36 @@ mod tests {
         assert_eq!(found[0].code, "SpellCheck");
         assert_eq!(&text[found[0].start..found[0].end], "thier");
         assert!(found[0].message.contains("thier"));
+    }
+
+    /// Harper has never heard of Obsidian callouts: it reads the type name in
+    /// `> [!info]` as a sentence that does not start with a capital letter, and
+    /// underlines the one word the box needs in order to be a box. The marker is
+    /// markup, so its notes are dropped — while the title and the body, which are
+    /// prose the user wrote, are still checked.
+    #[test]
+    fn a_note_inside_a_callout_marker_is_dropped() {
+        let text = "> [!info] Heads up\n> This is wrogn.\n";
+        let params = serde_json::json!({
+            "uri": "file:///a.md",
+            "diagnostics": [
+                {
+                    "message": "This sentence does not start with a capital letter",
+                    "code": "SentenceCapitalization",
+                    "range": { "start": { "line": 0, "character": 4 },
+                               "end": { "line": 0, "character": 8 } }
+                },
+                {
+                    "message": "Did you mean to spell `wrogn` this way?",
+                    "code": "SpellCheck",
+                    "range": { "start": { "line": 1, "character": 10 },
+                               "end": { "line": 1, "character": 15 } }
+                }
+            ]
+        });
+        let found = diagnostics(&params, text);
+        assert_eq!(found.len(), 1, "the marker's note goes, the body's stays");
+        assert_eq!(&text[found[0].start..found[0].end], "wrogn");
     }
 
     #[test]

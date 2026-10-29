@@ -301,8 +301,8 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
 - Run the test binaries under `ulimit -v` when working on anything that scans
   text (a scanner bug can allocate until the OOM killer takes the editor down —
   see the table postmortem).
-  Current peak RSS of the test binaries (2026-10-28, app 154 / core 220 / mcp 6
-  tests): core 6 MB, app 50 MB, mcp 3.5 MB. The
+  Current peak RSS of the test binaries (2026-10-28, app 155 / core 223 / mcp 6
+  tests): core 6 MB, app 49 MB, mcp 3.5 MB. The
   app binary's *address space* (not RSS) is far larger because of gpui/wgpu
   reservations, and it now needs **4 GB or more** — a 1 GB cap makes it die in an
   80-byte allocation. Build with `cargo test --workspace --no-run`, then run each
@@ -1622,6 +1622,26 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
     closing a note the server never saw, closing one it holds). core 220 and mcp 6
     unchanged; peak RSS unchanged. **Not verified live:** the cursor shape (no
     headless assertion for `Frame::cursor_style`) and the theme preview.
+- **A callout's marker is markup, not prose (2026-10-28).** Reported live: `info`
+  and `warning` came back underlined "despite being required for the callouts to
+  work". Probed harper-ls 2.8 directly: it answers `SentenceCapitalization` over
+  exactly the type name (`> [!info]` → line 0, units 4..8), reading the header as
+  the start of a sentence. So `shale_core::mdstyle::callout_headers(text)` now
+  answers which byte ranges are a callout's `[!type]` header — brackets, type name
+  and Obsidian's `-`/`+` fold marker — walking the same open/closed state as
+  `style_spans`, because consecutive blockquote lines are **one** box: a second
+  header inside an open callout is body text, and a checker may still speak about
+  it. `lsp::mapping::diagnostics` drops a note that falls *entirely* inside such a
+  range and keeps one that only touches its edge, since then part of the note is
+  about the title or the body, which are prose the user wrote.
+  - **Tests:** core 223 (was 220) — the ranges, only-a-real-headers-opens-a-box, a
+    header inside an open box is body text. App 155 (was 154) — a marker's note
+    dropped while the body's misspelling is kept.
+  - The same trick is available for anything else the checker misreads as prose.
+    Known next: code spans and frontmatter, which are checked today because
+    `isolateEnglish` is off; a `Style`-driven "is this markup" question would
+    cover both, and would want the ranges computed once per document rather than
+    once per publish.
 - **Module sizes.** `editor.rs` and `main.rs` both passed the 1000-line mark in
   `AGENTS.md`, so they are now directories: `editor/{mod,wrap,render,actions,input}.rs`
   (a submodule can reach `MarkdownEditor`'s private state because they are all
@@ -1637,11 +1657,11 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   `picker.rs` 641, `tests/popup.rs` 671,
   `editor/mod.rs` 617, `table/edit.rs` 640, `table/mod.rs` 590,
   `editor/render.rs` 570,
-  `tests/tree.rs` 515, `lsp/mapping.rs` 454,
+  `tests/tree.rs` 515, `lsp/mapping.rs` 496,
   `tests/motions.rs` 442, `tests/picker.rs` 459, `markdown.rs` 416,
   `workspace/edits.rs` 415, `editor/wrap.rs` 395,
-  `workspace/popups.rs` 370, `tests/keys.rs` 347, `mdstyle/block.rs` 403,
-  `mdstyle/mod.rs` 454, `field.rs` 335, `fold.rs` 332, `prompt.rs` 259,
+  `workspace/popups.rs` 370, `tests/keys.rs` 347, `mdstyle/block.rs` 432,
+  `mdstyle/mod.rs` 530, `field.rs` 335, `fold.rs` 332, `prompt.rs` 259,
   `fuzzy.rs` 324, `workspace/open.rs` 306, `popup.rs` 286, `rename.rs` 195, and the other
   `workspace/` submodules at 256/217/215/138/133 (`render`, `keys`, `tree`,
   `commands`, `themes`). New this round: `ex.rs` 114 and `workspace/themes.rs` 155. `tests/keys.rs`
