@@ -241,6 +241,60 @@ fn escape_closes_the_panel_and_returns_the_keyboard(cx: &mut TestAppContext) {
     );
 }
 
+/// Whether the note is what holds the keyboard.
+fn note_has_keys(cx: &mut VisualTestContext, window: &WindowHandle<Workspace>) -> bool {
+    window
+        .update(cx, |ws, window, cx| {
+            ws.editor().read(cx).focus_handle.is_focused(window)
+        })
+        .unwrap()
+}
+
+/// A click in the note, outside the panel, ends the panel.
+///
+/// The click takes the keyboard off the panel whether the window agrees or not,
+/// because gpui focuses whatever the pointer clicked. A panel left up and
+/// unfocused is the worst of both: `escape` goes to vim rather than closing it,
+/// and a hover will not replace a panel that `K` asked for, so no new panel can
+/// open either. Closing on the click is what the picker and the command line
+/// already do, and a click on one of the panel's rows never reaches here.
+#[gpui::test]
+fn a_click_in_the_note_ends_the_panel(cx: &mut TestAppContext) {
+    let (_dir, window) = marked_note(
+        cx,
+        "Thier spelling is wrogn.\n",
+        &[("Did you mean to spell `thier` this way?", 0, 5)],
+    );
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    paint(cx);
+
+    cx.simulate_keystrokes("^ shift-k");
+    assert!(shown(cx, &window), "the panel is up");
+    assert!(!note_has_keys(cx, &window), "and it holds the keyboard");
+    let (_below, _top, bottom) = place(cx, &window);
+
+    // Clear of the panel both ways, and on the note.
+    cx.simulate_click(
+        gpui::point(gpui::px(1200.), bottom + gpui::px(80.)),
+        gpui::Modifiers::none(),
+    );
+    assert!(!shown(cx, &window), "the panel made way for the click");
+    assert!(
+        note_has_keys(cx, &window),
+        "and the keyboard came back with it"
+    );
+
+    // A hover can ask again, which is what the panel left up and unfocused
+    // blocked: it was neither closable nor replaceable.
+    hover_at(cx, &window, 0, 2);
+    assert!(shown(cx, &window), "hover opens a panel again");
+    assert_eq!(
+        saying(cx, &window).as_deref(),
+        Some("Did you mean to spell `thier` this way?"),
+        "about the word under the pointer"
+    );
+}
+
 /// A picker and a panel are never up together. The picker is modal in a way the
 /// panel is not, so it closes the panel on its way in. `ctrl-shift-p` is the key
 /// that gets there: the panel holds the keyboard, so the vim chords that live in

@@ -305,10 +305,10 @@ impl Workspace {
     /// Close the overlays that float over the note, because the pointer clicked
     /// somewhere that was not one of them.
     ///
-    /// The picker and vim's command line both float over the note, and a click
-    /// under either used to belong to nothing: the panel stayed up until `escape`.
-    /// The panels stop their own clicks on the way to this handler, so a click on a
-    /// row, or in the field, is still only a click inside the panel.
+    /// The picker, vim's command line and the checker's panel all float over the
+    /// note, and a click under one used to belong to nothing: the panel stayed up
+    /// until `escape`. The panels stop their own clicks on the way to this handler,
+    /// so a click on a row, or in the field, is still only a click inside the panel.
     ///
     /// The sidebar's prompts are deliberately *not* dismissed this way. They are
     /// part of the sidebar's layout rather than a panel over the note, and a name
@@ -328,6 +328,15 @@ impl Workspace {
             // was the user putting the cursor somewhere else, not abandoning the
             // query — `n` still works.
             self.close_prompt(window, cx);
+        }
+        // The checker's panel has a second reason to go here that the others do
+        // not: the click takes the keyboard off it whether the window agrees or
+        // not, because gpui focuses what the pointer clicked. A panel left up and
+        // unfocused is the worst of both — `escape` goes to vim instead of closing
+        // it, and a hover will not replace a panel that `K` asked for — so the
+        // panel goes with the keyboard, and `close_popup` hands the keyboard back.
+        if self.popup.is_some() {
+            self.close_popup(window, cx);
         }
     }
 }
