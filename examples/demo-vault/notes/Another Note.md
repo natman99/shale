@@ -1,1 +1,1 @@
-Back to [[welcome]].
+Back to [[Welcome]].
