@@ -3,3 +3,8 @@ styles/
 __pycache__/
 # Local-only upstream docs (vim help files, Obsidian help pages). See refs/README.md.
 refs/
+# Shale's own per-vault state: its config, theme files, and (from roadmap P1) the
+# database and cache. The demo vault's config is committed once as a template and
+# then left to the vault, so a theme picked in a running app never dirties the
+# tree.
+.shale/
