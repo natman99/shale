@@ -51,6 +51,14 @@ pub struct EditorConfig {
     pub line_wrap: bool,
     /// Show the file tree on startup.
     pub show_file_tree: bool,
+    /// Write the note to disk on its own: once [`Self::autosave_after_ms`] has
+    /// passed with the typing stopped, when the window loses focus, and before a
+    /// quit. On by default — a note editor that can lose work is worse than one
+    /// that writes a file the user did not ask it to.
+    pub autosave: bool,
+    /// How long the note must sit untouched before an autosave writes it. Long
+    /// enough that it never lands between two keystrokes.
+    pub autosave_after_ms: u64,
 }
 
 impl Default for EditorConfig {
@@ -59,6 +67,8 @@ impl Default for EditorConfig {
             vim_mode: true,
             line_wrap: true,
             show_file_tree: true,
+            autosave: true,
+            autosave_after_ms: 2000,
         }
     }
 }
@@ -196,6 +206,11 @@ impl Config {
 vim_mode = true
 line_wrap = true
 show_file_tree = true
+# The note is written on its own: once typing has stopped for this long, when
+# the window loses focus, and before a quit. `:w` still works; it is just rarely
+# the difference between keeping the note and losing it.
+autosave = true
+autosave_after_ms = 2000
 
 [appearance]
 # The palette: a built-in, or the name of a file in .shale/themes/<name>.toml.
@@ -256,6 +271,25 @@ mod tests {
         assert_eq!(cfg.appearance.font_size, 14.0);
         assert_eq!(cfg.appearance.font_family, "");
         assert_eq!(cfg.appearance.theme, Palette::DEFAULT_NAME);
+    }
+
+    /// Autosave is on, and its pause is long enough to never land between two
+    /// keystrokes.
+    #[test]
+    fn autosave_is_on_and_waits_for_a_pause() {
+        let cfg = Config::from_toml("").unwrap();
+        assert!(cfg.editor.autosave);
+        assert_eq!(cfg.editor.autosave_after_ms, 2000);
+
+        let cfg = Config::from_toml("[editor]\nautosave = false\n").unwrap();
+        assert!(!cfg.editor.autosave);
+        // Turning it off does not invent a delay, and a delay without a number
+        // stays the default.
+        assert_eq!(cfg.editor.autosave_after_ms, 2000);
+
+        let cfg = Config::from_toml("[editor]\nautosave_after_ms = 500\n").unwrap();
+        assert_eq!(cfg.editor.autosave_after_ms, 500);
+        assert!(cfg.editor.autosave);
     }
 
     #[test]

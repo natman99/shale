@@ -92,15 +92,21 @@ Small, unblocking, and three of them are already-parked user requests.
   template (byte-identical to `Config::starter()`), then untracked and covered by
   `.gitignore`, so app-written config and the future DB never dirty the tree.
   **This landed before the DB**, so the DB's home is decided once: `.shale/`.
-- **P0.2 Autosave** (parked #8). **2 s idle debounce** + on-blur + on-quit
-  (decided 2026-10-28); makes `:w` the no-op the user already assumes it is.
-  Pairs with P1's shutdown rule. Snapshot triggers deliberately do NOT key off
+- **P0.2 Autosave** (parked #8) — **DONE 2026-10-28.** **2 s idle debounce**
+  (`editor.autosave_after_ms`) + **on blur** (`observe_window_activation`) + the
+  write-before-quit that already existed. `editor.autosave` defaults **on**. The
+  status bar's `●` is the report; only a failed write prints. **Not** a no-op `:w`
+  — with the setting off a no-op would lose work, so `:w` and `ctrl-s` stay real
+  saves. There is no on-close hook in gpui v1.25.3, so a WM close is covered by the
+  debounce and the blur only. Pairs with P1's shutdown rule. Snapshot triggers
+  deliberately do NOT key off
   autosaves (see brainstorm "Autosave × time machine").
 - **P0.3 Module splits** (parked #10). Measured 2026-10-28: `vim.rs` **2397**,
   `buffer.rs` **1786**, `theme/mod.rs` **1270** (the roadmap's first draft missed
   this one), `line.rs` **971** — at the line, and the natural split is `line.rs`
-  (the element) + `runs.rs` (the run builder and style map). Do this *before* the
-  graph adds more app-side files.
+  (the element) + `runs.rs` (the run builder and style map) — and
+  `workspace/mod.rs` **970**, which autosave pushed up to the rule. Do this
+  *before* the graph adds more app-side files.
 - **P0.4 Scrolling popup + scrolling picker** (parked #2, #3) — one shared
   height/scroll model, fixes the eighth-harper-offer cutoff and big-vault
   quick-open truncation.

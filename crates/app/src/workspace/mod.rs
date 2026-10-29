@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Duration;
 
-use gpui::{prelude::*, Context, Entity, SharedString, Subscription, Window};
+use gpui::{prelude::*, Context, Entity, SharedString, Subscription, Task, Window};
 use shale_core::theme::{self, Palette};
 use shale_core::vault::VaultEntry;
 use shale_core::watch::{Stamp, VaultChanges};
@@ -129,6 +129,18 @@ pub(crate) struct Workspace {
     status: SharedString,
     editor: Entity<MarkdownEditor>,
     _editor_events: Subscription,
+    /// Bumped by every edit to the note. A debounce timer writes only if the
+    /// number it was started with is still the current one, so a burst of typing
+    /// becomes one write at the end of the pause rather than one per keystroke.
+    autosave_seq: u64,
+    /// The autosave countdown currently parked. Replacing it drops the old timer;
+    /// [`Workspace::autosave_seq`] is the belt to that brace, because a timer that
+    /// already woke up is stopped by the number, not by the drop.
+    _autosave: Option<Task<()>>,
+    /// The window-activation subscription: losing focus writes the note at once
+    /// instead of waiting out the countdown. `attach_window` adds it, because that
+    /// is where there is a window to observe.
+    _activation_events: Option<Subscription>,
     /// The pointer-over-the-note subscription. It needs a window to hand the
     /// keyboard to, so `attach_window` adds it rather than `new`.
     _hover_events: Option<Subscription>,
@@ -181,9 +193,13 @@ impl Workspace {
         });
         let editor_events = cx.subscribe(&editor, |ws, _editor, event, cx| match event {
             EditorEvent::FollowLink { target } => ws.follow_link(target, cx),
-            // The buffer moved, so the checker's copy of the note is out of date.
-            // `Spell::changed` debounces, so a typed word is one request.
-            EditorEvent::Changed => ws.send_note_to_checker(cx),
+            // The buffer moved, so the checker's copy of the note is out of date
+            // (`Spell::changed` debounces, so a typed word is one request) and the
+            // autosave countdown restarts.
+            EditorEvent::Changed => {
+                ws.send_note_to_checker(cx);
+                ws.queue_autosave(cx);
+            }
             // Hover is answered by the subscription `attach_window` adds, which is
             // the one that has a window to hand the keyboard to.
             EditorEvent::Hovered { .. } => {}
@@ -259,6 +275,9 @@ impl Workspace {
             status: "".into(),
             editor,
             _editor_events: editor_events,
+            autosave_seq: 0,
+            _autosave: None,
+            _activation_events: None,
             _hover_events: None,
             _keystroke_observer: keystroke_observer,
         }
@@ -286,6 +305,15 @@ impl Workspace {
                 EditorEvent::FollowLink { .. } | EditorEvent::Changed => {}
             },
         ));
+        self._activation_events = Some(cx.observe_window_activation(window, |ws, window, cx| {
+            // Losing focus is the other half of "the user stopped typing": they
+            // have gone somewhere else with the note still ahead of the disk, so
+            // it is written now rather than after the countdown. Activating again
+            // has nothing to catch up on.
+            if !window.is_window_active() {
+                ws.autosave(cx);
+            }
+        }));
     }
 
     pub(crate) fn open_note(&mut self, path: &PathBuf, cx: &mut Context<Self>) {
@@ -531,10 +559,11 @@ impl Workspace {
 
     /// Quit, writing the open note first when it holds unsaved edits.
     ///
-    /// Shale has no autosave, so a quit that dropped the buffer would lose work the
-    /// user can see on screen. `ctrl-q`, `:q` and `:wq` all come through here
-    /// because the danger is the same; `:wq` asks for the write whether or not the
-    /// note is dirty.
+    /// Autosave usually has already written it, but a quit can come in the middle
+    /// of the countdown, and work the user can see on screen must not be lost to a
+    /// keystroke timing. `ctrl-q`, `:q` and `:wq` all come through here because the
+    /// danger is the same; `:wq` asks for the write whether or not the note is
+    /// dirty.
     pub(super) fn quit(&mut self, _: &Quit, window: &mut Window, cx: &mut Context<Self>) {
         let dirty = self.editor.read_with(cx, |editor, _cx| editor.is_dirty());
         if dirty {
@@ -570,6 +599,82 @@ impl Workspace {
             }
         }
         cx.notify();
+    }
+
+    /// Restart the autosave countdown for an edit that just happened.
+    ///
+    /// Every keystroke replaces the parked timer, so what fires is one write after
+    /// the typing stopped — `editor.autosave_after_ms` of quiet, which is two
+    /// seconds by default. Dropping the old [`Task`] stops its timer; the sequence
+    /// number is what stops a timer that had already woken from writing a note the
+    /// user has since edited again.
+    ///
+    /// The `editor.autosave` check here is only so a setting that is off does not
+    /// park a timer for nothing; [`Workspace::autosave`] is where the setting
+    /// actually governs.
+    fn queue_autosave(&mut self, cx: &mut Context<Self>) {
+        if !self.config.editor.autosave {
+            return;
+        }
+        self.autosave_seq += 1;
+        let seq = self.autosave_seq;
+        let delay = Duration::from_millis(self.config.editor.autosave_after_ms);
+        self._autosave = Some(cx.spawn(async move |ws, cx| {
+            cx.background_executor().timer(delay).await;
+            // The weak handle is what stops a timer outliving its window, and the
+            // sequence number is what stops it writing a note that has been edited
+            // again since it was parked.
+            let _ = ws.update(cx, |ws, cx| {
+                if ws.autosave_seq == seq {
+                    ws.autosave(cx);
+                }
+            });
+        }));
+    }
+
+    /// Write the open note when it holds edits — quietly. No status-line report:
+    /// this runs on a timer and on every blur, so a message each time would bury
+    /// everything the bar is for. The dot going out is the signal that it worked.
+    ///
+    /// Nothing is skipped for an open prompt. A rename re-points the open note at
+    /// the new path when it applies, so writing the old path first just means the
+    /// renamed file has the edits in it — which is the outcome the user wanted and
+    /// did not have to stop typing for.
+    ///
+    /// `editor.autosave` is checked here rather than only where the countdown is
+    /// parked, so the setting governs every way in: the timer, the blur, and any
+    /// shutdown path that calls this later.
+    fn autosave(&mut self, cx: &mut Context<Self>) {
+        if !self.config.editor.autosave {
+            return;
+        }
+        if !self.editor.read_with(cx, |editor, _cx| editor.is_dirty()) {
+            return;
+        }
+        let Some(path) = self.active.clone() else {
+            return;
+        };
+        let text = self.editor.read_with(cx, |editor, _cx| editor.text());
+        match self.vault.write(&path, &text) {
+            Ok(()) => {
+                self.editor.update(cx, |editor, _cx| editor.mark_clean());
+                // Our own write must not come back as somebody else's edit.
+                self.resign();
+                tracing::debug!(path = %path.display(), "autosaved");
+            }
+            Err(err) => {
+                tracing::warn!(path = %path.display(), "autosave failed: {err:#}");
+                self.status = format!("autosave failed: {err:#}").into();
+                cx.notify();
+            }
+        }
+    }
+
+    /// What the countdown and the blur hook do, without waiting for either: how a
+    /// test checks the write, and what a future shutdown path calls.
+    #[cfg(test)]
+    pub(crate) fn autosave_now(&mut self, cx: &mut Context<Self>) {
+        self.autosave(cx);
     }
 
     /// `ctrl-w h`: move the keyboard to the panel on the left.
@@ -683,6 +788,13 @@ impl Workspace {
     #[cfg(test)]
     pub(crate) fn buffer_is_dirty<C: gpui::AppContext>(&self, cx: &C) -> bool {
         self.editor.read_with(cx, |editor, _cx| editor.is_dirty())
+    }
+
+    /// What the status bar shows for the save state: how a test checks that the
+    /// dot is lit while the note is ahead of the disk and gone once it is not.
+    #[cfg(test)]
+    pub(crate) fn dirty_indicator(&self, cx: &gpui::App) -> &'static str {
+        save_indicator(self.editor.read(cx).is_dirty())
     }
 
     /// The cursor's buffer position (row, column), 0-based: how a test checks
@@ -832,6 +944,19 @@ fn note_keys(entries: &[VaultEntry]) -> HashSet<String> {
         }
     }
     keys
+}
+
+/// The status bar's save indicator: a note that is ahead of the disk. Empty when
+/// the note is written, so the mark appearing and disappearing is the whole
+/// message — and it is drawn in the palette's accent rather than in the text
+/// colour, because it is the one thing in the bar the user has to notice without
+/// looking for it.
+pub(crate) fn save_indicator(dirty: bool) -> &'static str {
+    if dirty {
+        "●"
+    } else {
+        ""
+    }
 }
 
 /// The mode as the status bar shows it.

@@ -10,6 +10,7 @@ use crate::editor::MarkdownEditor;
 use crate::workspace::{keybindings, Workspace};
 use gpui::{Focusable, TestAppContext, VisualTestContext, WindowHandle};
 
+mod autosave;
 mod blocks;
 mod commands;
 mod keys;
@@ -27,6 +28,24 @@ pub(crate) fn workspace(
     cx: &mut TestAppContext,
     files: &[&str],
 ) -> (tempfile::TempDir, WindowHandle<Workspace>) {
+    // The default config asks for a spell and grammar server, which is a real
+    // process per window. The tests here are about the window, not the checker
+    // (`tests::spell` and `crate::lsp` cover that), and a `harper-ls` per test is
+    // hundreds of megabytes of other people's dictionaries.
+    let mut config = Config::default();
+    config.spellcheck.enabled = false;
+    workspace_with(cx, files, config)
+}
+
+/// The same, with the config the caller chose: how a test turns autosave off, or
+/// gives the window a theme. Whatever is passed, the caller owns the checker
+/// setting — a real `harper-ls` per window is hundreds of megabytes of
+/// dictionaries, so a test that does not mean to test the checker turns it off.
+pub(crate) fn workspace_with(
+    cx: &mut TestAppContext,
+    files: &[&str],
+    config: Config,
+) -> (tempfile::TempDir, WindowHandle<Workspace>) {
     let dir = tempfile::tempdir().unwrap();
     for name in files {
         let path = dir.path().join(name);
@@ -36,12 +55,6 @@ pub(crate) fn workspace(
         std::fs::write(&path, "").unwrap();
     }
     let vault = Rc::new(Vault::open(dir.path()).unwrap());
-    // The default config asks for a spell and grammar server, which is a real
-    // process per window. The tests here are about the window, not the checker
-    // (`tests::spell` and `crate::lsp` cover that), and a `harper-ls` per test is
-    // hundreds of megabytes of other people's dictionaries.
-    let mut config = Config::default();
-    config.spellcheck.enabled = false;
     cx.update(|cx| cx.bind_keys(keybindings()));
     let window = cx.add_window(|_window, cx| Workspace::new(vault.clone(), Rc::new(config), cx));
     window

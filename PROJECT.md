@@ -310,9 +310,9 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
 - Run the test binaries under `ulimit -v` when working on anything that scans
   text (a scanner bug can allocate until the OOM killer takes the editor down —
   see the table postmortem).
-  Current peak RSS of the test binaries (2026-10-28, app 156 / core 256 / mcp 6
-  tests — core's count includes the graph agent's in-flight `graph::` tests, six
-  of which were failing while this was written): core 7.5 MB, app 51 MB,
+  Current peak RSS of the test binaries (2026-10-28, app 162 / core 280 / mcp 6
+  tests — core's count includes the graph agent's `graph::` tests, which are
+  committed and green as of `afdf559`): core 7.3 MB, app 52 MB,
   mcp 3.4 MB. The
   app binary's *address space* (not RSS) is far larger because of gpui/wgpu
   reservations, and it now needs **4 GB or more** — a 1 GB cap makes it die in an
@@ -1666,6 +1666,42 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
     `isolateEnglish` is off; a `Style`-driven "is this markup" question would
     cover both, and would want the ranges computed once per document rather than
     once per publish.
+- **Autosave — done (2026-10-28, P0.2 / parked #8).** Two new settings,
+  `editor.autosave` (default **on**) and `editor.autosave_after_ms` (default
+  **2000**). The shape is a *debounce*, not a throttle: every `EditorEvent::Changed`
+  calls `Workspace::queue_autosave`, which drops the parked [`Task`] (stopping its
+  timer) and parks a new one, so a burst of typing is one write after the typing
+  stops. A `u64` sequence number is the belt to that brace: a timer that had
+  already woken, before its `Task` was dropped, is refused by the `update` because
+  the sequence moved. `Workspace::autosave` is the single entry point and checks
+  `editor.autosave` **there**, not only where the countdown is parked — a gate in
+  `queue_autosave` alone let the blur write with the setting off, which the
+  `autosave_off` test caught.
+  **On blur:** `attach_window` adds `cx.observe_window_activation`, and saves when
+  `!window.is_window_active()`. **On quit** the old guarantee still holds — `:q`,
+  `:wq` and `ctrl-q` write a dirty note first — and `quit`'s comment says so.
+  **There is no on-close hook to write:** gpui v1.25.3 has no window-teardown
+  observer an app can subscribe to (`WindowHandle`'s close path only reaches
+  `App::quit()` → `platform.quit()`, and the test platform's `quit()` is empty).
+  A WM close button therefore relies on the debounce and the blur, not on a
+  shutdown write; revisit if a later gpui adds one.
+  **Test gotcha worth remembering:** gpui's test platform opens a window *without*
+  activating it, and `VisualTestContext::deactivate_window` only sends the blur to
+  the window it believes is active — so a blur test must call
+  `window.activate_window()` first. Second gotcha: `advance_clock` lives on
+  `BackgroundExecutor`, and calling it from inside `cx.update(...)` re-enters the
+  app and panics with `RefCell already borrowed` (`async_context.rs:66`); take
+  `cx.executor()` from the `TestAppContext` *before* building the
+  `VisualTestContext`. A simulated `timer` also needs `run_until_parked` after the
+  clock moves.
+  **The dirty indicator already existed** — a `●` in the status bar (`render.rs`),
+  uncoloured and undocumented — so this upgraded it rather than adding a second:
+  it is now its own element in the accent colour, and `save_indicator` is the one
+  place that decides. It is the autosave's whole report; a successful autosave
+  prints nothing to the bar, because a message every two seconds of quiet would
+  bury everything the bar is for. Only a *failed* write says anything.
+  `:w` stays a real save: a literal no-op would lose work for anyone running with
+  `autosave = false`.
 - **Module sizes.** `editor.rs` and `main.rs` both passed the 1000-line mark in
   `AGENTS.md`, so they are now directories: `editor/{mod,wrap,render,actions,input}.rs`
   (a submodule can reach `MarkdownEditor`'s private state because they are all
@@ -1675,8 +1711,9 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   `CalloutKind`, `StyleSpan`, the line walk and the tests, `block.rs` classifies
   each line, `inline.rs` styles the text inside it. `main.rs` passed it again
   with the file tree, and is now `main.rs` (122) + `acts.rs` + `workspace/`.
-  Largest files now: `vim.rs` 2357, `buffer.rs` 1786, `core/theme/mod.rs` 1270,
-  `line.rs` 971, `workspace/mod.rs` 837, `tests/paint.rs`
+  Largest files now: `vim.rs` 2397, `buffer.rs` 1786, `core/theme/mod.rs` 1270,
+  `line.rs` 971, `workspace/mod.rs` 970 (autosave put it there — it is the next to
+  cross, so P0.3 should take it too), `tests/paint.rs`
   806, `vault.rs` 750, `lsp/mod.rs` 687, `lsp/document.rs` 257,
   `picker.rs` 641, `tests/popup.rs` 671,
   `editor/mod.rs` 617, `table/edit.rs` 640, `table/mod.rs` 590,
@@ -1864,11 +1901,10 @@ conversation. Roughly in order of what they have said they want.
 7. **Horizontal scrolling** for a table wider than the window, and for long
    unwrapped rows. Also the wide-glyph column widths, which the shaped-geometry
    display columns would settle along with j/k accuracy.
-8. **Autosave.** The user's mental model is that Shale autosaves (`:w` was asked
-   for as a no-op on that assumption). It does not: `save` is `ctrl-s` only. For now
-   `:q`, `:wq` and `ctrl-q` write a dirty note before closing so nothing is lost,
-   and `:w` is a real save. A real autosave (debounced, on blur, on quit) is the
-   thing that would make `:w` the no-op they expect.
+8. ~~Autosave~~ **Done 2026-10-28** (P0.2): a 2 s idle debounce, on blur, and the
+   existing write-before-quit. See the autosave thread in Open threads — including
+   why there is no on-close hook in this gpui. `:w` is still a real save, which is
+   the one part of the user's assumption this did *not* give them.
 9. ~~Persisting a live theme switch~~ **Done 2026-10-28** with (12): a theme the
    user chooses is spliced into `<vault>/.shale/config.toml` at once. See the
    config thread in Open threads.

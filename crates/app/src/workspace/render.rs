@@ -9,7 +9,7 @@ use crate::prompt;
 use crate::tree;
 
 use super::tree::{push_node, TreeState};
-use super::{mode_label, Workspace};
+use super::{mode_label, save_indicator, Workspace};
 
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -74,11 +74,7 @@ impl Render for Workspace {
         }
 
         let mode = mode_label(self.editor.read(cx).mode());
-        let dirty = if self.editor.read(cx).is_dirty() {
-            "●"
-        } else {
-            ""
-        };
+        let dirty = save_indicator(self.editor.read(cx).is_dirty());
         let pending = self.editor.read(cx).pending_hint();
         let (line, col) = self.editor.read(cx).display_position();
         // The checker's count, so "no underlines" can be told apart from "the
@@ -234,7 +230,19 @@ impl Render for Workspace {
                     .text_xs()
                     .bg(gpui::rgb(self.palette.ui_status_bg))
                     .text_color(gpui::rgb(self.palette.ui_fg))
-                    .child(format!("{mode}{pending}{dirty}"))
+                    .child(format!("{mode}{pending}"))
+                    // The save state gets its own element and the palette's
+                    // accent rather than riding along in the mode string: it is
+                    // the one part of the bar the user has to read without
+                    // looking for it, and it is what tells them an autosave
+                    // happened.
+                    .when(!dirty.is_empty(), |d| {
+                        d.child(
+                            div()
+                                .text_color(gpui::rgb(self.palette.accent))
+                                .child(dirty),
+                        )
+                    })
                     .child(self.status.clone())
                     .child(spell)
                     .child(format!("{}:{}", line + 1, col + 1)),
