@@ -101,12 +101,13 @@ Small, unblocking, and three of them are already-parked user requests.
   debounce and the blur only. Pairs with P1's shutdown rule. Snapshot triggers
   deliberately do NOT key off
   autosaves (see brainstorm "Autosave × time machine").
-- **P0.3 Module splits** (parked #10). Measured 2026-10-28: `vim.rs` **2397**,
-  `buffer.rs` **1786**, `theme/mod.rs` **1270** (the roadmap's first draft missed
-  this one), `line.rs` **971** — at the line, and the natural split is `line.rs`
-  (the element) + `runs.rs` (the run builder and style map) — and
-  `workspace/mod.rs` **970**, which autosave pushed up to the rule. Do this
-  *before* the graph adds more app-side files.
+- **P0.3 Module splits** (parked #10) — **DONE 2026-10-28.** The three over the
+  rule are directories: `vim.rs` (2397) → `vim/{mod,motions,operators,tables,visual}.rs`
+  + `vim/tests/`, `buffer.rs` (1786) → `buffer/{mod,lines,folds,display,motions,words,edits}.rs`
+  + `buffer/tests.rs`, `theme/mod.rs` (1270) → `theme/{mod,builtins}.rs` +
+  `theme/tests.rs`. **Nothing is over 1000 lines now**; `line.rs` (971) and
+  `workspace/mod.rs` (970) are sitting on the line and split when next touched
+  (see the module-sizes thread in Open threads for how each would go).
 - **P0.4 Scrolling popup + scrolling picker** (parked #2, #3) — one shared
   height/scroll model, fixes the eighth-harper-offer cutoff and big-vault
   quick-open truncation.

@@ -310,9 +310,9 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
 - Run the test binaries under `ulimit -v` when working on anything that scans
   text (a scanner bug can allocate until the OOM killer takes the editor down —
   see the table postmortem).
-  Current peak RSS of the test binaries (2026-10-28, app 162 / core 280 / mcp 6
-  tests — core's count includes the graph agent's `graph::` tests, which are
-  committed and green as of `afdf559`): core 7.3 MB, app 52 MB,
+  Current peak RSS of the test binaries (2026-10-28, app 162 / core 281 with 5
+  ignored / mcp 6 tests — core's count includes the graph agent's `graph::` tests,
+  which are committed and green): core 7.4 MB, app 50 MB,
   mcp 3.4 MB. The
   app binary's *address space* (not RSS) is far larger because of gpui/wgpu
   reservations, and it now needs **4 GB or more** — a 1 GB cap makes it die in an
@@ -1711,32 +1711,47 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   `CalloutKind`, `StyleSpan`, the line walk and the tests, `block.rs` classifies
   each line, `inline.rs` styles the text inside it. `main.rs` passed it again
   with the file tree, and is now `main.rs` (122) + `acts.rs` + `workspace/`.
-  Largest files now: `vim.rs` 2397, `buffer.rs` 1786, `core/theme/mod.rs` 1270,
-  `line.rs` 971, `workspace/mod.rs` 970 (autosave put it there — it is the next to
-  cross, so P0.3 should take it too), `tests/paint.rs`
-  806, `vault.rs` 750, `lsp/mod.rs` 687, `lsp/document.rs` 257,
-  `picker.rs` 641, `tests/popup.rs` 671,
-  `editor/mod.rs` 617, `table/edit.rs` 640, `table/mod.rs` 590,
-  `editor/render.rs` 570,
-  `tests/tree.rs` 515, `lsp/mapping.rs` 496,
-  `tests/motions.rs` 442, `tests/picker.rs` 459, `markdown.rs` 416,
-  `workspace/edits.rs` 415, `editor/wrap.rs` 395,
-  `workspace/popups.rs` 370, `tests/keys.rs` 347, `mdstyle/block.rs` 432,
-  `mdstyle/mod.rs` 530, `field.rs` 335, `fold.rs` 332, `prompt.rs` 259,
-  `fuzzy.rs` 324, `workspace/open.rs` 306, `popup.rs` 286, `rename.rs` 195, and the other
-  `workspace/` submodules at 256/217/215/138/133 (`render`, `keys`, `tree`,
-  `commands`, `themes`). New this round: `ex.rs` 114 and `workspace/themes.rs` 155. `tests/keys.rs`
-  reached the rule's line and is now three: `keys.rs` (344: the keystroke shapes,
-  what each key resolves to per context, the chords), `motions.rs` (442: vim
-  motions, operators, text objects, visual mode, `.` and the undo chords driven
-  through the keymap) and `blocks.rs` (222: folding and the Enter marker
-  continuation). `vim.rs` and
-  and
-  `buffer.rs` are still
-  over the rule — split them the next time either one is touched; `line.rs` (the
-  element, the run builder and the table grid paint) grew to 973 with the
-  checker's underlines and is the next to cross it, so the split there is probably
-  `line.rs` (the element) and `runs.rs` (the run builder and the style map).
+  **The three that passed the rule are directories now (2026-10-28, P0.3).**
+  `vim.rs` (2397) is `vim/{mod,motions,operators,tables,visual}.rs` with the
+  tests in `vim/tests/{mod,motions,tables,visual,chords}.rs`: `mod.rs` keeps the
+  vocabulary (`Mode`, `Pending`, `Operator`, `Outcome`, the register, `Key`) and
+  the top-level dispatch (340), `motions.rs` is the normal-mode state machine
+  including the pending `g`/`f`/`i`/`z` prefixes (350), `operators.rs` is
+  `d`/`c`/`y` with the text objects and the register (186), `visual.rs` is `v`/`V`
+  and the selection (198), `tables.rs` is the table commands and the cell
+  stepping (205). `buffer.rs` (1786) is `buffer/{mod,lines,folds,display,motions,words,edits}.rs`
+  with the tests in `buffer/tests.rs` (606): the struct, the cursor and the
+  selection in `mod.rs` (144), then row geometry (85), the closed-fold set and
+  its cursor rules (145), the soft-wrap display model (109), the cursor motions
+  (271), words and paragraphs (183), and the edits with the undo history (222).
+  `theme/mod.rs` (1270) is `theme/{mod,builtins}.rs` plus `theme/tests.rs` (444):
+  the palette literals Shale ships are `builtins.rs` (187), and `mod.rs` kept the
+  `Palette` type, `apply`, the name lookup, `callout_accent`, the theme-file type
+  and the loader (656).
+  **What a split costs:** only the calls that cross a submodule boundary become
+  `pub(super)`. A submodule can always see its ancestors' private items, which is
+  why the shared helpers (`repeat`, `char_range`, `clamp`, `Snapshot`) stay in the
+  parent, and why the vocabulary stayed private to `vim::` — nothing outside the
+  module gained reach. Splitting a `mod tests { … }` block the same way works,
+  but note that a child test module's `use super::*` reaches the parent's own
+  `use`s, so the extra `use crate::vim::*` lines are dead weight.
+  Largest files now: `line.rs` 971, `workspace/mod.rs` 970 (autosave put it
+  there), `tests/paint.rs` 806, `vault.rs` 750, `lsp/mod.rs` 687,
+  `tests/popup.rs` 671, `theme/mod.rs` 656, `picker.rs` 641, `table/edit.rs` 640,
+  `buffer/tests.rs` 606, `editor/mod.rs` 617, `table/mod.rs` 590,
+  `editor/render.rs` 570, `tests/tree.rs` 515, `lsp/mapping.rs` 496,
+  `tests/picker.rs` 459, `theme/tests.rs` 444, `markdown.rs` 416,
+  `workspace/edits.rs` 415, `editor/wrap.rs` 395, `workspace/popups.rs` 370,
+  `tests/keys.rs` 347, `mdstyle/mod.rs` 530, `mdstyle/block.rs` 432,
+  `field.rs` 335, `fold.rs` 332, `fuzzy.rs` 324, `workspace/open.rs` 306,
+  `popup.rs` 286, `prompt.rs` 259, `lsp/document.rs` 257, `rename.rs` 195, and
+  the other `workspace/` submodules at 264/256/217/215/138/133 (`render`,
+  `keys`, `tree`, `commands`, `themes`), plus `ex.rs` 114.
+  Nothing is over the rule, but `line.rs` and `workspace/mod.rs` are sitting on
+  it: `line.rs` (the element, the run builder and the table grid paint) splits as
+  `line/mod.rs` (the element) + `line/runs.rs` (the run builder and the style
+  map), and `workspace/mod.rs` wants its pickers and prompts gathered out into
+  their own submodule the next time either one is touched.
 
 System dependency (Linux): `libxkbcommon-x11-devel` (plus fontconfig, freetype,
 x11, xcb, wayland dev packages) and a working Vulkan driver (the Linux renderer
@@ -1914,8 +1929,10 @@ conversation. Roughly in order of what they have said they want.
     directory's future tenants: the database and any cache, which P1 puts in
     `.shale/` too. `Vault::guard_unprotected` already refuses to let a rename or
     delete touch a dot directory, so `.shale` is safe from the file tree.
-10. **Module splits** (the `AGENTS.md` rule): `vim.rs` 2333 and `buffer.rs` 1786
-    are over it, and `line.rs` (973) is next — probably `line.rs` (the element) and
-    `runs.rs` (the run builder and the style map).
+10. ~~Module splits~~ **Done 2026-10-28** (P0.3): `vim.rs`, `buffer.rs` and
+    `theme/mod.rs` are directories now (see the module-sizes thread in Open
+    threads). Nothing is over the rule; `line.rs` (971) and `workspace/mod.rs`
+    (970) are the two sitting on it, and `line.rs` would split as the element
+    (`line/mod.rs`) and the run builder plus style map (`line/runs.rs`).
 11. **The `bench/` work the user drafted** in `d606dfc`. `ydotool` is allowed only
     there.
