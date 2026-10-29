@@ -581,9 +581,12 @@ impl Vim {
                 return Outcome::EnterInsert;
             }
             Key::Char('A') => {
-                // Likewise `A` appends at the end of the whole row.
+                // Likewise `A` appends at the end of the whole row. The step off
+                // the last character has to stay on the row: an empty row has no
+                // last character, and a plain `move_right` would cross the
+                // newline and start appending on the line below.
                 buf.row_last_char_motion();
-                buf.move_right();
+                buf.move_right_stay_on_line();
                 return Outcome::EnterInsert;
             }
             Key::Char('o') => {
@@ -792,7 +795,7 @@ impl Vim {
                 } else {
                     buf.set_cursor(hi.saturating_sub(1));
                     buf.row_last_char_motion();
-                    buf.move_right();
+                    buf.move_right_stay_on_line();
                 }
                 Outcome::EnterInsert
             }
@@ -1796,6 +1799,43 @@ mod tests {
         vim.handle_insert_key(Key::Escape);
         vim.handle_normal_key(Key::Char('A'), &mut b);
         assert_eq!(b.cursor(), 11);
+    }
+
+    /// `A` on an empty row appends *there*. Such a row has no last character to
+    /// step off, so a step that may cross the newline lands on the row below.
+    #[test]
+    fn a_on_an_empty_row_stays_on_that_row() {
+        let mut v = Vim::new();
+        let mut b = Buffer::new("one\n\nthree\n".to_string());
+        type_keys(&mut v, "j", &mut b);
+        assert_eq!(
+            b.row_col(b.cursor()).0,
+            1,
+            "the cursor starts on the empty row"
+        );
+        assert_eq!(
+            v.handle_normal_key(Key::Char('A'), &mut b),
+            Outcome::EnterInsert
+        );
+        assert_eq!(b.cursor(), 4, "the append belongs to the empty row");
+        assert_eq!(b.row_col(b.cursor()).0, 1);
+    }
+
+    /// The same trap for visual `A` when the selection's far row is empty.
+    #[test]
+    fn visual_a_on_a_selection_ending_on_an_empty_row() {
+        let mut v = Vim::new();
+        let mut b = Buffer::new("one\n\n".to_string());
+        type_keys(&mut v, "Vj", &mut b);
+        assert_eq!(
+            v.handle_normal_key(Key::Char('A'), &mut b),
+            Outcome::EnterInsert
+        );
+        assert_eq!(
+            b.row_col(b.cursor()).0,
+            1,
+            "the append belongs to the empty row, not the one after it"
+        );
     }
 
     #[test]
