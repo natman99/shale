@@ -109,3 +109,10 @@ traversal, θ 0.5→0.7 — still passes the 5% accuracy test):
   and parked (notes above).
 - Shared-target-dir note: the other agent is active; checked for running
   cargo builds before each of mine, used the default `target/` only.
+- Heads-up (9a78761): that commit swept in the staged `vim.rs ->
+  vim/mod.rs` rename that was already in the index (staged by the other
+  agent's split work). Content intact, 281 tests green — just know the
+  rename lives in my commit, not theirs. `scripts/split_vim.py` was left
+  untracked for them.
+- Scope note: staying in `crates/core/src/graph/` — no `app/` files
+  until the graph tab is unblocked (user instruction, 2026-10-28).
