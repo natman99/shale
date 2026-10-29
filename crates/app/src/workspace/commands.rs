@@ -19,6 +19,8 @@ pub(crate) enum Command {
     RenameNote,
     DeleteNote,
     QuickOpen,
+    JumpBack,
+    JumpForward,
     SearchVault,
     ChangeTheme,
     CheckerOn,
@@ -33,7 +35,7 @@ pub(crate) enum Command {
 }
 
 /// Every command, in the order the palette lists them before anything is typed.
-const ALL: [Command; 18] = [
+const ALL: [Command; 20] = [
     Command::Save,
     Command::Quit,
     Command::NewNote,
@@ -41,6 +43,8 @@ const ALL: [Command; 18] = [
     Command::RenameNote,
     Command::DeleteNote,
     Command::QuickOpen,
+    Command::JumpBack,
+    Command::JumpForward,
     Command::SearchVault,
     Command::ChangeTheme,
     Command::CheckerOn,
@@ -70,6 +74,8 @@ impl Command {
             Command::RenameNote => "Rename the selected note",
             Command::DeleteNote => "Delete the selected note",
             Command::QuickOpen => "Open a note",
+            Command::JumpBack => "Jump back to the note you came from",
+            Command::JumpForward => "Jump forward again along the jumps",
             Command::SearchVault => "Search the vault",
             Command::ChangeTheme => "Change the theme",
             Command::CheckerOn => "Turn the spellchecker on",
@@ -95,7 +101,9 @@ impl Command {
             Command::NewFolder => "ctrl-shift-n, shift-n in the tree",
             Command::RenameNote => "ctrl-shift-r, r in the tree",
             Command::DeleteNote => "ctrl-shift-d, shift-d in the tree",
-            Command::QuickOpen => "ctrl-o, space f, :e",
+            Command::QuickOpen => "space f, g f, :e",
+            Command::JumpBack => "ctrl-o",
+            Command::JumpForward => "ctrl-i",
             Command::SearchVault => "ctrl-shift-f, space s",
             Command::ChangeTheme => ":theme",
             Command::CheckerOn => ":harper on",
@@ -122,6 +130,8 @@ impl Command {
             Command::RenameNote => Box::new(RenameNote),
             Command::DeleteNote => Box::new(DeleteNote),
             Command::QuickOpen => Box::new(QuickOpen),
+            Command::JumpBack => Box::new(JumpBack),
+            Command::JumpForward => Box::new(JumpForward),
             Command::SearchVault => Box::new(SearchVault),
             Command::ChangeTheme => Box::new(ChangeTheme),
             Command::CheckerOn => Box::new(CheckerOn),

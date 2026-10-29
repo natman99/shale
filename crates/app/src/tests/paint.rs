@@ -797,7 +797,7 @@ fn the_note_has_margins_and_the_picker_floats_over_it(cx: &mut TestAppContext) {
     );
     assert!(top > px(8.), "the text is inset from the top, got {top:?}");
 
-    cx.simulate_keystrokes("ctrl-o");
+    cx.simulate_keystrokes("space f");
     assert_eq!(
         origin(&window, cx),
         before,

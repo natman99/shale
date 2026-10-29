@@ -146,6 +146,11 @@ impl Vim {
                     Outcome::Stay
                 }
                 Key::Char('x') => Outcome::FollowLink,
+                // `g f` is Shale's quick-open. vim's `gf` edits the file named
+                // under the cursor; here the name is typed, so the chord opens the
+                // picker instead — and it is one of the ways in now that `ctrl-o`
+                // belongs to the jump chain.
+                Key::Char('f') => Outcome::QuickOpen,
                 _ => Outcome::Unhandled,
             };
         }

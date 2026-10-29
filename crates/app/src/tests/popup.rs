@@ -242,7 +242,9 @@ fn escape_closes_the_panel_and_returns_the_keyboard(cx: &mut TestAppContext) {
 }
 
 /// A picker and a panel are never up together. The picker is modal in a way the
-/// panel is not, so it closes the panel on its way in.
+/// panel is not, so it closes the panel on its way in. `ctrl-shift-p` is the key
+/// that gets there: the panel holds the keyboard, so the vim chords that live in
+/// the note cannot be typed over it.
 #[gpui::test]
 fn opening_a_picker_closes_the_panel(cx: &mut TestAppContext) {
     let (_dir, window) = marked_note(
@@ -254,7 +256,7 @@ fn opening_a_picker_closes_the_panel(cx: &mut TestAppContext) {
 
     cx.simulate_keystrokes("^ shift-k");
     assert!(shown(cx, &window));
-    cx.simulate_keystrokes("ctrl-o");
+    cx.simulate_keystrokes("ctrl-shift-p");
     assert!(!shown(cx, &window), "the panel made way for the picker");
     cx.simulate_keystrokes("escape");
     assert!(!shown(cx, &window), "and it does not come back");
@@ -869,7 +871,7 @@ fn the_note_under_the_picker_does_not_answer_the_pointer(cx: &mut TestAppContext
     let cx = &mut VisualTestContext::from_window(window.into(), cx);
     paint(cx);
 
-    cx.simulate_keystrokes("ctrl-o");
+    cx.simulate_keystrokes("space f");
     // The panel hangs at the top of the note column and the marked word is on the
     // first line, so this is the pointer resting on the word *through* the panel.
     hover_at(cx, &window, 0, 2);

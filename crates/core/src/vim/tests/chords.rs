@@ -107,6 +107,23 @@ fn space_f_asks_the_ui_for_the_quick_open_picker() {
 }
 
 #[test]
+fn g_f_asks_the_ui_for_the_quick_open_picker() {
+    let mut vim = Vim::new();
+    let mut b = note_buf();
+    b.goto_line(0);
+    assert_eq!(b.cursor(), 0);
+    // `g` arms the goto chord, exactly as it does for `gg` and `gx`.
+    assert_eq!(vim.handle_normal_key(Key::Char('g'), &mut b), Outcome::Stay);
+    assert_eq!(b.cursor(), 0, "`g` alone does not move");
+    assert_eq!(
+        vim.handle_normal_key(Key::Char('f'), &mut b),
+        Outcome::QuickOpen
+    );
+    // The chord is not a change, so `.` has nothing to replay.
+    assert_eq!(vim.repeat_last(&mut b), Outcome::Unhandled);
+}
+
+#[test]
 fn space_s_asks_the_ui_for_vault_search() {
     let mut vim = Vim::new();
     let mut b = note_buf();

@@ -133,9 +133,19 @@ Small, unblocking, and three of them are already-parked user requests.
   whatever slid into its place. No new palette roles: matches are `highlight_bg`,
   the current one `selection`. See the `/` search thread in Open threads.
 - **P0.5b Keybinding: free `ctrl-o` from QuickOpen** → jump-back (`ctrl-i`
-  forward), per the Goals promise; QuickOpen keeps `space f`/`:e`/`g f`. The
-  jump chain becomes first-class workspace state — it feeds graph thread M5a,
-  the bookmarks panel, and hover history.
+  forward), per the Goals promise — **DONE 2026-10-29.** The chain is workspace
+  state in `workspace/jumps.rs` (`Jumps { back, forward }`, `LIMIT` 100 like vim's
+  jumplist), so it also feeds graph thread M5a, the bookmarks panel and hover
+  history. A jump is **leaving one note for another** (wiki-link, quick-open, vault
+  search, tree open, `:e`); the remembered position is the cursor's byte offset, so
+  coming back lands on the line the user was reading. Re-opening the note that is
+  already open is not a jump — that is also the disk-reload path. Choosing a new
+  destination drops the forward half; `forget`/`rename` keep the chain off deleted
+  and renamed notes. QuickOpen keeps `space f`, `:e` and the new `g f` chord.
+  `ctrl-o`/`ctrl-i` are context-free, so their handlers stand down while a prompt,
+  picker or popup owns the keyboard. **Next unit:** jumps *within* one note (`gg`,
+  `G`, a long `/` hop) — same chain, different unit, no re-read. See the jump-chain
+  thread in Open threads.
 - **P0.6 "Raw" mode** — editor flag disabling mdstyle/mdlayout. Cheap, done
   goal.
 - **P0.7 Markdown text objects** (brainstorm ✅): `diL` wiki-link, `cit` table
@@ -147,8 +157,8 @@ Small, unblocking, and three of them are already-parked user requests.
 
 **Exit criteria:** config lives in `.shale/` and a root `shale.toml` is *moved*
 there on open rather than read from, autosave on by default, no file over 1000
-lines, the popup and the picker both scroll, `/` and raw mode work, all existing
-tests green.
+lines, the popup and the picker both scroll, `/` and raw mode work, `ctrl-o`/`ctrl-i`
+walk the jump chain, all existing tests green.
 
 ---
 

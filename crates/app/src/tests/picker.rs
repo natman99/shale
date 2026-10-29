@@ -22,11 +22,11 @@ fn matches(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> Opti
 }
 
 #[gpui::test]
-fn ctrl_o_lists_every_note_and_enter_opens_the_top_row(cx: &mut TestAppContext) {
+fn space_f_lists_every_note_and_enter_opens_the_top_row(cx: &mut TestAppContext) {
     let (_dir, window) = workspace(cx, &["Welcome.md", "notes/Another Note.md"]);
     let cx = &mut VisualTestContext::from_window(window.into(), cx);
 
-    cx.simulate_keystrokes("ctrl-o");
+    cx.simulate_keystrokes("space f");
     assert_eq!(
         matches(&window, cx),
         Some(2),
@@ -47,7 +47,7 @@ fn ctrl_backspace_widens_a_query_a_word_at_a_time(cx: &mut TestAppContext) {
     let (_dir, window) = workspace(cx, &["today note.md", "today other.md"]);
     let cx = &mut VisualTestContext::from_window(window.into(), cx);
 
-    cx.simulate_keystrokes("ctrl-o");
+    cx.simulate_keystrokes("space f");
     assert_eq!(
         matches(&window, cx),
         Some(2),
@@ -86,7 +86,7 @@ fn clicking_off_the_picker_closes_it(cx: &mut TestAppContext) {
     let cx = &mut VisualTestContext::from_window(window.into(), cx);
     paint(cx);
 
-    cx.simulate_keystrokes("ctrl-o");
+    cx.simulate_keystrokes("space f");
     assert_eq!(matches(&window, cx), Some(2), "the list is up");
 
     // Well below the panel, in the note.
@@ -106,7 +106,7 @@ fn clicking_the_sidebar_off_the_picker_closes_it(cx: &mut TestAppContext) {
     let cx = &mut VisualTestContext::from_window(window.into(), cx);
     paint(cx);
 
-    cx.simulate_keystrokes("ctrl-o");
+    cx.simulate_keystrokes("space f");
     assert_eq!(matches(&window, cx), Some(2));
 
     // Inside the sidebar, which is 260px wide.
@@ -127,7 +127,7 @@ fn clicking_inside_the_picker_keeps_it(cx: &mut TestAppContext) {
     let cx = &mut VisualTestContext::from_window(window.into(), cx);
     paint(cx);
 
-    cx.simulate_keystrokes("ctrl-o");
+    cx.simulate_keystrokes("space f");
     assert_eq!(matches(&window, cx), Some(2));
 
     // The panel starts 8px from the top of the note column, and its label is the
@@ -182,7 +182,7 @@ fn clicking_the_note_keeps_a_sidebar_prompt(cx: &mut TestAppContext) {
     paint(cx);
 
     // The rename acts on the note that is open, so open one first.
-    cx.simulate_keystrokes("ctrl-o enter ctrl-shift-r");
+    cx.simulate_keystrokes("space f enter ctrl-shift-r");
     cx.simulate_input(" x");
     let typed = window
         .update(cx, |ws, _window, cx| ws.prompt_text(cx))
@@ -207,7 +207,7 @@ fn typing_narrows_the_list_to_the_best_match(cx: &mut TestAppContext) {
     let (_dir, window) = workspace(cx, &["Welcome.md", "notes/Another Note.md"]);
     let cx = &mut VisualTestContext::from_window(window.into(), cx);
 
-    cx.simulate_keystrokes("ctrl-o");
+    cx.simulate_keystrokes("space f");
     cx.simulate_input("anot");
     assert_eq!(matches(&window, cx), Some(1));
     assert_eq!(
@@ -232,7 +232,7 @@ fn a_big_vault_is_not_truncated_at_the_old_cap(cx: &mut TestAppContext) {
     let (_dir, window) = workspace(cx, &names);
     let cx = &mut VisualTestContext::from_window(window.into(), cx);
 
-    cx.simulate_keystrokes("ctrl-o");
+    cx.simulate_keystrokes("space f");
     assert_eq!(
         matches(&window, cx),
         Some(300),
@@ -254,7 +254,7 @@ fn the_arrow_keys_move_the_highlight(cx: &mut TestAppContext) {
     let (_dir, window) = workspace(cx, &["Welcome.md", "notes/Another Note.md"]);
     let cx = &mut VisualTestContext::from_window(window.into(), cx);
 
-    cx.simulate_keystrokes("ctrl-o down");
+    cx.simulate_keystrokes("space f down");
     assert_eq!(
         choice(&window, cx).as_deref(),
         Some("notes/Another Note.md")
@@ -278,7 +278,7 @@ fn j_and_k_are_typing_in_a_picker(cx: &mut TestAppContext) {
     let (_dir, window) = workspace(cx, &["Welcome.md", "notes/json.md"]);
     let cx = &mut VisualTestContext::from_window(window.into(), cx);
 
-    cx.simulate_keystrokes("ctrl-o");
+    cx.simulate_keystrokes("space f");
     assert_eq!(matches(&window, cx), Some(2));
     cx.simulate_keystrokes("j");
     assert_eq!(
@@ -299,7 +299,7 @@ fn backspace_widens_the_list_again(cx: &mut TestAppContext) {
     let (_dir, window) = workspace(cx, &["Welcome.md", "notes/Another Note.md"]);
     let cx = &mut VisualTestContext::from_window(window.into(), cx);
 
-    cx.simulate_keystrokes("ctrl-o");
+    cx.simulate_keystrokes("space f");
     cx.simulate_input("zzz");
     assert_eq!(matches(&window, cx), Some(0), "nothing matches");
     assert_eq!(choice(&window, cx), None, "so there is nothing to choose");
@@ -315,7 +315,7 @@ fn escape_closes_the_picker_and_gives_the_keyboard_back(cx: &mut TestAppContext)
     let (_dir, window) = workspace(cx, &["Welcome.md"]);
     let cx = &mut VisualTestContext::from_window(window.into(), cx);
 
-    cx.simulate_keystrokes("ctrl-o escape");
+    cx.simulate_keystrokes("space f escape");
     assert_eq!(matches(&window, cx), None);
     assert_eq!(
         window
@@ -444,16 +444,24 @@ fn a_palette_row_can_open_the_note_picker(cx: &mut TestAppContext) {
     assert_eq!(choice(&window, cx).as_deref(), Some("Welcome.md"));
 }
 
-/// `space f` is the other way in. The vim engine owns the chord, because `space`
+/// Both vim chords reach quick-open. The vim engine owns them, because `space`
 /// is also vim's right motion and gpui would have to hold it back if the keymap
-/// treated it as a prefix.
+/// treated it as a prefix; `g f` is the second way in now that `ctrl-o` belongs
+/// to the jump chain.
 #[gpui::test]
-fn space_f_opens_quick_open(cx: &mut TestAppContext) {
+fn the_vim_chords_open_quick_open(cx: &mut TestAppContext) {
     let (_dir, window) = workspace(cx, &["Welcome.md", "notes/Another Note.md"]);
     let cx = &mut VisualTestContext::from_window(window.into(), cx);
 
     cx.simulate_keystrokes("space f");
     assert_eq!(matches(&window, cx), Some(2));
+    assert_eq!(choice(&window, cx).as_deref(), Some("Welcome.md"));
+
+    cx.simulate_keystrokes("escape");
+    assert_eq!(matches(&window, cx), None, "`escape` closed it again");
+
+    cx.simulate_keystrokes("g f");
+    assert_eq!(matches(&window, cx), Some(2), "`g f` opens the same picker");
     assert_eq!(choice(&window, cx).as_deref(), Some("Welcome.md"));
 }
 

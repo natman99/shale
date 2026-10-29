@@ -81,7 +81,7 @@ fn prompt(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> Optio
 
 /// The note from `NOTE`, opened the way quick-open opens it.
 fn open_note(cx: &mut VisualTestContext, window: &WindowHandle<Workspace>) {
-    cx.simulate_keystrokes("ctrl-o enter");
+    cx.simulate_keystrokes("space f enter");
     let (_, active) = state(window, cx);
     assert_eq!(active, "Welcome.md", "the test note is open");
 }
@@ -294,7 +294,7 @@ fn opening_another_note_ends_the_search(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("enter");
     assert!(!search(&window, cx).hits.is_empty());
 
-    cx.simulate_keystrokes("ctrl-o");
+    cx.simulate_keystrokes("space f");
     cx.simulate_input("other");
     cx.simulate_keystrokes("enter");
     let (_, active) = state(&window, cx);

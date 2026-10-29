@@ -9,6 +9,7 @@
 
 pub(crate) mod commands;
 mod edits;
+mod jumps;
 mod keys;
 mod open;
 mod popups;
@@ -109,6 +110,9 @@ pub(crate) struct Workspace {
     /// match the cursor is on. It lives here rather than in the field so that
     /// `n`/`N` still work once the field has closed.
     search: search::SearchState,
+    /// The jump chain: the notes the user came from and where in them they were,
+    /// which `ctrl-o`/`ctrl-i` walk. See [`jumps`].
+    jumps: jumps::Jumps,
     /// What had the keyboard when the prompt opened, so closing it puts the
     /// keyboard back where the user was working: a rename started from the tree
     /// leaves them in the tree.
@@ -271,6 +275,7 @@ impl Workspace {
             prompt: None,
             prompt_return_focus: None,
             search: search::SearchState::default(),
+            jumps: jumps::Jumps::default(),
             picker: None,
             picker_return_focus: None,
             _picker_events: None,
@@ -347,6 +352,17 @@ impl Workspace {
     }
 
     pub(crate) fn open_note(&mut self, path: &PathBuf, cx: &mut Context<Self>) {
+        // Going to a different note is a jump, so the place being left goes onto
+        // the chain `ctrl-o` walks back.
+        self.record_jump(path, cx);
+        self.load_note(path, cx);
+        cx.notify();
+    }
+
+    /// Read `path` and make it the note on screen: everything [`Self::open_note`]
+    /// does except decide what happens to the jump chain. Whether it worked, which
+    /// is what the jump path needs to know before it moves the cursor.
+    fn load_note(&mut self, path: &PathBuf, cx: &mut Context<Self>) -> bool {
         // A popup belongs to the note it was opened over, so a new note ends it.
         self.drop_popup(cx);
         // The same for a search: its matches are offsets into the note that is
@@ -360,13 +376,14 @@ impl Workspace {
                     .update(cx, |editor, cx| editor.set_text(text.clone(), cx));
                 self.checker_opened(path, &text, cx);
                 self.status = path.display().to_string().into();
+                true
             }
             Err(err) => {
                 tracing::warn!(path = %path.display(), "failed to read note: {err:#}");
                 self.status = format!("{err:#}").into();
+                false
             }
         }
-        cx.notify();
     }
 
     /// Open the note and put the cursor on `line` (1-based, the way a search hit
@@ -725,6 +742,15 @@ impl Workspace {
         self.autosave(cx);
     }
 
+    /// Whether something other than the editor or the tree holds the keyboard.
+    ///
+    /// A prompt, a picker or a popup is a modal layer: it has its own bindings, and
+    /// a context-free binding would otherwise fire through it. Every handler for a
+    /// context-free key asks this before it moves anything underneath the layer.
+    pub(super) fn overlay_owns_keys(&self) -> bool {
+        self.prompt.is_some() || self.picker.is_some() || self.popup.is_some()
+    }
+
     /// `ctrl-w h`: move the keyboard to the panel on the left.
     ///
     /// Today the window has two panels, so this is the sidebar; a tiling split
@@ -737,7 +763,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.prompt.is_some() || self.picker.is_some() || self.popup.is_some() {
+        if self.overlay_owns_keys() {
             return;
         }
         self.focus_tree(&FocusTree, window, cx);
@@ -750,7 +776,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.prompt.is_some() || self.picker.is_some() || self.popup.is_some() {
+        if self.overlay_owns_keys() {
             return;
         }
         self.focus_editor(&FocusEditor, window, cx);
@@ -779,6 +805,11 @@ impl Workspace {
         );
         self.signature = after;
         self.refresh_entries(cx);
+        // A note that is gone cannot be jumped to, so it leaves the chain — the
+        // same rule the explicit delete follows.
+        for removed in &changes.removed {
+            self.jumps.forget(removed);
+        }
         if let Some(path) = self.active.clone() {
             let dirty = self.editor.read_with(cx, |editor, _cx| editor.is_dirty());
             if changes.was_removed(&path) {

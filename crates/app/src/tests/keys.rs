@@ -415,3 +415,54 @@ fn the_window_chords_wait_for_their_second_stroke() {
     assert!(!pending, "`space` is a motion, not a prefix");
     assert_eq!(names(&bindings), vec!["shale_editor::VimSpace"]);
 }
+
+/// `ctrl-o` and `ctrl-i` walk the jump chain from anywhere: they are bound with
+/// no key context, so they arrive from the note, the tree and a text field alike.
+/// The handler, not the keymap, is what stands down while a prompt or a picker
+/// owns the keyboard (see `tests::jumps`).
+#[test]
+fn the_jump_keys_answer_in_every_context() {
+    let keymap = gpui::Keymap::new(keybindings());
+    let typed = |control: bool, key: &str| gpui::Keystroke {
+        modifiers: gpui::Modifiers {
+            control,
+            ..Default::default()
+        },
+        key: key.to_string(),
+        key_char: None,
+    };
+
+    for context in [
+        "vim-normal",
+        "vim-insert",
+        "tree",
+        "prompt",
+        "picker",
+        "popup",
+    ] {
+        let contexts = vec![gpui::KeyContext::try_from(context).unwrap()];
+        for (key, action) in [("o", "shale::JumpBack"), ("i", "shale::JumpForward")] {
+            let (bindings, pending) = keymap.bindings_for_input(&[typed(true, key)], &contexts);
+            assert!(!pending, "ctrl-{key} should not leave pending input");
+            assert_eq!(
+                bindings
+                    .iter()
+                    .map(|b| b.action().name())
+                    .collect::<Vec<_>>(),
+                vec![action],
+                "{context}: ctrl-{key} should resolve to {action}"
+            );
+        }
+
+        // `ctrl-i` is Tab's control codepoint, but the Linux platform reports Tab
+        // as its own keysym, so the binding must not answer a plain Tab — which
+        // would make every tab in a query a jump.
+        let (bindings, _) = keymap.bindings_for_input(&[typed(false, "tab")], &contexts);
+        assert!(
+            !bindings
+                .iter()
+                .any(|b| b.action().name().ends_with("JumpForward")),
+            "{context}: a plain Tab must not step the jump chain"
+        );
+    }
+}

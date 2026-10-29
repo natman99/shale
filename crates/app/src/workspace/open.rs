@@ -45,7 +45,7 @@ const MAX_SEARCH_HITS: usize = 200;
 const ROW_TEXT: usize = 90;
 
 impl Workspace {
-    /// Quick-open (`ctrl-o`, `space f`): one row per note in the vault.
+    /// Quick-open (`space f`, `g f`, `:e`): one row per note in the vault.
     pub(super) fn quick_open(
         &mut self,
         _: &QuickOpen,

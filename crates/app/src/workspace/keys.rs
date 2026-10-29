@@ -18,8 +18,12 @@ pub(crate) fn keybindings() -> Vec<KeyBinding> {
         KeyBinding::new("ctrl-shift-n", NewFolder, None),
         KeyBinding::new("ctrl-shift-r", RenameNote, None),
         KeyBinding::new("ctrl-shift-d", DeleteNote, None),
-        // Quick-open: jump to a note by typing part of its name or path.
-        KeyBinding::new("ctrl-o", QuickOpen, None),
+        // Quick-open: jump to a note by typing part of its name or path. It lives
+        // on the vim chords `space f` and `g f` and on `:e`, which frees `ctrl-o`
+        // for the jump chain — the key the Goals promise asks for, and the one vim
+        // users already reach for.
+        KeyBinding::new("ctrl-o", JumpBack, None),
+        KeyBinding::new("ctrl-i", JumpForward, None),
         // Vault search: every line that contains what is typed. The picker's rows
         // are the hits, and choosing one opens the note on that line.
         KeyBinding::new("ctrl-shift-f", SearchVault, None),

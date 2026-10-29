@@ -248,7 +248,7 @@ fn a_rename_rewrites_the_links_that_point_at_the_note(cx: &mut TestAppContext) {
 
     // The rename acts on the open note, and the prompt's field starts with the
     // current stem, so the old name has to be erased before the new one is typed.
-    cx.simulate_keystrokes("ctrl-o");
+    cx.simulate_keystrokes("space f");
     cx.simulate_input("target");
     cx.simulate_keystrokes("enter ctrl-shift-r");
     cx.simulate_keystrokes("backspace backspace backspace backspace backspace backspace");
@@ -287,7 +287,7 @@ fn a_rename_leaves_a_dirty_open_note_alone(cx: &mut TestAppContext) {
     );
     let cx = &mut VisualTestContext::from_window(window.into(), cx);
 
-    cx.simulate_keystrokes("ctrl-o");
+    cx.simulate_keystrokes("space f");
     cx.simulate_input("target");
     cx.simulate_keystrokes("enter i x escape ctrl-shift-r");
     cx.simulate_keystrokes("backspace backspace backspace backspace backspace backspace");

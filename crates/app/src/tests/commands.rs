@@ -90,7 +90,7 @@ fn an_unknown_command_runs_nothing(cx: &mut TestAppContext) {
     );
 }
 
-/// `:e` is the quick-open picker, reached by spelling instead of by `ctrl-o`.
+/// `:e` is the quick-open picker, reached by spelling instead of by a chord.
 #[gpui::test]
 fn e_opens_the_note_picker(cx: &mut TestAppContext) {
     let (_dir, window) = workspace(cx, &["Welcome.md", "notes/Another Note.md"]);

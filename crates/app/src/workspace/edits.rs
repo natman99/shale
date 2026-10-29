@@ -202,6 +202,10 @@ impl Workspace {
                 if self.active.as_deref() == Some(from.as_path()) {
                     self.active = Some(renamed.clone());
                 }
+                // The jump chain named the old path, and a chain that points at a
+                // note that no longer resolves is a dead end the user has to step
+                // over by hand.
+                self.jumps.rename(&from, &renamed);
                 self.tree_selection = Some(renamed.clone());
                 self.status = rename_status(&renamed, &report).into();
             }
@@ -227,6 +231,8 @@ impl Workspace {
                     // The note is gone, and with it every offset the search had.
                     self.clear_search(cx);
                 }
+                // And every jump that named it.
+                self.jumps.forget(&target);
                 self.tree_selection = None;
                 self.refresh_entries(cx);
                 self.status = format!("deleted {}", target.display()).into();

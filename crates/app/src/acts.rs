@@ -104,6 +104,10 @@ actions!(
         TreeExpand,
         TreeOpen,
         QuickOpen,
+        // Walking the chain of notes the user came from (`ctrl-o` back, `ctrl-i`
+        // forward), the way vim and neovim do.
+        JumpBack,
+        JumpForward,
         // Searching every note's text (`ctrl-shift-f`).
         SearchVault,
         // Searching the note that is open (`/`), and stepping through its matches

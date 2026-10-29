@@ -177,9 +177,10 @@ Workspace layout:
   folders through a one-line prompt (`prompt.rs`); a rename also rewrites the
   wiki-links that pointed at the old name, in every other note and in the open one
   if it has no unsaved edits. It follows the disk when
-  another program changes the vault, and **quick-open** (`ctrl-o`, `space f` or
+  another program changes the vault, and **quick-open** (`space f`, `g f` or
   `:e` in normal mode: a fuzzy list of every note, `j`/`k` to move, `enter` to
-  open) and a
+  open), **jump back/forward** (`ctrl-o`/`ctrl-i`: the notes the user came from,
+  each with the cursor where they left it) and a
   **command palette** (`ctrl-shift-p`) beside vim's **command line** (`:`, which is
   deliberately *not* the palette: one word, matched exactly — `:w`, `:q`, `:wq`,
   `:x`, `:e`, `:harper on|off|1|0`, `:theme [name]`; `ex.rs` is its whole
@@ -313,9 +314,9 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
 - Run the test binaries under `ulimit -v` when working on anything that scans
   text (a scanner bug can allocate until the OOM killer takes the editor down —
   see the table postmortem).
-  Current peak RSS of the test binaries (2026-10-28, app 193 / core 301 with 10
+  Current peak RSS of the test binaries (2026-10-29, app 201 / core 302 with 10
   ignored / mcp 6 tests — core's count includes the graph agent's `graph::` tests,
-  which are committed and green): core 7.5 MB, app 63 MB,
+  which are committed and green): core 7.6 MB, app 66 MB,
   mcp 3.3 MB. The
   app binary's *address space* (not RSS) is far larger because of gpui/wgpu
   reservations, and it now needs **4 GB or more** — a 1 GB cap makes it die in an
@@ -1122,7 +1123,8 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   happen during paint). `Prompt` and `Picker` are both `FieldOwner`s, and the
   prompt's key actions are `Field*` actions bound in *both* the `prompt` and the
   `picker` contexts, because they mean the same thing in both.
-  **Quick-open (`ctrl-o`).** One row per note: the name leads, the folder it lives
+  **Quick-open (`space f`, `g f` or `:e`; it was `ctrl-o` until the jump chain
+  took that key in 2026-10-29).** One row per note: the name leads, the folder it lives
   in is drawn dimmer after it, and the query is ranked against the **whole path**,
   so `no/an` reaches `notes/Another Note.md`. `j`/`k` (and the arrows) move the
   highlighted row, `enter` opens it, escape closes the picker and gives the
@@ -1856,24 +1858,27 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   module gained reach. Splitting a `mod tests { … }` block the same way works,
   but note that a child test module's `use super::*` reaches the parent's own
   `use`s, so the extra `use crate::vim::*` lines are dead weight.
-  Largest files now (2026-10-28, after P0.5): `line.rs` 1085,
-  `workspace/mod.rs` 1018, `tests/popup.rs` 1005, `tests/paint.rs` 806,
-  `vault.rs` 750, `editor/mod.rs` 689, `lsp/mod.rs` 687, `theme/mod.rs` 656,
-  `picker.rs` 653, `table/edit.rs` 640, `tests/picker.rs` 635,
-  `buffer/tests.rs` 606, `table/mod.rs` 590, `editor/render.rs` 576,
-  `mdstyle/mod.rs` 530, `tests/tree.rs` 515, `lsp/mapping.rs` 496,
-  `theme/tests.rs` 444, `tests/motions.rs` 442, `workspace/edits.rs` 436,
-  `mdstyle/block.rs` 432, `workspace/popups.rs` 428, `editor/wrap.rs` 395,
-  `tests/search.rs` 385, `tests/keys.rs` 347, `workspace/render.rs` 345,
-  `workspace/open.rs` 343, `field.rs` 337, `fold.rs` 324, `fuzzy.rs` 324,
-  `preview.rs` 298, `popup.rs` 331, `prompt.rs` 270, `lsp/document.rs` 257,
-  `search.rs` (core) 244, `rename.rs` 195, and the rest of the `workspace/`
-  submodules — `search` 231, `keys` 224, `tree` 215, `themes` 176, `commands`
-  138 — plus `acts.rs` 149 and `ex.rs` 114. The graph track's own largest are
-  `graph/sim.rs` 908 and `graph/quadtree.rs` 719; that tree is the other agent's
-  to split.
-  **Three files are over the rule now (2026-10-28): `line.rs` 1085,
-  `workspace/mod.rs` 1018 and `tests/popup.rs` 1005** — `line.rs` went over with
+  Largest files now (2026-10-29, after P0.5b): `line.rs` 1085,
+  `workspace/mod.rs` 1049, `tests/popup.rs` 1007, `graph/sim.rs` 908,
+  `tests/paint.rs` 806, `vault.rs` 750, `graph/quadtree.rs` 719,
+  `editor/mod.rs` 689, `lsp/mod.rs` 687, `tests/picker.rs` 672,
+  `picker.rs` 661, `buffer/tests.rs` 657, `theme/mod.rs` 656,
+  `table/edit.rs` 640, `graph/index.rs` 602, `table/mod.rs` 590,
+  `editor/render.rs` 577, `tests/tree.rs` 547, `mdstyle/mod.rs` 530,
+  `lsp/mapping.rs` 496, `graph/proj.rs` 491, `graph/geom.rs` 488,
+  `tests/keys.rs` 468, `theme/tests.rs` 444, `tests/motions.rs` 442,
+  `workspace/edits.rs` 442, `mdstyle/block.rs` 432, `workspace/popups.rs` 428,
+  `editor/wrap.rs` 395, `tests/search.rs` 385, `field.rs` 353,
+  `workspace/render.rs` 347, `workspace/open.rs` 343, `core/fold.rs` 332,
+  `popup.rs` 331, `fuzzy.rs` 324, `preview.rs` 298, `prompt.rs` 280,
+  `tests/jumps.rs` 267, `lsp/document.rs` 257, `core/search.rs` 244,
+  `workspace/keys.rs` 234, `workspace/search.rs` 231, `workspace/tree.rs` 215,
+  `rename.rs` 195, `workspace/jumps.rs` 184, `workspace/themes.rs` 176,
+  `acts.rs` 159, `workspace/commands.rs` 148, `ex.rs` 114. The graph track's own
+  largest are `graph/sim.rs` 908 and `graph/quadtree.rs` 719; that tree is the
+  other agent's to split.
+  **Three files are over the rule now (2026-10-29): `line.rs` 1085,
+  `workspace/mod.rs` 1049 and `tests/popup.rs` 1007** — `line.rs` went over with
   the `/` matches. None of the three splits is in that commit. The plans:
   `line.rs` splits as the element (`line/mod.rs`) plus the run builder and the
   style map (`line/runs.rs`), and P0.5 made that seam real — `build_runs`,
@@ -1974,7 +1979,7 @@ Next steps, roughly in order:
     without reading a note, and `watch::VaultChanges::between` says which notes to
     re-index. Open/edit counts (the user's addition) are a separate counter table,
     written on open and debounced on edit, not something the signature can tell.
-14. ~~Pickers, reused~~ Quick-open (`ctrl-o`, `space f`, `:e`), the **command
+14. ~~Pickers, reused~~ Quick-open (`space f`, `g f`, `:e`), the **command
     palette** (`ctrl-shift-p`) and **vault search** (`ctrl-shift-f`, `space s`) are
     all done — see Open threads. `:` is its own thing now (vim's command line,
     matched exactly), which is what keeps a one-letter command out of the fuzzy
@@ -2074,6 +2079,37 @@ Next steps, roughly in order:
     - **Undo**: the delete is an ordinary buffer edit, so in insert mode it joins the
       session's undo group — one `u` brings back the typed text and the deletes
       together.
+
+18. **The jump chain — `ctrl-o` back, `ctrl-i` forward** — Done (2026-10-29,
+    P0.5b), the Goals promise, and the reason quick-open moved off `ctrl-o`.
+    - **Browser-shaped state** in `workspace/jumps.rs`: `Jumps { back, forward }`
+      with `LIMIT` 100, vim's jumplist size. `ctrl-i` means "undo my `ctrl-o`"
+      rather than "the next note I happened to visit" because the place being left
+      is pushed onto the other half by the same `step` call, and choosing somewhere
+      new clears `forward`.
+    - **A jump is leaving one note for another**: a wiki-link, a quick-open or vault
+      search row, a tree open, `:e`. The position remembered is the cursor's **byte
+      offset**, restored with `editor.reveal_offset`, so coming back lands on the
+      line the user was reading. `open_note` records and `load_note` reads; the split
+      exists because the disk-reload path calls in for the note that is already on
+      screen, and re-opening the open note is **not** a jump.
+    - **`ctrl-o`/`ctrl-i` are context-free bindings**, so their handlers stand down
+      while a prompt, picker or popup owns the keyboard (`overlay_owns_keys`, now
+      also what `window_left`/`window_right` ask). Proved load-bearing: with the
+      guard off, `ctrl-o` over an open picker changes the note underneath it.
+    - **Quick-open gained `g f`** (a `Pending::Goto` chord next to `gx`) so it has
+      three ways in — `space f`, `g f`, `:e` — and none of them cost a key the
+      Goals asked for.
+    - **Bookkeeping**: `forget(path)` on delete (and on every path the watcher
+      reports removed), `rename(from, to)` on rename, so the chain cannot walk the
+      user into a note that no longer exists or one that moved. `step` takes
+      `Option<Jump>` for the place being left, which is `None` right after the open
+      note is deleted — the moment `ctrl-o` is most wanted, with nothing on screen.
+    - **Left for later**: jumps *within* one note (`gg`, `G`, a long `/` hop) are
+      the next unit — same chain, different unit, and the note would not have to be
+      re-read at all; `/` search is still missing from the command palette; and a
+      rename done **outside** Shale, seen by the watcher as remove+add, leaves a dead
+      entry the user has to step over (the read error lands on the status line).
 
 ## Parked threads (agreed 2026-10-28; not being worked now)
 
