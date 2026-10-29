@@ -23,6 +23,8 @@ gpui_platform = {
     features = ["wayland", "x11", "font-kit"],
 }
 pulldown-cmark = "0.13"
+# The graph's adjacency structure (graph-view-plan.md). MIT, pure Rust.
+petgraph = "0.8"
 # Streams and channels for the language-server client: the reader thread hands
 # messages to a gpui task. Already in the tree through gpui, so no new download.
 # MIT / Apache-2.0.

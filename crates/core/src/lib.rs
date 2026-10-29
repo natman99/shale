@@ -3,6 +3,7 @@ pub mod config;
 pub mod continuation;
 pub mod fold;
 pub mod fuzzy;
+pub mod graph;
 pub mod markdown;
 pub mod mdlayout;
 pub mod mdstyle;
