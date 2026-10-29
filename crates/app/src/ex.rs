@@ -7,8 +7,10 @@
 //! the line's whole vocabulary: a word that is not here does nothing, and says so.
 //!
 //! The names are vim's, because the reflex is vim's. `w` is a real save rather
-//! than a no-op — Shale does not autosave today — and it costs nothing when the
-//! note is already clean.
+//! than a no-op: it costs nothing when the note is already clean, and it is what
+//! the user types when they do not trust the autosave to have run yet.
+
+use crate::editor::View;
 
 /// What a typed command line asked for.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -29,6 +31,9 @@ pub(crate) enum Ex {
     ThemePicker,
     /// `theme <name>`: that palette, now.
     Theme(String),
+    /// `raw`, `live` or `preview`: how the note is presented, and whether it can
+    /// be edited. `:live` is the way back to Shale's default view.
+    View(View),
     /// Anything else, with the word that was typed. Nothing runs: an unknown word
     /// is a typo, not something to guess at.
     Unknown(String),
@@ -62,6 +67,12 @@ pub(crate) fn parse(line: &str) -> Ex {
                 Ex::Theme(rest.to_string())
             }
         }
+        // The three views. `source` and `src` are there because that is the word
+        // other markdown editors use for the same view, and `view` because the
+        // user reaching for a view is asking for the one they can read in.
+        "raw" | "source" | "src" => Ex::View(View::Raw),
+        "live" => Ex::View(View::Live),
+        "preview" | "view" => Ex::View(View::Preview),
         _ => Ex::Unknown(word),
     }
 }
@@ -103,6 +114,17 @@ mod tests {
             parse("theme   gruvbox-dark  "),
             Ex::Theme("gruvbox-dark".into())
         );
+    }
+
+    #[test]
+    fn the_three_views_are_named_not_guessed() {
+        for raw in ["raw", "source", "src", "RAW"] {
+            assert_eq!(parse(raw), Ex::View(View::Raw), "{raw}");
+        }
+        assert_eq!(parse("live"), Ex::View(View::Live));
+        for preview in ["preview", "view", "Preview"] {
+            assert_eq!(parse(preview), Ex::View(View::Preview), "{preview}");
+        }
     }
 
     #[test]

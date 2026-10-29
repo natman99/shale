@@ -55,6 +55,51 @@ pub enum EditorEvent {
 
 impl EventEmitter<EditorEvent> for MarkdownEditor {}
 
+/// How the note is presented, and whether it can be edited.
+///
+/// The three are Obsidian's three, named for what the user sees:
+///
+/// * [`View::Raw`] — the markdown source: no syntax colours, no hidden markers,
+///   no heading sizes, no rules drawn across the row, no callout boxes, no table
+///   grids, no embedded pictures. What the file on disk says, one character at a
+///   time.
+/// * [`View::Live`] — Shale's default: the markers on the rows the user is *not*
+///   working on are hidden, so the note reads rendered while the syntax is there
+///   the moment the cursor arrives.
+/// * [`View::Preview`] — rendered all the way down, including on the row the
+///   cursor is on, and the text is protected against edits. The cursor still
+///   moves: a note that cannot be read from the top is no use.
+///
+/// The view belongs to the editor rather than the window because everything it
+/// changes happens inside the frame the editor builds: which style spans are
+/// computed at all, which rows hide their markers, and whether tables and
+/// pictures are drawn as grids and images. The read-only half of [`View::Preview`]
+/// is the one exception, and it is enforced down in
+/// [`shale_core::buffer::Buffer::set_read_only`], because the text is reached by
+/// more than one route.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum View {
+    /// The markdown source, unstyled and unhidden.
+    Raw,
+    /// Rendered except on the rows the user is working on. This is the view a
+    /// note starts in.
+    #[default]
+    Live,
+    /// Fully rendered, and read-only.
+    Preview,
+}
+
+impl View {
+    /// The word the status bar and the command line use for it.
+    pub fn word(self) -> &'static str {
+        match self {
+            View::Raw => "raw",
+            View::Live => "live",
+            View::Preview => "preview",
+        }
+    }
+}
+
 /// What one display line is told to draw for `/`: every match that overlaps it,
 /// and the current match if that overlaps too. Buffer byte ranges, clipped to the
 /// line.
@@ -114,6 +159,9 @@ pub struct MarkdownEditor {
     /// The one match the cursor is on, drawn over the others so the current
     /// position in a run of `n`/`N` is visible. `None` when there is no match.
     active_hit: Option<(usize, usize)>,
+    /// Which of the three views the note is in: raw source, live preview, or
+    /// fully rendered and read-only. See [`View`].
+    view: View,
     dirty: bool,
 }
 
@@ -141,6 +189,7 @@ impl MarkdownEditor {
             // palette, so a frame painted before then is not a surprise.
             palette: Rc::new(Palette::DEFAULT),
             font_size: DEFAULT_FONT_SIZE,
+            view: View::Live,
             dirty: false,
         }
     }
@@ -227,6 +276,32 @@ impl MarkdownEditor {
             self.marks = marks;
             cx.notify();
         }
+    }
+
+    /// Which of the three views the note is in.
+    pub fn view(&self) -> View {
+        self.view
+    }
+
+    /// Put the note in another view.
+    ///
+    /// A view change is not part of an insert session, so the session ends with
+    /// it: an open undo group over a buffer that has just stopped taking edits
+    /// would mark the note dirty for nothing. The two caches that hold what the
+    /// *previous* view decided are dropped rather than revalidated — the style
+    /// cache holds the spans raw mode refuses to compute, and the wrap cache
+    /// holds break points measured with the old view's faces and hidden markers.
+    pub fn set_view(&mut self, view: View, cx: &mut Context<Self>) {
+        if view == self.view {
+            return;
+        }
+        self.view = view;
+        self.buffer.set_read_only(view == View::Preview);
+        self.vim.enter_normal();
+        self.buffer.end_undo_group();
+        self.style_cache = None;
+        self.wrap_cache = None;
+        cx.notify();
     }
 
     /// The checker's ranges the editor is currently drawing.

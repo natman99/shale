@@ -3,6 +3,10 @@
 //! Every edit takes a [`Snapshot`] first; the undo-group calls decide whether a
 //! run of typing is one step or many, which is what makes `u` undo a typed word
 //! rather than a character.
+//!
+//! Every method here that can change the text starts by asking whether the buffer
+//! is read-only ([`Buffer::set_read_only`], which is preview mode) and does
+//! nothing if it is. `undo` and `redo` are on that list too: undoing is an edit.
 
 use super::{Buffer, Snapshot};
 
@@ -63,6 +67,9 @@ impl Buffer {
     }
     /// Replace the selection (or insert at the cursor) with `text`.
     pub fn insert(&mut self, text: &str) {
+        if self.read_only {
+            return;
+        }
         self.snapshot_for_edit();
         let (start, end) = self.selection_range();
         self.text.replace_range(start..end, text);
@@ -71,7 +78,7 @@ impl Buffer {
         self.cursor = new_cursor;
     }
     pub fn delete_selected(&mut self) {
-        if self.selection.is_none() {
+        if self.read_only || self.selection.is_none() {
             return;
         }
         self.snapshot();
@@ -82,6 +89,9 @@ impl Buffer {
     }
     /// Delete backwards from the cursor (or the selection, if any).
     pub fn backspace(&mut self) {
+        if self.read_only {
+            return;
+        }
         if self.selection.is_some() {
             self.delete_selected();
             return;
@@ -96,6 +106,9 @@ impl Buffer {
     }
     /// Delete the character after the cursor (or the selection, if any).
     pub fn delete_forward(&mut self) {
+        if self.read_only {
+            return;
+        }
         if self.selection.is_some() {
             self.delete_selected();
             return;
@@ -112,6 +125,9 @@ impl Buffer {
     /// the word, which is what vim's `i_CTRL-W` does, so deleting after typing a
     /// space takes the word too rather than leaving it behind the cursor.
     pub fn delete_word_back(&mut self) {
+        if self.read_only {
+            return;
+        }
         if self.selection.is_some() {
             self.delete_selected();
             return;
@@ -125,6 +141,9 @@ impl Buffer {
     }
     /// Delete the `count` characters at the cursor (vim `x`, `2x`).
     pub fn delete_char(&mut self, count: usize) {
+        if self.read_only {
+            return;
+        }
         let count = count.max(1);
         let mut end = self.cursor;
         for _ in 0..count {
@@ -142,6 +161,9 @@ impl Buffer {
     /// `start` (used by vim operators over a motion range). Joins an open undo
     /// group, which is how a table edit that splices several rows stays one step.
     pub fn delete_range(&mut self, start: usize, end: usize) {
+        if self.read_only {
+            return;
+        }
         let (start, end) = (self.clamp(start), self.clamp(end));
         if start >= end {
             return;
@@ -154,6 +176,9 @@ impl Buffer {
     /// Delete `count` whole lines starting at the cursor's row, including their
     /// newlines (vim `dd`, `2dd`).
     pub fn delete_line(&mut self, count: usize) {
+        if self.read_only {
+            return;
+        }
         let (start, end) = self.line_range(self.row_col(self.cursor).0, count.max(1));
         if start >= end {
             return;
@@ -167,6 +192,9 @@ impl Buffer {
     /// [`Self::insert`] (used by linewise paste and by table splices, which run
     /// inside an undo group so one edit stays one undo step).
     pub fn insert_at(&mut self, offset: usize, text: &str) {
+        if self.read_only {
+            return;
+        }
         let offset = self.clamp(offset);
         self.snapshot_for_edit();
         self.text.insert_str(offset, text);
@@ -176,6 +204,9 @@ impl Buffer {
     /// Open `count` new lines below the cursor and place the cursor on the last
     /// of them (vim `o`, `2o`).
     pub fn open_line_below(&mut self, count: usize) {
+        if self.read_only {
+            return;
+        }
         self.snapshot();
         let (row, _) = self.row_col(self.cursor);
         let end = self.line_end(row);
@@ -186,6 +217,9 @@ impl Buffer {
     }
     /// Open `count` new lines above the cursor (vim `O`, `2O`).
     pub fn open_line_above(&mut self, count: usize) {
+        if self.read_only {
+            return;
+        }
         self.snapshot();
         let (row, _) = self.row_col(self.cursor);
         let start = self.line_start(row);
@@ -208,6 +242,9 @@ impl Buffer {
         self.redo.len()
     }
     pub fn undo(&mut self) {
+        if self.read_only {
+            return;
+        }
         self.group_open = false;
         self.change_id += 1;
         if let Some(snap) = self.undo.pop() {
@@ -222,6 +259,9 @@ impl Buffer {
         }
     }
     pub fn redo(&mut self) {
+        if self.read_only {
+            return;
+        }
         self.group_open = false;
         self.change_id += 1;
         if let Some(snap) = self.redo.pop() {

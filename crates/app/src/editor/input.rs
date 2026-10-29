@@ -148,6 +148,13 @@ impl EntityInputHandler for MarkdownEditor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // A read-only buffer (preview mode) refuses text, and this refuses it
+        // before the selection is even touched. The buffer would have ignored the
+        // insert either way; answering here is what keeps a keystroke that changed
+        // nothing from marking the note dirty.
+        if self.buffer.is_read_only() {
+            return;
+        }
         // Normal and visual mode swallow typed input, except for the literal
         // argument of a half-typed command (`fr`, `diw`): unbound characters
         // never become actions, they arrive here.

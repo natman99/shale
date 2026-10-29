@@ -17,9 +17,9 @@ Shale is an obsidian-style markdown editor with extra developer focused features
 - [ ] Tabs
 - [ ] Tiling split view (like Obsidian)
 - [x] Command pallette (vim `:` and Vscode's `ctrl+shift+p` to open. Vim version supports vim features like `s/x/x` replacement. Fuzzy search for commands) — palette, `:` line, and fuzzy all done; the `s/x/x`-style ex features are not (see roadmap P2.7)
-- [x] Note search and full vault search (command pallette, vim `/`) — vault search done (`ctrl-shift-f`); in-buffer `/` is parked (roadmap P0.5)
+- [x] Note search and full vault search (command pallette, vim `/`) — vault search done (`ctrl-shift-f`); in-buffer `/` done (roadmap P0.5)
 - [ ] Templates: save standard notes as templates to be copied in to other notes with a command. Also add a gui picker.
-- [ ] "Raw" mode (disables syntax highlighting and markdown rendering)
+- [x] "Raw" mode (disables syntax highlighting and markdown rendering) — done (roadmap P0.6) as one of the note's three views: `:raw`, `:live`, `:preview`. Preview mode (rendered all the way down, read-only) landed with it.
 - [ ] "Database" tables (Obsidian bases) see below
 
 - Config files in TOML
@@ -183,7 +183,8 @@ Workspace layout:
   each with the cursor where they left it) and a
   **command palette** (`ctrl-shift-p`) beside vim's **command line** (`:`, which is
   deliberately *not* the palette: one word, matched exactly — `:w`, `:q`, `:wq`,
-  `:x`, `:e`, `:harper on|off|1|0`, `:theme [name]`; `ex.rs` is its whole
+  `:x`, `:e`, `:harper on|off|1|0`, `:theme [name]`, `:raw|:live|:preview`;
+  `ex.rs` is its whole
   vocabulary, and a word it does not know runs nothing) — both pickers
   *overlay* the note rather than pushing it down, and the note has margins around
   it. `ctrl-w h`/`ctrl-w l` move the keyboard between the sidebar and the note,
@@ -314,9 +315,9 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
 - Run the test binaries under `ulimit -v` when working on anything that scans
   text (a scanner bug can allocate until the OOM killer takes the editor down —
   see the table postmortem).
-  Current peak RSS of the test binaries (2026-10-29, app 201 / core 302 with 10
+  Current peak RSS of the test binaries (2026-10-29, app 211 / core 303 with 10
   ignored / mcp 6 tests — core's count includes the graph agent's `graph::` tests,
-  which are committed and green): core 7.6 MB, app 66 MB,
+  which are committed and green): core 8.0 MB, app 67 MB,
   mcp 3.3 MB. The
   app binary's *address space* (not RSS) is far larger because of gpui/wgpu
   reservations, and it now needs **4 GB or more** — a 1 GB cap makes it die in an
@@ -1858,27 +1859,29 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   module gained reach. Splitting a `mod tests { … }` block the same way works,
   but note that a child test module's `use super::*` reaches the parent's own
   `use`s, so the extra `use crate::vim::*` lines are dead weight.
-  Largest files now (2026-10-29, after P0.5b): `line.rs` 1085,
-  `workspace/mod.rs` 1049, `tests/popup.rs` 1007, `graph/sim.rs` 908,
-  `tests/paint.rs` 806, `vault.rs` 750, `graph/quadtree.rs` 719,
-  `editor/mod.rs` 689, `lsp/mod.rs` 687, `tests/picker.rs` 672,
-  `picker.rs` 661, `buffer/tests.rs` 657, `theme/mod.rs` 656,
-  `table/edit.rs` 640, `graph/index.rs` 602, `table/mod.rs` 590,
-  `editor/render.rs` 577, `tests/tree.rs` 547, `mdstyle/mod.rs` 530,
+  Largest files now (2026-10-29, after the three views): `line.rs` 1085,
+  `tests/popup.rs` 1061, `workspace/mod.rs` 1050, `graph/sim.rs` 908,
+  `tests/paint.rs` 806, `editor/mod.rs` 764, `vault.rs` 750,
+  `graph/quadtree.rs` 719, `buffer/tests.rs` 701, `lsp/mod.rs` 687,
+  `tests/picker.rs` 672, `picker.rs` 661, `theme/mod.rs` 656,
+  `table/edit.rs` 640, `graph/index.rs` 602, `editor/render.rs` 599,
+  `table/mod.rs` 590, `tests/tree.rs` 547, `mdstyle/mod.rs` 530,
   `lsp/mapping.rs` 496, `graph/proj.rs` 491, `graph/geom.rs` 488,
-  `tests/keys.rs` 468, `theme/tests.rs` 444, `tests/motions.rs` 442,
-  `workspace/edits.rs` 442, `mdstyle/block.rs` 432, `workspace/popups.rs` 428,
-  `editor/wrap.rs` 395, `tests/search.rs` 385, `field.rs` 353,
-  `workspace/render.rs` 347, `workspace/open.rs` 343, `core/fold.rs` 332,
-  `popup.rs` 331, `fuzzy.rs` 324, `preview.rs` 298, `prompt.rs` 280,
-  `tests/jumps.rs` 267, `lsp/document.rs` 257, `core/search.rs` 244,
+  `tests/keys.rs` 468, `theme/tests.rs` 444, `workspace/edits.rs` 443,
+  `tests/motions.rs` 442, `mdstyle/block.rs` 432, `workspace/popups.rs` 428,
+  `markdown.rs` 416, `editor/wrap.rs` 416, `graph/hues.rs` 411,
+  `config/mod.rs` 405, `tests/search.rs` 385, `workspace/render.rs` 367,
+  `vim/motions.rs` 355, `field.rs` 353, `workspace/open.rs` 352,
+  `core/fold.rs` 332, `popup.rs` 331, `config/edit.rs` 327, `fuzzy.rs` 324,
+  `preview.rs` 298, `prompt.rs` 280, `tests/views.rs` 280,
+  `buffer/edits.rs` 278, `lsp/document.rs` 257, `core/search.rs` 244,
   `workspace/keys.rs` 234, `workspace/search.rs` 231, `workspace/tree.rs` 215,
   `rename.rs` 195, `workspace/jumps.rs` 184, `workspace/themes.rs` 176,
-  `acts.rs` 159, `workspace/commands.rs` 148, `ex.rs` 114. The graph track's own
-  largest are `graph/sim.rs` 908 and `graph/quadtree.rs` 719; that tree is the
-  other agent's to split.
+  `workspace/commands.rs` 163, `acts.rs` 165, `ex.rs` 136,
+  `workspace/views.rs` 65. The graph track's own largest are `graph/sim.rs` 908
+  and `graph/quadtree.rs` 719; that tree is the other agent's to split.
   **Three files are over the rule now (2026-10-29): `line.rs` 1085,
-  `workspace/mod.rs` 1049 and `tests/popup.rs` 1007** — `line.rs` went over with
+  `tests/popup.rs` 1061 and `workspace/mod.rs` 1050** — `line.rs` went over with
   the `/` matches. None of the three splits is in that commit. The plans:
   `line.rs` splits as the element (`line/mod.rs`) plus the run builder and the
   style map (`line/runs.rs`), and P0.5 made that seam real — `build_runs`,
@@ -2110,6 +2113,44 @@ Next steps, roughly in order:
       re-read at all; `/` search is still missing from the command palette; and a
       rename done **outside** Shale, seen by the watcher as remove+add, leaves a dead
       entry the user has to step over (the read error lands on the status line).
+
+19. **The note's three views — `:raw`, `:live`, `:preview`** — Done (2026-10-29,
+    P0.6 plus the preview draft the user asked for alongside it).
+    - **One switch, not two.** `crate::editor::View` is `Raw | Live | Preview`.
+      Raw and preview are the same question answered at opposite ends — how much of
+      the markdown should the frame show — so two independent flags would have had
+      to define the nonsense combination (`raw` *and* `preview`) out anyway.
+    - **The scan still runs.** Raw mode refuses to *show* the spans, not to compute
+      them: folding, and whether a row is inside a fenced block (`enter` continuing
+      a list marker inside code), are answers about the text rather than about the
+      paint, and emptying the span cache would have quietly broken them.
+    - **What raw turns off, where**: no style spans and no link spans reach the line
+      element, no table plans (so no grid, no hidden `|`, no collapsed delimiter row,
+      and table rows soft-wrap again), no image plans, no hidden markers, no heading
+      sizes / code-block backgrounds / rules / callout boxes (all of which come from
+      `row_styles`), and no collapsed fence lines. `gx` and ctrl-click still follow a
+      link, because those ask the buffer.
+    - **What preview turns on**: markers hidden on *every* row, the cursor's own
+      included — the whole difference from live preview — and a read-only buffer.
+    - **Read-only is a buffer flag** (`Buffer::set_read_only`), guarded at the top of
+      every text mutator in `buffer/edits.rs`. That is the only place it can go:
+      the vim engine, the table splices, paste and gpui's IME input handler each
+      reach the text their own way. `undo`/`redo` are on the list because undoing is
+      an edit; `set_text` is not, because loading a note is the window opening a
+      file. Insert mode is refused outright in a read-only buffer rather than letting
+      the user type into a note that silently swallows it, and `undo`/`redo`/paste
+      now mark the note dirty only when the text really changed — otherwise the
+      autosave is asked to write a note nobody touched.
+    - **A view change ends an insert session** and drops the style and wrap caches:
+      both hold what the *previous* view decided, and an open undo group over a
+      buffer that has just stopped taking edits marks the note dirty for nothing.
+    - **Ways in**: `:raw` (`source`, `src`), `:live`, `:preview` (`view`), and three
+      palette rows. The status bar badges the view — `raw` / `preview` — whenever it
+      is not live, which matters most for preview, where the note looks the same and
+      simply refuses to type.
+    - **Left**: the view is not in the config yet (it belongs with the config
+      thread), preview still draws a cursor, and there is no keybinding for the
+      views yet — the user has not asked for one, and `:preview` is short.
 
 ## Parked threads (agreed 2026-10-28; not being worked now)
 

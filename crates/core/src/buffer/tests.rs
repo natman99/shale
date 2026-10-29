@@ -655,3 +655,47 @@ fn loading_another_note_forgets_folds() {
     b.set_text("# Top\nintro\n".to_string());
     assert!(!b.has_closed_folds());
 }
+
+/// Preview mode protects the text and nothing else. Every route to a change is
+/// refused — including `undo`, which is an edit — while the cursor, the selection
+/// and loading another note all keep working.
+#[test]
+fn a_read_only_buffer_refuses_every_edit_and_nothing_else() {
+    let mut b = buf();
+    // One real edit first, so the undo refusal below has something to refuse.
+    b.insert_at(0, "typed ");
+    b.set_read_only(true);
+    assert!(b.is_read_only());
+
+    b.insert("no");
+    b.insert_at(0, "no");
+    b.backspace();
+    b.delete_forward();
+    b.delete_word_back();
+    b.delete_char(3);
+    b.delete_range(0, 5);
+    b.delete_line(1);
+    b.open_line_below(2);
+    b.open_line_above(1);
+    b.set_selection(0, 5);
+    b.delete_selected();
+    b.undo();
+    b.redo();
+    assert_eq!(
+        b.text(),
+        "typed hello world\nsecond line\nthird",
+        "no route to the text changed it"
+    );
+
+    // Motions and the selection are not edits, and preview still needs them: a
+    // note the user cannot read from the top is no use.
+    b.clear_selection();
+    b.set_cursor(12);
+    b.word_forward();
+    assert_eq!(b.cursor(), 18, "the cursor still moves");
+
+    // Loading a note is the window opening a file, not the user editing one.
+    b.set_text("another note\n".to_string());
+    assert_eq!(b.text(), "another note\n", "and that still works");
+    assert!(b.is_read_only(), "with the buffer still protected");
+}

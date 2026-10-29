@@ -17,6 +17,7 @@ mod render;
 mod search;
 mod themes;
 mod tree;
+mod views;
 
 pub(crate) use keys::keybindings;
 pub(crate) use open::PickerTarget;

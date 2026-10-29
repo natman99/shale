@@ -146,8 +146,21 @@ Small, unblocking, and three of them are already-parked user requests.
   picker or popup owns the keyboard. **Next unit:** jumps *within* one note (`gg`,
   `G`, a long `/` hop) — same chain, different unit, no re-read. See the jump-chain
   thread in Open threads.
-- **P0.6 "Raw" mode** — editor flag disabling mdstyle/mdlayout. Cheap, done
-  goal.
+- **P0.6 "Raw" mode** — **DONE 2026-10-29.** It came in as one of the note's
+  **three views** (`crates/app/src/editor/mod.rs`'s `View`: `Raw`, `Live`,
+  `Preview`), because the user asked for preview mode in the same breath and the
+  two are the same switch at opposite ends. The markdown scan still runs — folding,
+  and whether a row is inside a fenced block, are answers about the *text* — and
+  the frame decides what of it to show: raw passes no style spans, no link spans,
+  no table plans and no image plans to the paint, and hides no markers; preview
+  hides markers on **every** row, the cursor's own included, and makes the buffer
+  read-only. Read-only lives on `Buffer` (`set_read_only`), guarded in every text
+  mutator in `buffer/edits.rs` — including `undo`/`redo`, which are edits — because
+  the text is reached by the vim engine, the table splices, paste and the IME
+  handler by different routes. Ways in: `:raw` / `:live` / `:preview` (`source` and
+  `src` alias raw, `view` aliases preview) and three palette rows; the status bar
+  badges the view whenever it is not live. **Left:** the view is not in the config
+  yet (config thread), and preview still shows a cursor rather than none.
 - **P0.7 Markdown text objects** (brainstorm ✅): `diL` wiki-link, `cit` table
   cell, `da#` section, `ci*` callout, `da``` ` code block. `mdstyle` already
   reports these spans — mostly wiring into the vim engine.
@@ -157,8 +170,8 @@ Small, unblocking, and three of them are already-parked user requests.
 
 **Exit criteria:** config lives in `.shale/` and a root `shale.toml` is *moved*
 there on open rather than read from, autosave on by default, no file over 1000
-lines, the popup and the picker both scroll, `/` and raw mode work, `ctrl-o`/`ctrl-i`
-walk the jump chain, all existing tests green.
+lines, the popup and the picker both scroll, `/` and the three views work,
+`ctrl-o`/`ctrl-i` walk the jump chain, all existing tests green.
 
 ---
 

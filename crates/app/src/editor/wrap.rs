@@ -15,7 +15,7 @@ use crate::line::DisplayLine;
 use crate::preview::offset_for_visible_index;
 use crate::theme;
 
-use super::MarkdownEditor;
+use super::{MarkdownEditor, View};
 
 /// How a buffer row will be presented, derived from its markdown style spans.
 /// The wrap model has to measure a row with the face and size it will be painted
@@ -99,7 +99,15 @@ impl MarkdownEditor {
         let Some((_, spans)) = self.style_cache.as_ref() else {
             return vec![Vec::new(); line_count];
         };
-        let active = self.active_rows(selection);
+        // Which rows keep their markers on. Raw mode keeps them everywhere; live
+        // preview keeps them on the rows the user is working on; preview hides
+        // them everywhere, including the cursor's own row, which is the whole
+        // difference between it and live preview.
+        let active = match self.view {
+            View::Raw => vec![true; line_count],
+            View::Preview => vec![false; line_count],
+            View::Live => self.active_rows(selection),
+        };
         let mut out = Vec::with_capacity(line_count);
         // Spans and rows are both in offset order, so one forward walk finds the
         // spans that touch each row.
@@ -148,6 +156,14 @@ impl MarkdownEditor {
     pub(super) fn row_styles(&self) -> Vec<RowStyle> {
         let line_count = self.buffer.line_count();
         let mut rows = vec![RowStyle::default(); line_count];
+        // Raw mode paints every row as ordinary text: no heading sizes, no
+        // code-block background, no rule across a thematic break, no callout box.
+        // The spans are still computed — folding, and whether a row is inside a
+        // fenced block, are answers about the *text* — they just do not reach the
+        // frame.
+        if self.view == View::Raw {
+            return rows;
+        }
         let Some((_, spans)) = self.style_cache.as_ref() else {
             return rows;
         };
@@ -221,6 +237,11 @@ impl MarkdownEditor {
         let Some((_, spans)) = self.style_cache.as_ref() else {
             return out;
         };
+        // Raw mode shows the ``` lines like any other text: the only thing hidden
+        // there is nothing.
+        if self.view == View::Raw {
+            return out;
+        }
         // The scanner emits a `CodeFence` span for the opening and the closing
         // line of every block, in order, so they pair up as they are walked. An
         // unterminated block runs to the end of the note.

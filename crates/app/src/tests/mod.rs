@@ -22,6 +22,7 @@ mod popup;
 mod search;
 mod spell;
 mod tree;
+mod views;
 
 /// A workspace over a throwaway vault holding `files`, with the note focused the
 /// way `main` focuses it. The `TempDir` is returned so the caller can change what

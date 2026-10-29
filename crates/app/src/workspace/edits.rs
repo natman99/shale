@@ -154,6 +154,7 @@ impl Workspace {
                 },
                 Err(err) => self.status = format!("{err:#}").into(),
             },
+            ex::Ex::View(view) => self.show_view(view, cx),
             ex::Ex::Unknown(word) => self.status = format!("unknown command: {word}").into(),
         }
         cx.notify();

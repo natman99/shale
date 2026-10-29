@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use gpui::{anchored, div, prelude::*, px, AnchoredPositionMode, Context, MouseButton, Window};
 
 use crate::acts::*;
+use crate::editor::View;
 use crate::prompt;
 use crate::tree;
 
@@ -88,6 +89,11 @@ impl Render for Workspace {
         let dirty = save_indicator(self.editor.read(cx).is_dirty());
         let pending = self.editor.read(cx).pending_hint();
         let (line, col) = self.editor.read(cx).display_position();
+        // Which of the three views the note is in, for the badge below. Live is
+        // the default and gets no badge: the bar already says everything else it
+        // has to say, and a badge for the state the user is nearly always in is
+        // noise.
+        let view = self.editor.read(cx).view();
         // The checker's count, so "no underlines" can be told apart from "the
         // checker has not answered yet".
         let spell = match self.checker_notes.len() {
@@ -125,6 +131,9 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::search_next))
             .on_action(cx.listener(Self::search_prev))
             .on_action(cx.listener(Self::show_note))
+            .on_action(cx.listener(Self::show_raw))
+            .on_action(cx.listener(Self::show_live))
+            .on_action(cx.listener(Self::show_preview))
             .on_action(cx.listener(Self::command_palette))
             .on_action(cx.listener(Self::command_line))
             .on_action(cx.listener(Self::change_theme))
@@ -305,6 +314,17 @@ impl Render for Workspace {
                     .bg(gpui::rgb(self.palette.ui_status_bg))
                     .text_color(gpui::rgb(self.palette.ui_fg))
                     .child(format!("{mode}{pending}"))
+                    // The view gets its own badge whenever the note is not in the
+                    // default one. Preview looks almost exactly like live preview
+                    // and simply refuses to type, so the user has to be able to see
+                    // why — and `:live` is how they get back.
+                    .when(view != View::Live, |d| {
+                        d.child(
+                            div()
+                                .text_color(gpui::rgb(self.palette.accent))
+                                .child(view.word().to_string()),
+                        )
+                    })
                     // The save state gets its own element and the palette's
                     // accent rather than riding along in the mode string: it is
                     // the one part of the bar the user has to read without

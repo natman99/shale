@@ -148,6 +148,12 @@ actions!(
         // The checker's note about the word under the cursor, in a popup over the
         // note (vim's `K`, and the pointer resting on a marked word).
         ShowNote,
+        // The note's three views: the markdown source, Shale's live preview, and
+        // fully rendered preview, which takes no edits (`:raw`, `:live`,
+        // `:preview`).
+        ViewRaw,
+        ViewLive,
+        ViewPreview,
     ]
 );
 

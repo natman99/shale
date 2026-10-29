@@ -40,14 +40,23 @@ impl MarkdownEditor {
         }
         match outcome {
             Outcome::EnterInsert => {
-                self.vim.enter_insert();
-                // Everything typed from here belongs to one undo step. When an
-                // operator (`cw`, `o`) already changed the text it also already
-                // snapshotted, so join that step instead of starting a new one.
-                if changed {
-                    self.buffer.continue_undo_group();
+                // A read-only buffer (preview) does not go into insert mode at
+                // all. The buffer would refuse every keystroke anyway; refusing
+                // the mode is what stops the user typing into a note that silently
+                // swallows it, and it keeps every insert-only action — `enter`
+                // continuing a list, `backspace`, the IME path — out of reach.
+                if self.buffer.is_read_only() {
+                    tracing::debug!("insert refused: the note is read only");
                 } else {
-                    self.buffer.begin_undo_group();
+                    self.vim.enter_insert();
+                    // Everything typed from here belongs to one undo step. When an
+                    // operator (`cw`, `c$`) already changed the text it also already
+                    // snapshotted, so join that step instead of starting a new one.
+                    if changed {
+                        self.buffer.continue_undo_group();
+                    } else {
+                        self.buffer.begin_undo_group();
+                    }
                 }
             }
             Outcome::FollowLink => {
@@ -231,16 +240,25 @@ impl MarkdownEditor {
 
     pub(super) fn on_undo(&mut self, _: &Undo, _window: &mut Window, cx: &mut Context<Self>) {
         tracing::debug!(undo_depth = self.buffer.undo_depth(), "undo action");
+        // Undo and redo are edits, so a read-only buffer refuses them; marking the
+        // note dirty for a step that changed nothing would have the autosave write
+        // a note nobody changed.
+        let before = self.buffer.change_id();
         self.buffer.undo();
-        self.mark_dirty(cx);
+        if self.buffer.change_id() != before {
+            self.mark_dirty(cx);
+        }
         self.ensure_cursor_visible();
         cx.notify();
     }
 
     pub(super) fn on_redo(&mut self, _: &Redo, _window: &mut Window, cx: &mut Context<Self>) {
         tracing::debug!(redo_depth = self.buffer.redo_depth(), "redo action");
+        let before = self.buffer.change_id();
         self.buffer.redo();
-        self.mark_dirty(cx);
+        if self.buffer.change_id() != before {
+            self.mark_dirty(cx);
+        }
         self.ensure_cursor_visible();
         cx.notify();
     }
@@ -259,8 +277,14 @@ impl MarkdownEditor {
 
     pub(super) fn on_paste(&mut self, _: &PasteText, _window: &mut Window, cx: &mut Context<Self>) {
         if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
+            let before = self.buffer.change_id();
             self.buffer.insert(&text);
-            self.insert_edit(&text, cx);
+            // A refused paste (a read-only buffer) is not an edit, and must not
+            // join the `.` register either: replaying it would be a second paste
+            // that also did nothing.
+            if self.buffer.change_id() != before {
+                self.insert_edit(&text, cx);
+            }
         }
     }
 }

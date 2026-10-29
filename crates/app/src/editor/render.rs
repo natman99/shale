@@ -16,7 +16,7 @@ use crate::preview::{LineLayout, PieceMap};
 use crate::table_view;
 use crate::theme;
 
-use super::{EditorEvent, MarkdownEditor};
+use super::{EditorEvent, MarkdownEditor, View};
 
 impl Render for MarkdownEditor {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -79,8 +79,15 @@ impl Render for MarkdownEditor {
         let row_styles = self.row_styles();
         // Tables are painted as aligned grids instead of raw markdown: one plan
         // per buffer row, and a row that has one never soft-wraps, which the wrap
-        // model has to be told about so it agrees with the paint.
-        let buffer_tables = shale_core::table::tables(self.buffer.text());
+        // model has to be told about so it agrees with the paint. Raw mode has no
+        // tables at all — the grid, the hidden `|` and the collapsed delimiter row
+        // are all rendering — so a table row is ordinary text there and wraps like
+        // any other row.
+        let buffer_tables = if self.view == View::Raw {
+            Vec::new()
+        } else {
+            shale_core::table::tables(self.buffer.text())
+        };
         // Rows live preview leaves out entirely: the fence lines of a code block
         // the cursor is not in, and a table's delimiter row (unless the cursor is
         // on it or on the header above it). Dropping them from the display model
@@ -105,8 +112,11 @@ impl Render for MarkdownEditor {
         // other marker, and a row drawn as a picture never soft-wraps.
         let active = self.active_rows(selection);
         let image_plans: Vec<Option<image::ImagePlan>> = match self.vault.as_ref() {
-            Some(vault) => image::plans_by_row(self.buffer.text(), vault, &self.attachments),
-            None => Vec::new(),
+            // Raw mode shows an embed's source and never the picture.
+            Some(vault) if self.view != View::Raw => {
+                image::plans_by_row(self.buffer.text(), vault, &self.attachments)
+            }
+            _ => Vec::new(),
         };
         let image_rows: Vec<bool> = (0..line_count)
             .map(|row| {
@@ -469,23 +479,35 @@ impl Render for MarkdownEditor {
 
                         // Wiki-link spans overlapping this display line, as
                         // absolute buffer offsets, with whether they resolve to an
-                        // existing note.
-                        let line_links: Vec<(usize, usize, bool)> = self
-                            .links
-                            .iter()
-                            .filter(|l| l.start < dl.end && l.end > dl.start)
-                            .map(|l| {
-                                (
-                                    l.start.max(dl.start),
-                                    l.end.min(dl.end),
-                                    self.is_known(&l.target),
-                                )
-                            })
-                            .collect();
+                        // existing note. Raw mode draws a link as the text that is
+                        // in the file, brackets and all; `gx` and ctrl-click still
+                        // follow it, because those ask the buffer rather than the
+                        // paint.
+                        let line_links: Vec<(usize, usize, bool)> = if self.view == View::Raw {
+                            Vec::new()
+                        } else {
+                            self.links
+                                .iter()
+                                .filter(|l| l.start < dl.end && l.end > dl.start)
+                                .map(|l| {
+                                    (
+                                        l.start.max(dl.start),
+                                        l.end.min(dl.end),
+                                        self.is_known(&l.target),
+                                    )
+                                })
+                                .collect()
+                        };
 
                         // Markdown style spans overlapping this display line, as
-                        // absolute buffer offsets.
-                        let line_spans = self.spans_in(dl.start, dl.end);
+                        // absolute buffer offsets. Raw mode has no syntax colours,
+                        // which is what makes it look like the file rather than
+                        // like the note.
+                        let line_spans = if self.view == View::Raw {
+                            Vec::new()
+                        } else {
+                            self.spans_in(dl.start, dl.end)
+                        };
                         // The `/` matches on this line, and the current one, as
                         // absolute buffer offsets; the element rebases them onto the
                         // text it paints.
