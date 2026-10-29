@@ -615,7 +615,7 @@ build; the rest is configuration of things that already exist.
 - Scope line if it ever un-parks: reference/annotation only — no tokens,
   no grid, no movement (same VTT guard as the initiative tracker).
 
-### Spotlight ledger 🔭 (awaiting ruling)
+### Spotlight ledger ✅
 - The DB knows session-note text; PC notes are wikilinked there. Count
   PC-name mentions (wikilinks + `aliases:` prop) per session → spotlight
   time per player as a bar chart in the GM screen. "Is someone getting
@@ -647,31 +647,33 @@ build; the rest is configuration of things that already exist.
 - The most shareable artifact of the toolkit: print it or export PDF and
   post it after every session.
 
-### Graph lenses 🔭 (awaiting ruling)
-- **Session lens**: `:graph session:12` filters to nodes touched in that
-  session (backlink timestamps) — the shape of one episode; the discrete
-  version of the time-lapse scrubber.
-- **Faction tension**: `allied:`/`rival:` frontmatter edges render as a
-  colored edge layer — conflict geometry at a glance.
-- **Hook→payoff arcs**: `#hook` edges pointing at `#payoff` notes;
-  unresolved arcs render dashed into nothing = "what's still dangling",
-  drawn.
-- **Region clustering**: `region:` property feeds the community layout —
-  arcs become visible clusters; a too-small arc or two clusters that never
-  interact are a missed connection you can *see*.
-- **Party graph**: PC↔NPC edges from session mentions (the spotlight
-  ledger's data, drawn).
-- All of it is graph filters + edge layers over existing index data; no
-  new storage.
+### Graph lenses (split ruling, 2026-10-29)
+- **Session lens** ❌ — dropped: the planned connected-node / date graph
+  filters already cover it; no separate lens.
+- **Hook→payoff arcs** ✅ — `#hook` edges pointing at `#payoff` notes;
+  unresolved arcs render dashed into nothing. The point: the graph shows
+  holes — to-do and unfinished threads are visible *in the drawing*, so
+  "what did I leave dangling" needs no query.
+- **Region clustering** ✅ — `region:` property feeds the community
+  layout; arcs become visible clusters; a too-small arc or two clusters
+  that never interact is a missed connection you can *see*.
+- **Party graph** ❌ — dropped: PC↔NPC entanglement is already visible
+  via standard wikilinks + backlinks panel; no dedicated lens.
+- **Faction tension** 🔭 (still awaiting ruling) — `allied:`/`rival:`
+  frontmatter edges render as a colored edge layer — conflict geometry
+  at a glance.
+- Kept principle: lenses are graph filters + edge layers over existing
+  index data; no new storage.
 
 ### NPC knowledge graph ❄️ (parked, user call 2026-10-29)
 - Fact notes + `knows:` frontmatter → graph-reachability as an NPC's mind;
   `:talk <npc>` scoped persona (leak-proof by vault slice), alibi
   timelines, `:gossip` propagation with `twist:` degradation.
 - Parked: too far from the app's center of gravity right now (it pulls
-  toward world-simulation). The parts that stay alive regardless: fact
-  notes as a convention, and `in:` influence edges (used by the graph
-  lenses). Revisit only if the vault's shape already grows fact notes.
+  toward world-simulation). Lineage/influence edge tracking was rejected
+  outright (user call 2026-10-29) — the graph tracks relationships people
+  and things have, not bloodline/influence chains. Revisit only if the
+  vault's shape already grows fact notes.
 
 ### Puzzle notes ❌ (rejected, user call 2026-10-29)
 - Input-locked secret blocks (answer/dial/order/key locks, chain locks) —
