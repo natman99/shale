@@ -152,6 +152,39 @@ traversal, θ 0.5→0.7 — still passes the 5% accuracy test):
 - Memory: core test binary peaks at 6.8 MB RSS incl. the 4k-node BH
   validation. Keep watching it as the module grows.
 
+### Where the remaining perf is (written 2026-10-28, after the perf pass — for later)
+
+Assessment of whether more *easy* wins exist in the graph core:
+
+- **2D at target scale (≤2k): tapped out.** The 1.65 ms tick at n=2000
+  is ~88% Barnes-Hut traversal. The cheap constant-factors (child_mask,
+  Cell shrink, θ 0.8) are spent. What remains is SoA cell layout or SIMD
+  traversal — real work, maybe 1.5-2x, not easy, and pointless when the
+  tick is already ~10% of the frame budget.
+- **3D at n=5000: one clear win sits there, off the target path.**
+  Inference from the existing benches (3D tick 25.7 ms; BH repulsion
+  probe 8.9 ms; links+integrate ~0.1 ms): **3D collide is ~16 ms** —
+  the same O(n²)-flavored crime as before, in a new costume. The uniform
+  grid sizes its cell by the *hub* radius (`2*max_radius+2` ≈ 66 world
+  units in a 5k PA graph), and in 3D cell volume scales cubically, so
+  each cell holds far more points than can actually touch and most pair
+  checks are wasted. In 2D that waste was tolerable (447 µs); in 3D it
+  dominates. Easy fixes if the scale target ever rises past 2k: cell
+  sized by median radius + a radius-class second pass, or per-point
+  multi-cell insertion keyed to each point's own radius. Not worth the
+  complexity now — at n=2000 the 3D tick is 5.4 ms and fine.
+- **The sim is no longer where the frame goes.** At target scale physics
+  leaves ~14 ms for painting; the renderer side (painter sort, path
+  batching, label glyphs) is where that gets spent. The next perf pass
+  belongs against the *real renderer* (M1b), measured, not speculative.
+- **The cheapest wins are already banked by design**: the idle contract
+  (sim sleeps at settle) and the M3 static-layout cache mean settle cost
+  is paid once per vault change, not per frame.
+
+Bottom line: stop optimizing the core; revisit only if the scale target
+rises (3D collide fix above) or when the renderer exists and can be
+measured.
+
 ### Notes for M1b (the graph tab — waits on tabs, roadmap P3.1)
 - `GraphIndex::set_note` is the hook the watcher/save path calls; re-heating
   (`sim.reheat(1.0)`) is the caller's job.
