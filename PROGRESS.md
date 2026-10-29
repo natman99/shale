@@ -164,6 +164,37 @@ traversal, θ 0.5→0.7 — still passes the 5% accuracy test):
 
 ### Log
 
+- 2026-10-28 (perf pass, systematic): measured before touching anything —
+  new `bench_breakdown` splits a hot tick per force. Findings, in order of
+  what they changed:
+  1. **Collide was the hotspot, not repulsion**: the O(n²) pair loop cost
+     13.3 ms/tick at n=5000 — more than Barnes-Hut. Replaced with a
+     uniform spatial grid (cell = 2*max_radius+2, intrusive linked-list
+     buckets, 3^D neighbor walk, precomputed offsets + strides, cached
+     cell index, static `max_radius`). 13.3→0.46 ms at n=5000 (~29x),
+     2.04→0.16 ms at n=2000. Naive loop kept as the sparse-grid fallback.
+     New test `grid_collide_matches_naive` pins grid == naive pair-forcing
+     (overlaps + coincident pair).
+  2. **Per-edge spring bias precomputed** (`bias` vec at construction;
+     degrees are static) — the per-tick division/max was waste. `degree`
+     field dropped (radius+bias capture everything).
+  3. **Quadtree: child_mask u8** replaces the 8-slot NONE scan (leaf test
+     + bit-walk when opening). **THETA 0.7→0.8** — margin probes
+     (`probe_theta_margin[_clustered]`) show 0.6% (2D) / 2.8-3.1% (3D)
+     worst error on uniform AND settled-clustered layouts; 0.9 measured
+     3.6% in 3D, too thin against the 5% bound. **Cell shrunk**: `center`
+     removed (threaded through insertion recursion instead — only
+     insertion needs it), `half` → `width2` (pre-squared for the opening
+     test). 2D traverse 4.26→3.85 ms at n=5000.
+  4. **`probe_build_vs_traverse`**: tree build is only ~7% of repulsion
+     (0.3 ms vs 3.9-8.4 ms traverse) — the traversal is the thing, and
+     3D traverse is ~2.2x 2D (more cells open at θ; inherent).
+  Net mid-drag tick (2D): n=500 543→291µs, n=2000 5.14→1.66ms,
+  n=5000 25.5→5.1ms. 3D: n=2000 7.32→5.0ms, n=5000 33.0→27.1ms.
+  2D n=5000 now fits 60fps too (was 40fps). Settle (300 ticks): 2D
+  n=2000 1.48→0.51s, n=5000 7.28→1.50s; 3D n=2000 2.15→1.58s.
+  296 tests green, clippy clean, peak RSS 6.9MB (down from 7.3).
+
 - 2026-10-28: read `vault.rs` / `markdown.rs` / `mdstyle` APIs; wrote the
   module; fixed petgraph-0.8 API drift (no inherent `degree`); aligned the
   repulsion law with d3's exactly (the first draft mixed 1/d² and 1/d³

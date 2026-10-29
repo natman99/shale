@@ -24,9 +24,12 @@ use super::sim::NAIVE_LIMIT;
 
 /// The classic opening criterion: a cell is approximated when its width over
 /// the distance to it is under this. d3-force ships 0.9; we hold the layout
-/// to 5% per node against the exact loop, which for the 1/d law needs a
-/// tighter value — the accuracy test is what pins this down.
-const THETA: f32 = 0.7;
+/// to 5% per node against the exact loop. Measured worst-case at 0.8
+/// (probe_theta_margin[_clustered]): 0.6%/2.8-3.1% in 2D/3D, on both
+/// uniform scatter and settled force-directed (clustered) layouts. 0.9
+/// would save ~10% more visits but leaves 3D at 3.6% — thin against the
+/// 5% bound. The accuracy tests pin this down.
+const THETA: f32 = 0.8;
 
 /// Absent child marker.
 const NONE: u32 = u32::MAX;
@@ -39,16 +42,22 @@ struct Cell<const D: usize> {
     /// Center of mass of every point in this subtree (== the point for a
     /// leaf).
     com: [f32; D],
-    /// Center of this cell's square.
-    center: [f32; D],
-    /// Half-width of this cell's square.
-    half: f32,
+    /// Squared width of this cell's square — the opening test compares it
+    /// against THETA² * d², so it is stored pre-squared. (The square's
+    /// *center* is deliberately not stored: only insertion needs it, and
+    /// insertion computes it on the way down. Keeping it out of Cell
+    /// shrinks the struct the hot traversal streams through.)
+    width2: f32,
     /// How many points this subtree holds (>= 1 once built).
     mass: u32,
+    /// Bit q set iff child slot q is present. The hot traversal tests
+    /// this instead of scanning the 8 slots for NONE (leaf == mask 0),
+    /// and walks only the set bits when opening a cell.
+    child_mask: u8,
     /// Quadrant index -> child cell, `NONE` for absent. Quadrant bits:
     /// bit k = the point is on the + side of axis k. Fixed 8 slots (the
     /// octree count): `1 << D` is not a stable array length, so the
-    /// quadtree simply leaves the top four `NONE` forever.
+    /// quadtree simply leaves the top four absent forever.
     children: [u32; 8],
 }
 
@@ -100,21 +109,23 @@ impl<const D: usize> Tree<D> {
         };
         tree.cells.push(Cell {
             com: root_center,
-            center: root_center,
-            half: root_half,
+            width2: (2.0 * root_half) * (2.0 * root_half),
             mass: 0,
+            child_mask: 0,
             children: [NONE; 8],
         });
         for &p in pos {
-            tree.insert(0, p);
+            tree.insert(0, p, root_center, root_half);
         }
         tree
     }
 
     /// Insert `p` into the subtree at `cell`. Accumulates center of mass on
     /// the way down (running average — insertion is O(n log n) total and
-    /// never the hot path, so the divisions are fine).
-    fn insert(&mut self, cell: u32, p: [f32; D]) {
+    /// never the hot path, so the divisions are fine). The cell's square
+    /// (`center`, `half`) is threaded through the recursion rather than
+    /// stored in the cell: only insertion ever needs it.
+    fn insert(&mut self, cell: u32, p: [f32; D], center: [f32; D], half: f32) {
         let ci = cell as usize;
         let (com, mass) = (self.cells[ci].com, self.cells[ci].mass);
         for k in 0..D {
@@ -122,28 +133,28 @@ impl<const D: usize> Tree<D> {
         }
         self.cells[ci].mass = mass + 1;
 
-        let (children, center, half) = {
-            let c = &self.cells[ci];
-            (c.children, c.center, c.half)
-        };
+        let children = self.cells[ci].children;
 
         if children != [NONE; 8] {
             let q = quadrant(center, p);
             if children[q] != NONE {
-                self.insert(children[q], p);
+                let cc = child_center(center, half, q);
+                self.insert(children[q], p, cc, half * 0.5);
                 return;
             }
             let idx = self.cells.len() as u32;
             self.cells.push(Cell {
                 com: p,
-                center: child_center(center, half, q),
-                half: half * 0.5,
+                // child square: half -> half/2, so width2 -> half^2
+                width2: half * half,
                 mass: 1,
+                child_mask: 0,
                 children: [NONE; 8],
             });
             let mut kids = children;
             kids[q] = idx;
             self.cells[ci].children = kids;
+            self.cells[ci].child_mask |= 1 << q;
             return;
         }
 
@@ -163,11 +174,12 @@ impl<const D: usize> Tree<D> {
         let old = com;
         let q_old = quadrant(center, old);
         let child = self.cells.len() as u32;
+        let cc_old = child_center(center, half, q_old);
         self.cells.push(Cell {
             com: old,
-            center: child_center(center, half, q_old),
-            half: half * 0.5,
+            width2: half * half,
             mass,
+            child_mask: 0,
             children: [NONE; 8],
         });
         self.cells[ci].children = {
@@ -175,19 +187,21 @@ impl<const D: usize> Tree<D> {
             kids[q_old] = child;
             kids
         };
+        self.cells[ci].child_mask = 1 << q_old;
         let q_new = quadrant(center, p);
         if q_old == q_new {
-            self.insert(child, p);
+            self.insert(child, p, cc_old, half * 0.5);
         } else {
             let idx = self.cells.len() as u32;
             self.cells.push(Cell {
                 com: p,
-                center: child_center(center, half, q_new),
-                half: half * 0.5,
+                width2: half * half,
                 mass: 1,
+                child_mask: 0,
                 children: [NONE; 8],
             });
             self.cells[ci].children[q_new] = idx;
+            self.cells[ci].child_mask |= 1 << q_new;
         }
     }
 
@@ -208,19 +222,17 @@ impl<const D: usize> Tree<D> {
                 delta[k] = c.com[k] - p[k];
                 d2 += delta[k] * delta[k];
             }
-            let kids = c.children;
-            let leaf = kids.iter().all(|&k| k == NONE);
-            if !leaf {
-                let width = 2.0 * c.half;
-                if width * width > t2 * d2 {
-                    // Near: open the cell.
-                    for &kid in &kids {
-                        if kid != NONE {
-                            stack.push(kid);
-                        }
-                    }
-                    continue;
+            let mask = c.child_mask;
+            if mask != 0 && c.width2 > t2 * d2 {
+                // Near internal cell: open it — walk only the present children.
+                let kids = c.children;
+                let mut m = mask;
+                while m != 0 {
+                    let q = m.trailing_zeros() as usize;
+                    m &= m - 1;
+                    stack.push(kids[q]);
                 }
+                continue;
             }
             // Leaf, or a far internal cell: treat as one mass at `com`.
             // The self-force of `p` against its own leaf is zero because
@@ -357,6 +369,43 @@ mod tests {
         worst
     }
 
+    /// What the approximation error actually is at the current THETA (the
+    /// accuracy tests only assert < 5%; this prints the margin).
+    #[test]
+    #[ignore]
+    fn probe_theta_margin() {
+        let pos = scatter::<2>(4000, 42);
+        println!(
+            "THETA={THETA}  2D worst error: {:.4}",
+            worst_error(&pos, -90.0)
+        );
+        let pos = scatter::<3>(1500, 7);
+        println!(
+            "THETA={THETA}  3D worst error: {:.4}",
+            worst_error(&pos, -90.0)
+        );
+    }
+
+    /// The scatter-based margin above is uniform; a real vault graph is
+    /// clustered (hubs + leaves), the harder case for the multipole
+    /// approximation. This measures the margin on the layout the sim
+    /// actually produces. (n modest: the naive comparison is O(n²).)
+    #[test]
+    #[ignore]
+    fn probe_theta_margin_clustered() {
+        use crate::graph::quadtree::bench::settled;
+        let pos = settled::<2>(1200);
+        println!(
+            "THETA={THETA}  clustered 2D worst: {:.4}",
+            worst_error(&pos, -90.0)
+        );
+        let pos = settled::<3>(1200);
+        println!(
+            "THETA={THETA}  clustered 3D worst: {:.4}",
+            worst_error(&pos, -90.0)
+        );
+    }
+
     #[test]
     fn barnes_hut_matches_naive_within_five_percent() {
         // 4000 points: past the naive limit, the tree's reason to exist.
@@ -480,7 +529,7 @@ mod bench {
     /// Shared fixture: a preferential-attachment graph settled to a real
     /// (clustered) layout — the shape real vaults roughly have, and the
     /// input the probes below use.
-    fn settled<const D: usize>(n: usize) -> Vec<[f32; D]> {
+    pub(super) fn settled<const D: usize>(n: usize) -> Vec<[f32; D]> {
         use crate::graph::sim::{Sim, SimParams};
         let mut edges = Vec::with_capacity(n * 2);
         let mut r = 0x1234_5678_9abc_def0u64;
@@ -496,6 +545,54 @@ mod bench {
         let mut sim = Sim::<D>::new(n, &edges, SimParams::default(), 7);
         while sim.step() {}
         sim.positions().to_vec()
+    }
+
+    /// Split of apply_repulsion's cost: tree build vs force traversal.
+    /// The answer decides what to optimize next.
+    #[test]
+    #[ignore]
+    fn probe_build_vs_traverse() {
+        use std::time::Instant;
+        for n in [2000usize, 5000] {
+            let pos2 = settled::<2>(n);
+            let t0 = Instant::now();
+            for _ in 0..20 {
+                let t = Tree::<2>::new(&pos2);
+                std::hint::black_box(&t);
+            }
+            println!("n={n:5}  2D build     {:>8.2?}", t0.elapsed() / 20);
+            let tree = Tree::<2>::new(&pos2);
+            let mut vel = vec![[0.0; 2]; n];
+            let pinned = vec![false; n];
+            let t0 = Instant::now();
+            for _ in 0..20 {
+                let mut stack = Vec::with_capacity(256);
+                for (i, &p) in pos2.iter().enumerate() {
+                    let f = tree.force_on(p, -90.0, &mut stack);
+                    vel[i] = f;
+                }
+            }
+            println!("n={n:5}  2D traverse  {:>8.2?}", t0.elapsed() / 20);
+
+            let pos3 = settled::<3>(n);
+            let t0 = Instant::now();
+            for _ in 0..20 {
+                let t = Tree::<3>::new(&pos3);
+                std::hint::black_box(&t);
+            }
+            println!("n={n:5}  3D build     {:>8.2?}", t0.elapsed() / 20);
+            let tree = Tree::<3>::new(&pos3);
+            let mut vel = vec![[0.0; 3]; n];
+            let t0 = Instant::now();
+            for _ in 0..20 {
+                let mut stack = Vec::with_capacity(256);
+                for (i, &p) in pos3.iter().enumerate() {
+                    let f = tree.force_on(p, -90.0, &mut stack);
+                    vel[i] = f;
+                }
+            }
+            println!("n={n:5}  3D traverse  {:>8.2?}", t0.elapsed() / 20);
+        }
     }
 
     /// Cell count and per-point visit count on a settled layout.
@@ -516,8 +613,7 @@ mod bench {
                 let c = &tree.cells[ci as usize];
                 let d2 = (c.com[0] - p[0]).powi(2) + (c.com[1] - p[1]).powi(2);
                 if c.children != [NONE; 8] {
-                    let width = 2.0 * c.half;
-                    if width * width > THETA * THETA * d2 {
+                    if c.width2 > THETA * THETA * d2 {
                         for &k in &c.children {
                             if k != NONE {
                                 stack.push(k);
