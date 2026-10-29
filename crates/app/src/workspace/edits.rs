@@ -69,7 +69,7 @@ impl Workspace {
     }
 
     /// Close the prompt and hand the keyboard back to whatever had it before.
-    fn close_prompt(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn close_prompt(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.prompt.is_none() {
             return;
         }

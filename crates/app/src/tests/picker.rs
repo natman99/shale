@@ -40,6 +40,139 @@ fn ctrl_o_lists_every_note_and_enter_opens_the_top_row(cx: &mut TestAppContext) 
     assert_eq!(active, "Welcome.md", "the highlighted row was opened");
 }
 
+/// Two frames, so the frame's hitboxes exist and a click or a hover lands on
+/// something the window drew.
+fn paint(cx: &mut VisualTestContext) {
+    for _ in 0..2 {
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+    }
+}
+
+/// A click outside the picker closes it. The list floats over the note, and a
+/// click under it used to belong to nothing at all, so the panel just stayed up
+/// until `escape`.
+#[gpui::test]
+fn clicking_off_the_picker_closes_it(cx: &mut TestAppContext) {
+    let (_dir, window) = workspace(cx, &["Welcome.md", "notes/Another Note.md"]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    paint(cx);
+
+    cx.simulate_keystrokes("ctrl-o");
+    assert_eq!(matches(&window, cx), Some(2), "the list is up");
+
+    // Well below the panel, in the note.
+    cx.simulate_click(gpui::point(px(500.), px(700.)), gpui::Modifiers::none());
+    assert_eq!(
+        matches(&window, cx),
+        None,
+        "a click outside the panel is a way out"
+    );
+}
+
+/// The sidebar is outside the panel too. The list is the window's, not the note
+/// column's, so clicking a row there closes it.
+#[gpui::test]
+fn clicking_the_sidebar_off_the_picker_closes_it(cx: &mut TestAppContext) {
+    let (_dir, window) = workspace(cx, &["Welcome.md", "notes/Another Note.md"]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    paint(cx);
+
+    cx.simulate_keystrokes("ctrl-o");
+    assert_eq!(matches(&window, cx), Some(2));
+
+    // Inside the sidebar, which is 260px wide.
+    cx.simulate_click(gpui::point(px(100.), px(400.)), gpui::Modifiers::none());
+    assert_eq!(
+        matches(&window, cx),
+        None,
+        "the click was not in the panel, so the panel goes"
+    );
+}
+
+/// A click inside the panel is not a way out, and not a choice either: the panel
+/// stops the click before the window's dismiss handler, so clicking its own label
+/// leaves the list exactly where it was.
+#[gpui::test]
+fn clicking_inside_the_picker_keeps_it(cx: &mut TestAppContext) {
+    let (_dir, window) = workspace(cx, &["Welcome.md", "notes/Another Note.md"]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    paint(cx);
+
+    cx.simulate_keystrokes("ctrl-o");
+    assert_eq!(matches(&window, cx), Some(2));
+
+    // The panel starts 8px from the top of the note column, and its label is the
+    // first thing in it: inside the panel, on nothing that answers a click.
+    cx.simulate_click(gpui::point(px(500.), px(14.)), gpui::Modifiers::none());
+    assert_eq!(
+        matches(&window, cx),
+        Some(2),
+        "a click inside the panel is still inside it"
+    );
+    assert_eq!(
+        choice(&window, cx).as_deref(),
+        Some("Welcome.md"),
+        "and it chose nothing"
+    );
+}
+
+/// vim's command line floats at the bottom of the note, and the same rule holds:
+/// a click elsewhere closes it.
+#[gpui::test]
+fn clicking_off_the_command_line_closes_it(cx: &mut TestAppContext) {
+    let (_dir, window) = workspace(cx, &["Welcome.md"]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    paint(cx);
+
+    cx.simulate_keystrokes(":");
+    assert!(
+        window
+            .update(cx, |ws, _window, cx| ws.prompt_text(cx))
+            .unwrap()
+            .is_some(),
+        "the command line is up"
+    );
+
+    // Above the line, in the note.
+    cx.simulate_click(gpui::point(px(500.), px(300.)), gpui::Modifiers::none());
+    assert_eq!(
+        window
+            .update(cx, |ws, _window, cx| ws.prompt_text(cx))
+            .unwrap(),
+        None,
+        "and a click outside it closes it"
+    );
+}
+
+/// The sidebar's prompts are the exception: they are part of the sidebar, not a
+/// panel over the note, and a name half typed is work the user has not finished.
+#[gpui::test]
+fn clicking_the_note_keeps_a_sidebar_prompt(cx: &mut TestAppContext) {
+    let (_dir, window) = workspace(cx, &["Welcome.md"]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    paint(cx);
+
+    // The rename acts on the note that is open, so open one first.
+    cx.simulate_keystrokes("ctrl-o enter ctrl-shift-r");
+    cx.simulate_input(" x");
+    let typed = window
+        .update(cx, |ws, _window, cx| ws.prompt_text(cx))
+        .unwrap();
+    assert!(
+        typed.as_deref().is_some_and(|text| text.ends_with(" x")),
+        "the rename prompt is up with what was typed into it, got {typed:?}"
+    );
+
+    cx.simulate_click(gpui::point(px(500.), px(300.)), gpui::Modifiers::none());
+    assert_eq!(
+        window
+            .update(cx, |ws, _window, cx| ws.prompt_text(cx))
+            .unwrap(),
+        typed,
+        "and clicking the note did not throw it away"
+    );
+}
+
 #[gpui::test]
 fn typing_narrows_the_list_to_the_best_match(cx: &mut TestAppContext) {
     let (_dir, window) = workspace(cx, &["Welcome.md", "notes/Another Note.md"]);

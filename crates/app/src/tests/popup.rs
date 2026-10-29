@@ -855,6 +855,34 @@ fn the_panel_follows_its_line(cx: &mut TestAppContext) {
     );
 }
 
+/// The picker floats over the note, and the note under it does not answer the
+/// pointer. Reported live: moving the mouse over a word the checker marked, with
+/// the palette open above it, opened a harper panel *underneath* the list, so two
+/// panels were up at once and neither would answer for the other.
+#[gpui::test]
+fn the_note_under_the_picker_does_not_answer_the_pointer(cx: &mut TestAppContext) {
+    let (_dir, window) = marked_note(
+        cx,
+        "Thier spelling is wrogn.\n",
+        &[("Did you mean to spell `thier` this way?", 0, 5)],
+    );
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    paint(cx);
+
+    cx.simulate_keystrokes("ctrl-o");
+    // The panel hangs at the top of the note column and the marked word is on the
+    // first line, so this is the pointer resting on the word *through* the panel.
+    hover_at(cx, &window, 0, 2);
+    assert!(!shown(cx, &window), "no harper panel under the picker");
+    assert_eq!(
+        window
+            .update(cx, |ws, _window, cx| ws.picker_matches(cx))
+            .unwrap(),
+        Some(1),
+        "and the list is still the list"
+    );
+}
+
 /// A note long enough that its marked word sits against the bottom of the window.
 ///
 /// Returns the offset of the marked word and its display line. The note ends with

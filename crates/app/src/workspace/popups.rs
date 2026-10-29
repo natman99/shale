@@ -91,6 +91,14 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // A picker or a prompt owns the window, so the note is not what the pointer
+        // is over. The panel that floats over the note occludes the note under it,
+        // so a move inside it should not reach this at all; the guard is the same
+        // rule stated where it cannot be forgotten, and it also covers a prompt in
+        // the sidebar, which does not occlude the note.
+        if self.picker.is_some() || self.prompt.is_some() {
+            return;
+        }
         // Insert mode is typing. A popup that took the keyboard the moment the
         // pointer brushed a word would be worse than no popup at all.
         if !self

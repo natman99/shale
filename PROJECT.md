@@ -310,7 +310,7 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
 - Run the test binaries under `ulimit -v` when working on anything that scans
   text (a scanner bug can allocate until the OOM killer takes the editor down —
   see the table postmortem).
-  Current peak RSS of the test binaries (2026-10-28, app 174 / core 295 with 6
+  Current peak RSS of the test binaries (2026-10-28, app 180 / core 295 with 6
   ignored / mcp 6 tests — core's count includes the graph agent's `graph::` tests,
   which are committed and green): core 7.6 MB, app 63 MB,
   mcp 3.3 MB. The
@@ -329,6 +329,16 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
   `crates/core/src/graph` and the `pub mod graph;` line **in the copy**, and run
   `cargo test -p shale-core` there. The app crate needs core's *lib*, which
   usually compiles well before core's test target does.
+  - **Prefer polling the real build to making a copy.** A scratch copy is a hazard,
+    not a shortcut: cargo's artifact name for a workspace member does not include
+    its path, so building the copy with `CARGO_TARGET_DIR` pointed at the project's
+    `target/` writes artifacts under *the same filenames* — and afterwards `cargo`
+    calls the real crate `Fresh` (touching its sources does not help) and runs the
+    scratch binary. Found the hard way: 180 tests "passed" from a binary whose
+    `shale-core` had no `graph/` in it. If a copy is used anyway, give it its own
+    target dir, then `cargo clean -p shale-core -p shale-app` in the project and
+    rebuild before trusting anything. The standing instruction is to wait for the
+    real build to go green.
 - The headless harness (`tests/mod.rs::workspace`) turns `[spellcheck]` **off**.
   It would otherwise start a real `harper-ls` per window: several hundred
   megabytes of other people's dictionaries across the suite, and a gpui test
@@ -1178,6 +1188,14 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   with "got 0px"); `hit_line_x` is the window-coordinate edge. An overlay has to be
   **opaque** or it is unreadable: the picker paints `ui_bg` behind itself, which is
   the cost of not pushing the note down (found by the user, from a screenshot).
+  **The margins belong to the note's background (2026-10-28).** The column now also
+  carries `.bg(palette.bg)` — the note's own colour — so the padding reads as the
+  note's margin rather than a strip of chrome around the text box. Padding *inside*
+  the editor's scroll container is the option that was not taken:
+  `ScrollHandle::bounds()` is the div's padding box, and `wrap_width` reads it, so
+  the lines would be wrapped for a box wider than the one they are painted in. What
+  that costs: a click in the margin still belongs to the column and not the note,
+  so it does not place the cursor there.
   **Tests:** app 79 (was 71) — six new in `tests/picker.rs` (the palette lists all
   13 rows, `:` opens it, choosing a row runs its command end to end from the prompt
   to a file on disk, a row can open the note picker, `space f` opens quick-open,
@@ -1516,6 +1534,39 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
     `a_panel_near_the_bottom_of_the_window_goes_above_its_line`,
     `a_flipped_panel_is_walked_away_from_upwards`,
     `a_big_vault_is_not_truncated_at_the_old_cap`.
+- **An overlay owns the pointer it covers (2026-10-28).** Reported live: with the
+  palette open, moving the mouse over a word the checker had marked opened a harper
+  panel *underneath* the list — two panels at once, neither answering for the other
+  — and clicking the tree or the note left the palette up.
+  - **gpui's hit test does not stop at an overlay.** `Window::hit_test` walks
+    `window.hitboxes` in reverse paint order and keeps every hitbox that contains
+    the point, stopping only at one whose behavior is `HitboxBehavior::BlockMouse`
+    (`.occlude()`) or `BlockMouseExceptScroll` (`.block_mouse_except_scroll()`). A
+    plain overlay div is `Normal`, so the line under it is in the chain and its
+    `on_mouse_move` fires: that is how the note answered the pointer *through* the
+    picker, and why the note's IBeam showed through the panel.
+  - **`.occlude()` on the overlay wrapper** (the picker's and vim's command line, in
+    `workspace/render.rs`) is the fix, plus the same rule stated where it cannot be
+    forgotten: `pointer_hovered` returns while a picker or a prompt is open, which
+    also covers a prompt in the sidebar, which does not occlude the note.
+  - **A click off an overlay closes it.** The window's root has an
+    `on_mouse_down(Left)` that calls `Workspace::dismiss_overlays`
+    (`workspace/open.rs`), which closes the picker and the command line. The click
+    still acts on what it landed in — a tree row is reached, the cursor moves into
+    the note — which is what the user asked for, and is not a swallowed click.
+  - **The sidebar's prompts are exempt on purpose**: they are part of the sidebar's
+    layout rather than a panel over the note, and a name half typed into a rename is
+    work the user has not finished. Tested both ways.
+  - **Redundant by design, and measured as such.** `.occlude()` on the wrapper also
+    excludes the *window's own* hitbox, so the panel's own
+    `on_mouse_down(… stop_propagation)` is not what saves a click inside the panel
+    by itself: either one alone is enough, and `clicking_inside_the_picker_keeps_it`
+    fails only with both removed. Both are kept so the rule does not depend on how
+    the occlusion is spelled.
+  - **Tests:** app 180 (was 174) — five in `tests/picker.rs` (a click off the picker
+    closes it; a click in the sidebar closes it; a click inside it does not; a click
+    off the command line closes it; a click on the note keeps a sidebar prompt) and
+    one in `tests/popup.rs` (`the_note_under_the_picker_does_not_answer_the_pointer`).
 - **`:` is a command line, not the palette (2026-10-28).** The user asked for vim
   aliases (`e` open, `q` quit, `w` a no-op because "we autosave") and separately
   noticed that a fuzzy palette would turn `:w` into whatever ranks best for the
@@ -1802,23 +1853,27 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   module gained reach. Splitting a `mod tests { … }` block the same way works,
   but note that a child test module's `use super::*` reaches the parent's own
   `use`s, so the extra `use crate::vim::*` lines are dead weight.
-  Largest files now: `line.rs` 971, `workspace/mod.rs` 970 (autosave put it
-  there), `tests/paint.rs` 806, `vault.rs` 750, `lsp/mod.rs` 687,
-  `tests/popup.rs` 671, `theme/mod.rs` 656, `picker.rs` 641, `table/edit.rs` 640,
+  Largest files now: `line.rs` 971, `workspace/mod.rs` 1006,
+  `tests/paint.rs` 806, `vault.rs` 750, `lsp/mod.rs` 687,
+  `tests/popup.rs` 1005, `theme/mod.rs` 656, `picker.rs` 653, `table/edit.rs` 640,
   `buffer/tests.rs` 606, `editor/mod.rs` 617, `table/mod.rs` 590,
   `editor/render.rs` 570, `tests/tree.rs` 515, `lsp/mapping.rs` 496,
-  `tests/picker.rs` 459, `theme/tests.rs` 444, `markdown.rs` 416,
-  `workspace/edits.rs` 415, `editor/wrap.rs` 395, `workspace/popups.rs` 370,
+  `tests/picker.rs` 635, `theme/tests.rs` 444, `markdown.rs` 416,
+  `workspace/edits.rs` 415, `editor/wrap.rs` 395, `workspace/popups.rs` 428,
   `tests/keys.rs` 347, `mdstyle/mod.rs` 530, `mdstyle/block.rs` 432,
-  `field.rs` 335, `fold.rs` 332, `fuzzy.rs` 324, `workspace/open.rs` 306,
+  `field.rs` 335, `fold.rs` 332, `fuzzy.rs` 324, `workspace/open.rs` 338,
   `popup.rs` 286, `prompt.rs` 259, `lsp/document.rs` 257, `rename.rs` 195, and
   the other `workspace/` submodules at 264/256/217/215/138/133 (`render`,
   `keys`, `tree`, `commands`, `themes`), plus `ex.rs` 114.
-  Nothing is over the rule, but `line.rs` and `workspace/mod.rs` are sitting on
-  it: `line.rs` (the element, the run builder and the table grid paint) splits as
-  `line/mod.rs` (the element) + `line/runs.rs` (the run builder and the style
-  map), and `workspace/mod.rs` wants its pickers and prompts gathered out into
-  their own submodule the next time either one is touched.
+  **Two files are over the rule now (2026-10-28): `workspace/mod.rs` 1006 and
+  `tests/popup.rs` 1005**, both pushed over by the popup work. Neither split is in
+  that commit. The plans: `workspace/mod.rs` wants the popup state and its
+  accessors gathered out (the test-only accessors alone are ~90 lines and would
+  sit happily in `workspace/testhooks.rs`), and `tests/popup.rs` splits as
+  `tests/popup/{mod,keyboard,pointer}.rs` with the shared fixtures (`marked_note`,
+  `hover_at`, `line_box`, `place`, `bottom_note`) in `mod.rs`. `line.rs` 971 is
+  still next after those: the element (`line/mod.rs`) plus the run builder and the
+  style map (`line/runs.rs`).
 
 System dependency (Linux): `libxkbcommon-x11-devel` (plus fontconfig, freetype,
 x11, xcb, wayland dev packages) and a working Vulkan driver (the Linux renderer

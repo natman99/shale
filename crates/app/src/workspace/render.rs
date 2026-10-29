@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use gpui::{anchored, div, prelude::*, px, AnchoredPositionMode, Context, Window};
+use gpui::{anchored, div, prelude::*, px, AnchoredPositionMode, Context, MouseButton, Window};
 
 use crate::acts::*;
 use crate::prompt;
@@ -112,6 +112,17 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::change_theme))
             .on_action(cx.listener(|ws, _: &CheckerOn, _window, cx| ws.set_checker(true, cx)))
             .on_action(cx.listener(|ws, _: &CheckerOff, _window, cx| ws.set_checker(false, cx)))
+            // Clicking off the picker or the command line closes it. Both float over
+            // the note, and a click under them used to belong to nothing at all, so
+            // they simply stayed up until `escape`. A click inside a panel never
+            // reaches here: the panel occludes everything behind it, this handler
+            // among them, and stops the click on top of that.
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _event: &gpui::MouseDownEvent, window, cx| {
+                    this.dismiss_overlays(window, cx);
+                }),
+            )
             .child(
                 div()
                     .flex_1()
@@ -193,10 +204,16 @@ impl Render for Workspace {
                             .flex_col()
                             // The note gets some air: text hard against the sidebar,
                             // the top of the window and the status bar is cramped, and
-                            // the first and last lines look cut off.
+                            // the first and last lines look cut off. The padding is on
+                            // this column and its background is the note's, so the air
+                            // belongs to the note: the band around the text is the same
+                            // colour as the text's own background rather than a strip of
+                            // chrome, and the note reads as one rectangle from the
+                            // sidebar to the edge of the window.
                             .px_4()
                             .pt_3()
                             .pb_2()
+                            .bg(gpui::rgb(self.palette.bg))
                             // The column, not just the text, has to report the
                             // pointer: the space below the last line belongs to no
                             // line, and a panel the pointer walked away downwards
@@ -212,11 +229,50 @@ impl Render for Workspace {
                             // not re-wrap every line underneath. Like the prompt it is
                             // a sibling of the editor, so the vim contexts stay out of
                             // its way.
+                            //
+                            // Both overlays occlude what is behind them. gpui's hit
+                            // test walks the hitboxes under the pointer from the
+                            // topmost down and stops at one that blocks the mouse, so
+                            // this is what keeps the note *under* the panel from
+                            // answering the pointer: a harper panel used to open
+                            // itself underneath the picker — two panels at once, and
+                            // neither answering for the other — and the note's IBeam
+                            // showed through the panel.
+                            //
+                            // A click inside a panel stops there too. The window's own
+                            // mouse-down handler (below) dismisses an overlay, and it
+                            // sits *behind* this one, so the occlusion already keeps it
+                            // from seeing a click inside the panel; the explicit stop is
+                            // here so that rule does not depend on how the occlusion is
+                            // spelled. Either one alone is enough — the test for it
+                            // fails only when both are off.
                             .when_some(picker, |d, picker| {
-                                d.child(div().absolute().top_2().left_4().right_4().child(picker))
+                                d.child(
+                                    div()
+                                        .absolute()
+                                        .top_2()
+                                        .left_4()
+                                        .right_4()
+                                        .occlude()
+                                        .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                                            cx.stop_propagation();
+                                        })
+                                        .child(picker),
+                                )
                             })
                             .when_some(command_line, |d, line| {
-                                d.child(div().absolute().bottom_2().left_4().right_4().child(line))
+                                d.child(
+                                    div()
+                                        .absolute()
+                                        .bottom_2()
+                                        .left_4()
+                                        .right_4()
+                                        .occlude()
+                                        .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                                            cx.stop_propagation();
+                                        })
+                                        .child(line),
+                                )
                             }),
                     ),
             )

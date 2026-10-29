@@ -301,6 +301,30 @@ impl Workspace {
         window.focus(&focus, cx);
         cx.notify();
     }
+
+    /// Close the overlays that float over the note, because the pointer clicked
+    /// somewhere that was not one of them.
+    ///
+    /// The picker and vim's command line both float over the note, and a click
+    /// under either used to belong to nothing: the panel stayed up until `escape`.
+    /// The panels stop their own clicks on the way to this handler, so a click on a
+    /// row, or in the field, is still only a click inside the panel.
+    ///
+    /// The sidebar's prompts are deliberately *not* dismissed this way. They are
+    /// part of the sidebar's layout rather than a panel over the note, and a name
+    /// half typed into a rename is work the user has not finished.
+    pub(crate) fn dismiss_overlays(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.picker.is_some() {
+            self.close_picker(window, cx);
+        }
+        if self
+            .prompt
+            .as_ref()
+            .is_some_and(|(kind, _)| *kind == crate::prompt::PromptKind::Command)
+        {
+            self.close_prompt(window, cx);
+        }
+    }
 }
 
 /// Shorten to `max` characters, marking that something was left off. Never cuts
