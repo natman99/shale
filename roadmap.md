@@ -159,8 +159,16 @@ Small, unblocking, and three of them are already-parked user requests.
   the text is reached by the vim engine, the table splices, paste and the IME
   handler by different routes. Ways in: `:raw` / `:live` / `:preview` (`source` and
   `src` alias raw, `view` aliases preview) and three palette rows; the status bar
-  badges the view whenever it is not live. **Left:** the view is not in the config
-  yet (config thread), and preview still shows a cursor rather than none.
+  badges the view whenever it is not live. **2026-10-29 follow-up:** the spelling
+  and grammar checker is **off in preview** — no wavy lines (hidden at the paint,
+  by `MarkdownEditor::drawn_marks`, so the server's marks survive for `:live`), no
+  panel from `K` or a hover, no count in the status bar, and a panel that was open
+  is closed on the way in rather than left holding the keyboard. The view is now
+  named **once**, by the accent-coloured badge, instead of by the badge and a status
+  message. **Left:** the view is not in the config yet (config thread 15, with the
+  `live_preview` key it replaces and that migration wrinkle), preview still shows a
+  cursor rather than none, and there are **no view hotkeys** — see P3.1 for where
+  they belong (`space r` / `space p`, not `ctrl-w`).
 - **P0.7 Markdown text objects** (brainstorm ✅): `diL` wiki-link, `cit` table
   cell, `da#` section, `ci*` callout, `da``` ` code block. `mdstyle` already
   reports these spans — mostly wiring into the vim engine.
@@ -250,6 +258,30 @@ app both up and down.
 
 - **P3.1 Tabs** (goal; gates everything here). Tab bar, `gt`/`gT` or
   `ctrl-w h/l` extension of the existing focus chords, close/dirty markers.
+  - **`ctrl-w` is reserved as the window prefix — spend nothing else on it.**
+    Tabs and splits will want nearly the whole alphabet, and a user with vim
+    muscle memory will type these whether or not Shale has them yet (an unbound
+    chord is a no-op; a bound one is a wrong action):
+    `h j k l` / arrows move between windows · `H J K L` / S-arrows move the window
+    itself to an edge · `s` `v` split below / right, and neovim 0.10's `S` `V`
+    split **with the current buffer** (Obsidian's "split keeping this note") ·
+    `n` `d` `f` `]` `^` `i` new window, or a window on the word / file / tag /
+    alternate / include under the cursor · `c` `q` `o` close the window, close it,
+    close every *other* window · `=` `z` equalize sizes · `_` `|` `+` `-` `>` `<`
+    maximize and grow · `r` `R` `x` rotate / exchange · `T` `t` move a window to a
+    tab page · `p` put a register into a new buffer in a window · `g]` `g^` `g#`
+    preview / count the word under the cursor. Tab pages live **outside** the
+    prefix: `gt` `gT` and `:tabnew` / `:tabclose` / `:tabonly` / `:tabmove` /
+    `:tabnext` / `:tabprev`. The `g` prefix currently uses `gg`, `gx`, `gf`, so
+    `g t` and `g T` are free.
+  - **Decision (2026-10-29): the three views do *not* go under `ctrl-w`.**
+    `ctrl-w p` / `r` / `t` are all taken by vim (`p` put-register, `r` rotate,
+    `t` new tab with the window). They go on the existing **`space` leader** —
+    `space r` raw, `space p` preview, and `space v` (or `space l`) live — beside
+    `space f` quick-open and `space s` vault search. They must be **vim-engine
+    chords** (`Vim::after_space`), not keymap prefixes: `space` is vim's right
+    motion, and a keymap prefix would make every space in normal mode feel dead.
+    `:raw` / `:live` / `:preview` stay the way in until that lands.
 - **P3.2 Tiling splits** (goal) — same pane model as tabs; `:pin` (note
   pinning, brainstorm ✅) is a pane flag: dimmed, excluded from the jump chain,
   auto-closing.

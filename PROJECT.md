@@ -315,10 +315,10 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
 - Run the test binaries under `ulimit -v` when working on anything that scans
   text (a scanner bug can allocate until the OOM killer takes the editor down —
   see the table postmortem).
-  Current peak RSS of the test binaries (2026-10-29, app 211 / core 303 with 10
+  Current peak RSS of the test binaries (2026-10-29, app 213 / core 303 with 10
   ignored / mcp 6 tests — core's count includes the graph agent's `graph::` tests,
-  which are committed and green): core 8.0 MB, app 67 MB,
-  mcp 3.3 MB. The
+  which are committed and green): core 7.6 MB, app 68 MB,
+  mcp 3.4 MB. The
   app binary's *address space* (not RSS) is far larger because of gpui/wgpu
   reservations, and it now needs **4 GB or more** — a 1 GB cap makes it die in an
   80-byte allocation. Build with `cargo test --workspace --no-run`, then run each
@@ -1859,9 +1859,10 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   module gained reach. Splitting a `mod tests { … }` block the same way works,
   but note that a child test module's `use super::*` reaches the parent's own
   `use`s, so the extra `use crate::vim::*` lines are dead weight.
-  Largest files now (2026-10-29, after the three views): `line.rs` 1085,
-  `tests/popup.rs` 1061, `workspace/mod.rs` 1050, `graph/sim.rs` 908,
-  `tests/paint.rs` 806, `editor/mod.rs` 764, `vault.rs` 750,
+  Largest files now (2026-10-29, after the autosave and the preview checker
+  rules): `tests/popup.rs` 1104, `line.rs` 1085,
+  `workspace/mod.rs` 1050, `graph/sim.rs` 908,
+  `tests/paint.rs` 806, `editor/mod.rs` 784, `vault.rs` 750,
   `graph/quadtree.rs` 719, `buffer/tests.rs` 701, `lsp/mod.rs` 687,
   `tests/picker.rs` 672, `picker.rs` 661, `theme/mod.rs` 656,
   `table/edit.rs` 640, `graph/index.rs` 602, `editor/render.rs` 599,
@@ -1870,18 +1871,20 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   `tests/keys.rs` 468, `theme/tests.rs` 444, `workspace/edits.rs` 443,
   `tests/motions.rs` 442, `mdstyle/block.rs` 432, `workspace/popups.rs` 428,
   `markdown.rs` 416, `editor/wrap.rs` 416, `graph/hues.rs` 411,
-  `config/mod.rs` 405, `tests/search.rs` 385, `workspace/render.rs` 367,
+  `config/mod.rs` 405, `tests/search.rs` 385, `workspace/render.rs` 375,
   `vim/motions.rs` 355, `field.rs` 353, `workspace/open.rs` 352,
   `core/fold.rs` 332, `popup.rs` 331, `config/edit.rs` 327, `fuzzy.rs` 324,
-  `preview.rs` 298, `prompt.rs` 280, `tests/views.rs` 280,
+  `preview.rs` 298, `tests/autosave.rs` 269, `prompt.rs` 280,
+  `tests/views.rs` 305,
   `buffer/edits.rs` 278, `lsp/document.rs` 257, `core/search.rs` 244,
   `workspace/keys.rs` 234, `workspace/search.rs` 231, `workspace/tree.rs` 215,
   `rename.rs` 195, `workspace/jumps.rs` 184, `workspace/themes.rs` 176,
   `workspace/commands.rs` 163, `acts.rs` 165, `ex.rs` 136,
-  `workspace/views.rs` 65. The graph track's own largest are `graph/sim.rs` 908
+  `workspace/views.rs` 68.
+  The graph track's own largest are `graph/sim.rs` 908
   and `graph/quadtree.rs` 719; that tree is the other agent's to split.
-  **Three files are over the rule now (2026-10-29): `line.rs` 1085,
-  `tests/popup.rs` 1061 and `workspace/mod.rs` 1050** — `line.rs` went over with
+  **Three files are over the rule now (2026-10-29): `tests/popup.rs` 1104,
+  `line.rs` 1085 and `workspace/mod.rs` 1050** — `line.rs` went over with
   the `/` matches. None of the three splits is in that commit. The plans:
   `line.rs` splits as the element (`line/mod.rs`) plus the run builder and the
   style map (`line/runs.rs`), and P0.5 made that seam real — `build_runs`,
@@ -2023,6 +2026,21 @@ Next steps, roughly in order:
     so config churn and the future `shale.db` never dirty the tree. The file tree
     already refuses to show or touch a dot directory (`Vault::IGNORED_DIRS`,
     `guard_unprotected`), so `.shale` is invisible to the vault by construction.
+    - **Deferred from this thread (2026-10-29, when the user chose to pivot)**: the
+      note's **view** is not a setting. `[appearance] live_preview` is still parsed
+      and defaulted, but **nothing in the app reads it any more** — the three views
+      (thread 19) replaced it, and `:live` / `:raw` / `:preview` are per-session
+      today. The plan is `[editor] view = "live" | "raw" | "preview"`, written when
+      the user changes it exactly as the theme is, so a vault the user is reading
+      rather than writing stays read across a restart. **The wrinkle**: `Config`
+      denies unknown fields, so shipping it means the loader has to *migrate* a file
+      that still says `live_preview` (or the splice rewrites that line) rather than
+      turn the user's own config into a parse error — the failure mode the
+      `autosave`-key story in this section is a reminder of.
+      **Other things still hardcoded** now that the writer exists: the two row
+      counts (`picker::VISIBLE_ROWS` 12, `popup::VISIBLE_ROWS` 8), the note's
+      padding (`px_4`/`pt_3`/`pb_2` in `workspace/render.rs`), and the grace period
+      P1.5 wants before a quit. Each is one field and one `edit::set` away.
 
 16. **`/` search in the open note** — Done (2026-10-28, P0.5). Decided: the open
     buffer, not the vault, which stays `ctrl-shift-f`'s job.
@@ -2145,12 +2163,27 @@ Next steps, roughly in order:
       both hold what the *previous* view decided, and an open undo group over a
       buffer that has just stopped taking edits marks the note dirty for nothing.
     - **Ways in**: `:raw` (`source`, `src`), `:live`, `:preview` (`view`), and three
-      palette rows. The status bar badges the view — `raw` / `preview` — whenever it
-      is not live, which matters most for preview, where the note looks the same and
-      simply refuses to type.
-    - **Left**: the view is not in the config yet (it belongs with the config
-      thread), preview still draws a cursor, and there is no keybinding for the
-      views yet — the user has not asked for one, and `:preview` is short.
+      palette rows. The status bar badges the view — `raw` / `preview` — in the
+      accent colour whenever it is not live, and **that badge is the only report**:
+      the view commands used to answer with a status message naming the same thing,
+      which printed `preview` twice. It matters most for preview, where the note
+      looks the same and simply refuses to type.
+    - **The checker is off in preview** (2026-10-29, the user's rule). A note being
+      read is a note not being written, and a wavy line over a word the user is
+      reading is noise. It is done at the paint, not at the answer: `drawn_marks`
+      returns nothing while the view is preview, so the *marks* the server sent are
+      kept and come back on `:live` without a round trip. The panel is closed on the
+      way in and refused on both ways in (`K` and the pointer), and the status bar's
+      count is hidden with the badge rather than reporting zero for a check that is
+      not shown. A panel that was already open does not outlive the view: it holds
+      keyboard focus, and a panel for a note that no longer shows its errors is a
+      panel the user cannot explain.
+    - **The view is *not* in the config yet**: `[appearance] live_preview` is still
+      parsed but no longer read by anything, and the view is per-session. Thread 15
+      carries the plan (`[editor] view`) and the migration wrinkle.
+    - **Left**: preview still draws a cursor, and there is no keybinding for the
+      views yet. The plan is the `space` leader (`space r` / `space p`), not
+      `ctrl-w`, which belongs to the windows — see roadmap P3.1.
 
 ## Parked threads (agreed 2026-10-28; not being worked now)
 
