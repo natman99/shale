@@ -76,6 +76,13 @@ impl MarkdownEditor {
             // name and travels up to it. Inside a table `K` is still the row
             // motion, which the engine decides before it ever gets here.
             Outcome::Hover => window.dispatch_action(ShowNote.boxed_clone(), cx),
+            // The leader's three view chords. They dispatch the same actions the
+            // palette and the command line dispatch, so `space p` closes a checker's
+            // panel and moves the badge exactly as `:preview` does rather than
+            // becoming a second way to set a flag.
+            Outcome::ViewRaw => window.dispatch_action(ViewRaw.boxed_clone(), cx),
+            Outcome::ViewLive => window.dispatch_action(ViewLive.boxed_clone(), cx),
+            Outcome::ViewPreview => window.dispatch_action(ViewPreview.boxed_clone(), cx),
             Outcome::Stay | Outcome::Unhandled => {}
         }
         self.ensure_cursor_visible();

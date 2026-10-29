@@ -391,6 +391,9 @@ impl Render for MarkdownEditor {
             .on_action(
                 cx.listener(|this, _: &VimS, window, cx| this.normal(Key::Char('s'), window, cx)),
             )
+            .on_action(
+                cx.listener(|this, _: &VimR, window, cx| this.normal(Key::Char('r'), window, cx)),
+            )
             // vim's command line: the window reads the word typed next. Not the
             // command palette, which is `ctrl-shift-p`.
             .on_action(cx.listener(Self::on_colon))

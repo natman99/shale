@@ -218,7 +218,8 @@ impl Vim {
             Key::Char('l') => repeat(count, || buf.move_right_stay_on_line()),
             // Vim binds space to the same motion as `l`; as the argument of
             // `f `/`t ` it arrives through the pending find instead. The motion
-            // also arms the `space f` quick-open chord.
+            // also arms the leader chords (`space f` quick-open, `space s` vault
+            // search, and the note's three views).
             Key::Char(' ') => {
                 self.after_space = true;
                 repeat(count, || buf.move_right_stay_on_line())

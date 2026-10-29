@@ -303,3 +303,40 @@ fn a_view_change_ends_insert_mode(cx: &mut TestAppContext) {
         "with nothing added after it"
     );
 }
+
+/// The leader's view chords, typed in the note itself. They matter most for the
+/// way **out**: a note in preview refuses typing, so `:live` is something the
+/// user has to reach around the note rather than through it, while `space l` is
+/// one key after a key that always works.
+#[gpui::test]
+fn the_space_leader_moves_between_views(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("a.md", "one\n")]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    cx.simulate_keystrokes("space f enter");
+    assert_eq!(view(&window, cx), View::Live, "live is the default");
+
+    cx.simulate_keystrokes("space p");
+    assert_eq!(view(&window, cx), View::Preview, "`space p`");
+    cx.simulate_keystrokes("space r");
+    assert_eq!(view(&window, cx), View::Raw, "`space r`");
+    cx.simulate_keystrokes("space l");
+    assert_eq!(view(&window, cx), View::Live, "`space l`");
+
+    // The way out of preview from inside preview, where the note will not type.
+    cx.simulate_keystrokes("space p");
+    assert_eq!(view(&window, cx), View::Preview, "into preview again");
+    cx.simulate_keystrokes("space l");
+    assert_eq!(
+        view(&window, cx),
+        View::Live,
+        "and the chord gets out without the command line"
+    );
+    cx.simulate_keystrokes("A");
+    cx.simulate_input(" typed");
+    cx.simulate_keystrokes("escape");
+    assert_eq!(
+        note_text(&window, cx),
+        "one typed\n",
+        "with the note taking typing again"
+    );
+}

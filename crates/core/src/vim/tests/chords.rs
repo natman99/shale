@@ -138,6 +138,29 @@ fn space_s_asks_the_ui_for_vault_search() {
 }
 
 #[test]
+fn the_space_leader_asks_the_ui_for_each_view() {
+    let mut vim = Vim::new();
+    let mut b = note_buf();
+    b.goto_line(0);
+    for (key, want) in [
+        ('r', Outcome::ViewRaw),
+        ('l', Outcome::ViewLive),
+        ('p', Outcome::ViewPreview),
+    ] {
+        // As with the other chords, the space motion is applied first, so a lone
+        // space is never left waiting for a second key.
+        assert_eq!(vim.handle_normal_key(Key::Char(' '), &mut b), Outcome::Stay);
+        assert_eq!(
+            vim.handle_normal_key(Key::Char(key), &mut b),
+            want,
+            "space {key}"
+        );
+        // A chord is not a change, so `.` has nothing to replay.
+        assert_eq!(vim.repeat_last(&mut b), Outcome::Unhandled);
+    }
+}
+
+#[test]
 fn only_a_plain_space_arms_the_quick_open_chord() {
     let mut vim = Vim::new();
     let mut b = note_buf();

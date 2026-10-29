@@ -95,6 +95,16 @@ pub enum Outcome {
     /// types next. A request rather than an edit, like `space f`: the engine has
     /// no idea what the vault holds.
     SearchVault,
+    /// `space r` was typed: the UI should show the markdown source. The view is
+    /// the window's answer, not the engine's — it changes what the frame draws and
+    /// whether the buffer takes edits, neither of which the engine is told about.
+    ViewRaw,
+    /// `space l` was typed: back to Shale's live view. It is a chord rather than
+    /// only `:live` because of preview, which stops the note taking typing: the
+    /// way out has to be shorter than the way in.
+    ViewLive,
+    /// `space p` was typed: fully rendered, and read-only.
+    ViewPreview,
     /// `K` was typed outside a table: vim's "look this up". Shale has no man
     /// pages, but the window's spell and grammar checker has something to say
     /// about the word under the cursor, and the engine has no idea that a checker
@@ -132,10 +142,10 @@ pub struct Vim {
     /// A command that dropped into insert mode is still being recorded.
     insert_session: bool,
     /// The key just typed was a plain `space` motion, so the next key may be one
-    /// of Shale's leader chords (`f` quick-open, `s` vault search) rather than a
-    /// find. The space motion itself is applied when `space` is typed — deferring
-    /// it would make a lone `space` look dead — so a chord is recognised one key
-    /// late.
+    /// of Shale's leader chords (`f` quick-open, `s` vault search, and the three
+    /// views `r` / `l` / `p`) rather than a find. The space motion itself is
+    /// applied when `space` is typed — deferring it would make a lone `space` look
+    /// dead — so a chord is recognised one key late.
     after_space: bool,
 }
 
@@ -245,6 +255,12 @@ impl Vim {
         let chord = match (after_space, key) {
             (true, Key::Char('f')) => Some(Outcome::QuickOpen),
             (true, Key::Char('s')) => Some(Outcome::SearchVault),
+            // The note's three views. `space l` is the one that matters most: a
+            // note in preview will not type, so the way out cannot need the command
+            // line.
+            (true, Key::Char('r')) => Some(Outcome::ViewRaw),
+            (true, Key::Char('l')) => Some(Outcome::ViewLive),
+            (true, Key::Char('p')) => Some(Outcome::ViewPreview),
             _ => None,
         };
         if let Some(outcome) = chord.filter(|_| !self.mode.is_visual()) {

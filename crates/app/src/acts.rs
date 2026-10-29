@@ -29,6 +29,9 @@ actions!(
         // Bound so that the `space s` leader chord can reach the vim engine; `s`
         // on its own is not a Shale command yet.
         VimS,
+        // Likewise for the `space r` view chord: vim's `r` (replace the character
+        // under the cursor) is not a Shale command yet, and the engine says so.
+        VimR,
         VimD,
         VimC,
         VimY,

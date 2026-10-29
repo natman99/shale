@@ -120,6 +120,10 @@ pub(crate) fn keybindings() -> Vec<KeyBinding> {
         // owns the chord because `space` is also the right motion. `s` by itself
         // is not a Shale command yet, and the engine says so.
         "s" => VimS,
+        // The same for `space r`, the raw view: `r` is vim's replace-the-character,
+        // which Shale does not have yet, so on its own this reaches an engine that
+        // reports it unhandled.
+        "r" => VimR,
         "." => VimDot,
         "enter" => NextLine,
         "shift-d" => VimUpperD,

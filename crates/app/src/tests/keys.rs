@@ -104,6 +104,9 @@ fn keymap_matches_the_linux_keystroke_shape() {
         // Bound for the `space s` leader chord. On its own it resolves to the vim
         // engine, which has no `s` command and does nothing.
         (false, "s", "shale_editor::VimS"),
+        // Likewise for `space r`, the raw view: vim's replace-the-character is not
+        // implemented, so `r` alone reaches an engine that reports it unhandled.
+        (false, "r", "shale_editor::VimR"),
         // vim's command line: Linux delivers shift+`;` as the `:` keysym with
         // the shift modifier dropped, so it is bound as the symbol itself.
         (false, ":", "shale_editor::VimColon"),
@@ -409,7 +412,10 @@ fn the_window_chords_wait_for_their_second_stroke() {
 
     // `space` is deliberately *not* a keymap prefix: it is vim's right motion,
     // and a `space f` chord here would make gpui hold every space until the
-    // next key. That is why the chord lives in the vim engine instead.
+    // next key. That is why the chord lives in the vim engine instead — and why
+    // every key a chord uses has to be bound in its own right, since the engine
+    // only ever sees the second keystroke if the keymap hands it over. `s` and `r`
+    // are bound for exactly that reason; `f`, `l` and `p` are already commands.
     let (bindings, pending) =
         keymap.bindings_for_input(&[typed(gpui::Modifiers::none(), "space")], &contexts);
     assert!(!pending, "`space` is a motion, not a prefix");

@@ -89,10 +89,11 @@ impl Render for Workspace {
         let dirty = save_indicator(self.editor.read(cx).is_dirty());
         let pending = self.editor.read(cx).pending_hint();
         let (line, col) = self.editor.read(cx).display_position();
-        // Which of the three views the note is in, for the badge below. Live is
-        // the default and gets no badge: the bar already says everything else it
-        // has to say, and a badge for the state the user is nearly always in is
-        // noise.
+        // Which of the three views the note is in, for the badge below. All three
+        // are named, so the slot does not appear and disappear as the user moves
+        // between them; the default one is drawn quiet, because a badge for the
+        // state the note is nearly always in should not compete with the two that
+        // mean something is different.
         let view = self.editor.read(cx).view();
         // The checker's count, so "no underlines" can be told apart from "the
         // checker has not answered yet". Preview draws no underlines at all, so it
@@ -319,20 +320,24 @@ impl Render for Workspace {
                     .bg(gpui::rgb(self.palette.ui_status_bg))
                     .text_color(gpui::rgb(self.palette.ui_fg))
                     .child(format!("{mode}{pending}"))
-                    // The view gets its own badge whenever the note is not in the
-                    // default one, and it is the only place the view is named: the
-                    // command line deliberately leaves the status line alone, so
-                    // `:preview` is one accent label rather than the same word
-                    // twice. It matters most for preview, which looks almost exactly
-                    // like live preview and simply refuses to type — `:live` is how
-                    // the user gets back.
-                    .when(view != View::Live, |d| {
-                        d.child(
-                            div()
-                                .text_color(gpui::rgb(self.palette.accent))
-                                .child(view.word().to_string()),
-                        )
-                    })
+                    // The view gets its own badge, and it is the only place the view
+                    // is named: the command line deliberately leaves the status line
+                    // alone, so `:preview` is one accent label rather than the same
+                    // word twice. It matters most for preview, which looks almost
+                    // exactly like live preview and simply refuses to type — `space l`
+                    // or `:live` is how the user gets back. Live is the resting state,
+                    // so it is drawn in the chrome's quiet colour rather than the
+                    // accent, which is reserved for the two views that change what the
+                    // note will do.
+                    .child(
+                        div()
+                            .text_color(gpui::rgb(if view == View::Live {
+                                self.palette.ui_dim
+                            } else {
+                                self.palette.accent
+                            }))
+                            .child(view.word().to_string()),
+                    )
                     // The save state gets its own element and the palette's
                     // accent rather than riding along in the mode string: it is
                     // the one part of the bar the user has to read without
