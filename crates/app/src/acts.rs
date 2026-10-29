@@ -103,6 +103,12 @@ actions!(
         QuickOpen,
         // Searching every note's text (`ctrl-shift-f`).
         SearchVault,
+        // Searching the note that is open (`/`), and stepping through its matches
+        // (`n` and `N`). The query lives in the window, not the field, so `n` keeps
+        // working after the field has closed.
+        SearchBuffer,
+        SearchNext,
+        SearchPrev,
         CommandPalette,
         // vim's `:`: a command line, where a word names one command exactly. It is
         // kept apart from the palette precisely because the palette fuzzy-matches a

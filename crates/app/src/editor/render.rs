@@ -485,6 +485,10 @@ impl Render for MarkdownEditor {
                         // Markdown style spans overlapping this display line, as
                         // absolute buffer offsets.
                         let line_spans = self.spans_in(dl.start, dl.end);
+                        // The `/` matches on this line, and the current one, as
+                        // absolute buffer offsets; the element rebases them onto the
+                        // text it paints.
+                        let (line_hits, line_active) = self.hits_in(dl.start, dl.end);
                         // A fenced block's background spans the full width, so
                         // the element paints it as a quad rather than a run.
                         let block = row_styles.get(dl.row).copied().unwrap_or_default().block;
@@ -535,6 +539,8 @@ impl Render for MarkdownEditor {
                                 links: line_links,
                                 spans: line_spans,
                                 marks: self.marks_in(dl.start, dl.end),
+                                hits: line_hits,
+                                active: line_active,
                                 size: dl.size,
                                 block,
                                 rule,

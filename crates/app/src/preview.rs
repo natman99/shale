@@ -142,7 +142,8 @@ impl PieceMap {
     /// The checker's ranges that overlap the painted text, clipped and re-based
     /// the same way. A range that falls entirely in a hidden marker (a heading's
     /// `#`, say) contributes nothing, which is right: nothing is painted there to
-    /// underline.
+    /// underline. Any other list of buffer byte ranges maps the same way, which is
+    /// how the `/` search matches get onto the painted text.
     pub(crate) fn rebase_marks(&self, marks: &[(usize, usize)]) -> Vec<(usize, usize)> {
         let mut out = Vec::new();
         for &(start, end) in marks {

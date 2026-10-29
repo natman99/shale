@@ -317,11 +317,16 @@ impl Workspace {
         if self.picker.is_some() {
             self.close_picker(window, cx);
         }
-        if self
-            .prompt
-            .as_ref()
-            .is_some_and(|(kind, _)| *kind == crate::prompt::PromptKind::Command)
-        {
+        if self.prompt.as_ref().is_some_and(|(kind, _)| {
+            matches!(
+                kind,
+                crate::prompt::PromptKind::Command | crate::prompt::PromptKind::Search
+            )
+        }) {
+            // Both float over the note. A command line is simply finished; a
+            // search keeps its matches, because the click that closed the field
+            // was the user putting the cursor somewhere else, not abandoning the
+            // query — `n` still works.
             self.close_prompt(window, cx);
         }
     }

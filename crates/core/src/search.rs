@@ -98,9 +98,94 @@ fn contains_whole_word(haystack: &str, needle: &str, case_sensitive: bool) -> bo
     false
 }
 
+/// Every occurrence of `query` in `text`, as byte ranges — the in-note search
+/// behind `/`.
+///
+/// Literal rather than fuzzy: `/` is vim's search, and a query that matched by
+/// subsequence would move the cursor to somewhere the query is not. Case follows
+/// vim's "smart case": an all-lowercase query matches either case, a query with a
+/// capital in it matches exactly. Matches never overlap, which is what stepping
+/// with `n` needs — `aa` in `aaaa` is two hits, not three.
+///
+/// The scan walks characters rather than searching a case-folded copy, because
+/// folding can change a string's byte length (`İ` folds to two characters) and
+/// these ranges have to be byte offsets into the note.
+pub fn find_all(text: &str, query: &str) -> Vec<(usize, usize)> {
+    let mut found = Vec::new();
+    if query.is_empty() {
+        return found;
+    }
+    let fold = !query.chars().any(|c| c.is_uppercase());
+    let mut at = 0usize;
+    while at < text.len() {
+        match match_at(text, at, query, fold) {
+            Some(end) => {
+                found.push((at, end));
+                at = end;
+            }
+            None => {
+                // One character forward, and always to a character boundary.
+                at += text[at..].chars().next().map_or(1, |c| c.len_utf8());
+            }
+        }
+    }
+    found
+}
+
+/// The byte just past `at` when `query` starts there, or `None`.
+fn match_at(text: &str, at: usize, query: &str, fold: bool) -> Option<usize> {
+    let mut used = 0usize;
+    for want in query.chars() {
+        let have = text[at + used..].chars().next()?;
+        // Folding compares the lowercased characters, which covers the ordinary
+        // case; a fold that changes length (`ß`) is not chased, and the range
+        // stays the note's own bytes either way.
+        if have != want && !(fold && have.to_lowercase().eq(want.to_lowercase())) {
+            return None;
+        }
+        used += have.len_utf8();
+    }
+    Some(at + used)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `/` in the open note: every occurrence, as byte ranges.
+    #[test]
+    fn find_all_reports_every_occurrence() {
+        assert_eq!(
+            find_all("Hello World hello", "hello"),
+            vec![(0, 5), (12, 17)]
+        );
+        assert_eq!(find_all("nothing here", "else"), Vec::new());
+        assert_eq!(find_all("anything", ""), Vec::new());
+    }
+
+    /// vim's "smart case": an all-lowercase query matches either case, and a
+    /// query with a capital in it matches exactly.
+    #[test]
+    fn find_all_folds_case_only_for_a_lowercase_query() {
+        assert_eq!(find_all("Hello World", "world"), vec![(6, 11)]);
+        assert_eq!(find_all("hello world", "World"), Vec::new());
+        assert_eq!(find_all("hello world", "world"), vec![(6, 11)]);
+    }
+
+    /// Stepping with `n` needs matches that never overlap: `aa` in `aaaa` is two
+    /// hits, not the three a naive scan would report.
+    #[test]
+    fn find_all_matches_never_overlap() {
+        assert_eq!(find_all("aaaa", "aa"), vec![(0, 2), (2, 4)]);
+    }
+
+    /// The ranges are byte offsets into the note, so a multi-byte letter must not
+    /// shift them, and folding must not invent a length change.
+    #[test]
+    fn find_all_counts_bytes_not_characters() {
+        assert_eq!(find_all("naïve Naïve", "naïve"), vec![(0, 6), (7, 13)]);
+        assert_eq!(find_all("Ähnlich", "ähnlich"), vec![(0, 8)]);
+    }
 
     fn fixture() -> Result<(tempfile::TempDir, Vault, Vec<VaultEntry>)> {
         let dir = tempfile::tempdir()?;

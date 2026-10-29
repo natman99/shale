@@ -120,7 +120,8 @@ These are equivalent to Obsidian bases, which allow dynamically updating views i
 
 Workspace layout:
 - `crates/core` (`shale-core`): vault model (path-traversal safe), wiki-link
-  extraction/resolution/backlinks, search, TOML config (`config/`: the settings,
+  extraction/resolution/backlinks, search (`search.rs`: the vault-wide line scan
+  behind `ctrl-shift-f`, and `find_all`, the in-note matcher behind `/`), TOML config (`config/`: the settings,
   the file at `<vault>/.shale/config.toml`, the starter Shale writes for a vault
   that has none, and the comment-preserving one-line splice writer), text
   `Buffer` with undo/redo, the vim mode engine, `mdstyle` (the
@@ -212,12 +213,14 @@ Workspace layout:
   palette while the window is up, including the preview the theme picker shows,
   `popups.rs` the window's one popup —
   opening, closing, and applying what the checker offered,
+  `search.rs` the `/` search: the query, its matches and which one the cursor is
+  on, kept here so `n`/`N` outlive the field that typed the query,
   `commands.rs` the command palette's list
   — every command's label, the keys that run it and the action it dispatches —
   `render.rs` the frame), `tree.rs` (turning the vault's entries
   into rows) and its headless tests in `tests/` (`keys.rs`, `motions.rs`,
   `blocks.rs`, `paint.rs`, `tree.rs`, `picker.rs`, `commands.rs`, `popup.rs`,
-  `spell.rs`), `editor/` (the view: `mod.rs`
+  `search.rs`, `autosave.rs`, `spell.rs`), `editor/` (the view: `mod.rs`
   holds the state and accessors, `wrap.rs` the display model, `render.rs` builds
   the frame and the key context, `actions.rs` the key handlers, `input.rs` the
   IME/paste/click surface), `line.rs` (the `LineElement` that paints one display
@@ -310,10 +313,10 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
 - Run the test binaries under `ulimit -v` when working on anything that scans
   text (a scanner bug can allocate until the OOM killer takes the editor down —
   see the table postmortem).
-  Current peak RSS of the test binaries (2026-10-28, app 180 / core 295 with 6
+  Current peak RSS of the test binaries (2026-10-28, app 190 / core 300 with 10
   ignored / mcp 6 tests — core's count includes the graph agent's `graph::` tests,
-  which are committed and green): core 7.6 MB, app 63 MB,
-  mcp 3.3 MB. The
+  which are committed and green): core 7.4 MB, app 63 MB,
+  mcp 3.4 MB. The
   app binary's *address space* (not RSS) is far larger because of gpui/wgpu
   reservations, and it now needs **4 GB or more** — a 1 GB cap makes it die in an
   80-byte allocation. Build with `cargo test --workspace --no-run`, then run each
@@ -1853,27 +1856,33 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   module gained reach. Splitting a `mod tests { … }` block the same way works,
   but note that a child test module's `use super::*` reaches the parent's own
   `use`s, so the extra `use crate::vim::*` lines are dead weight.
-  Largest files now: `line.rs` 971, `workspace/mod.rs` 1006,
-  `tests/paint.rs` 806, `vault.rs` 750, `lsp/mod.rs` 687,
-  `tests/popup.rs` 1005, `theme/mod.rs` 656, `picker.rs` 653, `table/edit.rs` 640,
-  `buffer/tests.rs` 606, `editor/mod.rs` 617, `table/mod.rs` 590,
-  `editor/render.rs` 570, `tests/tree.rs` 515, `lsp/mapping.rs` 496,
-  `tests/picker.rs` 635, `theme/tests.rs` 444, `markdown.rs` 416,
-  `workspace/edits.rs` 415, `editor/wrap.rs` 395, `workspace/popups.rs` 428,
-  `tests/keys.rs` 347, `mdstyle/mod.rs` 530, `mdstyle/block.rs` 432,
-  `field.rs` 335, `fold.rs` 332, `fuzzy.rs` 324, `workspace/open.rs` 338,
-  `popup.rs` 286, `prompt.rs` 259, `lsp/document.rs` 257, `rename.rs` 195, and
-  the other `workspace/` submodules at 264/256/217/215/138/133 (`render`,
-  `keys`, `tree`, `commands`, `themes`), plus `ex.rs` 114.
-  **Two files are over the rule now (2026-10-28): `workspace/mod.rs` 1006 and
-  `tests/popup.rs` 1005**, both pushed over by the popup work. Neither split is in
-  that commit. The plans: `workspace/mod.rs` wants the popup state and its
+  Largest files now (2026-10-28, after P0.5): `line.rs` 1085,
+  `workspace/mod.rs` 1018, `tests/popup.rs` 1005, `tests/paint.rs` 806,
+  `vault.rs` 750, `editor/mod.rs` 689, `lsp/mod.rs` 687, `theme/mod.rs` 656,
+  `picker.rs` 653, `table/edit.rs` 640, `tests/picker.rs` 635,
+  `buffer/tests.rs` 606, `table/mod.rs` 590, `editor/render.rs` 576,
+  `mdstyle/mod.rs` 530, `tests/tree.rs` 515, `lsp/mapping.rs` 496,
+  `theme/tests.rs` 444, `tests/motions.rs` 442, `workspace/edits.rs` 436,
+  `mdstyle/block.rs` 432, `workspace/popups.rs` 428, `editor/wrap.rs` 395,
+  `tests/search.rs` 385, `tests/keys.rs` 347, `workspace/render.rs` 345,
+  `workspace/open.rs` 343, `field.rs` 337, `fold.rs` 324, `fuzzy.rs` 324,
+  `preview.rs` 298, `popup.rs` 331, `prompt.rs` 270, `lsp/document.rs` 257,
+  `search.rs` (core) 244, `rename.rs` 195, and the rest of the `workspace/`
+  submodules — `search` 231, `keys` 224, `tree` 215, `themes` 176, `commands`
+  138 — plus `acts.rs` 149 and `ex.rs` 114. The graph track's own largest are
+  `graph/sim.rs` 908 and `graph/quadtree.rs` 719; that tree is the other agent's
+  to split.
+  **Three files are over the rule now (2026-10-28): `line.rs` 1085,
+  `workspace/mod.rs` 1018 and `tests/popup.rs` 1005** — `line.rs` went over with
+  the `/` matches. None of the three splits is in that commit. The plans:
+  `line.rs` splits as the element (`line/mod.rs`) plus the run builder and the
+  style map (`line/runs.rs`), and P0.5 made that seam real — `build_runs`,
+  `LineStyles` and `cell_styles` are one thing and the `Element` impl is another;
+  `workspace/mod.rs` wants the popup state and its
   accessors gathered out (the test-only accessors alone are ~90 lines and would
   sit happily in `workspace/testhooks.rs`), and `tests/popup.rs` splits as
   `tests/popup/{mod,keyboard,pointer}.rs` with the shared fixtures (`marked_note`,
-  `hover_at`, `line_box`, `place`, `bottom_note`) in `mod.rs`. `line.rs` 971 is
-  still next after those: the element (`line/mod.rs`) plus the run builder and the
-  style map (`line/runs.rs`).
+  `hover_at`, `line_box`, `place`, `bottom_note`) in `mod.rs`.
 
 System dependency (Linux): `libxkbcommon-x11-devel` (plus fontconfig, freetype,
 x11, xcb, wayland dev packages) and a working Vulkan driver (the Linux renderer
@@ -2007,17 +2016,51 @@ Next steps, roughly in order:
     already refuses to show or touch a dot directory (`Vault::IGNORED_DIRS`,
     `guard_unprotected`), so `.shale` is invisible to the vault by construction.
 
+16. **`/` search in the open note** — Done (2026-10-28, P0.5). Decided: the open
+    buffer, not the vault, which stays `ctrl-shift-f`'s job.
+    - **The matcher** is `shale_core::search::find_all`: literal rather than fuzzy
+      (a query that matched by subsequence would move the cursor somewhere the query
+      is not), **smart case** (an all-lowercase query folds, a query with a capital
+      in it is exact — vim's `/`), **non-overlapping** (`aa` in `aaaa` is two hits,
+      which is what stepping with `n` needs), and it walks characters instead of a
+      case-folded copy so the ranges stay byte offsets into the note (`İ` folds to
+      two characters). A fold that changes length (`ß`) is not chased.
+    - **Who owns what.** `workspace/search.rs` holds `SearchState { query, hits,
+      index }` and every handler; `MarkdownEditor` only draws (`set_hits`,
+      `hits_in`, and `reveal_offset` for the jump). That split is what lets the query
+      outlive the field, so `n`/`N` work after `enter` closed it. `PromptKind::Search`
+      reuses the one-line field, and the new `PromptEvent::Changed` — emitted from
+      every path that edits the field's text — is what makes the search answer while
+      the query is still being typed.
+    - **Keys**: `/`, `n` and `N` in `vim-normal` only, and they must stay unbound in
+      the `prompt` and `picker` contexts, which are text fields where a query may
+      hold any letter. `n` names a new note only in the `tree` context; the global
+      new-note key is `ctrl-n`.
+    - **Drift**: the matches are byte offsets, so `EditorEvent::Changed` re-runs the
+      query (`refresh_search`) rather than let a highlight slide onto whatever moved
+      into its place; opening another note, or deleting the open one, ends the search.
+      A click in the note closes the field but **keeps** the matches — the click was
+      the cursor moving, not the query being abandoned.
+    - **Colours**: no new palette roles. Every match is `highlight_bg` (the
+      `==highlight==` role) and the current one `selection`, both painted as run
+      backgrounds in `line.rs::build_runs`, over the markdown styling and the
+      checker's squiggle. A dedicated `search_*` pair is the follow-up if a theme
+      ever wants them apart from those.
+    - **Left out**: `*`/`#` (search the word under the cursor), `\c`/`\C` case
+      overrides, regex, and showing the count beside the field rather than in the
+      status bar (`3/17`, or `no match for x`).
+
 ## Parked threads (agreed 2026-10-28; not being worked now)
 
 The user is pivoting, so these are written down rather than left in the
 conversation. Roughly in order of what they have said they want.
 
-1. **Vim-like note search with `/`** — *on deck, do not start unasked.* `/` in
-   normal mode searching the vault (or the open note?) the way vim's does. It wants
-   the same pieces the pickers already have (`shale_core::ranked`, `search`), plus a
-   decision about what `/` means in a note editor: the open buffer, or the vault.
-   `n`/`N` for the next and previous match, and a way out that is not `escape`
-   twice.
+1. ~~Vim-like note search with `/`~~ **Done 2026-10-28** (P0.5): the open buffer,
+   not the vault (`ctrl-shift-f` stays vault search). `/` opens the field, typing
+   lights up every match and moves the cursor to the first, `enter` closes the field
+   and keeps the search, `n`/`N` walk it with wrap, `escape` abandons it. See the
+   `/` search thread in Open threads for the matcher's rules, who owns the state,
+   and what was left out.
 2. ~~A scrolling popup panel~~ **Done 2026-10-28** (P0.4): the panel keeps a
    height it can show, scrolls to follow the keyboard, and flips above its line
    near the bottom of the window. See the shared scroll model bullet in Open

@@ -55,6 +55,11 @@ pub enum EditorEvent {
 
 impl EventEmitter<EditorEvent> for MarkdownEditor {}
 
+/// What one display line is told to draw for `/`: every match that overlaps it,
+/// and the current match if that overlaps too. Buffer byte ranges, clipped to the
+/// line.
+type LineHits = (Vec<(usize, usize)>, Option<(usize, usize)>);
+
 pub struct MarkdownEditor {
     /// The editor's focus handle; the line element needs it to register input
     /// during paint, so it is crate-visible.
@@ -101,6 +106,14 @@ pub struct MarkdownEditor {
     /// something to say about, drawn as wavy underlines. The workspace owns the
     /// checker and pushes these; the editor only paints them.
     marks: Vec<(usize, usize)>,
+    /// (start, end) buffer byte ranges the `/` search matched, drawn with a
+    /// background. Like [`Self::marks`] these are pushed by the workspace, which
+    /// owns the query and decides which match the cursor is on; the editor only
+    /// paints them.
+    hits: Vec<(usize, usize)>,
+    /// The one match the cursor is on, drawn over the others so the current
+    /// position in a run of `n`/`N` is visible. `None` when there is no match.
+    active_hit: Option<(usize, usize)>,
     dirty: bool,
 }
 
@@ -113,6 +126,8 @@ impl MarkdownEditor {
             scroll_handle: ScrollHandle::default(),
             hit_lines: Vec::new(),
             marks: Vec::new(),
+            hits: Vec::new(),
+            active_hit: None,
             wrap_cache: None,
             style_cache: None,
             links: Vec::new(),
@@ -196,8 +211,11 @@ impl MarkdownEditor {
         self.buffer.set_text(text);
         self.vim.enter_normal();
         self.dirty = false;
-        // A different document, so the old note's underlines are meaningless.
+        // A different document, so the old note's underlines and matches are
+        // meaningless.
         self.marks.clear();
+        self.hits.clear();
+        self.active_hit = None;
         tracing::debug!(lines = self.buffer.line_count(), "editor set_text");
         cx.notify();
     }
@@ -217,6 +235,33 @@ impl MarkdownEditor {
         &self.marks
     }
 
+    /// The `/` matches to draw, and which one is current. Empty hits and `None`
+    /// clear them, which is what `escape` does.
+    pub(crate) fn set_hits(
+        &mut self,
+        hits: Vec<(usize, usize)>,
+        active: Option<(usize, usize)>,
+        cx: &mut Context<Self>,
+    ) {
+        if hits != self.hits || active != self.active_hit {
+            self.hits = hits;
+            self.active_hit = active;
+            cx.notify();
+        }
+    }
+
+    /// The matches the editor is currently drawing.
+    #[cfg(test)]
+    pub(crate) fn hits(&self) -> &[(usize, usize)] {
+        self.hits.as_slice()
+    }
+
+    /// The current match the editor is drawing, if there is one.
+    #[cfg(test)]
+    pub(crate) fn active_hit(&self) -> Option<(usize, usize)> {
+        self.active_hit
+    }
+
     pub fn mode(&self) -> Mode {
         self.vim.mode()
     }
@@ -227,6 +272,16 @@ impl MarkdownEditor {
     /// left in normal mode so the next keystroke is a motion.
     pub fn reveal_line(&mut self, row: usize, cx: &mut Context<Self>) {
         self.buffer.goto_line(row);
+        self.ensure_cursor_visible();
+        cx.notify();
+    }
+
+    /// Put the cursor on the buffer byte `offset` and scroll it into view. What
+    /// `/` and `n`/`N` do with a match: the cursor lands on the match's first
+    /// byte, which is where the reader wants to be, and the vim engine is left
+    /// alone, so the next keystroke is whatever mode the user was in.
+    pub fn reveal_offset(&mut self, offset: usize, cx: &mut Context<Self>) {
+        self.buffer.set_cursor(offset);
         self.ensure_cursor_visible();
         cx.notify();
     }
@@ -573,6 +628,23 @@ impl MarkdownEditor {
             .filter(|(s, e)| *s < end && *e > start)
             .map(|&(s, e)| (s.max(start), e.min(end)))
             .collect()
+    }
+
+    /// The `/` matches that overlap `start..end`, clipped to it, and the current
+    /// match clipped the same way (`None` when there is none or it is on another
+    /// line). Buffer byte offsets, rebased by the line element like the marks.
+    fn hits_in(&self, start: usize, end: usize) -> LineHits {
+        let hits: Vec<(usize, usize)> = self
+            .hits
+            .iter()
+            .filter(|(s, e)| *s < end && *e > start)
+            .map(|&(s, e)| (s.max(start), e.min(end)))
+            .collect();
+        let active = self
+            .active_hit
+            .filter(|(s, e)| *s < end && *e > start)
+            .map(|(s, e)| (s.max(start), e.min(end)));
+        (hits, active)
     }
 
     /// Whether a link target names a note that exists in the vault.

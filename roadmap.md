@@ -121,8 +121,17 @@ Small, unblocking, and three of them are already-parked user requests.
   `RANK_LIMIT` 200 → 1000. **Left deliberately:** picker `VISIBLE_ROWS` still a
   fixed 12 (needs a measured row height), and no mouse-wheel scrolling. See the
   shared scroll model bullet in Open threads.
-- **P0.5 `/` search** (parked #1) — **decided: open buffer** (vault search
-  stays `ctrl-shift-f`); `n`/`N` next/prev, `escape` one-press out.
+- **P0.5 `/` search** (parked #1) — **DONE 2026-10-28.** The open buffer, as
+  decided; vault search stays `ctrl-shift-f`. `shale_core::search::find_all` is the
+  matcher: literal, smart case, non-overlapping, byte ranges. `/` opens the one-line
+  field at the bottom of the note (`PromptKind::Search`, which now emits `Changed`
+  so the search answers while it is still being typed), `enter` closes the field and
+  **keeps** the query and its matches, `n`/`N` walk them with wrap, `escape`
+  abandons the search outright. The state lives in `workspace/search.rs`
+  (`SearchState { query, hits, index }`); the editor is only told what to draw
+  (`set_hits`), and a buffer edit re-runs the query so a highlight cannot drift onto
+  whatever slid into its place. No new palette roles: matches are `highlight_bg`,
+  the current one `selection`. See the `/` search thread in Open threads.
 - **P0.5b Keybinding: free `ctrl-o` from QuickOpen** → jump-back (`ctrl-i`
   forward), per the Goals promise; QuickOpen keeps `space f`/`:e`/`g f`. The
   jump chain becomes first-class workspace state — it feeds graph thread M5a,

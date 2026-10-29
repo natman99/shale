@@ -13,6 +13,7 @@ mod keys;
 mod open;
 mod popups;
 mod render;
+mod search;
 mod themes;
 mod tree;
 
@@ -104,6 +105,10 @@ pub(crate) struct Workspace {
     tree_rows: Vec<PathBuf>,
     /// The open prompt, and what it is asking for.
     prompt: Option<(prompt::PromptKind, Entity<prompt::Prompt>)>,
+    /// The `/` search: the query, what it matched in the open note, and which
+    /// match the cursor is on. It lives here rather than in the field so that
+    /// `n`/`N` still work once the field has closed.
+    search: search::SearchState,
     /// What had the keyboard when the prompt opened, so closing it puts the
     /// keyboard back where the user was working: a rename started from the tree
     /// leaves them in the tree.
@@ -195,6 +200,9 @@ impl Workspace {
             EditorEvent::Changed => {
                 ws.send_note_to_checker(cx);
                 ws.queue_autosave(cx);
+                // The matches are byte offsets into the note, so an edit moves
+                // them: re-run the query rather than let them drift.
+                ws.refresh_search(cx);
             }
             // Hover is answered by the subscription `attach_window` adds, which is
             // the one that has a window to hand the keyboard to.
@@ -262,6 +270,7 @@ impl Workspace {
             tree_rows: Vec::new(),
             prompt: None,
             prompt_return_focus: None,
+            search: search::SearchState::default(),
             picker: None,
             picker_return_focus: None,
             _picker_events: None,
@@ -340,6 +349,9 @@ impl Workspace {
     pub(crate) fn open_note(&mut self, path: &PathBuf, cx: &mut Context<Self>) {
         // A popup belongs to the note it was opened over, so a new note ends it.
         self.drop_popup(cx);
+        // The same for a search: its matches are offsets into the note that is
+        // closing.
+        self.clear_search(cx);
         match self.vault.read(path) {
             Ok(text) => {
                 tracing::debug!(path = %path.display(), bytes = text.len(), "opened note");

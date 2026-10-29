@@ -45,15 +45,26 @@ impl Render for Workspace {
         let prompt = self
             .prompt
             .as_ref()
-            .filter(|(kind, _)| *kind != prompt::PromptKind::Command)
+            .filter(|(kind, _)| {
+                !matches!(
+                    kind,
+                    prompt::PromptKind::Command | prompt::PromptKind::Search
+                )
+            })
             .map(|(_, prompt)| prompt.clone());
-        // vim's command line asks for a command rather than a name, so it sits at
-        // the bottom of the note where `:` is, not in the sidebar with the prompts
-        // that name a note.
-        let command_line = self
+        // vim's command line and its `/` search both ask for something to be typed
+        // at the bottom of the note rather than a name for a file, so both sit where
+        // vim puts them — over the bottom of the note, not in the sidebar with the
+        // prompts that name a note.
+        let bottom_field = self
             .prompt
             .as_ref()
-            .filter(|(kind, _)| *kind == prompt::PromptKind::Command)
+            .filter(|(kind, _)| {
+                matches!(
+                    kind,
+                    prompt::PromptKind::Command | prompt::PromptKind::Search
+                )
+            })
             .map(|(_, prompt)| prompt.clone());
         let picker = self.picker.clone();
         // The popup is drawn last, over the note, where its line was painted.
@@ -84,6 +95,8 @@ impl Render for Workspace {
             1 => "1 spellcheck note".into(),
             n => format!("{n} spellcheck notes"),
         };
+        // Which match of how many the cursor is on, while a `/` search is up.
+        let search = self.search_label();
 
         div()
             .track_focus(&self.focus_handle)
@@ -106,6 +119,9 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::window_right))
             .on_action(cx.listener(Self::quick_open))
             .on_action(cx.listener(Self::search_vault))
+            .on_action(cx.listener(Self::search_buffer))
+            .on_action(cx.listener(Self::search_next))
+            .on_action(cx.listener(Self::search_prev))
             .on_action(cx.listener(Self::show_note))
             .on_action(cx.listener(Self::command_palette))
             .on_action(cx.listener(Self::command_line))
@@ -260,7 +276,7 @@ impl Render for Workspace {
                                         .child(picker),
                                 )
                             })
-                            .when_some(command_line, |d, line| {
+                            .when_some(bottom_field, |d, field| {
                                 d.child(
                                     div()
                                         .absolute()
@@ -271,7 +287,7 @@ impl Render for Workspace {
                                         .on_mouse_down(MouseButton::Left, |_, _, cx| {
                                             cx.stop_propagation();
                                         })
-                                        .child(line),
+                                        .child(field),
                                 )
                             }),
                     ),
@@ -301,6 +317,15 @@ impl Render for Workspace {
                     })
                     .child(self.status.clone())
                     .child(spell)
+                    // The search's own readout, so the count does not overwrite the
+                    // status line the way a transient message would.
+                    .when(!search.is_empty(), |d| {
+                        d.child(
+                            div()
+                                .text_color(gpui::rgb(self.palette.accent))
+                                .child(search),
+                        )
+                    })
                     .child(format!("{}:{}", line + 1, col + 1)),
             )
             .when_some(popup, |d, (popup, bounds)| {

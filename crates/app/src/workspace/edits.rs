@@ -21,7 +21,7 @@ use super::Workspace;
 impl Workspace {
     /// Open the one-line prompt. This is the only place a name is typed, so it is
     /// also the only place a note or folder can be named.
-    fn open_prompt(
+    pub(super) fn open_prompt(
         &mut self,
         kind: prompt::PromptKind,
         label: &str,
@@ -43,7 +43,10 @@ impl Workspace {
                 prompt::PromptEvent::Submit(text) => {
                     ws.answer_prompt(prompt, text.as_str(), window, cx)
                 }
-                prompt::PromptEvent::Cancel => ws.close_prompt(window, cx),
+                prompt::PromptEvent::Cancel => ws.cancel_prompt(prompt, window, cx),
+                // The search answers as it is typed; the prompts that name
+                // something ignore this and wait for an answer.
+                prompt::PromptEvent::Changed(text) => ws.prompt_changed(prompt, text.as_str(), cx),
             },
         ));
         self.prompt = Some((kind, prompt.clone()));
@@ -94,6 +97,13 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         let kind = prompt.read(cx).kind();
+        // A search is not an answer about a name either: `enter` only closes the
+        // field and hands the matches to `n`/`N`. Its query is used exactly as
+        // typed, spaces included, because searching for `foo ` is a real question.
+        if kind == prompt::PromptKind::Search {
+            self.search_submitted(answer, window, cx);
+            return;
+        }
         let answer = answer.trim();
         // A command line is a word, not a name for something on disk, and it is
         // finished either way: an unknown command is an answer, not something to
@@ -199,6 +209,9 @@ impl Workspace {
             // `answer_prompt` sends it off to `answer_command` before this is
             // reached, so there is nothing to do here.
             prompt::PromptKind::Command => {}
+            // The same for a search: `answer_prompt` keeps the query and its
+            // matches in [`Workspace::search`] instead.
+            prompt::PromptKind::Search => {}
             prompt::PromptKind::Delete => {
                 let target = self.prompt_target()?;
                 if self.is_dir(&target) {
@@ -211,6 +224,8 @@ impl Workspace {
                     self.editor
                         .update(cx, |editor, cx| editor.set_text(String::new(), cx));
                     self.checker_closed(cx);
+                    // The note is gone, and with it every offset the search had.
+                    self.clear_search(cx);
                 }
                 self.tree_selection = None;
                 self.refresh_entries(cx);

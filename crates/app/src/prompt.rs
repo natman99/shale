@@ -36,6 +36,10 @@ pub(crate) enum PromptEvent {
     Submit(SharedString),
     /// Escape: nothing was answered.
     Cancel,
+    /// The field's text changed, with what it now holds. Only the search cares:
+    /// it answers as the query is typed rather than waiting for `enter`. Emitted
+    /// from every path that edits the text, so it cannot miss one.
+    Changed(SharedString),
 }
 
 /// Why a prompt is open. The workspace keeps one of these beside the entity so it
@@ -53,6 +57,10 @@ pub(crate) enum PromptKind {
     /// vim's command line: one word naming one command, matched exactly. The field
     /// is the same; what the answer *means* is [`crate::ex`]'s business.
     Command,
+    /// `/` in the open note: the query is answered as it is typed, and `enter`
+    /// only closes the field, leaving the matches for `n`/`N`. Drawn at the bottom
+    /// of the note like [`Self::Command`], because that is where vim's `/` is.
+    Search,
 }
 
 /// A single-line text field with a caret, asking one question.
@@ -176,6 +184,7 @@ impl EntityInputHandler for Prompt {
         cx: &mut Context<Self>,
     ) {
         self.field.replace_utf16(range_utf16, new_text);
+        cx.emit(PromptEvent::Changed(self.field.text().to_string().into()));
         cx.notify();
     }
 
@@ -233,10 +242,12 @@ impl Render for Prompt {
             }))
             .on_action(cx.listener(|this, _: &FieldBackspace, _window, cx| {
                 this.field.backspace();
+                cx.emit(PromptEvent::Changed(this.field.text().to_string().into()));
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &FieldDelete, _window, cx| {
                 this.field.delete_forward();
+                cx.emit(PromptEvent::Changed(this.field.text().to_string().into()));
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &FieldLeft, _window, cx| {

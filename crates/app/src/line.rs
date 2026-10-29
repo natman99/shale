@@ -187,6 +187,13 @@ pub(crate) struct LineElement {
     /// something to say about, drawn as wavy underlines. Re-based onto the
     /// painted text the same way the spans are.
     pub(crate) marks: Vec<(usize, usize)>,
+    /// (start, end) **buffer** byte ranges the `/` search matched, drawn with a
+    /// background under the text. Re-based like the marks.
+    pub(crate) hits: Vec<(usize, usize)>,
+    /// The one `/` match the cursor is on, as a **buffer** byte range: drawn over
+    /// the others so the current match in a run of `n`/`N` stands out. `None`
+    /// when there is no current match.
+    pub(crate) active: Option<(usize, usize)>,
     /// Text size to shape and paint at; the row's height follows it.
     pub(crate) size: f32,
     /// Whether the row belongs to a fenced code block, whose background spans
@@ -254,29 +261,28 @@ pub(crate) struct CellShaped {
 /// Every byte of the line gets a style — the markdown spans applied in order,
 /// so a span that starts later in the source wins, then the resolved/unresolved
 /// colour of any wiki-link over the top, then the checker's wavy underline over
-/// both — and neighbouring bytes that share a style are coalesced into one run.
+/// both, then the search matches' background over everything — and neighbouring
+/// bytes that share a style are coalesced into one run.
 /// Run lengths are utf-8 byte counts and must add up to exactly `text.len()`:
 /// gpui walks runs against glyphs, so a map that does not tile the text styles
 /// the wrong characters.
 fn build_runs(
     text: &str,
-    spans: &[(usize, usize, Style)],
-    links: &[(usize, usize, bool)],
-    marks: &[(usize, usize)],
+    styles: &LineStyles,
     base_font: &Font,
     palette: &Palette,
 ) -> Vec<TextRun> {
     let total = text.len();
     let plain = RunStyle::plain(palette);
-    let mut styles = vec![plain; total];
-    for (start, end, style) in spans {
+    let mut painted = vec![plain; total];
+    for (start, end, style) in &styles.spans {
         let start = (*start).min(total);
         let end = (*end).clamp(start, total);
-        for slot in &mut styles[start..end] {
+        for slot in &mut painted[start..end] {
             *slot = RunStyle::for_style(*style, palette);
         }
     }
-    for (start, end, resolved) in links {
+    for (start, end, resolved) in &styles.links {
         let start = (*start).min(total);
         let end = (*end).clamp(start, total);
         let color = if *resolved {
@@ -284,7 +290,7 @@ fn build_runs(
         } else {
             palette.link_unresolved
         };
-        for slot in &mut styles[start..end] {
+        for slot in &mut painted[start..end] {
             slot.color = color;
         }
     }
@@ -293,20 +299,39 @@ fn build_runs(
     // colour is the palette's own `spell` role, which a theme can set apart from
     // its error red -- a checker's note is a remark about the text, not an error
     // in it.
-    for (start, end) in marks {
+    for (start, end) in &styles.marks {
         let start = (*start).min(total);
         let end = (*end).clamp(start, total);
-        for slot in &mut styles[start..end] {
+        for slot in &mut painted[start..end] {
             slot.spell = Some(palette.spell);
+        }
+    }
+    // A search match only paints a background, so the text keeps whatever colour
+    // markdown gave it. The roles are the ones the palette already has:
+    // `highlight_bg` for `==highlight==`, and the selection colour for the match
+    // under the cursor, which is what makes "you are on the third of 17" visible
+    // without a second panel.
+    for (start, end) in &styles.hits {
+        let start = (*start).min(total);
+        let end = (*end).clamp(start, total);
+        for slot in &mut painted[start..end] {
+            slot.background = Some(palette.highlight_bg);
+        }
+    }
+    for (start, end) in &styles.active {
+        let start = (*start).min(total);
+        let end = (*end).clamp(start, total);
+        for slot in &mut painted[start..end] {
+            slot.background = Some(palette.selection);
         }
     }
 
     let mut runs: Vec<TextRun> = Vec::new();
     let mut i = 0usize;
     while i < total {
-        let style = styles[i];
+        let style = painted[i];
         let mut j = i + 1;
-        while j < total && styles[j] == style {
+        while j < total && painted[j] == style {
             j += 1;
         }
         runs.push(style.text_run(j - i, base_font));
@@ -319,28 +344,44 @@ fn build_runs(
     runs
 }
 
-/// One table cell's worth of styling: the markdown spans, wiki-links and
-/// checker's ranges that fall inside it, re-based onto its painted text.
-type CellStyles = (
-    Vec<(usize, usize, Style)>,
-    Vec<(usize, usize, bool)>,
-    Vec<(usize, usize)>,
-);
+/// Everything that styles one line's runs: the markdown spans, wiki-links,
+/// checker's ranges and search matches, all in the same coordinate space — the
+/// text being painted, once re-based off the buffer.
+#[derive(Default)]
+struct LineStyles {
+    /// Markdown spans, in the order the scanner emitted them.
+    spans: Vec<(usize, usize, Style)>,
+    /// Wiki-links with whether their target names a note that exists.
+    links: Vec<(usize, usize, bool)>,
+    /// The spell and grammar checker's notes.
+    marks: Vec<(usize, usize)>,
+    /// Every `/` match.
+    hits: Vec<(usize, usize)>,
+    /// The `/` match the cursor is on. A match that straddles a hidden marker is
+    /// painted in pieces, so this is a list rather than one range.
+    active: Vec<(usize, usize)>,
+}
 
-/// The markdown spans, wiki-links and checker's ranges that overlap one table
-/// cell, clipped to it and re-based onto the cell's painted text. The spans in
-/// are buffer offsets; `map` describes the text they are being mapped onto.
+/// The markdown spans, wiki-links, checker's ranges and search matches that
+/// overlap one table cell, clipped to it and re-based onto the cell's painted
+/// text. The ranges in are buffer offsets; `map` describes the text they are
+/// being mapped onto.
 fn cell_styles(
     spans: &[(usize, usize, Style)],
     links: &[(usize, usize, bool)],
     marks: &[(usize, usize)],
+    hits: &[(usize, usize)],
+    active: Option<(usize, usize)>,
     map: &PieceMap,
-) -> CellStyles {
-    (
-        map.rebase_spans(spans),
-        map.rebase_links(links),
-        map.rebase_marks(marks),
-    )
+) -> LineStyles {
+    let current = active.map(|range| vec![range]).unwrap_or_default();
+    LineStyles {
+        spans: map.rebase_spans(spans),
+        links: map.rebase_links(links),
+        marks: map.rebase_marks(marks),
+        hits: map.rebase_marks(hits),
+        active: map.rebase_marks(&current),
+    }
 }
 
 impl LineElement {
@@ -546,14 +587,17 @@ impl Element for LineElement {
         let Some(table) = self.table.clone() else {
             // The spans are buffer offsets and the runs are painted-text offsets,
             // so they are clipped to the painted pieces and re-based first.
-            let runs = build_runs(
-                &self.text,
-                &self.map.rebase_spans(&self.spans),
-                &self.map.rebase_links(&self.links),
-                &self.map.rebase_marks(&self.marks),
-                &base_font,
-                &self.palette,
-            );
+            let styles = LineStyles {
+                spans: self.map.rebase_spans(&self.spans),
+                links: self.map.rebase_links(&self.links),
+                marks: self.map.rebase_marks(&self.marks),
+                hits: self.map.rebase_marks(&self.hits),
+                active: self
+                    .active
+                    .map(|range| self.map.rebase_marks(&[range]))
+                    .unwrap_or_default(),
+            };
+            let runs = build_runs(&self.text, &styles, &base_font, &self.palette);
             let line = text_system.shape_line(self.text.clone(), px(self.size), &runs, None);
             // The fold marker is not buffer text, so it is shaped on its own and
             // painted after the line rather than being spliced into it.
@@ -594,9 +638,15 @@ impl Element for LineElement {
                     .iter()
                     .map(|&(s, e)| &text[s - self.start..e - self.start])
                     .collect();
-                let (spans, links, marks) =
-                    cell_styles(&self.spans, &self.links, &self.marks, &map);
-                let runs = build_runs(&painted, &spans, &links, &marks, &base_font, &self.palette);
+                let styles = cell_styles(
+                    &self.spans,
+                    &self.links,
+                    &self.marks,
+                    &self.hits,
+                    self.active,
+                    &map,
+                );
+                let runs = build_runs(&painted, &styles, &base_font, &self.palette);
                 CellShaped {
                     line: text_system.shape_line(
                         SharedString::from(painted),
@@ -882,7 +932,13 @@ mod tests {
             ),
         ];
         for (text, spans, links, marks) in cases {
-            let runs = build_runs(text, &spans, &links, &marks, &font, &Palette::DARK);
+            let styles = LineStyles {
+                spans,
+                links,
+                marks,
+                ..LineStyles::default()
+            };
+            let runs = build_runs(text, &styles, &font, &Palette::DARK);
             let total: usize = runs.iter().map(|r| r.len).sum();
             assert_eq!(total, text.len(), "runs must cover {text:?} exactly");
             if text.is_empty() {
@@ -920,7 +976,11 @@ mod tests {
     fn a_checker_range_is_a_wavy_underline() {
         let font = font("monospace");
         let text = "Thier spelling";
-        let runs = build_runs(text, &[], &[], &[(0, 5)], &font, &Palette::DARK);
+        let styles = LineStyles {
+            marks: vec![(0, 5)],
+            ..LineStyles::default()
+        };
+        let runs = build_runs(text, &styles, &font, &Palette::DARK);
         let total: usize = runs.iter().map(|r| r.len).sum();
         assert_eq!(total, text.len());
         assert_eq!(runs[0].len, 5, "the marked word is its own run");
@@ -944,7 +1004,8 @@ mod tests {
         let links = vec![(12, 18, true)];
         let marks = vec![(2, 4), (12, 15)];
         let map = PieceMap::from_pieces(&[(1, 7)]);
-        let (cell_spans, cell_links, cell_marks) = cell_styles(&spans, &links, &marks, &map);
+        let styles = cell_styles(&spans, &links, &marks, &[], None, &map);
+        let (cell_spans, cell_links, cell_marks) = (styles.spans, styles.links, styles.marks);
         assert_eq!(cell_spans, vec![(1, 6, Style::Strong)]);
         assert!(cell_links.is_empty(), "a link in another cell is dropped");
         assert_eq!(
@@ -961,11 +1022,64 @@ mod tests {
     fn cell_styles_follow_the_hidden_markers() {
         // The cell's content is bytes 10..17, `**a** b`, with both `**` hidden.
         let map = PieceMap::from_pieces(&[(12, 13), (15, 17)]);
-        let (cell_spans, _, _) = cell_styles(&[(10, 15, Style::Strong)], &[], &[], &map);
+        let styles = cell_styles(&[(10, 15, Style::Strong)], &[], &[], &[], None, &map);
         assert_eq!(
-            cell_spans,
+            styles.spans,
             vec![(0, 1, Style::Strong)],
             "the span follows the painted `a`"
+        );
+    }
+
+    /// The background painted under one byte of the line, found by walking the
+    /// runs, whose lengths are byte counts.
+    fn background_at(runs: &[TextRun], byte: usize) -> Option<gpui::Hsla> {
+        let mut at = 0usize;
+        for run in runs {
+            if byte < at + run.len {
+                return run.background_color;
+            }
+            at += run.len;
+        }
+        None
+    }
+
+    /// A `/` match is a background, drawn over whatever the markdown gave the same
+    /// bytes; the current match is the selection colour on top of the others, so
+    /// the match the cursor is on is visible without a second panel.
+    #[test]
+    fn a_search_match_is_a_background() {
+        let font = font("monospace");
+        // `` `word` and word ``: the first match is inside inline code, which has a
+        // background of its own, so this also proves the match wins over it.
+        let text = "`word` and word";
+        let styles = LineStyles {
+            spans: vec![(0, 6, Style::Code)],
+            hits: vec![(1, 5), (11, 15)],
+            active: vec![(11, 15)],
+            ..LineStyles::default()
+        };
+        let runs = build_runs(text, &styles, &font, &Palette::DARK);
+        let total: usize = runs.iter().map(|r| r.len).sum();
+        assert_eq!(total, text.len(), "runs must cover the line exactly");
+        assert_eq!(
+            background_at(&runs, 0),
+            Some(rgb(Palette::DARK.code_bg).into()),
+            "the fence marker the match does not cover keeps its own background"
+        );
+        assert_eq!(
+            background_at(&runs, 1),
+            Some(rgb(Palette::DARK.highlight_bg).into()),
+            "a match wins over the code background"
+        );
+        assert_eq!(
+            background_at(&runs, 11),
+            Some(rgb(Palette::DARK.selection).into()),
+            "the current match is drawn over the others"
+        );
+        assert_eq!(
+            background_at(&runs, 7),
+            None,
+            "text between matches is left alone"
         );
     }
 }

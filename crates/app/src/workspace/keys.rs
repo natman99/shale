@@ -104,6 +104,14 @@ pub(crate) fn keybindings() -> Vec<KeyBinding> {
     // `alt+hjkl` moves a whole row or column of the table under the cursor.
     bind!("vim-normal", [
         "u" => VimU,
+        // `/` searches the note that is open; `n` and `N` step through what it
+        // found. The query lives in the window rather than in the field, so they
+        // keep working after `enter` has closed the field. All three are free here:
+        // `n` names a new note only in the tree, and the global new-note key is
+        // `ctrl-n`.
+        "/" => SearchBuffer,
+        "n" => SearchNext,
+        "shift-n" => SearchPrev,
         // Bound only so the `space s` leader chord reaches the vim engine, which
         // owns the chord because `space` is also the right motion. `s` by itself
         // is not a Shale command yet, and the engine says so.
