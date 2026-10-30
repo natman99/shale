@@ -197,13 +197,18 @@ Small, unblocking, and three of them are already-parked user requests.
   paste (`Vim::awaiting_chord`), and the editor remembers the last text it wrote or
   read so neither half costs anything when nothing changed. That exposed a real gap:
   linewise `dd` never filled the register, so `p` after `dd` pasted a stale yank.
+  `c` is a cut as well now: `cw` / `cc` fill the register, as visual mode already did.
 - **P0.7c Smart-quote rendering** — *planned, not started.* The scan and the object
   are done: `mdstyle::quotes` says what each straight mark means (opener, closer,
   apostrophe), skipping code, and `diq` / `ciq` / `daq` act on it. Drawing `“ ” ‘ ’`
   in the rendering views needs `preview::PieceMap` to tolerate a painted piece being
   a different byte length from the buffer range it came from — every mapping in it is
   byte arithmetic today. The design is PROJECT.md thread 22. Straight quotes stay in
-  the file; that is the user's rule.
+  the file; that is the user's rule. **Fixed the same day:** the scan treated a
+  newline as if the previous line's last character were still before the mark, so a
+  quotation on the line under a list item, a callout or a fence had no pair — not a
+  quirk of the block parser, and a test now asks every object from the line below
+  another block to prove the rest were never broken.
 - **P0.8 Focus / typewriter mode** (brainstorm ✅): per-block alpha ramp in the
   renderer. Establishes the dimming machinery that search-illumination and
   note-pinning later reuse.

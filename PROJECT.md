@@ -316,10 +316,10 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
 - Run the test binaries under `ulimit -v` when working on anything that scans
   text (a scanner bug can allocate until the OOM killer takes the editor down —
   see the table postmortem).
-  Current peak RSS of the test binaries (2026-10-29, app 222 / core 348 with 10
+  Current peak RSS of the test binaries (2026-10-29, app 222 / core 352 with 10
   ignored / mcp 6 tests — core's count includes the graph agent's `graph::` tests,
-  which are committed and green): core 8.0 MB, app 69.4 MB,
-  mcp 3.4 MB. The
+  which are committed and green): core 8.0 MB, app 69 MB,
+  mcp 3.5 MB. The
   app binary's *address space* (not RSS) is far larger because of gpui/wgpu
   reservations, and it now needs **4 GB or more** — a 1 GB cap makes it die in an
   80-byte allocation. Build with `cargo test --workspace --no-run`, then run each
@@ -1866,8 +1866,8 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   `graph/quadtree.rs` 719, `buffer/tests.rs` 701, `lsp/mod.rs` 687,
   `tests/picker.rs` 672, `picker.rs` 661, `theme/mod.rs` 656,
   `table/edit.rs` 640, `tests/motions.rs` 622, `graph/index.rs` 602,
-  `editor/render.rs` 602, `table/mod.rs` 590, `tests/tree.rs` 547,
-  `mdstyle/object.rs` 542, `mdstyle/mod.rs` 538, `lsp/mapping.rs` 496,
+  `editor/render.rs` 602, `table/mod.rs` 590, `mdstyle/object.rs` 573,
+  `tests/tree.rs` 547, `mdstyle/mod.rs` 538, `lsp/mapping.rs` 496,
   `graph/proj.rs` 491, `graph/geom.rs` 488, `tests/keys.rs` 474,
   `workspace/edits.rs` 468, `theme/tests.rs` 444, `workspace/popups.rs` 435,
   `mdstyle/block.rs` 432, `markdown.rs` 416, `editor/wrap.rs` 416,
@@ -1875,10 +1875,11 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   `vim/mod.rs` 391, `vim/tests/tables.rs` 389, `vim/tests/motions.rs` 388,
   `tests/search.rs` 385, `workspace/render.rs` 381, `tests/views.rs` 380,
   `editor/actions.rs` 370, `vim/motions.rs` 368, `field.rs` 353,
-  `theme/catppuccin.rs` 352, `workspace/open.rs` 352, `fold.rs` 332,
-  `popup.rs` 331, `config/edit.rs` 327, `fuzzy.rs` 324, `vim/tests/chords.rs` 308,
-  `lsp/wire.rs` 308, `mdstyle/quotes.rs` 305, `preview.rs` 298, `theme.rs` 296,
-  `main.rs` 294, `mdstyle/inline.rs` 293, `tests/commands.rs` 288, `prompt.rs` 280,
+  `theme/catppuccin.rs` 352, `workspace/open.rs` 352, `vim/tests/chords.rs` 339,
+  `fold.rs` 332, `popup.rs` 331, `config/edit.rs` 327, `fuzzy.rs` 324,
+  `mdstyle/quotes.rs` 320, `lsp/wire.rs` 308, `tests/commands.rs` 298,
+  `preview.rs` 298, `theme.rs` 296,
+  `main.rs` 294, `mdstyle/inline.rs` 293, `prompt.rs` 280,
   `buffer/edits.rs` 278, `tests/autosave.rs` 269, `table_view.rs` 268,
   `tests/jumps.rs` 267, `continuation.rs` 265, `lsp/document.rs` 257,
   `mdlayout.rs` 254, then `rename.rs` 195, `workspace/jumps.rs` 184,
@@ -2296,6 +2297,10 @@ Next steps, roughly in order:
       `clipboard_mirror` field holds the last text Shale wrote or read, which is what
       makes both halves cheap: a yank only writes when its text differs, a `p` only
       pulls when the clipboard differs.
+    - **`c` is a cut too** (the user asked for it the same day): `cw` / `ciw` / `cc`
+      put what they replace into the register, so `p` can put the old word or line
+      back somewhere else and the mirror shows other programs the change. Visual mode
+      already worked this way; only the normal-mode operator was missing it.
     - **The gap that mirroring exposed:** linewise `dd` never filled the register, so
       `p` after `dd` pasted whatever an older yank had left. A delete is a cut, and
       with the mirror it is a cut other programs can see, so `dd` now yanks the lines
@@ -2318,6 +2323,16 @@ Next steps, roughly in order:
       `daq` selects. Nested quotations resolve to the innermost one under the cursor.
       `q` is not in the keymap, so it reaches the engine through the IME literal
       route, like `#`, `*` and the backtick (thread 20).
+    - **The bug the user found** (same day): a quotation on the line *under* a list
+      item, a callout or a fence had no pair at all, and in a list whose items are
+      quoted every item after the first lost its opener. **Not a quirk of the section
+      parser** — the quote scan only ever looked at the character before the mark and
+      never treated a newline as one, so the previous line's last letter decided the
+      reading. A line break now resets that state, which also keeps the rule local to
+      the line instead of a state machine one unbalanced mark could carry through the
+      note. A test asks every object from the line below another block (link,
+      quotation, section, callout, code) and all of them answer, so the other objects
+      were never broken.
     - **Why the rendering is its own step.** The painted line is tied back to the
       buffer by `preview::PieceMap`, and every mapping in it is byte arithmetic:
       `painted_index = painted_start + (buffer_offset - piece_start)`. A curly glyph
