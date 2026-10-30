@@ -126,7 +126,47 @@ fn a_callout_object_takes_the_box_or_its_body() {
 }
 
 #[test]
-fn a_code_object_takes_the_fences_or_the_code() {
+fn a_one_line_callout_loses_its_text_and_keeps_its_marker() {
+    // The shape most callouts actually are: one line long. Its title text is its
+    // body, so `ci*` retypes the sentence and `da*` takes the line — and neither
+    // may eat the `[!note]` marker, which is what makes the quote a callout.
+    let mut v = Vim::new();
+
+    let mut b = Buffer::new("before\n> [!note] just this\nafter\n".to_string());
+    b.set_cursor(at(&b, "[!note]") + 1);
+    type_keys(&mut v, "ci*", &mut b);
+    assert_eq!(
+        b.text(),
+        "before\n> [!note] \nafter\n",
+        "`ci*` leaves the marker, with the caret after it"
+    );
+
+    let mut b = Buffer::new("before\n> [!note] just this\nafter\n".to_string());
+    b.set_cursor(at(&b, "just"));
+    type_keys(&mut v, "da*", &mut b);
+    assert_eq!(b.text(), "before\nafter\n", "`da*` removes the line");
+
+    // And the yank that used to land on an empty range.
+    let mut b = Buffer::new("before\n> [!note] just this\nafter\n".to_string());
+    b.set_cursor(at(&b, "just"));
+    type_keys(&mut v, "yi*", &mut b);
+    assert_eq!(
+        b.text(),
+        "before\n> [!note] just this\nafter\n",
+        "`yi*` changes nothing"
+    );
+    let mut b = Buffer::new("before\n> [!note] just this\nafter\n".to_string());
+    b.set_cursor(at(&b, "just"));
+    type_keys(&mut v, "yi*p", &mut b);
+    assert_eq!(
+        row(&b, 1),
+        "> [!note] jjust thisust this",
+        "`p` puts the title it yanked just after the caret"
+    );
+}
+
+#[test]
+fn a_code_object_takes_the_block_or_the_span() {
     let mut v = Vim::new();
 
     let mut b = md_buf();

@@ -209,8 +209,9 @@ fn section_range(text: &str, offset: usize, inner: bool) -> Option<(usize, usize
 /// span per line of the box, each covering the whole line, so a box is a run of
 /// spans separated by nothing but line breaks.
 fn callout_range(text: &str, offset: usize, inner: bool) -> Option<(usize, usize)> {
+    let spans = style_spans(text);
     let mut groups: Vec<(usize, usize)> = Vec::new();
-    for span in style_spans(text)
+    for span in spans
         .iter()
         .filter(|span| matches!(span.style, Style::Callout { .. }))
     {
@@ -220,17 +221,33 @@ fn callout_range(text: &str, offset: usize, inner: bool) -> Option<(usize, usize
         }
     }
     let (start, end) = *groups.iter().find(|(s, e)| *s <= offset && offset <= *e)?;
-    if inner {
+    if !inner {
+        return Some((start, after_line(text, end)));
+    }
+    let body_end = after_line(text, end);
+    let body_start = after_line(text, start).min(body_end);
+    if body_start < body_end {
         // The body: everything after the header line, the `>` markers and the
         // body's own line breaks included, so the box is left whole and `ci*` is a
         // way to retype what is in it.
-        Some((
-            after_line(text, start).min(after_line(text, end)),
-            after_line(text, end),
-        ))
-    } else {
-        Some((start, after_line(text, end)))
+        return Some((body_start, body_end));
     }
+    // A callout with no body lines — the usual one-liner — has no body to take,
+    // and its title text *is* what it says. The scanner runs a
+    // `Style::CalloutTitle` span from the text after the `[!kind]` marker to the
+    // end of the header line, and the type name inside the brackets is a separate
+    // span that stops short of that end: which is what keeps `di*` from eating the
+    // marker and turning the box into an ordinary quote.
+    let head_end = line_at(text, start).map_or(start, |(_, e)| e);
+    let title = spans.iter().find(|span| {
+        matches!(span.style, Style::CalloutTitle { .. })
+            && span.end == head_end
+            && span.start >= start
+    });
+    // A box with no title text either (`> [!note]` on its own) has an empty inner
+    // object sitting where the text would go, so `ci*` puts the caret after the
+    // marker and lets the user write the box.
+    Some(title.map_or((head_end, head_end), |span| (span.start, span.end)))
 }
 
 /// The fenced block under the cursor, or the inline code span on its line when
@@ -425,6 +442,33 @@ mod tests {
             "> [!warning] Watch out\n> first\n> second\n"
         );
         assert!(range(text, 41, Object::Callout, false).is_none());
+    }
+
+    #[test]
+    fn a_one_line_callout_holds_its_title() {
+        let text = "> [!note] just this\nafter\n";
+        // The whole box is the line, marker and all.
+        assert_eq!(
+            cut(text, 2, Object::Callout, false),
+            "> [!note] just this\n"
+        );
+        // With no body lines, the title text *is* the content: `ci*` retypes what
+        // the box says and leaves the `[!note]` marker alone, so the note is still
+        // a note afterwards.
+        assert_eq!(cut(text, 2, Object::Callout, true), "just this");
+        // The type name inside the brackets is never the inner object, and a
+        // cursor on it still selects the title.
+        assert_eq!(cut(text, 5, Object::Callout, true), "just this");
+    }
+
+    #[test]
+    fn a_callout_with_no_text_has_an_empty_inner_object() {
+        let text = "> [!note]\nafter\n";
+        assert_eq!(cut(text, 2, Object::Callout, false), "> [!note]\n");
+        // Nothing to change, but the range sits where the text would go, so `ci*`
+        // puts the caret after the marker and lets the user write the box.
+        let (lo, hi) = range(text, 2, Object::Callout, true).unwrap();
+        assert_eq!((lo, hi), (9, 9));
     }
 
     #[test]
