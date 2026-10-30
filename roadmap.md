@@ -186,13 +186,24 @@ Small, unblocking, and three of them are already-parked user requests.
   that is **one line long** had an empty inner object, so `ci*` / `di*` / `yi*` did
   nothing at all — with no body lines its title text *is* what the box says, and that
   range stops at the header line's end so the `[!kind]` marker survives. **Left:**
-  `diq` (smart quotes) from the brainstorm.
+  nothing from the brainstorm list — `diq` came in the same day (see P0.7c).
 - **P0.7b The system clipboard, both ways** — **DONE 2026-10-29.** `space y` (`:yank`
   / `:clip`) out — the selection if there is one, otherwise the last yank — and `:paste`
   / `ctrl-shift-v` in, where a paste also fills the vim register so `p` and `.` repeat
-  what came from outside. `y` and `d` deliberately do **not** mirror to the clipboard
-  (vim's `clipboard=unnamedplus`), since every delete would overwrite what the user
-  copied last.
+  what came from outside. **Same day, at the user's request:** `y` and `d` are
+  mirrored with the system clipboard the way Zed does it — the register is written out
+  whenever it changes, and a `p` whose clipboard holds something Shale did not put
+  there pastes that instead. The clipboard is read only on a key that will really
+  paste (`Vim::awaiting_chord`), and the editor remembers the last text it wrote or
+  read so neither half costs anything when nothing changed. That exposed a real gap:
+  linewise `dd` never filled the register, so `p` after `dd` pasted a stale yank.
+- **P0.7c Smart-quote rendering** — *planned, not started.* The scan and the object
+  are done: `mdstyle::quotes` says what each straight mark means (opener, closer,
+  apostrophe), skipping code, and `diq` / `ciq` / `daq` act on it. Drawing `“ ” ‘ ’`
+  in the rendering views needs `preview::PieceMap` to tolerate a painted piece being
+  a different byte length from the buffer range it came from — every mapping in it is
+  byte arithmetic today. The design is PROJECT.md thread 22. Straight quotes stay in
+  the file; that is the user's rule.
 - **P0.8 Focus / typewriter mode** (brainstorm ✅): per-block alpha ramp in the
   renderer. Establishes the dimming machinery that search-illumination and
   note-pinning later reuse.

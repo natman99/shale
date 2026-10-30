@@ -316,9 +316,9 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
 - Run the test binaries under `ulimit -v` when working on anything that scans
   text (a scanner bug can allocate until the OOM killer takes the editor down —
   see the table postmortem).
-  Current peak RSS of the test binaries (2026-10-29, app 220 / core 335 with 10
+  Current peak RSS of the test binaries (2026-10-29, app 222 / core 348 with 10
   ignored / mcp 6 tests — core's count includes the graph agent's `graph::` tests,
-  which are committed and green): core 7.9 MB, app 68.5 MB,
+  which are committed and green): core 8.0 MB, app 69.4 MB,
   mcp 3.4 MB. The
   app binary's *address space* (not RSS) is far larger because of gpui/wgpu
   reservations, and it now needs **4 GB or more** — a 1 GB cap makes it die in an
@@ -1860,28 +1860,28 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   module gained reach. Splitting a `mod tests { … }` block the same way works,
   but note that a child test module's `use super::*` reaches the parent's own
   `use`s, so the extra `use crate::vim::*` lines are dead weight.
-  Largest files now (2026-10-29, after the markdown text objects): `tests/popup.rs` 1104, `line.rs` 1085,
+  Largest files now (2026-10-29, after the clipboard mirror and the `q` object): `tests/popup.rs` 1104, `line.rs` 1085,
   `workspace/mod.rs` 1050, `graph/sim.rs` 908,
-  `tests/paint.rs` 806, `editor/mod.rs` 784, `vault.rs` 750,
+  `tests/paint.rs` 806, `editor/mod.rs` 790, `vault.rs` 750,
   `graph/quadtree.rs` 719, `buffer/tests.rs` 701, `lsp/mod.rs` 687,
   `tests/picker.rs` 672, `picker.rs` 661, `theme/mod.rs` 656,
-  `table/edit.rs` 640, `graph/index.rs` 602, `editor/render.rs` 602,
-  `table/mod.rs` 590, `tests/motions.rs` 571, `tests/tree.rs` 547,
-  `mdstyle/object.rs` 535, `mdstyle/mod.rs` 534, `lsp/mapping.rs` 496,
+  `table/edit.rs` 640, `tests/motions.rs` 622, `graph/index.rs` 602,
+  `editor/render.rs` 602, `table/mod.rs` 590, `tests/tree.rs` 547,
+  `mdstyle/object.rs` 542, `mdstyle/mod.rs` 538, `lsp/mapping.rs` 496,
   `graph/proj.rs` 491, `graph/geom.rs` 488, `tests/keys.rs` 474,
   `workspace/edits.rs` 468, `theme/tests.rs` 444, `workspace/popups.rs` 435,
   `mdstyle/block.rs` 432, `markdown.rs` 416, `editor/wrap.rs` 416,
-  `graph/hues.rs` 411, `config/mod.rs` 405, `vim/tests/tables.rs` 389,
-  `vim/tests/motions.rs` 388, `tests/search.rs` 385, `vim/mod.rs` 383,
-  `workspace/render.rs` 380, `tests/views.rs` 380, `vim/motions.rs` 368,
-  `vim/tests/objects.rs` 363, `field.rs` 353,
+  `graph/hues.rs` 411, `config/mod.rs` 405, `vim/tests/objects.rs` 399,
+  `vim/mod.rs` 391, `vim/tests/tables.rs` 389, `vim/tests/motions.rs` 388,
+  `tests/search.rs` 385, `workspace/render.rs` 381, `tests/views.rs` 380,
+  `editor/actions.rs` 370, `vim/motions.rs` 368, `field.rs` 353,
   `theme/catppuccin.rs` 352, `workspace/open.rs` 352, `fold.rs` 332,
-  `popup.rs` 331, `config/edit.rs` 327, `fuzzy.rs` 324, `editor/actions.rs` 323,
-  `lsp/wire.rs` 308, `preview.rs` 298, `theme.rs` 296,
-  `main.rs` 294, `mdstyle/inline.rs` 293, `prompt.rs` 280,
+  `popup.rs` 331, `config/edit.rs` 327, `fuzzy.rs` 324, `vim/tests/chords.rs` 308,
+  `lsp/wire.rs` 308, `mdstyle/quotes.rs` 305, `preview.rs` 298, `theme.rs` 296,
+  `main.rs` 294, `mdstyle/inline.rs` 293, `tests/commands.rs` 288, `prompt.rs` 280,
   `buffer/edits.rs` 278, `tests/autosave.rs` 269, `table_view.rs` 268,
-  `tests/jumps.rs` 267, `continuation.rs` 265, `vim/tests/chords.rs` 260,
-  `lsp/document.rs` 257, `mdlayout.rs` 254, then `rename.rs` 195, `workspace/jumps.rs` 184,
+  `tests/jumps.rs` 267, `continuation.rs` 265, `lsp/document.rs` 257,
+  `mdlayout.rs` 254, then `rename.rs` 195, `workspace/jumps.rs` 184,
   `workspace/themes.rs` 176, `acts.rs` 168, `workspace/commands.rs` 163,
   `ex.rs` 136, `workspace/views.rs` 68.
   The graph track's own largest are `graph/sim.rs` 908
@@ -2265,7 +2265,8 @@ Next steps, roughly in order:
       separate, shorter span) from being deleted and turning the box into an ordinary
       quote. A box with no title text gets an empty range sitting where the text would
       go, so `ci*` puts the caret after the marker and lets the user write the box.
-    - **Left**: `diq` (smart quotes) from the brainstorm is not implemented.
+    - **Left**: nothing from that list — `diq` arrived later the same day
+      (thread 22).
 
 21. **The system clipboard, both ways** — Done (2026-10-29, alongside the objects).
     - **`space y`** (and `:yank` / `:clip` / `:copy`) puts what the user has to give
@@ -2285,9 +2286,51 @@ Next steps, roughly in order:
       engine's unnamed register and the UI. Text that arrives with its own line break
       is linewise, so a whole-line copy from another program lands on a line of its
       own rather than in the middle of one.
-    - **Not done, on purpose:** `y` and `d` do *not* mirror to the system clipboard
-      (vim's `set clipboard=unnamedplus`), because every delete would overwrite what
-      the user copied last. Ask before adding it.
+    - **Mirrored the same day**, at the user's request (it is what Zed does): whatever
+      the engine puts in its register is written to the system clipboard, so `y` and
+      `d` are cuts other programs can see; and a `p` whose clipboard holds something
+      Shale did not put there pastes *that* instead of the last yank. The clipboard is
+      read only on a key that will really paste — `Vim::awaiting_chord` covers the
+      `space` and `g` chords, a pending operator, a find and a text object — because
+      reading it is a round trip to whichever program owns it. The editor's
+      `clipboard_mirror` field holds the last text Shale wrote or read, which is what
+      makes both halves cheap: a yank only writes when its text differs, a `p` only
+      pulls when the clipboard differs.
+    - **The gap that mirroring exposed:** linewise `dd` never filled the register, so
+      `p` after `dd` pasted whatever an older yank had left. A delete is a cut, and
+      with the mirror it is a cut other programs can see, so `dd` now yanks the lines
+      before removing them.
+
+22. **Smart quotes — the `q` object, and the rendering that follows** — the object
+    is Done (2026-10-29); the rendering is roadmap P0.7c, planned below.
+    - **The files keep straight quotes** (the user's rule): they are what the
+      keyboard types and what grep, git and every other tool expects to see. Only
+      the rendering views turn them curly.
+    - **`mdstyle::quotes` answers what each mark *means***: `Open`, `Close` or
+      `Apostrophe`. A `"` opens unless a word character sits directly before it; a
+      `'` between two word characters is an apostrophe and never a quotation
+      (`don't`), and one at the end of a word (`rockin'`) is a closer. Code spans and
+      fenced blocks are skipped entirely — a string delimiter in a program is left
+      exactly as typed and does not flip the quotes around it — and the state resets
+      at a blank line, so one unbalanced mark cannot turn the rest of the note inside
+      out.
+    - **One answer, two questions**: which glyph to draw, and what `diq` / `ciq` /
+      `daq` selects. Nested quotations resolve to the innermost one under the cursor.
+      `q` is not in the keymap, so it reaches the engine through the IME literal
+      route, like `#`, `*` and the backtick (thread 20).
+    - **Why the rendering is its own step.** The painted line is tied back to the
+      buffer by `preview::PieceMap`, and every mapping in it is byte arithmetic:
+      `painted_index = painted_start + (buffer_offset - piece_start)`. A curly glyph
+      is one character but three UTF-8 bytes, so substituting one breaks that
+      identity — the cursor, clicks, selection painting, `/` matches and soft-wrap
+      breaks all ride on it. The plan: let a piece carry its own painted length
+      (`(buf_start, buf_end, painted_start, painted_len)`), keep the rule that a
+      substituted character is always *its own* single-character piece so no other
+      piece needs internal arithmetic, and thread the marks through
+      `LineLayout::build`, `line.rs`'s cell painting and `wrap.rs`'s
+      `offset_for_visible_index`. This is the most delicate offset machinery in the
+      editor — there is a postmortem in this file about getting it wrong — so it gets
+      its own commit, with the app's paint, motion, wrap and search tests as the net.
     - **Tests**: 16 in `mdstyle/object.rs`, 11 in `vim/tests/objects.rs` (engine
       wiring, the read-only rule, preview refusing edits), 2 app tests for the
       end-to-end keystrokes, 1 that preview still answers keys that are not edits.
