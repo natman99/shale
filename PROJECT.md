@@ -316,9 +316,9 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
 - Run the test binaries under `ulimit -v` when working on anything that scans
   text (a scanner bug can allocate until the OOM killer takes the editor down —
   see the table postmortem).
-  Current peak RSS of the test binaries (2026-10-29, app 222 / core 352 with 10
+  Current peak RSS of the test binaries (2026-10-29, app 234 / core 352 with 10
   ignored / mcp 6 tests — core's count includes the graph agent's `graph::` tests,
-  which are committed and green): core 8.0 MB, app 69 MB,
+  which are committed and green): core 7.8 MB, app 68 MB,
   mcp 3.5 MB. The
   app binary's *address space* (not RSS) is far larger because of gpui/wgpu
   reservations, and it now needs **4 GB or more** — a 1 GB cap makes it die in an
@@ -1860,35 +1860,34 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   module gained reach. Splitting a `mod tests { … }` block the same way works,
   but note that a child test module's `use super::*` reaches the parent's own
   `use`s, so the extra `use crate::vim::*` lines are dead weight.
-  Largest files now (2026-10-29, after the clipboard mirror and the `q` object): `tests/popup.rs` 1104, `line.rs` 1085,
-  `workspace/mod.rs` 1050, `graph/sim.rs` 908,
-  `tests/paint.rs` 806, `editor/mod.rs` 790, `vault.rs` 750,
-  `graph/quadtree.rs` 719, `buffer/tests.rs` 701, `lsp/mod.rs` 687,
-  `tests/picker.rs` 672, `picker.rs` 661, `theme/mod.rs` 656,
-  `table/edit.rs` 640, `tests/motions.rs` 622, `graph/index.rs` 602,
-  `editor/render.rs` 602, `table/mod.rs` 590, `mdstyle/object.rs` 573,
-  `tests/tree.rs` 547, `mdstyle/mod.rs` 538, `lsp/mapping.rs` 496,
-  `graph/proj.rs` 491, `graph/geom.rs` 488, `tests/keys.rs` 474,
+Largest files now (2026-10-29, after the smart-quote rendering):
+  `tests/popup.rs` 1104, `line.rs` 1086, `workspace/mod.rs` 1050,
+  `graph/sim.rs` 908, `editor/mod.rs` 857, `tests/paint.rs` 806, `vault.rs`
+  750, `graph/quadtree.rs` 719, `buffer/tests.rs` 701, `lsp/mod.rs` 687,
+  `tests/picker.rs` 672, `picker.rs` 661, `theme/mod.rs` 656, `table/edit.rs`
+  640, `tests/motions.rs` 622, `editor/render.rs` 612, `graph/index.rs` 602,
+  `table/mod.rs` 590, `mdstyle/object.rs` 573, `tests/tree.rs` 547,
+  `mdstyle/mod.rs` 538, `lsp/mapping.rs` 496, `graph/proj.rs` 491,
+  `graph/geom.rs` 488, `preview.rs` 475, `tests/keys.rs` 474,
   `workspace/edits.rs` 468, `theme/tests.rs` 444, `workspace/popups.rs` 435,
-  `mdstyle/block.rs` 432, `markdown.rs` 416, `editor/wrap.rs` 416,
+  `mdstyle/block.rs` 432, `editor/wrap.rs` 431, `markdown.rs` 416,
   `graph/hues.rs` 411, `config/mod.rs` 405, `vim/tests/objects.rs` 399,
   `vim/mod.rs` 391, `vim/tests/tables.rs` 389, `vim/tests/motions.rs` 388,
   `tests/search.rs` 385, `workspace/render.rs` 381, `tests/views.rs` 380,
   `editor/actions.rs` 370, `vim/motions.rs` 368, `field.rs` 353,
-  `theme/catppuccin.rs` 352, `workspace/open.rs` 352, `vim/tests/chords.rs` 339,
-  `fold.rs` 332, `popup.rs` 331, `config/edit.rs` 327, `fuzzy.rs` 324,
+  `theme/catppuccin.rs` 352, `workspace/open.rs` 352, `vim/tests/chords.rs`
+  339, `fold.rs` 332, `popup.rs` 331, `config/edit.rs` 327, `fuzzy.rs` 324,
   `mdstyle/quotes.rs` 320, `lsp/wire.rs` 308, `tests/commands.rs` 298,
-  `preview.rs` 298, `theme.rs` 296,
-  `main.rs` 294, `mdstyle/inline.rs` 293, `prompt.rs` 280,
+  `theme.rs` 296, `main.rs` 294, `mdstyle/inline.rs` 293, `prompt.rs` 280,
   `buffer/edits.rs` 278, `tests/autosave.rs` 269, `table_view.rs` 268,
   `tests/jumps.rs` 267, `continuation.rs` 265, `lsp/document.rs` 257,
-  `mdlayout.rs` 254, then `rename.rs` 195, `workspace/jumps.rs` 184,
-  `workspace/themes.rs` 176, `acts.rs` 168, `workspace/commands.rs` 163,
-  `ex.rs` 136, `workspace/views.rs` 68.
+  `mdlayout.rs` 254, then `tests/quotes.rs` 238, `rename.rs` 195,
+  `workspace/jumps.rs` 184, `workspace/themes.rs` 176, `acts.rs` 172,
+  `workspace/commands.rs` 168, `ex.rs` 158, `workspace/views.rs` 68.
   The graph track's own largest are `graph/sim.rs` 908
   and `graph/quadtree.rs` 719; that tree is the other agent's to split.
   **Three files are over the rule now (2026-10-29): `tests/popup.rs` 1104,
-  `line.rs` 1085 and `workspace/mod.rs` 1050** — `line.rs` went over with
+  `line.rs` 1086 and `workspace/mod.rs` 1050** — `line.rs` went over with
   the `/` matches. None of the three splits is in that commit. The plans:
   `line.rs` splits as the element (`line/mod.rs`) plus the run builder and the
   style map (`line/runs.rs`), and P0.5 made that seam real — `build_runs`,
@@ -2306,8 +2305,8 @@ Next steps, roughly in order:
       with the mirror it is a cut other programs can see, so `dd` now yanks the lines
       before removing them.
 
-22. **Smart quotes — the `q` object, and the rendering that follows** — the object
-    is Done (2026-10-29); the rendering is roadmap P0.7c, planned below.
+22. **Smart quotes — the `q` object, and the rendering that follows** — both Done
+    (2026-10-29). The object came first; the rendering is roadmap P0.7c.
     - **The files keep straight quotes** (the user's rule): they are what the
       keyboard types and what grep, git and every other tool expects to see. Only
       the rendering views turn them curly.
@@ -2333,22 +2332,45 @@ Next steps, roughly in order:
       note. A test asks every object from the line below another block (link,
       quotation, section, callout, code) and all of them answer, so the other objects
       were never broken.
-    - **Why the rendering is its own step.** The painted line is tied back to the
-      buffer by `preview::PieceMap`, and every mapping in it is byte arithmetic:
-      `painted_index = painted_start + (buffer_offset - piece_start)`. A curly glyph
-      is one character but three UTF-8 bytes, so substituting one breaks that
-      identity — the cursor, clicks, selection painting, `/` matches and soft-wrap
-      breaks all ride on it. The plan: let a piece carry its own painted length
-      (`(buf_start, buf_end, painted_start, painted_len)`), keep the rule that a
-      substituted character is always *its own* single-character piece so no other
-      piece needs internal arithmetic, and thread the marks through
-      `LineLayout::build`, `line.rs`'s cell painting and `wrap.rs`'s
-      `offset_for_visible_index`. This is the most delicate offset machinery in the
-      editor — there is a postmortem in this file about getting it wrong — so it gets
-      its own commit, with the app's paint, motion, wrap and search tests as the net.
+    - **Why the rendering needed a change of its own.** The painted line is tied
+      back to the buffer by `preview::PieceMap`, and every mapping in it was byte
+      arithmetic: `painted_index = painted_start + (buffer_offset - piece_start)`.
+      A curly glyph is one character but three UTF-8 bytes, so substituting one
+      breaks that identity — the cursor, clicks, selection painting, `/` matches
+      and soft-wrap breaks all ride on it. There is a postmortem in this file about
+      getting this machinery wrong, so it went in as its own commit with the app's
+      paint, motion, wrap and search tests as the net.
+    - **The rule that keeps it tractable: a substituted character is always a piece
+      of its own.** `Piece` carries `(buf, painted, glyph)`, and only a glyph piece
+      can have a painted length different from its note range — every other piece
+      still maps with one subtraction, and nothing maps from the middle of a run.
+      `Piece::painted_at` and `Piece::offset_at` are the only two places that know
+      the difference: an offset at the end of a substituted character lands *after*
+      the glyph (the cursor sits beside the quote, not inside it), and any of the
+      glyph's three painted bytes answers with the quote's own single byte (a click
+      on a curly quote lands on the straight one in the file). `rebase_spans`,
+      `rebase_marks` and `rebase_links` widen a range over a glyph for free, since
+      they all go through `painted_at`.
+    - **Three call sites, one source.** `refresh_quotes` runs `quotes::marks` over
+      the frame's style spans once per buffer change into `quote_cache`, and
+      returns nothing at all in raw mode — which is what keeps raw looking like the
+      file. `row_paint(hidden)` bundles each row's visible pieces with its
+      substitutions in one forward walk, because the wrap model has to measure
+      exactly the string the frame paints: `RowPaint` is what `display_lines` takes
+      now, and whether a row was rewritten is part of the wrap cache key. The three
+      builders are `LineLayout::build(text, pieces, subs)` for an ordinary display
+      line, the same map for a table cell in `line.rs`, and
+      `PieceMap::offset_for_index` for a wrap break. `offset_for_visible_index` is
+      gone; the map does that job.
     - **Tests**: 16 in `mdstyle/object.rs`, 11 in `vim/tests/objects.rs` (engine
       wiring, the read-only rule, preview refusing edits), 2 app tests for the
       end-to-end keystrokes, 1 that preview still answers keys that are not edits.
+      The rendering adds 10 in `preview.rs` (the piece arithmetic, a substitution
+      inside a hidden marker, a span widened over a glyph) and 7 in
+      `tests/quotes.rs` (live and preview curly, raw straight, code left alone,
+      typing keeps the note straight, a pointer on a curly glyph, a wrapped row
+      curly all the way down, a table cell). Taking the substitutions out of the
+      frame fails 5 of those 7, so the net is load-bearing.
 
 ## Parked threads (agreed 2026-10-28; not being worked now)
 

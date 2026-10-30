@@ -198,13 +198,20 @@ Small, unblocking, and three of them are already-parked user requests.
   read so neither half costs anything when nothing changed. That exposed a real gap:
   linewise `dd` never filled the register, so `p` after `dd` pasted a stale yank.
   `c` is a cut as well now: `cw` / `cc` fill the register, as visual mode already did.
-- **P0.7c Smart-quote rendering** — *planned, not started.* The scan and the object
-  are done: `mdstyle::quotes` says what each straight mark means (opener, closer,
-  apostrophe), skipping code, and `diq` / `ciq` / `daq` act on it. Drawing `“ ” ‘ ’`
-  in the rendering views needs `preview::PieceMap` to tolerate a painted piece being
-  a different byte length from the buffer range it came from — every mapping in it is
-  byte arithmetic today. The design is PROJECT.md thread 22. Straight quotes stay in
-  the file; that is the user's rule. **Fixed the same day:** the scan treated a
+- **P0.7c Smart-quote rendering** — **DONE 2026-10-29.** The rendering views draw
+  the curly pair and the apostrophe; the file keeps the straight bytes the keyboard
+  typed, and raw mode shows the file exactly as it is. `preview::PieceMap` now
+  carries a third kind of piece: a substituted character is a piece of its own, one
+  byte of note and as many painted as the glyph needs, so every other piece still
+  maps with a single subtraction and nothing maps from the middle of a run.
+  `Piece::painted_at` and `Piece::offset_at` are the only two places that know the
+  rule, and spans, marks, links, the cursor, clicks and selection painting follow
+  for free. One `quote_cache` per buffer change feeds three builders: the display
+  line, a table cell, and the wrap model — which now measures the string the frame
+  paints, with `RowPaint` carrying a row's pieces and its substitutions together
+  (whether a row was rewritten is part of the wrap cache key).
+  `offset_for_visible_index` is gone; the map does that job. The arithmetic and the
+  reasoning are PROJECT.md thread 22. **Fixed the same day:** the scan treated a
   newline as if the previous line's last character were still before the mark, so a
   quotation on the line under a list item, a callout or a fence had no pair — not a
   quirk of the block parser, and a test now asks every object from the line below
