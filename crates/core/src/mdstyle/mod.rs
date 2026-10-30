@@ -23,6 +23,10 @@
 mod block;
 mod inline;
 
+// Typographic quotes: what each straight mark stands for, which decides both the
+// glyph a rendering view draws and what the `q` text object selects.
+pub mod quotes;
+
 // The markdown text objects the vim engine acts on (`diL`, `ci*`, `` da` ``),
 // which answer "what is the construct under this offset" from the same scan.
 pub mod object;

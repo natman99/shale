@@ -19,7 +19,7 @@
 //! range from that parse.
 
 use super::inline::{find_subslice, md_link, next_char_len, wiki_link};
-use super::{style_spans, Style, StyleSpan};
+use super::{quotes, style_spans, Style, StyleSpan};
 
 /// Which markdown construct the character after `i` or `a` names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,6 +35,10 @@ pub enum Object {
     /// A fenced code block, or — when the cursor is not inside one — an inline
     /// code span on its line: `` i` `` / `` a` ``.
     Code,
+    /// A quoted span: the text between a matching pair of `"` or `'`, and the pair
+    /// with it. `iq` / `aq`. An apostrophe inside a word is never one of these,
+    /// and neither is a quote mark inside code.
+    Quote,
 }
 
 impl Object {
@@ -47,6 +51,7 @@ impl Object {
             '#' => Some(Self::Section),
             '*' => Some(Self::Callout),
             '`' => Some(Self::Code),
+            'q' => Some(Self::Quote),
             _ => None,
         }
     }
@@ -61,6 +66,7 @@ pub fn range(text: &str, offset: usize, object: Object, inner: bool) -> Option<(
         Object::Section => section_range(text, offset, inner),
         Object::Callout => callout_range(text, offset, inner),
         Object::Code => code_range(text, offset, inner),
+        Object::Quote => quotes::range(text, offset, inner, &style_spans(text)),
     }
 }
 
@@ -525,6 +531,7 @@ mod tests {
         assert_eq!(Object::from_char('#'), Some(Object::Section));
         assert_eq!(Object::from_char('*'), Some(Object::Callout));
         assert_eq!(Object::from_char('`'), Some(Object::Code));
+        assert_eq!(Object::from_char('q'), Some(Object::Quote));
         // `w`, `p` and `t` are answered elsewhere, and a lowercase `l` is the
         // right motion, not a link.
         assert_eq!(Object::from_char('w'), None);

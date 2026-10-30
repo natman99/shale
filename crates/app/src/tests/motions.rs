@@ -434,6 +434,57 @@ fn markdown_text_objects(cx: &mut TestAppContext) {
     );
 }
 
+/// The `q` object through the real keymap: a quoted span, with its marks or
+/// without. `q` is not in the keymap at all, so it reaches the engine the way the
+/// other unbound scope letters do — through the input handler's literal route.
+#[gpui::test]
+fn quoted_text_objects(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.bind_keys(keybindings()));
+
+    let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+    let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+    let reset = |editor: &WindowHandle<MarkdownEditor>, cx: &mut VisualTestContext| {
+        editor
+            .update(cx, |editor, _window, cx| {
+                editor.set_text("say \"hello there\" now\n".to_string(), cx)
+            })
+            .unwrap();
+    };
+    editor
+        .update(cx, |editor, window, cx| {
+            editor.set_text("say \"hello there\" now\n".to_string(), cx);
+            let focus = editor.focus_handle(cx);
+            window.focus(&focus, cx);
+        })
+        .unwrap();
+    let text =
+        |cx: &mut VisualTestContext| editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
+
+    // `f"` steps onto the opening mark, which is inside the object.
+    reset(&editor, cx);
+    cx.simulate_keystrokes("f \"");
+    cx.simulate_keystrokes("d i q");
+    assert_eq!(text(cx), "say \"\" now\n", "`diq` leaves the marks");
+
+    reset(&editor, cx);
+    cx.simulate_keystrokes("f \"");
+    cx.simulate_keystrokes("d a q");
+    assert_eq!(
+        text(cx),
+        "say  now\n",
+        "`daq` takes the marks with the words"
+    );
+
+    // An apostrophe is part of a word, so the operator is cancelled.
+    editor
+        .update(cx, |editor, _window, cx| {
+            editor.set_text("don't do this\n".to_string(), cx)
+        })
+        .unwrap();
+    cx.simulate_keystrokes("0 d i q");
+    assert_eq!(text(cx), "don't do this\n", "nothing was deleted");
+}
+
 /// A table cell object through the keymap: `t` is a bound key (the find motion),
 /// so the same letter has to read as the object's scope after `i` or `a`.
 #[gpui::test]

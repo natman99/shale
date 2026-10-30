@@ -126,6 +126,42 @@ fn a_callout_object_takes_the_box_or_its_body() {
 }
 
 #[test]
+fn a_quoted_object_takes_the_words_or_the_marks() {
+    let mut v = Vim::new();
+
+    let mut b = Buffer::new("say \"hello there\" now\n".to_string());
+    b.set_cursor(at(&b, "hello"));
+    type_keys(&mut v, "diq", &mut b);
+    assert_eq!(b.text(), "say \"\" now\n", "`diq` leaves the marks");
+
+    let mut b = Buffer::new("say \"hello there\" now\n".to_string());
+    b.set_cursor(at(&b, "hello"));
+    type_keys(&mut v, "daq", &mut b);
+    assert_eq!(
+        b.text(),
+        "say  now\n",
+        "`daq` takes the marks with the words"
+    );
+
+    // An apostrophe belongs to a word, so there is no quotation here and the
+    // operator is cancelled rather than let loose on something else.
+    let mut b = Buffer::new("don't do this\n".to_string());
+    b.set_cursor(at(&b, "don") + 1);
+    type_keys(&mut v, "diq", &mut b);
+    assert_eq!(b.text(), "don't do this\n", "nothing was deleted");
+
+    // A quote mark inside code is a string delimiter, not a quotation.
+    let mut b = Buffer::new("use `let s = \"x\";` here\n".to_string());
+    b.set_cursor(at(&b, "x"));
+    type_keys(&mut v, "diq", &mut b);
+    assert_eq!(
+        b.text(),
+        "use `let s = \"x\";` here\n",
+        "code keeps its quotes"
+    );
+}
+
+#[test]
 fn a_one_line_callout_loses_its_text_and_keeps_its_marker() {
     // The shape most callouts actually are: one line long. Its title text is its
     // body, so `ci*` retypes the sentence and `da*` takes the line — and neither
