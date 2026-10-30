@@ -42,7 +42,16 @@ impl Vim {
                     return Outcome::Stay;
                 }
                 Operator::Delete => {
+                    // The lines go in the register before they go away, as vim's `dd`
+                    // does, so `p` can move them: a delete is a cut. With the system
+                    // clipboard mirrored that cut is visible to other programs too,
+                    // which is why the register has to be right here.
+                    let text = buf.yank_lines(row, lines);
                     buf.delete_line(lines);
+                    self.register = Some(Register {
+                        text,
+                        linewise: true,
+                    });
                     // `dd` on a table row removes the row; the cell that moved
                     // up into its place becomes the cursor's cell.
                     if let Some(loc) = located {

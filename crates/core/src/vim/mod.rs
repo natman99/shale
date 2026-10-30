@@ -221,6 +221,14 @@ impl Vim {
         )
     }
 
+    /// Whether the engine is in the middle of a half-typed command: a leader chord
+    /// (`space …`), `g …`, an operator waiting for its motion, a find or text object
+    /// waiting for its argument. The UI asks this before treating a `p` as a paste,
+    /// because `space p` is the preview chord and `dip` is the paragraph object.
+    pub fn awaiting_chord(&self) -> bool {
+        self.after_space || !matches!(self.pending, Pending::None)
+    }
+
     /// The unnamed register's text, if anything has been yanked or deleted. The UI
     /// reads this to answer `space y` / `:yank`: the engine has no clipboard, so
     /// the window is what carries the text out to other programs.

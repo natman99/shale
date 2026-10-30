@@ -111,6 +111,11 @@ pub struct MarkdownEditor {
     pub(crate) focus_handle: FocusHandle,
     buffer: Buffer,
     vim: Vim,
+    /// The text Shale last put on the system clipboard, or last read from it. It is
+    /// what makes the mirror cheap and honest: a yank only writes when its text
+    /// differs, and a `p` only treats the clipboard as somebody else's copy when it
+    /// differs too.
+    clipboard_mirror: Option<String>,
     scroll_handle: ScrollHandle,
     /// Display lines captured during the last paint, for hit-testing. Written
     /// by the line element during paint, so it is crate-visible.
@@ -171,6 +176,7 @@ impl MarkdownEditor {
             focus_handle: cx.focus_handle(),
             buffer: Buffer::default(),
             vim: Vim::new(),
+            clipboard_mirror: None,
             scroll_handle: ScrollHandle::default(),
             hit_lines: Vec::new(),
             marks: Vec::new(),

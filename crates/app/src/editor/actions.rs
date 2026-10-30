@@ -32,6 +32,12 @@ impl MarkdownEditor {
         }
     }
     pub(super) fn normal(&mut self, key: Key, window: &mut Window, cx: &mut Context<Self>) {
+        // The clipboard mirror, part 1: a `p` typed after a copy made in another
+        // program pastes *that* rather than Shale's last yank. The read happens
+        // only on the keys that are about to paste — reading the clipboard is a
+        // round trip to whatever program owns it, and does not belong on every
+        // keystroke.
+        self.pull_from_clipboard(key, cx);
         let before = self.buffer.text().to_string();
         let outcome = self.vim.handle_normal_key(key, &mut self.buffer);
         let changed = self.buffer.text() != before;
@@ -88,8 +94,47 @@ impl MarkdownEditor {
             Outcome::YankClipboard => window.dispatch_action(YankClipboard.boxed_clone(), cx),
             Outcome::Stay | Outcome::Unhandled => {}
         }
+        // The mirror, part 2: whatever the engine put in its register is now on the
+        // system clipboard, so `y` in Shale is a copy other programs can see.
+        self.mirror_register(cx);
         self.ensure_cursor_visible();
         cx.notify();
+    }
+
+    /// If `key` is a paste and the system clipboard holds something Shale did not
+    /// put there, that text becomes the register before the engine sees the key.
+    ///
+    /// Only a key that will really paste asks: `p` after an operator (`dip`) is the
+    /// paragraph motion, and a half-typed command is still waiting for its argument.
+    /// Counts are fine — `3p` pastes the same text three times.
+    fn pull_from_clipboard(&mut self, key: Key, cx: &mut Context<Self>) {
+        if !matches!(key, Key::Char('p') | Key::Char('P')) || self.vim.awaiting_chord() {
+            return;
+        }
+        let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) else {
+            return;
+        };
+        if self.clipboard_mirror.as_ref() == Some(&text) {
+            return;
+        }
+        self.vim.set_register(&text);
+        self.clipboard_mirror = Some(text);
+    }
+
+    /// Pushes the engine's register to the system clipboard when it is not already
+    /// there. Yank and delete are what fill the register, so both are cuts: that is
+    /// the trade the user asked for, and the reason `space y` still exists — it is
+    /// the one copy that says out loud what went, and the only one that can take a
+    /// selection.
+    fn mirror_register(&mut self, cx: &mut Context<Self>) {
+        let Some(text) = self.vim.register_text() else {
+            return;
+        };
+        if self.clipboard_mirror.as_deref() == Some(text) {
+            return;
+        }
+        self.clipboard_mirror = Some(text.to_string());
+        cx.write_to_clipboard(gpui::ClipboardItem::new_string(text.to_string()));
     }
 
     pub(super) fn insert_edit(&mut self, inserted: &str, cx: &mut Context<Self>) {
@@ -308,8 +353,10 @@ impl MarkdownEditor {
         if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
             // The clipboard becomes the vim register as well, so `p`, `P` and `.`
             // can carry the same text on: pasting from outside is how a register
-            // gets filled from another program.
+            // gets filled from another program. Recording it as the mirror keeps the
+            // next `p` from reading the clipboard again for the same text.
             self.vim.set_register(&text);
+            self.clipboard_mirror = Some(text.clone());
             let before = self.buffer.change_id();
             self.buffer.insert(&text);
             // A refused paste (a read-only buffer) is not an edit, and must not

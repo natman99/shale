@@ -184,33 +184,78 @@ fn harper_off_is_a_report_when_there_is_no_checker(cx: &mut TestAppContext) {
         .unwrap());
 }
 
-/// The way out to other programs. A plain `yy` stays in the vim register; `space y`
-/// is what offers it to the system clipboard, and the status bar says what went.
+/// The clipboard mirror, out: a yank in Shale is a copy other programs can see, with
+/// nothing asked for. `space y` stays useful as the door that *reports* — and the one
+/// that can take a selection.
 #[gpui::test]
-fn space_y_offers_the_note_to_other_programs(cx: &mut TestAppContext) {
+fn yank_mirrors_to_the_system_clipboard(cx: &mut TestAppContext) {
     let (_dir, window) = vault_with(cx, &[("a.md", "first line\nsecond line\n")]);
     let cx = &mut VisualTestContext::from_window(window.into(), cx);
     open_note(cx, &window);
 
     cx.simulate_keystrokes("escape g g y y");
     assert_eq!(
-        cx.read_from_clipboard().and_then(|item| item.text()),
-        None,
-        "a plain `yy` touches nothing outside the engine"
-    );
-
-    cx.simulate_keystrokes("space y");
-    assert_eq!(
         cx.read_from_clipboard()
             .and_then(|item| item.text())
             .as_deref(),
         Some("first line\n"),
-        "`space y` is the door out"
+        "the yank reached the clipboard on its own"
     );
+
+    // A delete is a cut, the same as in vim with `clipboard=unnamedplus`.
+    cx.simulate_keystrokes("j d d");
+    assert_eq!(
+        cx.read_from_clipboard()
+            .and_then(|item| item.text())
+            .as_deref(),
+        Some("second line\n"),
+        "and so is a delete"
+    );
+
+    cx.simulate_keystrokes("space y");
     assert_eq!(
         status(&window, cx),
-        "copied 11 chars to the clipboard",
-        "and the status bar reports what went"
+        "copied 12 chars to the clipboard",
+        "`space y` is the copy that says what went"
+    );
+}
+
+/// The mirror, in: a copy made in another program is what `p` pastes, even when
+/// Shale yanked something more recently.
+#[gpui::test]
+fn paste_takes_an_outside_copy_over_the_last_yank(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("a.md", "first line\nsecond line\n")]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(cx, &window);
+
+    cx.simulate_keystrokes("escape g g y y");
+    cx.write_to_clipboard(gpui::ClipboardItem::new_string("from outside\n".into()));
+    cx.simulate_keystrokes("p");
+    assert_eq!(
+        window
+            .update(cx, |ws, _window, cx| ws.buffer_text(cx))
+            .unwrap(),
+        "first line\nfrom outside\nsecond line\n",
+        "`p` pastes what the other program copied"
+    );
+
+    // The mirror only reads the clipboard on a key that is really a paste, so the
+    // `space p` chord neither pastes nor swallows what the clipboard holds.
+    cx.simulate_keystrokes("escape space p");
+    assert_eq!(
+        window
+            .update(cx, |ws, _window, cx| ws.buffer_text(cx))
+            .unwrap(),
+        "first line\nfrom outside\nsecond line\n",
+        "the preview chord pasted nothing"
+    );
+    cx.simulate_keystrokes("space l p");
+    assert_eq!(
+        window
+            .update(cx, |ws, _window, cx| ws.buffer_text(cx))
+            .unwrap(),
+        "first line\nfrom outside\nsecond line\nfrom outside\n",
+        "and the `p` after it still means the same text"
     );
 }
 

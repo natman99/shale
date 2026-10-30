@@ -195,6 +195,54 @@ fn space_y_asks_the_ui_for_the_system_clipboard() {
 }
 
 #[test]
+fn a_linewise_delete_is_a_cut() {
+    // `dd` then `p` moves the line, as it does in vim. Until the register was
+    // filled here, `p` after `dd` pasted whatever an earlier yank had left.
+    let mut vim = Vim::new();
+    let mut b = note_buf();
+    b.goto_line(2);
+    type_keys(&mut vim, "dd", &mut b);
+    assert_eq!(
+        b.text(),
+        "# Top\nintro\nbody\ndeep\n# Other\ntail\n",
+        "the row is gone"
+    );
+    type_keys(&mut vim, "p", &mut b);
+    assert_eq!(
+        b.text(),
+        "# Top\nintro\nbody\n## Sub\ndeep\n# Other\ntail\n",
+        "and `p` puts it back below the line the cursor landed on"
+    );
+}
+
+#[test]
+fn the_engine_says_when_a_key_arrives_mid_command() {
+    // The UI asks this before treating a `p` as a paste, because only a `p` that
+    // will really paste may pull the system clipboard into the register.
+    let mut vim = Vim::new();
+    let mut b = note_buf();
+    assert!(!vim.awaiting_chord());
+
+    vim.handle_normal_key(Key::Char(' '), &mut b);
+    assert!(vim.awaiting_chord(), "the leader waits for its second key");
+    vim.handle_normal_key(Key::Char('p'), &mut b);
+    assert!(
+        !vim.awaiting_chord(),
+        "and a chord ends when it is answered"
+    );
+
+    vim.handle_normal_key(Key::Char('d'), &mut b);
+    assert!(vim.awaiting_chord(), "an operator waits for its motion");
+    vim.handle_normal_key(Key::Char('i'), &mut b);
+    assert!(vim.awaiting_chord(), "a text object waits for its scope");
+    vim.handle_normal_key(Key::Char('w'), &mut b);
+    assert!(
+        !vim.awaiting_chord(),
+        "and the command is over once it lands"
+    );
+}
+
+#[test]
 fn only_a_plain_space_arms_the_quick_open_chord() {
     let mut vim = Vim::new();
     let mut b = note_buf();
