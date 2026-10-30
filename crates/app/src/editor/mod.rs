@@ -23,14 +23,14 @@ use gpui::{
 };
 use shale_core::buffer::Buffer;
 use shale_core::markdown::{extract_wikilinks, WikiLink};
-use shale_core::mdstyle::{style_spans, Style, StyleSpan};
+use shale_core::mdstyle::{quotes, style_spans, Style, StyleSpan};
 use shale_core::vault::VaultEntry;
 use shale_core::vim::{Mode, Vim};
 use shale_core::{theme::Palette, Vault};
 
 use crate::line::HitLine;
 
-use self::wrap::CachedRow;
+use self::wrap::{CachedRow, RowPaint};
 
 // Re-exported so the headless tests can shape text at the same size the editor
 // does when a vault asks for none.
@@ -126,6 +126,10 @@ pub struct MarkdownEditor {
     /// Markdown style spans for the current text (buffer byte offsets), cached
     /// until the buffer changes.
     style_cache: Option<(u64, Vec<StyleSpan>)>,
+    /// The straight quotes the frame draws curly: (buffer change id, ordered
+    /// `(buffer offset, glyph)` pairs, one byte each in the note). Empty in raw
+    /// mode, which paints the file exactly as it is on disk.
+    quote_cache: Option<(u64, Vec<(usize, char)>)>,
     /// Wiki-link spans in the current buffer text (buffer byte offsets).
     links: Vec<WikiLink>,
     /// The vault the note lives in, which an image embed's target is resolved
@@ -184,6 +188,7 @@ impl MarkdownEditor {
             active_hit: None,
             wrap_cache: None,
             style_cache: None,
+            quote_cache: None,
             links: Vec::new(),
             vault: None,
             attachments: Vec::new(),
@@ -293,10 +298,11 @@ impl MarkdownEditor {
     ///
     /// A view change is not part of an insert session, so the session ends with
     /// it: an open undo group over a buffer that has just stopped taking edits
-    /// would mark the note dirty for nothing. The two caches that hold what the
+    /// would mark the note dirty for nothing. The caches that hold what the
     /// *previous* view decided are dropped rather than revalidated — the style
-    /// cache holds the spans raw mode refuses to compute, and the wrap cache
-    /// holds break points measured with the old view's faces and hidden markers.
+    /// cache holds the spans raw mode refuses to compute, the quote cache holds
+    /// the curly quotes raw mode refuses to draw, and the wrap cache holds break
+    /// points measured with the old view's faces and hidden markers.
     pub fn set_view(&mut self, view: View, cx: &mut Context<Self>) {
         if view == self.view {
             return;
@@ -306,6 +312,7 @@ impl MarkdownEditor {
         self.vim.enter_normal();
         self.buffer.end_undo_group();
         self.style_cache = None;
+        self.quote_cache = None;
         self.wrap_cache = None;
         cx.notify();
     }
@@ -692,6 +699,66 @@ impl MarkdownEditor {
         }
         let spans = style_spans(self.buffer.text());
         self.style_cache = Some((change_id, spans));
+    }
+
+    /// Recompute the straight quotes the frame draws curly unless the buffer
+    /// changed since the last paint. Called once per frame, just after
+    /// [`Self::refresh_styles`], because the scan needs the style spans to know
+    /// which runs are code and so must not answer for them.
+    fn refresh_quotes(&mut self) {
+        let change_id = self.buffer.change_id();
+        if self
+            .quote_cache
+            .as_ref()
+            .is_some_and(|(id, _)| *id == change_id)
+        {
+            return;
+        }
+        // Raw mode paints the file verbatim, so there is nothing to substitute and
+        // no reason to look for any. Preview and live do: the note keeps its
+        // straight quotes, only the glyphs change.
+        let subs = match (self.view, self.style_cache.as_ref()) {
+            (View::Raw, _) | (_, None) => Vec::new(),
+            (_, Some((_, spans))) => quotes::marks(self.buffer.text(), spans)
+                .iter()
+                .map(|mark| (mark.offset, mark.glyph()))
+                .collect(),
+        };
+        self.quote_cache = Some((change_id, subs));
+    }
+
+    /// The substitutions of every buffer row, in row order and note order within a
+    /// row: `(buffer offset, glyph)` for each quote drawn as something else. Built
+    /// with one forward walk, since rows and substitutions are both in note order.
+    fn row_quote_subs(&self) -> Vec<Vec<(usize, char)>> {
+        let Some((_, subs)) = self.quote_cache.as_ref() else {
+            return Vec::new();
+        };
+        let mut out = Vec::with_capacity(self.buffer.line_count());
+        let mut at = 0usize;
+        for row in 0..self.buffer.line_count() {
+            let end = self.buffer.line_end(row);
+            let stop = at + subs[at..].partition_point(|&(offset, _)| offset < end);
+            out.push(subs[at..stop].to_vec());
+            at = stop;
+        }
+        out
+    }
+
+    /// What every buffer row is painted from: the pieces live preview leaves of
+    /// it, and the quotes the frame draws curly. The wrap model and the paint both
+    /// read this, and they have to agree exactly or the cursor and the glyphs come
+    /// apart.
+    fn row_paint(&self, hidden: &[Vec<(usize, usize)>]) -> Vec<RowPaint> {
+        let subs = self.row_quote_subs();
+        self.row_pieces(hidden)
+            .into_iter()
+            .enumerate()
+            .map(|(row, pieces)| RowPaint {
+                pieces,
+                subs: subs.get(row).cloned().unwrap_or_default(),
+            })
+            .collect()
     }
 
     /// The style spans overlapping `start..end`, clipped to it as absolute

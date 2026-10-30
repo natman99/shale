@@ -19,6 +19,7 @@ mod motions;
 mod paint;
 mod picker;
 mod popup;
+mod quotes;
 mod search;
 mod spell;
 mod tree;

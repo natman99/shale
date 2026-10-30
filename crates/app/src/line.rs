@@ -171,6 +171,10 @@ pub(crate) struct LineElement {
     /// ordinary row, where they are already left out of `text`; a table row needs
     /// them because the grid paint builds each cell's text on its own.
     pub(crate) hidden: Vec<(usize, usize)>,
+    /// The straight quotes drawn curly on this line, as `(buffer offset, glyph)` in
+    /// note order. Already applied to `text` and `map` for an ordinary line; a
+    /// table row needs them because each cell's text is built on its own.
+    pub(crate) quotes: Vec<(usize, char)>,
     /// Selection within the painted text, as painted-string byte indices.
     pub(crate) line_sel: Option<(usize, usize)>,
     /// The cursor, as a painted-string byte index.
@@ -633,11 +637,8 @@ impl Element for LineElement {
             .map(|cell| {
                 let pieces =
                     shale_core::mdlayout::visible_pieces(cell.start, cell.end, &self.hidden);
-                let map = PieceMap::from_pieces(&pieces);
-                let painted: String = pieces
-                    .iter()
-                    .map(|&(s, e)| &text[s - self.start..e - self.start])
-                    .collect();
+                let map = PieceMap::with_substitutions(&pieces, &self.quotes);
+                let painted = map.painted_text_from(&text, self.start);
                 let styles = cell_styles(
                     &self.spans,
                     &self.links,
@@ -1003,7 +1004,7 @@ mod tests {
         let spans = vec![(2, 7, Style::Strong)];
         let links = vec![(12, 18, true)];
         let marks = vec![(2, 4), (12, 15)];
-        let map = PieceMap::from_pieces(&[(1, 7)]);
+        let map = PieceMap::with_substitutions(&[(1, 7)], &[]);
         let styles = cell_styles(&spans, &links, &marks, &[], None, &map);
         let (cell_spans, cell_links, cell_marks) = (styles.spans, styles.links, styles.marks);
         assert_eq!(cell_spans, vec![(1, 6, Style::Strong)]);
@@ -1021,7 +1022,7 @@ mod tests {
     #[test]
     fn cell_styles_follow_the_hidden_markers() {
         // The cell's content is bytes 10..17, `**a** b`, with both `**` hidden.
-        let map = PieceMap::from_pieces(&[(12, 13), (15, 17)]);
+        let map = PieceMap::with_substitutions(&[(12, 13), (15, 17)], &[]);
         let styles = cell_styles(&[(10, 15, Style::Strong)], &[], &[], &[], None, &map);
         assert_eq!(
             styles.spans,

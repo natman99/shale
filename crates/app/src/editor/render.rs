@@ -69,6 +69,7 @@ impl Render for MarkdownEditor {
         };
         self.refresh_links();
         self.refresh_styles();
+        self.refresh_quotes();
         tracing::trace!(lines = line_count, "editor render");
 
         // Soft wrap: the scroll container's width from the previous frame tells
@@ -135,7 +136,11 @@ impl Render for MarkdownEditor {
         // that is actually left visible. A table row hides its markers too, but
         // the grid paint applies them cell by cell.
         let hidden = self.hidden_markers(selection);
-        let row_pieces = self.row_pieces(&hidden);
+        // What each row is painted from: the pieces live preview leaves of it, and
+        // the straight quotes the frame draws curly. They change what a row looks
+        // like without changing its pieces, so both the wrap model and the paint
+        // need them, and the map has to be built from both at once.
+        let paint = self.row_paint(&hidden);
         // One character cell of the resolved face, which is what turns the grid's
         // character geometry into pixels.
         let char_width = {
@@ -159,7 +164,7 @@ impl Render for MarkdownEditor {
                 &mut wrappers,
                 &row_styles,
                 &no_wrap,
-                &row_pieces,
+                &paint,
                 &collapsed,
             )
         };
@@ -431,17 +436,21 @@ impl Render for MarkdownEditor {
                         let image = images.get(dl.row).cloned().flatten();
                         // The visible pieces of this display line: the row's
                         // pieces clipped to it, which is the whole line when no
-                        // markers were hidden.
-                        let line_pieces: Vec<(usize, usize)> = row_pieces
-                            .get(dl.row)
-                            .map(|pieces| {
-                                pieces
-                                    .iter()
-                                    .map(|&(s, e)| (s.max(dl.start), e.min(dl.end)))
-                                    .filter(|&(s, e)| e > s)
-                                    .collect()
-                            })
-                            .unwrap_or_default();
+                        // markers were hidden, and its quotes narrowed to the same
+                        // run of the row.
+                        let row_paint = paint.get(dl.row).cloned().unwrap_or_default();
+                        let line_pieces: Vec<(usize, usize)> = row_paint
+                            .pieces
+                            .iter()
+                            .map(|&(s, e)| (s.max(dl.start), e.min(dl.end)))
+                            .filter(|&(s, e)| e > s)
+                            .collect();
+                        let line_subs: Vec<(usize, char)> = row_paint
+                            .subs
+                            .iter()
+                            .filter(|(offset, _)| *offset >= dl.start && *offset < dl.end)
+                            .copied()
+                            .collect();
                         // A table row is painted as a grid, which decides what of
                         // the row to draw, so it gets the raw row and applies the
                         // hidden ranges itself cell by cell. An image row has no
@@ -459,7 +468,7 @@ impl Render for MarkdownEditor {
                                 map: PieceMap::identity(dl.start, dl.end),
                             }
                         } else {
-                            LineLayout::build(self.buffer.text(), &line_pieces)
+                            LineLayout::build(self.buffer.text(), &line_pieces, &line_subs)
                         };
 
                         // Selection restricted to this display line, as indices
@@ -559,6 +568,7 @@ impl Render for MarkdownEditor {
                                 text: layout.text,
                                 map: layout.map,
                                 hidden: hidden.get(dl.row).cloned().unwrap_or_default(),
+                                quotes: line_subs,
                                 line_sel,
                                 cursor_col,
                                 insert: self.vim.mode() == Mode::Insert,

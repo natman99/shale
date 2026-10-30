@@ -12,7 +12,7 @@ use shale_core::mdstyle::{CalloutKind, Style, StyleSpan};
 use shale_core::table::Table;
 
 use crate::line::DisplayLine;
-use crate::preview::offset_for_visible_index;
+use crate::preview::PieceMap;
 use crate::theme;
 
 use super::{MarkdownEditor, View};
@@ -48,7 +48,9 @@ fn wrapper_index(row: RowStyle) -> usize {
 /// so a row is only re-wrapped when that flag changes rather than every time the
 /// cursor moves.
 pub(super) struct CachedRow {
-    /// Whether the row's markdown markers were hidden when it was measured.
+    /// Whether the row was painted differently from the note when it was measured:
+    /// markers hidden, or a quote drawn as another glyph. Either way the text the
+    /// wrapper measured is not the text in the file.
     preview: bool,
     /// The row was collapsed (drawn as no line at all) when this was measured,
     /// so its empty list of starts must not be reused once it is visible again.
@@ -60,6 +62,19 @@ pub(super) struct CachedRow {
     /// the row itself.
     starts: Vec<usize>,
 }
+/// What a buffer row is painted from: the note ranges live preview leaves
+/// visible, and the characters drawn as something else. They travel together
+/// because the wrap model has to measure exactly the string the frame paints —
+/// measure the note's own text and the break points stop matching the glyphs.
+#[derive(Clone, Default)]
+pub(super) struct RowPaint {
+    /// The visible ranges of the row, in note order. Empty ranges are the hidden
+    /// markers.
+    pub(super) pieces: Vec<(usize, usize)>,
+    /// The quotes drawn as curly ones, as `(note offset, glyph)` in note order.
+    pub(super) subs: Vec<(usize, char)>,
+}
+
 impl MarkdownEditor {
     /// Whether the cursor or the selection touches `start..=end` in buffer
     /// offsets. Live preview shows the syntax of anything it touches and hides
@@ -290,8 +305,9 @@ impl MarkdownEditor {
     /// A row is measured with the face and size it will be painted with —
     /// `wrappers` holds one line wrapper per (heading level, wide or not), which
     /// is what keeps break points matching the paint — and against the text live
-    /// preview actually leaves visible (`pieces[row]`), so hidden markers do not
-    /// take up room. Boundaries are cached until the text, the width, or a row's
+    /// preview actually leaves visible (`paint[row].pieces`, with `paint[row].subs`
+    /// drawn over the characters they name), so hidden markers do not take up
+    /// room. Boundaries are cached until the text, the width, or a row's
     /// live-preview state changes.
     pub(super) fn display_lines(
         &mut self,
@@ -299,7 +315,7 @@ impl MarkdownEditor {
         wrappers: &mut [LineWrapperHandle],
         rows: &[RowStyle],
         no_wrap: &[bool],
-        pieces: &[Vec<(usize, usize)>],
+        paint: &[RowPaint],
         collapsed: &[bool],
     ) -> Vec<DisplayLine> {
         let line_count = self.buffer.line_count();
@@ -316,10 +332,11 @@ impl MarkdownEditor {
             let row_start = self.buffer.line_start(row);
             let row_end = self.buffer.line_end(row);
             let mut starts = vec![row_start];
-            let row_pieces = pieces.get(row).cloned().unwrap_or_default();
-            // Whether this row is painted with its markers hidden, which is what
-            // the wrap cache is keyed on.
-            let preview = row_pieces.as_slice() != [(row_start, row_end)];
+            let row_paint = paint.get(row).cloned().unwrap_or_default();
+            // Whether this row is painted with its markers hidden or its quotes
+            // redrawn, which is what the wrap cache is keyed on.
+            let preview =
+                row_paint.pieces.as_slice() != [(row_start, row_end)] || !row_paint.subs.is_empty();
             // A collapsed row is not drawn, so it contributes no display line and
             // the buffer's index space steps over it. It is never cached: whether
             // a row is collapsed follows the cursor, which the cache key does not
@@ -361,11 +378,9 @@ impl MarkdownEditor {
                 }
             } else if width > px(0.) {
                 // The wrapper sees the painted text, and its break points are
-                // mapped back onto buffer offsets in the visible pieces.
-                let visible: String = row_pieces
-                    .iter()
-                    .map(|&(s, e)| &self.buffer.text()[s..e])
-                    .collect();
+                // mapped back onto buffer offsets through the same map.
+                let map = PieceMap::with_substitutions(&row_paint.pieces, &row_paint.subs);
+                let visible = map.painted_text(self.buffer.text());
                 let row_style = rows.get(row).copied().unwrap_or_default();
                 let wrapper = &mut wrappers[wrapper_index(row_style)];
                 for boundary in wrapper.wrap_line(
@@ -373,7 +388,7 @@ impl MarkdownEditor {
                     width,
                     IndentAdjustment::NoIndent,
                 ) {
-                    let s = offset_for_visible_index(&row_pieces, boundary.ix);
+                    let s = map.offset_for_index(boundary.ix);
                     if s > row_start && s < row_end && s > *starts.last().unwrap() {
                         starts.push(s);
                     }
