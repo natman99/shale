@@ -316,9 +316,9 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
 - Run the test binaries under `ulimit -v` when working on anything that scans
   text (a scanner bug can allocate until the OOM killer takes the editor down —
   see the table postmortem).
-  Current peak RSS of the test binaries (2026-10-29, app 214 / core 304 with 10
+  Current peak RSS of the test binaries (2026-10-29, app 217 / core 331 with 10
   ignored / mcp 6 tests — core's count includes the graph agent's `graph::` tests,
-  which are committed and green): core 7.3 MB, app 69 MB,
+  which are committed and green): core 7.8 MB, app 68 MB,
   mcp 3.5 MB. The
   app binary's *address space* (not RSS) is far larger because of gpui/wgpu
   reservations, and it now needs **4 GB or more** — a 1 GB cap makes it die in an
@@ -1860,27 +1860,30 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   module gained reach. Splitting a `mod tests { … }` block the same way works,
   but note that a child test module's `use super::*` reaches the parent's own
   `use`s, so the extra `use crate::vim::*` lines are dead weight.
-  Largest files now (2026-10-29, after the leader's view chords): `tests/popup.rs` 1104, `line.rs` 1085,
+  Largest files now (2026-10-29, after the markdown text objects): `tests/popup.rs` 1104, `line.rs` 1085,
   `workspace/mod.rs` 1050, `graph/sim.rs` 908,
   `tests/paint.rs` 806, `editor/mod.rs` 784, `vault.rs` 750,
   `graph/quadtree.rs` 719, `buffer/tests.rs` 701, `lsp/mod.rs` 687,
   `tests/picker.rs` 672, `picker.rs` 661, `theme/mod.rs` 656,
-  `table/edit.rs` 640, `graph/index.rs` 602, `editor/render.rs` 599,
-  `table/mod.rs` 590, `tests/tree.rs` 547, `mdstyle/mod.rs` 530,
-  `lsp/mapping.rs` 496, `graph/proj.rs` 491, `graph/geom.rs` 488,
-  `tests/keys.rs` 474, `theme/tests.rs` 444, `workspace/edits.rs` 443,
-  `tests/motions.rs` 442, `mdstyle/block.rs` 432, `workspace/popups.rs` 428,
-  `markdown.rs` 416, `editor/wrap.rs` 416, `graph/hues.rs` 411,
-  `config/mod.rs` 405, `tests/search.rs` 385, `workspace/render.rs` 375,
-  `vim/motions.rs` 355, `field.rs` 353, `workspace/open.rs` 352,
-  `core/fold.rs` 332, `popup.rs` 331, `config/edit.rs` 327, `fuzzy.rs` 324,
-  `preview.rs` 298, `tests/autosave.rs` 269, `prompt.rs` 280,
-  `tests/views.rs` 342,
-  `buffer/edits.rs` 278, `lsp/document.rs` 257, `core/search.rs` 244,
-  `workspace/keys.rs` 238, `workspace/search.rs` 231, `workspace/tree.rs` 215,
-  `rename.rs` 195, `workspace/jumps.rs` 184, `workspace/themes.rs` 176,
-  `workspace/commands.rs` 163, `acts.rs` 168, `ex.rs` 136,
-  `workspace/views.rs` 68.
+  `table/edit.rs` 640, `graph/index.rs` 602, `editor/render.rs` 602,
+  `table/mod.rs` 590, `tests/motions.rs` 571, `tests/tree.rs` 547,
+  `mdstyle/mod.rs` 534, `lsp/mapping.rs` 496, `mdstyle/object.rs` 491,
+  `graph/proj.rs` 491, `graph/geom.rs` 488, `tests/keys.rs` 474,
+  `theme/tests.rs` 444, `workspace/edits.rs` 443, `workspace/popups.rs` 435,
+  `mdstyle/block.rs` 432, `markdown.rs` 416, `editor/wrap.rs` 416,
+  `graph/hues.rs` 411, `config/mod.rs` 405, `vim/tests/tables.rs` 389,
+  `vim/tests/motions.rs` 388, `tests/search.rs` 385, `workspace/render.rs` 380,
+  `tests/views.rs` 380, `vim/motions.rs` 368, `vim/mod.rs` 356, `field.rs` 353,
+  `theme/catppuccin.rs` 352, `workspace/open.rs` 352, `fold.rs` 332,
+  `popup.rs` 331, `config/edit.rs` 327, `fuzzy.rs` 324, `vim/tests/objects.rs`
+  323,
+  `lsp/wire.rs` 308, `preview.rs` 298, `editor/actions.rs` 297, `theme.rs` 296,
+  `main.rs` 294, `mdstyle/inline.rs` 293, `prompt.rs` 280,
+  `buffer/edits.rs` 278, `tests/autosave.rs` 269, `table_view.rs` 268,
+  `tests/jumps.rs` 267, `continuation.rs` 265, `lsp/document.rs` 257,
+  `mdlayout.rs` 254, then `rename.rs` 195, `workspace/jumps.rs` 184,
+  `workspace/themes.rs` 176, `acts.rs` 168, `workspace/commands.rs` 163,
+  `ex.rs` 136, `workspace/views.rs` 68.
   The graph track's own largest are `graph/sim.rs` 908
   and `graph/quadtree.rs` 719; that tree is the other agent's to split.
   **Three files are over the rule now (2026-10-29): `tests/popup.rs` 1104,
@@ -2203,6 +2206,61 @@ Next steps, roughly in order:
       chrome's quiet colour (`ui_dim`) and the two that change what the note will
       do in the accent.
     - **Left**: preview still draws a cursor rather than none.
+
+20. **Markdown text objects — `diL`, `di#`, `ci*`, `` di` ``, `dit`** — Done
+    (2026-10-29, P0.7).
+    - **The vocabulary.** After `i` or `a`: `L` a wiki-link, embed or `[text](url)`,
+      `#` the section a heading opens, `*` a callout box, backtick a fenced block
+      (or an inline code span when the cursor is not inside one), `t` a table cell.
+      `w` and `p` are unchanged. Lowercase `l` stays the right motion, which is why
+      the link is capital `L`.
+    - **One parser, not two.** `mdstyle::object` answers every range from the
+      [`crate::mdstyle::style_spans`] scan live preview already runs: a callout is a
+      run of contiguous `Style::Callout` spans, a code block is a pair of
+      `Style::CodeFence` spans, a section is the `Style::Heading` / `Style::HeadingMarker`
+      spans between one heading and the next of the same or a higher level. Writing a
+      second markdown parser is how the two drift apart, and the scan's fence
+      awareness comes free — a `#` in a code block cannot open a section, and a link
+      inside a code span is not a link. Links are the one object that needs a
+      construct's *extent* rather than its styled ranges, so they reuse the inline
+      scanner's own `wiki_link` / `md_link` (now `pub(super)`) to measure.
+    - **The table cell is answered where the tables already are.** `object_range`
+      gained a `located: Option<Located>` parameter, so `it` / `at` read the cell the
+      caller parsed for its cell motions rather than re-finding it: `it` is
+      `(cell.start, cell.end)` (padding out), `at` runs to the closing pipe so the
+      column collapses instead of leaving an empty cell. `crates/core/src/table.rs`
+      needed nothing new.
+    - **No keymap entries were needed** — the discovery worth remembering. A text
+      object's scope letter is a *literal argument*, and gpui routes unbound
+      printable characters through the IME input handler, where
+      `MarkdownEditor::replace_text_in_range` already forwards them to
+      `self.normal(Key::Char(c))` whenever `vim.waiting_for_literal()`. That is how
+      `#`, `*` and the backtick reach the engine. Contrast the `space r` **chord**
+      (thread 19), whose second key is not an argument and so needed a `VimR`
+      binding.
+    - **Read-only and the order of two guards.** `apply_range` now refuses every
+      operator but yank when the buffer is read-only, which is what keeps `d` from
+      filling the register with text it never deleted and `c` from entering an insert
+      mode the view will not give. Yank is allowed on purpose: a note being read is a
+      note whose text the user may well want to copy. In `editor/input.rs` the
+      literal forwarding had to move *above* the read-only check, because the scope
+      letter is an argument and not an edit — otherwise `y i #` silently died in
+      preview. Both guards were proven load-bearing by patching each off and watching
+      a test fail.
+    - **A missing object cancels the operator** (`Outcome::Stay`), like a find that
+      matches nothing, rather than acting on a range nobody asked for.
+    - **Counts stay a word/paragraph feature.** `d2aw` still sweeps two words; a
+      count before a markdown object or a cell is ignored, because those are single
+      constructs and `d2a#` has no meaning that isn't a guess.
+    - **Inner vs outer**: `i#` leaves the heading's own line (so `ci#` retypes a
+      section without losing its title), `a#` takes it; `i*` keeps the `>` markers so
+      `ci*` retypes in place, `a*` removes the box; `i\`` is the code between the
+      fences, `` a` `` the fences too; `iL` is the name, `aL` the brackets with it.
+      An unclosed fence runs to the end of the note — the user is mid-edit.
+    - **Left**: `diq` (smart quotes) from the brainstorm is not implemented.
+    - **Tests**: 16 in `mdstyle/object.rs`, 11 in `vim/tests/objects.rs` (engine
+      wiring, the read-only rule, preview refusing edits), 2 app tests for the
+      end-to-end keystrokes, 1 that preview still answers keys that are not edits.
 
 ## Parked threads (agreed 2026-10-28; not being worked now)
 

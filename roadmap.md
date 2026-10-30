@@ -167,11 +167,23 @@ Small, unblocking, and three of them are already-parked user requests.
   named **once**, by the accent-coloured badge, instead of by the badge and a status
   message. **Left:** the view is not in the config yet (config thread 15, with the
   `live_preview` key it replaces and that migration wrinkle), preview still shows a
-  cursor rather than none, and there are **no view hotkeys** — see P3.1 for where
-  they belong (`space r` / `space p`, not `ctrl-w`).
-- **P0.7 Markdown text objects** (brainstorm ✅): `diL` wiki-link, `cit` table
-  cell, `da#` section, `ci*` callout, `da``` ` code block. `mdstyle` already
-  reports these spans — mostly wiring into the vim engine.
+  cursor rather than none, and the view chords (`space r` / `space l` / `space p`)
+  are written up under P3.1, where the rest of the leader belongs.
+- **P0.7 Markdown text objects** — **DONE 2026-10-29.** `i`/`a` now take `L` (a
+  wiki-link, embed or `[text](url)`), `t` (a table cell), `#` (the section a heading
+  opens), `*` (a callout box) and a backtick (a fenced block, or an inline code span
+  when the cursor is not inside one) alongside `w` and `p`. `crates/core/src/mdstyle/object.rs`
+  answers all four from the `style_spans` scan the live preview already runs — no
+  second markdown parser, and the scan's fence awareness means a `#` in a code block
+  cannot open a section — while the cell comes from the `Located` the table motions
+  already parsed. **The insight that made this cheap:** a scope letter is a *literal
+  argument*, and gpui sends unbound printable characters to the IME input handler,
+  which the editor already forwards into `Vim::normal` while
+  `waiting_for_literal()` — so `#`, `*` and the backtick needed **no keymap
+  entries** (unlike the `space r` chord, whose second key is not an argument). A
+  missing object cancels the operator, counts stay a word/paragraph feature, and a
+  read-only note refuses every operator but yank. **Left:** `diq` (smart quotes) from
+  the brainstorm.
 - **P0.8 Focus / typewriter mode** (brainstorm ✅): per-block alpha ramp in the
   renderer. Establishes the dimming machinery that search-illumination and
   note-pinning later reuse.
@@ -179,7 +191,8 @@ Small, unblocking, and three of them are already-parked user requests.
 **Exit criteria:** config lives in `.shale/` and a root `shale.toml` is *moved*
 there on open rather than read from, autosave on by default, no file over 1000
 lines, the popup and the picker both scroll, `/` and the three views work,
-`ctrl-o`/`ctrl-i` walk the jump chain, all existing tests green.
+`ctrl-o`/`ctrl-i` walk the jump chain, the markdown text objects answer `i`/`a`,
+all existing tests green.
 
 ---
 
