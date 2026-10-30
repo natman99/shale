@@ -316,10 +316,10 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
 - Run the test binaries under `ulimit -v` when working on anything that scans
   text (a scanner bug can allocate until the OOM killer takes the editor down —
   see the table postmortem).
-  Current peak RSS of the test binaries (2026-10-29, app 217 / core 331 with 10
+  Current peak RSS of the test binaries (2026-10-29, app 220 / core 335 with 10
   ignored / mcp 6 tests — core's count includes the graph agent's `graph::` tests,
-  which are committed and green): core 7.8 MB, app 68 MB,
-  mcp 3.5 MB. The
+  which are committed and green): core 7.9 MB, app 68.5 MB,
+  mcp 3.4 MB. The
   app binary's *address space* (not RSS) is far larger because of gpui/wgpu
   reservations, and it now needs **4 GB or more** — a 1 GB cap makes it die in an
   80-byte allocation. Build with `cargo test --workspace --no-run`, then run each
@@ -1867,21 +1867,21 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   `tests/picker.rs` 672, `picker.rs` 661, `theme/mod.rs` 656,
   `table/edit.rs` 640, `graph/index.rs` 602, `editor/render.rs` 602,
   `table/mod.rs` 590, `tests/motions.rs` 571, `tests/tree.rs` 547,
-  `mdstyle/mod.rs` 534, `lsp/mapping.rs` 496, `mdstyle/object.rs` 491,
+  `mdstyle/object.rs` 535, `mdstyle/mod.rs` 534, `lsp/mapping.rs` 496,
   `graph/proj.rs` 491, `graph/geom.rs` 488, `tests/keys.rs` 474,
-  `theme/tests.rs` 444, `workspace/edits.rs` 443, `workspace/popups.rs` 435,
+  `workspace/edits.rs` 468, `theme/tests.rs` 444, `workspace/popups.rs` 435,
   `mdstyle/block.rs` 432, `markdown.rs` 416, `editor/wrap.rs` 416,
   `graph/hues.rs` 411, `config/mod.rs` 405, `vim/tests/tables.rs` 389,
-  `vim/tests/motions.rs` 388, `tests/search.rs` 385, `workspace/render.rs` 380,
-  `tests/views.rs` 380, `vim/motions.rs` 368, `vim/mod.rs` 356, `field.rs` 353,
+  `vim/tests/motions.rs` 388, `tests/search.rs` 385, `vim/mod.rs` 383,
+  `workspace/render.rs` 380, `tests/views.rs` 380, `vim/motions.rs` 368,
+  `vim/tests/objects.rs` 363, `field.rs` 353,
   `theme/catppuccin.rs` 352, `workspace/open.rs` 352, `fold.rs` 332,
-  `popup.rs` 331, `config/edit.rs` 327, `fuzzy.rs` 324, `vim/tests/objects.rs`
-  323,
-  `lsp/wire.rs` 308, `preview.rs` 298, `editor/actions.rs` 297, `theme.rs` 296,
+  `popup.rs` 331, `config/edit.rs` 327, `fuzzy.rs` 324, `editor/actions.rs` 323,
+  `lsp/wire.rs` 308, `preview.rs` 298, `theme.rs` 296,
   `main.rs` 294, `mdstyle/inline.rs` 293, `prompt.rs` 280,
   `buffer/edits.rs` 278, `tests/autosave.rs` 269, `table_view.rs` 268,
-  `tests/jumps.rs` 267, `continuation.rs` 265, `lsp/document.rs` 257,
-  `mdlayout.rs` 254, then `rename.rs` 195, `workspace/jumps.rs` 184,
+  `tests/jumps.rs` 267, `continuation.rs` 265, `vim/tests/chords.rs` 260,
+  `lsp/document.rs` 257, `mdlayout.rs` 254, then `rename.rs` 195, `workspace/jumps.rs` 184,
   `workspace/themes.rs` 176, `acts.rs` 168, `workspace/commands.rs` 163,
   `ex.rs` 136, `workspace/views.rs` 68.
   The graph track's own largest are `graph/sim.rs` 908
@@ -2257,7 +2257,37 @@ Next steps, roughly in order:
       `ci*` retypes in place, `a*` removes the box; `i\`` is the code between the
       fences, `` a` `` the fences too; `iL` is the name, `aL` the brackets with it.
       An unclosed fence runs to the end of the note — the user is mid-edit.
+    - **The one-line callout was the bug the user found** the same day. Its inner
+      object was "everything after the header line", which for a box that *is* one
+      line is nothing, so `ci*`, `di*` and `yi*` did nothing at all. With no body
+      lines the title text is what the box says, so that is the inner object — and it
+      stops at the header line's end, which is what keeps the `[!note]` marker (a
+      separate, shorter span) from being deleted and turning the box into an ordinary
+      quote. A box with no title text gets an empty range sitting where the text would
+      go, so `ci*` puts the caret after the marker and lets the user write the box.
     - **Left**: `diq` (smart quotes) from the brainstorm is not implemented.
+
+21. **The system clipboard, both ways** — Done (2026-10-29, alongside the objects).
+    - **`space y`** (and `:yank` / `:clip` / `:copy`) puts what the user has to give
+      on the *system* clipboard: the selection when there is one, because that is what
+      they were looking at, and otherwise the last yank or delete. The status bar
+      reports `copied 11 chars to the clipboard` or `nothing to copy`.
+    - **`:paste`** (and `ctrl-shift-v`) is the way back in, and it now fills the vim
+      register with what it reads, so `p`, `P` and `.` carry the same text on.
+      Pasting from another program is how a register gets filled.
+    - **Why the leader and not `y`:** vim's `y` is the engine's yank operator and
+      stays inside the engine. The clipboard belongs to the window — `crates/core` has
+      no clipboard to touch — so the engine answers `space y` with a request
+      (`Outcome::YankClipboard`), exactly like `space f`, and the window does the I/O
+      and owns the status line. `y` on its own still fills only the register, which a
+      test asserts, because the two doors must not be confused.
+    - **`Vim::register_text` / `Vim::set_register`** are the two new doors between the
+      engine's unnamed register and the UI. Text that arrives with its own line break
+      is linewise, so a whole-line copy from another program lands on a line of its
+      own rather than in the middle of one.
+    - **Not done, on purpose:** `y` and `d` do *not* mirror to the system clipboard
+      (vim's `set clipboard=unnamedplus`), because every delete would overwrite what
+      the user copied last. Ask before adding it.
     - **Tests**: 16 in `mdstyle/object.rs`, 11 in `vim/tests/objects.rs` (engine
       wiring, the read-only rule, preview refusing edits), 2 app tests for the
       end-to-end keystrokes, 1 that preview still answers keys that are not edits.

@@ -182,8 +182,17 @@ Small, unblocking, and three of them are already-parked user requests.
   `waiting_for_literal()` — so `#`, `*` and the backtick needed **no keymap
   entries** (unlike the `space r` chord, whose second key is not an argument). A
   missing object cancels the operator, counts stay a word/paragraph feature, and a
-  read-only note refuses every operator but yank. **Left:** `diq` (smart quotes) from
-  the brainstorm.
+  read-only note refuses every operator but yank. **Fixed the same day:** a callout
+  that is **one line long** had an empty inner object, so `ci*` / `di*` / `yi*` did
+  nothing at all — with no body lines its title text *is* what the box says, and that
+  range stops at the header line's end so the `[!kind]` marker survives. **Left:**
+  `diq` (smart quotes) from the brainstorm.
+- **P0.7b The system clipboard, both ways** — **DONE 2026-10-29.** `space y` (`:yank`
+  / `:clip`) out — the selection if there is one, otherwise the last yank — and `:paste`
+  / `ctrl-shift-v` in, where a paste also fills the vim register so `p` and `.` repeat
+  what came from outside. `y` and `d` deliberately do **not** mirror to the clipboard
+  (vim's `clipboard=unnamedplus`), since every delete would overwrite what the user
+  copied last.
 - **P0.8 Focus / typewriter mode** (brainstorm ✅): per-block alpha ramp in the
   renderer. Establishes the dimming machinery that search-illumination and
   note-pinning later reuse.
