@@ -195,6 +195,37 @@ fn space_y_asks_the_ui_for_the_system_clipboard() {
 }
 
 #[test]
+fn a_change_is_a_cut_too() {
+    // vim puts what a change replaces into the register, so `cw` then `p` can put
+    // the old word back. The app mirrors the register, so this is a cut other
+    // programs see as well.
+    let mut vim = Vim::new();
+    let mut b = note_buf();
+    b.goto_line(1);
+    type_keys(&mut vim, "ciw", &mut b);
+    vim.enter_normal();
+    assert_eq!(vim.register_text(), Some("intro"));
+
+    // Linewise: `cc` then `p` moves the line it replaced.
+    let mut vim = Vim::new();
+    let mut b = note_buf();
+    b.goto_line(1);
+    type_keys(&mut vim, "cc", &mut b);
+    assert_eq!(
+        b.text(),
+        "# Top\n## Sub\nbody\ndeep\n# Other\ntail\n",
+        "the line is gone"
+    );
+    vim.enter_normal();
+    type_keys(&mut vim, "p", &mut b);
+    assert_eq!(
+        b.text(),
+        "# Top\n## Sub\nintro\nbody\ndeep\n# Other\ntail\n",
+        "and `p` puts it back below the cursor"
+    );
+}
+
+#[test]
 fn a_linewise_delete_is_a_cut() {
     // `dd` then `p` moves the line, as it does in vim. Until the register was
     // filled here, `p` after `dd` pasted whatever an earlier yank had left.

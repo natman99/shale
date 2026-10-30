@@ -218,6 +218,16 @@ fn yank_mirrors_to_the_system_clipboard(cx: &mut TestAppContext) {
         "copied 12 chars to the clipboard",
         "`space y` is the copy that says what went"
     );
+
+    // A change is a cut as well: `ciw` puts the word it replaced on the clipboard.
+    cx.simulate_keystrokes("g g 0 c i w escape");
+    assert_eq!(
+        cx.read_from_clipboard()
+            .and_then(|item| item.text())
+            .as_deref(),
+        Some("first"),
+        "the word the change replaced"
+    );
 }
 
 /// The mirror, in: a copy made in another program is what `p` pastes, even when

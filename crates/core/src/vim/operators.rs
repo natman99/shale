@@ -63,7 +63,15 @@ impl Vim {
                     }
                 }
                 Operator::Change => {
+                    // A change is a cut, as it is in vim: what it replaces goes in
+                    // the register, so `cc` then `p` puts the line back somewhere
+                    // else. The app mirrors the register, so the mirror sees it too.
+                    let text = buf.yank_lines(row, lines);
                     buf.delete_line(lines);
+                    self.register = Some(Register {
+                        text,
+                        linewise: true,
+                    });
                     return Outcome::EnterInsert;
                 }
             }
@@ -192,6 +200,12 @@ impl Vim {
                 buf.delete_range(lo, hi);
             }
             Operator::Change => {
+                // The same cut as Delete, for the same reason: `cw` then `p` puts
+                // the old word back, and the clipboard sees the change as a cut.
+                self.register = Some(Register {
+                    text: buf.text()[lo..hi].to_string(),
+                    linewise: false,
+                });
                 buf.delete_range(lo, hi);
                 return Outcome::EnterInsert;
             }
