@@ -526,6 +526,37 @@ mod tests {
     }
 
     #[test]
+    fn each_item_of_a_list_has_its_own_quotation() {
+        // The shape that made the bug obvious: every item after the first opens its
+        // quotation on a line whose predecessor ended in a quote mark.
+        let text = "- \"first\"\n- \"second\"\n";
+        assert_eq!(cut(text, 2, Object::Quote, true), "first");
+        assert_eq!(cut(text, 12, Object::Quote, true), "second");
+    }
+
+    #[test]
+    fn every_object_still_answers_below_another_block() {
+        // The report was that objects stopped working on a line under a list item.
+        // The quote scan's line-break rule was the culprit; the others are checked
+        // here too, since they all read the same scan.
+        let text =
+            "# Top\n- one\n- two\nsee [[Two]] and say \"hi\" now\n\n> [!note] box\n\n```\ncode\n```\n";
+        let at = |what: &str| text.find(what).expect("the note holds it");
+
+        // On the line under the list: a link and a quotation.
+        assert_eq!(cut(text, at("[[Two]]") + 3, Object::Link, true), "Two");
+        assert_eq!(cut(text, at("\"hi\"") + 2, Object::Quote, true), "hi");
+        // The section the list is in still runs to the end of the note.
+        assert_eq!(cut(text, at("see [[Two]]"), Object::Section, false), text);
+        // The callout under the paragraph, and the fence under the callout.
+        assert_eq!(
+            cut(text, at("> [!note]") + 2, Object::Callout, false),
+            "> [!note] box\n"
+        );
+        assert_eq!(cut(text, at("code") + 1, Object::Code, true), "code\n");
+    }
+
+    #[test]
     fn the_scope_letters_are_the_vocabulary() {
         assert_eq!(Object::from_char('L'), Some(Object::Link));
         assert_eq!(Object::from_char('#'), Some(Object::Section));

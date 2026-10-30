@@ -63,8 +63,9 @@ impl Mark {
 /// A double quote opens unless a letter or digit sits directly before it, which is
 /// the rule that tells `say "hi"` its two ends apart. A single quote between two
 /// word characters is an apostrophe, and otherwise follows the same open/close
-/// rule. The double-quote state is reset at a blank line, so one unbalanced mark
-/// cannot turn the rest of the note inside out.
+/// rule. A line break counts as neither, so the first quote on a line is an opener:
+/// the rule is local to the line rather than a state machine that one unbalanced
+/// mark could carry through the rest of the note.
 pub fn marks(text: &str, spans: &[StyleSpan]) -> Vec<Mark> {
     let code = code_ranges(spans);
     let mut out: Vec<Mark> = Vec::new();
@@ -73,15 +74,14 @@ pub fn marks(text: &str, spans: &[StyleSpan]) -> Vec<Mark> {
     // The end of a code span counts, which is what makes `"x"; and "real"` read
     // the second `"` as an opener rather than a closer.
     let mut prev_word = false;
-    let mut line_start = 0usize;
     while let Some((offset, ch)) = chars.next() {
         if ch == '\n' {
-            // A blank line ends the paragraph the quotes are in, so one
-            // unbalanced mark cannot flip the rest of the note.
-            if text[line_start..offset].trim().is_empty() {
-                prev_word = false;
-            }
-            line_start = offset + 1;
+            // A line break is not a word character, and it ends the line the
+            // quotation would have been opened on. Without this, the first quote
+            // on any line whose predecessor ended in a word — the line under a
+            // list item, a callout, a fence — read as a closer, and the pair it
+            // belonged to never existed.
+            prev_word = false;
             continue;
         }
         if in_code(&code, offset) {
@@ -263,6 +263,21 @@ mod tests {
                 (17, '"', Reading::Close),
             ]
         );
+    }
+
+    #[test]
+    fn a_quotation_at_the_start_of_a_line_opens() {
+        // The line under a list item is ordinary text, and its first quote is an
+        // opener: what sits before it is a line break, not a word.
+        let text = "- one\nsay \"hello\" now\n";
+        assert_eq!(cut(text, 11, true), "hello");
+        let text = "- one\n\"hello\" now\n";
+        assert_eq!(cut(text, 7, true), "hello");
+        // And under a fence, and under a callout, the same.
+        let text = "```\ncode\n```\nsaid \"hi\"\n";
+        assert_eq!(cut(text, 19, true), "hi");
+        let text = "> [!note] box\nsaid \"hi\"\n";
+        assert_eq!(cut(text, 20, true), "hi");
     }
 
     #[test]
