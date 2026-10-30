@@ -35,10 +35,11 @@ pub(crate) enum Command {
     Redo,
     CopyText,
     PasteText,
+    YankClipboard,
 }
 
 /// Every command, in the order the palette lists them before anything is typed.
-const ALL: [Command; 23] = [
+const ALL: [Command; 24] = [
     Command::Save,
     Command::Quit,
     Command::NewNote,
@@ -62,6 +63,7 @@ const ALL: [Command; 23] = [
     Command::Redo,
     Command::CopyText,
     Command::PasteText,
+    Command::YankClipboard,
 ];
 
 impl Command {
@@ -94,8 +96,9 @@ impl Command {
             Command::WindowRight => "Focus the note",
             Command::Undo => "Undo",
             Command::Redo => "Redo",
-            Command::CopyText => "Copy to the clipboard",
+            Command::CopyText => "Copy the selection to the clipboard",
             Command::PasteText => "Paste from the clipboard",
+            Command::YankClipboard => "Copy the selection, or the last yank, to the clipboard",
         }
     }
 
@@ -126,7 +129,8 @@ impl Command {
             Command::Undo => "u, ctrl-z",
             Command::Redo => "ctrl-r, ctrl-y",
             Command::CopyText => "ctrl-shift-c",
-            Command::PasteText => "ctrl-shift-v",
+            Command::PasteText => "ctrl-shift-v, :paste",
+            Command::YankClipboard => "space y, :yank",
         }
     }
 
@@ -158,6 +162,7 @@ impl Command {
             Command::Redo => Box::new(Redo),
             Command::CopyText => Box::new(CopyText),
             Command::PasteText => Box::new(PasteText),
+            Command::YankClipboard => Box::new(YankClipboard),
         }
     }
 }

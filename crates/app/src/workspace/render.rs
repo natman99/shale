@@ -145,6 +145,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::change_theme))
             .on_action(cx.listener(|ws, _: &CheckerOn, _window, cx| ws.set_checker(true, cx)))
             .on_action(cx.listener(|ws, _: &CheckerOff, _window, cx| ws.set_checker(false, cx)))
+            .on_action(cx.listener(Self::yank_clipboard))
             // Clicking off the picker or the command line closes it. Both float over
             // the note, and a click under them used to belong to nothing at all, so
             // they simply stayed up until `escape`. A click inside a panel never

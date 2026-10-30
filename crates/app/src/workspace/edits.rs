@@ -155,7 +155,32 @@ impl Workspace {
                 Err(err) => self.status = format!("{err:#}").into(),
             },
             ex::Ex::View(view) => self.show_view(view, window, cx),
+            ex::Ex::YankClipboard => self.yank_clipboard(&YankClipboard, window, cx),
+            // The clipboard in. The editor owns the paste, and fills the vim
+            // register with what it reads, so `p` can repeat it from there.
+            ex::Ex::PasteClipboard => window.dispatch_action(PasteText.boxed_clone(), cx),
             ex::Ex::Unknown(word) => self.status = format!("unknown command: {word}").into(),
+        }
+        cx.notify();
+    }
+
+    /// `space y` / `:yank`: the note's text out to the system clipboard. The vim
+    /// register is the engine's memory of what was yanked; the clipboard is the door
+    /// other programs see, and only the window can open it — which is also why the
+    /// status bar says what went out, or that there was nothing to send.
+    pub(crate) fn yank_clipboard(
+        &mut self,
+        _: &YankClipboard,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match self.editor.read(cx).clipboard_candidate() {
+            Some(text) => {
+                let chars = text.chars().count();
+                cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
+                self.status = format!("copied {chars} chars to the clipboard").into();
+            }
+            None => self.status = "nothing to copy".into(),
         }
         cx.notify();
     }

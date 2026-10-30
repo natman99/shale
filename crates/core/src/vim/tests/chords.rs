@@ -161,6 +161,40 @@ fn the_space_leader_asks_the_ui_for_each_view() {
 }
 
 #[test]
+fn space_y_asks_the_ui_for_the_system_clipboard() {
+    let mut vim = Vim::new();
+    let mut b = note_buf();
+    b.goto_line(0);
+    assert_eq!(vim.handle_normal_key(Key::Char(' '), &mut b), Outcome::Stay);
+    assert_eq!(
+        vim.handle_normal_key(Key::Char('y'), &mut b),
+        Outcome::YankClipboard
+    );
+    // A chord, not a change — and not a yank either. The engine's own register is
+    // still empty, because `space y` asks the window for the *system* clipboard
+    // rather than remembering anything itself.
+    assert_eq!(vim.repeat_last(&mut b), Outcome::Unhandled);
+    assert_eq!(vim.register_text(), None);
+
+    // Plain `y` is still vim's yank operator, and its text is what the window then
+    // has to offer the clipboard.
+    vim.handle_normal_key(Key::Char('y'), &mut b);
+    vim.handle_normal_key(Key::Char('y'), &mut b);
+    assert_eq!(vim.register_text(), Some("# Top\n"));
+
+    // The other direction: the clipboard fills the register, and `p` pastes it.
+    // Text that arrives with its own line break is linewise, so it lands on a line
+    // of its own rather than in the middle of one.
+    vim.set_register("from outside\n");
+    vim.handle_normal_key(Key::Char('p'), &mut b);
+    assert_eq!(
+        b.text(),
+        "# Top\nfrom outside\nintro\n## Sub\nbody\ndeep\n# Other\ntail\n",
+        "`p` pastes what the clipboard gave, on its own line"
+    );
+}
+
+#[test]
 fn only_a_plain_space_arms_the_quick_open_chord() {
     let mut vim = Vim::new();
     let mut b = note_buf();

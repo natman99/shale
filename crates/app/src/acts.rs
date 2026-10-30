@@ -157,6 +157,10 @@ actions!(
         ViewRaw,
         ViewLive,
         ViewPreview,
+        // Putting the selection, or the last yank, on the **system** clipboard
+        // (`space y`, `:yank`). The way out; `ctrl-shift-v` / `:paste` is the way
+        // back in, and it fills the vim register too.
+        YankClipboard,
     ]
 );
 

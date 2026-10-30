@@ -183,3 +183,61 @@ fn harper_off_is_a_report_when_there_is_no_checker(cx: &mut TestAppContext) {
         .update(cx, |ws, _window, _cx| ws.has_checker())
         .unwrap());
 }
+
+/// The way out to other programs. A plain `yy` stays in the vim register; `space y`
+/// is what offers it to the system clipboard, and the status bar says what went.
+#[gpui::test]
+fn space_y_offers_the_note_to_other_programs(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("a.md", "first line\nsecond line\n")]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(cx, &window);
+
+    cx.simulate_keystrokes("escape g g y y");
+    assert_eq!(
+        cx.read_from_clipboard().and_then(|item| item.text()),
+        None,
+        "a plain `yy` touches nothing outside the engine"
+    );
+
+    cx.simulate_keystrokes("space y");
+    assert_eq!(
+        cx.read_from_clipboard()
+            .and_then(|item| item.text())
+            .as_deref(),
+        Some("first line\n"),
+        "`space y` is the door out"
+    );
+    assert_eq!(
+        status(&window, cx),
+        "copied 11 chars to the clipboard",
+        "and the status bar reports what went"
+    );
+}
+
+/// The way back in: `:paste` puts the clipboard at the caret *and* fills the vim
+/// register, so `p` can carry the same text on.
+#[gpui::test]
+fn paste_brings_the_clipboard_in_and_fills_the_register(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("a.md", "one\n")]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(cx, &window);
+    cx.write_to_clipboard(gpui::ClipboardItem::new_string("extra\n".into()));
+
+    type_command("paste", cx);
+    assert_eq!(
+        window
+            .update(cx, |ws, _window, cx| ws.buffer_text(cx))
+            .unwrap(),
+        "extra\none\n",
+        "the clipboard lands at the caret"
+    );
+
+    cx.simulate_keystrokes("p");
+    assert_eq!(
+        window
+            .update(cx, |ws, _window, cx| ws.buffer_text(cx))
+            .unwrap(),
+        "extra\none\nextra\n",
+        "and `p` repeats it, because the paste filled the vim register too"
+    );
+}

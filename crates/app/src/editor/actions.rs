@@ -83,6 +83,9 @@ impl MarkdownEditor {
             Outcome::ViewRaw => window.dispatch_action(ViewRaw.boxed_clone(), cx),
             Outcome::ViewLive => window.dispatch_action(ViewLive.boxed_clone(), cx),
             Outcome::ViewPreview => window.dispatch_action(ViewPreview.boxed_clone(), cx),
+            // `space y`: the window owns the clipboard, and answers with what the
+            // note has to give (see `clipboard_candidate`).
+            Outcome::YankClipboard => window.dispatch_action(YankClipboard.boxed_clone(), cx),
             Outcome::Stay | Outcome::Unhandled => {}
         }
         self.ensure_cursor_visible();
@@ -282,8 +285,31 @@ impl MarkdownEditor {
         }
     }
 
+    /// The text `space y` / `:yank` hands to the system clipboard: the selection
+    /// when there is one, because that is what the user was looking at, and
+    /// otherwise the last yank or delete, which is what they meant when they were
+    /// holding a copy in the vim register. `None` when Shale holds nothing to give
+    /// away.
+    pub(crate) fn clipboard_candidate(&self) -> Option<String> {
+        let selection = match self.vim.mode() {
+            Mode::Visual | Mode::VisualLine => self.vim.selection_range(&self.buffer),
+            _ => self.buffer.selection().map(|(a, h)| (a.min(h), a.max(h))),
+        };
+        if let Some((a, h)) = selection.filter(|(a, h)| a != h) {
+            return Some(self.buffer.text()[a..h].to_string());
+        }
+        self.vim
+            .register_text()
+            .filter(|text| !text.is_empty())
+            .map(str::to_string)
+    }
+
     pub(super) fn on_paste(&mut self, _: &PasteText, _window: &mut Window, cx: &mut Context<Self>) {
         if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
+            // The clipboard becomes the vim register as well, so `p`, `P` and `.`
+            // can carry the same text on: pasting from outside is how a register
+            // gets filled from another program.
+            self.vim.set_register(&text);
             let before = self.buffer.change_id();
             self.buffer.insert(&text);
             // A refused paste (a read-only buffer) is not an edit, and must not

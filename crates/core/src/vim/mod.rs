@@ -111,6 +111,11 @@ pub enum Outcome {
     /// is even running — so this is a request, like `space f`. Inside a table `K`
     /// stays the row motion.
     Hover,
+    /// `space y` was typed: the UI should put what the user has to give — the
+    /// selection, or the last yank — on the **system** clipboard. The engine's own
+    /// register stays inside the engine; the clipboard is the door to other
+    /// programs, and only the window can open it.
+    YankClipboard,
 }
 
 /// The unnamed register, holding the last yank or delete.
@@ -216,6 +221,24 @@ impl Vim {
         )
     }
 
+    /// The unnamed register's text, if anything has been yanked or deleted. The UI
+    /// reads this to answer `space y` / `:yank`: the engine has no clipboard, so
+    /// the window is what carries the text out to other programs.
+    pub fn register_text(&self) -> Option<&str> {
+        self.register.as_ref().map(|reg| reg.text.as_str())
+    }
+
+    /// Loads text into the unnamed register, which is how the system clipboard
+    /// becomes something `p`, `P` and `.` can use. Text that ends with a newline
+    /// is linewise — the shape a whole-line copy from another program arrives as —
+    /// so it lands on its own line rather than in the middle of one.
+    pub fn set_register(&mut self, text: &str) {
+        self.register = Some(Register {
+            text: text.to_string(),
+            linewise: text.ends_with('\n'),
+        });
+    }
+
     pub fn enter_insert(&mut self) {
         self.mode = Mode::Insert;
         self.pending = Pending::None;
@@ -261,6 +284,10 @@ impl Vim {
             (true, Key::Char('r')) => Some(Outcome::ViewRaw),
             (true, Key::Char('l')) => Some(Outcome::ViewLive),
             (true, Key::Char('p')) => Some(Outcome::ViewPreview),
+            // The clipboard, not the register: `y` alone is vim's yank and stays
+            // the engine's business, so the leader is what makes it the outward
+            // copy.
+            (true, Key::Char('y')) => Some(Outcome::YankClipboard),
             _ => None,
         };
         if let Some(outcome) = chord.filter(|_| !self.mode.is_visual()) {

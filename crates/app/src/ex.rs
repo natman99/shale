@@ -34,6 +34,14 @@ pub(crate) enum Ex {
     /// `raw`, `live` or `preview`: how the note is presented, and whether it can
     /// be edited. `:live` is the way back to Shale's default view.
     View(View),
+    /// `y` / `yank` / `clip`: the selection, or the last yank, out to the system
+    /// clipboard. vim's `:yank` copies the current line into its own register;
+    /// Shale's command line has no addresses yet, and the copy a user reaches for
+    /// here is the one other programs can see.
+    YankClipboard,
+    /// `p` / `paste`: the system clipboard in at the caret, and into the vim
+    /// register, so `p` and `.` can carry the same text on.
+    PasteClipboard,
     /// Anything else, with the word that was typed. Nothing runs: an unknown word
     /// is a typo, not something to guess at.
     Unknown(String),
@@ -73,6 +81,10 @@ pub(crate) fn parse(line: &str) -> Ex {
         "raw" | "source" | "src" => Ex::View(View::Raw),
         "live" => Ex::View(View::Live),
         "preview" | "view" => Ex::View(View::Preview),
+        // The clipboard, both directions. `y` and `p` are the letters the reflex
+        // already knows; `clip` and `paste` spell it out for the rest.
+        "y" | "yank" | "clip" | "copy" => Ex::YankClipboard,
+        "p" | "paste" => Ex::PasteClipboard,
         _ => Ex::Unknown(word),
     }
 }
@@ -124,6 +136,16 @@ mod tests {
         assert_eq!(parse("live"), Ex::View(View::Live));
         for preview in ["preview", "view", "Preview"] {
             assert_eq!(parse(preview), Ex::View(View::Preview), "{preview}");
+        }
+    }
+
+    #[test]
+    fn the_clipboard_goes_both_ways() {
+        for yank in ["y", "yank", "clip", "copy", "YANK"] {
+            assert_eq!(parse(yank), Ex::YankClipboard, "{yank}");
+        }
+        for paste in ["p", "paste", "Paste"] {
+            assert_eq!(parse(paste), Ex::PasteClipboard, "{paste}");
         }
     }
 
