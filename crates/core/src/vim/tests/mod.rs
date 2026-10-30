@@ -10,6 +10,7 @@ use crate::vim::*;
 
 mod chords;
 mod motions;
+mod objects;
 mod tables;
 mod visual;
 

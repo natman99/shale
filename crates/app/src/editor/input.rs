@@ -148,16 +148,12 @@ impl EntityInputHandler for MarkdownEditor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        // A read-only buffer (preview mode) refuses text, and this refuses it
-        // before the selection is even touched. The buffer would have ignored the
-        // insert either way; answering here is what keeps a keystroke that changed
-        // nothing from marking the note dirty.
-        if self.buffer.is_read_only() {
-            return;
-        }
         // Normal and visual mode swallow typed input, except for the literal
         // argument of a half-typed command (`fr`, `diw`): unbound characters
-        // never become actions, they arrive here.
+        // never become actions, they arrive here. That check comes before the
+        // read-only guard because the argument is not an edit — a note in preview
+        // still has to answer `y i #`, whose scope letter is not in the keymap and
+        // so reaches the engine exactly this way.
         if self.vim.mode() != Mode::Insert {
             if self.vim.waiting_for_literal() {
                 if let Some(c) = new_text.chars().next() {
@@ -166,6 +162,13 @@ impl EntityInputHandler for MarkdownEditor {
                     }
                 }
             }
+            return;
+        }
+        // A read-only buffer (preview mode) refuses text, and refuses it before
+        // the selection is even touched. The buffer would have ignored the insert
+        // either way; answering here is what keeps a keystroke that changed
+        // nothing from marking the note dirty.
+        if self.buffer.is_read_only() {
             return;
         }
         if let Some(range) = range_utf16 {

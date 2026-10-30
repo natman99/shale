@@ -5,7 +5,9 @@
 //! and records them so `.` and `p` can use them again.
 
 use crate::buffer::Buffer;
+use crate::mdstyle;
 use crate::table;
+use crate::table::Located;
 
 use super::{repeat, Key, Operator, Outcome, Pending, Register, Vim};
 
@@ -112,20 +114,50 @@ impl Vim {
         self.apply_range(op, lo, hi, buf)
     }
 
-    /// The range of the text object with the given scope under `offset`.
+    /// The range of the text object with the given scope under `offset`, or
+    /// `None` when the cursor is not inside one.
+    ///
+    /// `w` and `p` are the buffer's own words and paragraphs. `t` is answered
+    /// from the tables the caller already parsed for its motions, and the markdown
+    /// objects from the style scan — which is only run for the scopes that need
+    /// it, so an ordinary `dw` never pays for it.
     pub(super) fn object_range(
         buf: &Buffer,
+        located: Option<Located>,
         offset: usize,
         scope: char,
         inner: bool,
-    ) -> (usize, usize) {
+    ) -> Option<(usize, usize)> {
         match scope {
-            'p' => buf.paragraph_object(offset, inner),
-            _ => buf.word_object(offset, inner),
+            'p' => Some(buf.paragraph_object(offset, inner)),
+            'w' => Some(buf.word_object(offset, inner)),
+            't' => {
+                let cell = located?.cell;
+                Some(if inner {
+                    // The cell's content, its padding left out.
+                    (cell.start, cell.end)
+                } else {
+                    // The cell, its padding and the pipe that closes it: `dat`
+                    // takes the separator with the content, so the row loses the
+                    // cell rather than leaving an empty one behind.
+                    (
+                        cell.nav_start(),
+                        cell.close_pipe.map_or(cell.span_end, |pipe| pipe + 1),
+                    )
+                })
+            }
+            _ => mdstyle::object::Object::from_char(scope)
+                .and_then(|object| mdstyle::object::range(buf.text(), offset, object, inner)),
         }
     }
 
     /// Apply `op` to the byte range `[lo, hi)`.
+    ///
+    /// A read-only buffer (preview) refuses the edit, and refusing it *here* is
+    /// what keeps `d` from filling the register with text it never deleted and `c`
+    /// from promising an insert mode the view will not give. Yank is the one
+    /// operator that asks nothing of the buffer, so it still works: a note being
+    /// read is a note whose text the user may well want to copy.
     pub(super) fn apply_range(
         &mut self,
         op: Operator,
@@ -133,6 +165,9 @@ impl Vim {
         hi: usize,
         buf: &mut Buffer,
     ) -> Outcome {
+        if buf.is_read_only() && !matches!(op, Operator::Yank) {
+            return Outcome::Stay;
+        }
         match op {
             Operator::Yank => {
                 self.register = Some(Register {

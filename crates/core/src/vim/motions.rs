@@ -80,32 +80,44 @@ impl Vim {
             return self.apply_range(op, lo, hi, buf);
         }
 
-        // A text object is waiting for its scope: `diw`, `dap`, `2aw`.
+        // A text object is waiting for its scope: `diw`, `dap`, `2aw`, `diL`,
+        // `ci*`, `` da` ``, `dat`.
         if let Pending::TextObject { op, count, around } = self.pending {
             self.pending = Pending::None;
-            let Key::Char(scope @ ('w' | 'p')) = key else {
+            let Key::Char(scope) = key else {
                 return Outcome::Unhandled;
             };
             let inner = !around;
-            let (lo, mut hi) = Self::object_range(buf, buf.cursor(), scope, inner);
-            // A count typed before the object extends it over the following
-            // objects, as `d2aw` does; the gap between them is absorbed so the
-            // sweep stays contiguous.
-            for _ in 1..count {
-                let mut at = hi;
-                while at < buf.text().len()
-                    && buf.text()[at..]
-                        .chars()
-                        .next()
-                        .is_some_and(|c| c.is_whitespace())
-                {
-                    at = buf.next_char_boundary(at);
+            let cursor = buf.cursor();
+            let Some((lo, mut hi)) = Self::object_range(buf, located, cursor, scope, inner) else {
+                // Nothing of that kind under the cursor: the operator is
+                // cancelled rather than let loose on a range nobody asked for,
+                // exactly as a find that matches nothing is.
+                return Outcome::Stay;
+            };
+            // A count typed before a word or paragraph object extends it over the
+            // following objects, as `d2aw` does; the gap between them is absorbed
+            // so the sweep stays contiguous. The markdown objects and a table cell
+            // are single constructs, so a count there is ignored rather than
+            // guessed at.
+            if matches!(scope, 'w' | 'p') {
+                for _ in 1..count {
+                    let mut at = hi;
+                    while at < buf.text().len()
+                        && buf.text()[at..]
+                            .chars()
+                            .next()
+                            .is_some_and(|c| c.is_whitespace())
+                    {
+                        at = buf.next_char_boundary(at);
+                    }
+                    let (_, next_hi) =
+                        Self::object_range(buf, located, at, scope, inner).unwrap_or((hi, hi));
+                    if next_hi <= hi {
+                        break;
+                    }
+                    hi = next_hi;
                 }
-                let (_, next_hi) = Self::object_range(buf, at, scope, inner);
-                if next_hi <= hi {
-                    break;
-                }
-                hi = next_hi;
             }
             let Some(op) = op else {
                 // Bare `iw`/`ip`: a motion. In visual mode it *is* the

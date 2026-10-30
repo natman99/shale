@@ -165,7 +165,15 @@ fn push_wrapped(
 /// `[text](url)` and `![alt](url)`, opening at the `!` or the `[`. Emits the
 /// brackets dimmed, the text as a link and the `(url)` as a url, and returns
 /// the absolute offset just past the construct.
-fn md_link(base: usize, content: &str, i: usize, out: &mut Vec<StyleSpan>) -> Option<usize> {
+///
+/// Also what the `L` text object measures a link's extent with, so it is visible
+/// to the rest of the module.
+pub(super) fn md_link(
+    base: usize,
+    content: &str,
+    i: usize,
+    out: &mut Vec<StyleSpan>,
+) -> Option<usize> {
     let bytes = content.as_bytes();
     let bracket = if bytes[i] == b'!' { i + 1 } else { i };
     let close = find_subslice(&bytes[bracket + 1..], b"]")? + bracket + 1;
@@ -185,8 +193,14 @@ fn md_link(base: usize, content: &str, i: usize, out: &mut Vec<StyleSpan>) -> Op
 /// The brackets are punctuation, the target of an aliased link is [`Style::LinkTarget`]
 /// and the text a reader sees is [`Style::WikiLink`] / [`Style::WikiEmbed`], so
 /// live preview can hide the syntax around the name. Returns the absolute offset
-/// just past the construct.
-fn wiki_link(base: usize, content: &str, i: usize, out: &mut Vec<StyleSpan>) -> Option<usize> {
+/// just past the construct. As with [`md_link`], the `L` text object reuses this
+/// to measure a link rather than restyle it.
+pub(super) fn wiki_link(
+    base: usize,
+    content: &str,
+    i: usize,
+    out: &mut Vec<StyleSpan>,
+) -> Option<usize> {
     let bytes = content.as_bytes();
     let bang = bytes[i] == b'!';
     let open = if bang { i + 1 } else { i };
@@ -254,7 +268,8 @@ fn tag_end(bytes: &[u8], i: usize) -> usize {
     end
 }
 
-fn next_char_len(bytes: &[u8], i: usize) -> usize {
+/// The length in bytes of the character at `i`, so a walk can step over it.
+pub(super) fn next_char_len(bytes: &[u8], i: usize) -> usize {
     let b = bytes[i];
     if b < 0xc0 {
         // ASCII, or a continuation byte, which cannot start a character: count
@@ -269,7 +284,8 @@ fn next_char_len(bytes: &[u8], i: usize) -> usize {
     }
 }
 
-fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+/// The first index of `needle` in `haystack`, as `str::find` for byte slices.
+pub(super) fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     if needle.is_empty() || haystack.len() < needle.len() {
         return None;
     }

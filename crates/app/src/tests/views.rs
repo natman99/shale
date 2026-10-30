@@ -340,3 +340,41 @@ fn the_space_leader_moves_between_views(cx: &mut TestAppContext) {
         "with the note taking typing again"
     );
 }
+
+/// A read-only note still answers the keys that are not edits. The scope letter of
+/// a text object (`#`, `*`, the backtick) is not in the keymap, so it arrives as
+/// typed text — and a preview buffer that refused all typed text would swallow the
+/// argument of `y i #`, the very command that copies a section out of a note the
+/// user is only reading. `f#` is the same route with a result the test can see.
+#[gpui::test]
+fn preview_still_answers_keys_that_are_not_edits(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(
+        cx,
+        &[("a.md", "# One\nintro with a # tag\n\n# Two\nother\n")],
+    );
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    cx.simulate_keystrokes("space f enter");
+    cx.simulate_keystrokes("space p");
+    assert_eq!(view(&window, cx), View::Preview, "read the note");
+
+    // `f#` is the same route as `i#`'s scope letter: an unbound character, fed to
+    // the engine as typed text. `f` only searches its own row, hence the `j`.
+    cx.simulate_keystrokes("j 0 f #");
+    assert_eq!(
+        window
+            .update(cx, |ws, _window, cx| {
+                ws.editor()
+                    .read_with(cx, |editor, _cx| editor.cursor_position())
+            })
+            .unwrap(),
+        (1, 13),
+        "the `#` reached the engine, and the cursor jumped to the tag"
+    );
+
+    cx.simulate_keystrokes("d a #");
+    assert_eq!(
+        note_text(&window, cx),
+        "# One\nintro with a # tag\n\n# Two\nother\n",
+        "and the delete that follows it changed nothing"
+    );
+}

@@ -23,6 +23,10 @@
 mod block;
 mod inline;
 
+// The markdown text objects the vim engine acts on (`diL`, `ci*`, `` da` ``),
+// which answer "what is the construct under this offset" from the same scan.
+pub mod object;
+
 use block::{callout_header_range, scan_line};
 
 // The marker shapes a row can open with, shared with [`crate::continuation`],

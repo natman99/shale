@@ -354,6 +354,135 @@ fn normal_mode_text_objects(cx: &mut TestAppContext) {
     assert_eq!(text, "X\n\nnext para", "`cip` should enter insert mode");
 }
 
+/// The markdown text objects through the real keymap and the real input path.
+/// `L` is a bound key (shift-l), but `#`, `*` and the backtick are not: they
+/// reach the engine as typed input, the same route `f#` takes. That is the part
+/// an engine-only test cannot catch — an object that works in `core` and never
+/// reaches a window.
+#[gpui::test]
+fn markdown_text_objects(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.bind_keys(keybindings()));
+
+    let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+    let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+    const NOTE: &str = "# Top\nintro with [[Two]] here\n\n> [!warning] Watch out\n> first\n\n```\nlet x = 1;\n```\n\n# Other\ntail\n";
+    editor
+        .update(cx, |editor, window, cx| {
+            editor.set_text(NOTE.to_string(), cx);
+            let focus = editor.focus_handle(cx);
+            window.focus(&focus, cx);
+        })
+        .unwrap();
+    // Each form starts from the same note. The focus is set once, just above: the
+    // edits below never move the keyboard, so it stays where it was put.
+    let reset = |editor: &WindowHandle<MarkdownEditor>, cx: &mut VisualTestContext| {
+        editor
+            .update(cx, |editor, _window, cx| {
+                editor.set_text(NOTE.to_string(), cx)
+            })
+            .unwrap();
+    };
+    let text =
+        |cx: &mut VisualTestContext| editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
+
+    // `diL` on the link: `f[` is the literal route, `L` the bound one.
+    reset(&editor, cx);
+    cx.simulate_keystrokes("j f [");
+    assert_eq!(
+        editor
+            .read_with(cx, |editor, _cx| editor.cursor_position())
+            .unwrap(),
+        (1, 11),
+        "`f[` should land on the link's first bracket"
+    );
+    cx.simulate_keystrokes("d i L");
+    assert_eq!(
+        text(cx).lines().nth(1),
+        Some("intro with [[]] here"),
+        "`diL` should take the name out of the link"
+    );
+
+    // `da#` from the heading: the whole section, up to the next one.
+    reset(&editor, cx);
+    cx.simulate_keystrokes("0 d a #");
+    assert_eq!(
+        text(cx),
+        "# Other\ntail\n",
+        "`da#` should take the heading and everything it opens"
+    );
+
+    // `da*` from a body line of the callout.
+    reset(&editor, cx);
+    cx.simulate_keystrokes("0 j j j d a *");
+    assert_eq!(
+        text(cx),
+        "# Top\nintro with [[Two]] here\n\n\n```\nlet x = 1;\n```\n\n# Other\ntail\n",
+        "`da*` should remove the box, header and markers included"
+    );
+
+    // `` da` `` from inside the fenced block. The backtick is not in the keymap,
+    // so it arrives as typed text — which is the route being checked. Six `j`s,
+    // not seven: live preview hides the fence lines while the cursor is outside
+    // the block, and `j` counts the lines the user can see.
+    reset(&editor, cx);
+    cx.simulate_keystrokes("0 6 j d a");
+    cx.simulate_input("`");
+    assert_eq!(
+        text(cx),
+        "# Top\nintro with [[Two]] here\n\n> [!warning] Watch out\n> first\n\n\n# Other\ntail\n",
+        "`` da` `` should take the fences with the code"
+    );
+}
+
+/// A table cell object through the keymap: `t` is a bound key (the find motion),
+/// so the same letter has to read as the object's scope after `i` or `a`.
+#[gpui::test]
+fn table_cell_text_objects(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.bind_keys(keybindings()));
+
+    let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+    let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+    editor
+        .update(cx, |editor, window, cx| {
+            editor.set_text("| a | b |\n| --- | --- |\n| 1 | 2 |\n".to_string(), cx);
+            let focus = editor.focus_handle(cx);
+            window.focus(&focus, cx);
+        })
+        .unwrap();
+    let row = |cx: &mut VisualTestContext| {
+        editor
+            .read_with(cx, |editor, _cx| editor.text())
+            .unwrap()
+            .lines()
+            .nth(2)
+            .unwrap_or_default()
+            .to_string()
+    };
+
+    // `j` inside a table lands on the cell, and the delimiter row is hidden while
+    // the cursor is on the header, so two `j`s are enough to reach the body row.
+    cx.simulate_keystrokes("j j c i t");
+    assert_eq!(row(cx), "|  | 2 |", "`cit` should empty the cell");
+    cx.simulate_input("X");
+    assert_eq!(
+        row(cx),
+        "| X | 2 |",
+        "and leave the cursor ready to type in it"
+    );
+
+    editor
+        .update(cx, |editor, _window, cx| {
+            editor.set_text("| a | b |\n| --- | --- |\n| 1 | 2 |\n".to_string(), cx)
+        })
+        .unwrap();
+    cx.simulate_keystrokes("escape j j d a t");
+    assert_eq!(
+        row(cx),
+        "| 2 |",
+        "`dat` should take the cell and the pipe that closes it"
+    );
+}
+
 /// Visual mode through the real keymap: the `vim-visual` context has to
 /// carry the motion bindings, and operators act on the selection.
 #[gpui::test]
