@@ -141,6 +141,11 @@ zero frames when idle — and all of it is config-off-able as a group
   jumps, `d` deletes.
 - MCP can list bookmarks/marks → "what is the user working on?" includes their
   own bookmarks.
+- **Jump-chain breadcrumb (ruled 2026-10-29):** the editor shows the chain as
+  a one-line status-area breadcrumb (`aria ← session-12 ← hook-rats`), not a
+  gutter filament — the gutter is reserved (diagnostics, folds, provenance
+  ticks, surface widgets). The graph's M5a thread stays the visual signature:
+  the editor shows the chain's *text*, the graph shows its *shape*.
 
 ### Vault-wide ex commands ✅
 - `:Gsub /draft/final/g tag:work` — substitution scoped by DB/search index, with a
@@ -319,6 +324,12 @@ zero frames when idle — and all of it is config-off-able as a group
 ### Graph minimap ✅ (see graph-view-plan.md M5j)
 - Corner mini-graph of the active note's depth-1 neighborhood, always visible in
   the editor; click-through to the full graph.
+- **Constellation mode (ruled 2026-10-29):** while the graph tab has a
+  constellation filter active, the minimap mirrors *that constellation* at
+  miniature scale (MST star-lines included) instead of the note neighborhood —
+  it mirrors where you're looking. Mode switches only on graph-tab focus so the
+  two meanings never coexist; second camera + cached subgraph are already
+  specced in M5j, so this is a mode, not machinery.
 
 ### Note pinning ✅ (demoted from a feature to a pane flag)
 - Once tiling splits exist: `:pin` on a pane = dimmed reference mode — lower
@@ -431,6 +442,15 @@ zero frames when idle — and all of it is config-off-able as a group
     directly (no screenshot tool dependency).
   - *Stats timeline ✅:* word-count-over-time sparkline above the scrubber (DB
     word_count history) — the graph plus "how big was the vault then".
+  - *Scrubber-linked note view ✅ (ruled 2026-10-29):* while the scrubber is
+    active, the open note shows its past self — **overlay primary**: past-only
+    content painted dimmed where it was, current-only content at full alpha,
+    positions locked (the P4 diff renderer aligns blocks; same visual grammar
+    as the review overlay — one language for "text that isn't currently
+    there"). Side-by-side is a later toggle. **Read-only while scrubbing** —
+    editing a past state is not a thing; restoring is the time machine's
+    explicit separate verb. Data is P1 snapshots + event log; each scrub step
+    paints once, zero continuous animation.
 
 ---
 
@@ -728,6 +748,11 @@ build; the rest is configuration of things that already exist.
   stripped — rides the secret-block rule), statblock card, broadsheet.
 - Print CSS analog: note-type render profiles select layout (columns,
   drop caps, rules) — the same callout/type machinery, not a stylesheet.
+  **Profile registry (ruled 2026-10-29):** three named profiles keyed by note
+  type/callout — `statblock` (two-column card, rules, accent header — looks
+  like a physical card), `handout` (secret-stripped, serif-forward),
+  `broadsheet` (columns, drop caps, masthead). Screen rendering and print use
+  the same profiles: what you see is literally what exports.
 - Exports are provenance-logged (what was printed, when, which preset) —
   "what did the GM hand out" stays a query.
 
