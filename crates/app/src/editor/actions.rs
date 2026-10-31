@@ -92,6 +92,9 @@ impl MarkdownEditor {
             // `space y`: the window owns the clipboard, and answers with what the
             // note has to give (see `clipboard_candidate`).
             Outcome::YankClipboard => window.dispatch_action(YankClipboard.boxed_clone(), cx),
+            // `space d`: the window owns the frame, so the chord dispatches the
+            // same action the palette does rather than setting a flag of its own.
+            Outcome::ToggleFocus => window.dispatch_action(ToggleFocus.boxed_clone(), cx),
             Outcome::Stay | Outcome::Unhandled => {}
         }
         // The mirror, part 2: whatever the engine put in its register is now on the

@@ -157,6 +157,13 @@ actions!(
         ViewRaw,
         ViewLive,
         ViewPreview,
+        // Focus mode: dim everything but the block the cursor is in (`space d`,
+        // `:focus`). A toggle both ways in, because the mode is a preference the
+        // user moves in and out of while writing.
+        ToggleFocus,
+        // Typewriter scroll: keep the cursor's line near the middle of the window
+        // (`:typewriter`).
+        ToggleTypewriter,
         // Putting the selection, or the last yank, on the **system** clipboard
         // (`space y`, `:yank`). The way out; `ctrl-shift-v` / `:paste` is the way
         // back in, and it fills the vim register too.

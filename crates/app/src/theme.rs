@@ -105,6 +105,22 @@ pub(crate) struct RunStyle {
 }
 
 impl RunStyle {
+    /// The same style with its colours pulled `alpha` of the way back toward
+    /// `bg`: what the dimming system asks for when a row is away from what the
+    /// frame lights. The face (bold, italic, underline) is left alone — a dimmed
+    /// heading is still a heading, and re-shaping it at a different width would
+    /// put the soft-wrap model out of step with the paint.
+    pub(crate) fn faded(&self, alpha: f32, bg: u32) -> RunStyle {
+        if alpha >= 1.0 {
+            return *self;
+        }
+        let mut faded = *self;
+        faded.color = crate::dim::fade(self.color, bg, alpha);
+        faded.background = self.background.map(|c| crate::dim::fade(c, bg, alpha));
+        faded.spell = self.spell.map(|c| crate::dim::fade(c, bg, alpha));
+        faded
+    }
+
     /// Ordinary note text in `palette`.
     pub(crate) fn plain(palette: &Palette) -> RunStyle {
         RunStyle {

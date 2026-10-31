@@ -27,6 +27,13 @@ pub(crate) enum Ex {
     Open,
     /// `harper on|1` / `harper off|0`: the spell and grammar checker.
     Checker(bool),
+    /// `focus on|1` / `focus off|0`, or bare `focus` to turn it around: dim
+    /// everything but the block the cursor is in. `dim` is the same command under
+    /// the name the feature is usually called.
+    Focus(Option<bool>),
+    /// `typewriter on|1` / `typewriter off|0`, or bare `typewriter` to turn it
+    /// around: keep the cursor's line near the middle of the window.
+    Typewriter(Option<bool>),
     /// `theme` with nothing after it: the theme picker.
     ThemePicker,
     /// `theme <name>`: that palette, now.
@@ -75,6 +82,21 @@ pub(crate) fn parse(line: &str) -> Ex {
                 Ex::Theme(rest.to_string())
             }
         }
+        // Both are a preference the user moves in and out of while writing, so a
+        // bare word turns it around rather than asking which half was meant — the
+        // opposite of `harper`, which starts and stops a process and would be
+        // annoying to do by accident. A word that is neither yes nor no is still a
+        // typo, and says which.
+        "focus" | "dim" => match bool_word(rest) {
+            Some(on) => Ex::Focus(Some(on)),
+            None if rest.is_empty() => Ex::Focus(None),
+            None => Ex::Unknown(format!("{word} {rest}")),
+        },
+        "typewriter" => match bool_word(rest) {
+            Some(on) => Ex::Typewriter(Some(on)),
+            None if rest.is_empty() => Ex::Typewriter(None),
+            None => Ex::Unknown(format!("{word} {rest}")),
+        },
         // The three views. `source` and `src` are there because that is the word
         // other markdown editors use for the same view, and `view` because the
         // user reaching for a view is asking for the one they can read in.
@@ -86,6 +108,17 @@ pub(crate) fn parse(line: &str) -> Ex {
         "y" | "yank" | "clip" | "copy" => Ex::YankClipboard,
         "p" | "paste" => Ex::PasteClipboard,
         _ => Ex::Unknown(word),
+    }
+}
+
+/// The yes and no a command line's second word spells, or `None` for anything
+/// else — including nothing at all, which is how a bare command says "turn it
+/// around".
+fn bool_word(rest: &str) -> Option<bool> {
+    match rest.to_ascii_lowercase().as_str() {
+        "on" | "1" | "true" | "yes" => Some(true),
+        "off" | "0" | "false" | "no" => Some(false),
+        _ => None,
     }
 }
 
@@ -147,6 +180,35 @@ mod tests {
         for paste in ["p", "paste", "Paste"] {
             assert_eq!(parse(paste), Ex::PasteClipboard, "{paste}");
         }
+    }
+
+    #[test]
+    fn focus_and_typewriter_take_yes_and_no_and_a_bare_word_toggles() {
+        for on in ["focus on", "focus 1", "dim ON", "typewriter yes"] {
+            let want = if on.starts_with("typewriter") {
+                Ex::Typewriter(Some(true))
+            } else {
+                Ex::Focus(Some(true))
+            };
+            assert_eq!(parse(on), want, "{on}");
+        }
+        for off in ["focus off", "focus 0", "dim Off", "typewriter no"] {
+            let want = if off.starts_with("typewriter") {
+                Ex::Typewriter(Some(false))
+            } else {
+                Ex::Focus(Some(false))
+            };
+            assert_eq!(parse(off), want, "{off}");
+        }
+        // A bare word is a toggle, not a guess.
+        assert_eq!(parse("focus"), Ex::Focus(None));
+        assert_eq!(parse("dim"), Ex::Focus(None));
+        assert_eq!(parse("typewriter"), Ex::Typewriter(None));
+        // A word that is neither yes nor no is a typo, and says which.
+        assert_eq!(
+            parse("focus sideways"),
+            Ex::Unknown("focus sideways".into())
+        );
     }
 
     #[test]

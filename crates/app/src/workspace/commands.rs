@@ -29,6 +29,8 @@ pub(crate) enum Command {
     ViewRaw,
     ViewLive,
     ViewPreview,
+    ToggleFocus,
+    ToggleTypewriter,
     WindowLeft,
     WindowRight,
     Undo,
@@ -39,7 +41,7 @@ pub(crate) enum Command {
 }
 
 /// Every command, in the order the palette lists them before anything is typed.
-const ALL: [Command; 24] = [
+const ALL: [Command; 26] = [
     Command::Save,
     Command::Quit,
     Command::NewNote,
@@ -57,6 +59,8 @@ const ALL: [Command; 24] = [
     Command::ViewRaw,
     Command::ViewLive,
     Command::ViewPreview,
+    Command::ToggleFocus,
+    Command::ToggleTypewriter,
     Command::WindowLeft,
     Command::WindowRight,
     Command::Undo,
@@ -92,6 +96,8 @@ impl Command {
             Command::ViewRaw => "Show the note as markdown source",
             Command::ViewLive => "Show the note with live preview",
             Command::ViewPreview => "Preview the note, without editing it",
+            Command::ToggleFocus => "Dim everything but the block the cursor is in",
+            Command::ToggleTypewriter => "Keep the cursor's line near the middle of the window",
             Command::WindowLeft => "Focus the file tree",
             Command::WindowRight => "Focus the note",
             Command::Undo => "Undo",
@@ -124,6 +130,8 @@ impl Command {
             Command::ViewRaw => "space r, :raw",
             Command::ViewLive => "space l, :live",
             Command::ViewPreview => "space p, :preview",
+            Command::ToggleFocus => "space d, :focus",
+            Command::ToggleTypewriter => ":typewriter",
             Command::WindowLeft => "ctrl-w h",
             Command::WindowRight => "ctrl-w l",
             Command::Undo => "u, ctrl-z",
@@ -156,6 +164,8 @@ impl Command {
             Command::ViewRaw => Box::new(ViewRaw),
             Command::ViewLive => Box::new(ViewLive),
             Command::ViewPreview => Box::new(ViewPreview),
+            Command::ToggleFocus => Box::new(ToggleFocus),
+            Command::ToggleTypewriter => Box::new(ToggleTypewriter),
             Command::WindowLeft => Box::new(WindowLeft),
             Command::WindowRight => Box::new(WindowRight),
             Command::Undo => Box::new(Undo),

@@ -31,6 +31,7 @@ use gpui::{
 use shale_core::mdstyle::{CalloutKind, Style};
 use shale_core::theme::Palette;
 
+use crate::dim::fade;
 use crate::editor::MarkdownEditor;
 use crate::image::ImagePaint;
 use crate::preview::PieceMap;
@@ -93,6 +94,11 @@ pub(crate) struct HitLine {
     /// check.
     #[allow(dead_code)]
     pub(crate) callout: bool,
+    /// How much of the line's colour survived the dimming system: 1.0 is the
+    /// palette's own. Recorded so the focus-mode tests can see what the frame
+    /// actually drew rather than what the model was asked for.
+    #[allow(dead_code)]
+    pub(crate) dim: f32,
     /// The fold marker this line painted after its text, if any: where it starts
     /// (measured from the line's left edge) and what it says. A click inside it
     /// toggles the fold instead of moving the cursor.
@@ -198,8 +204,13 @@ pub(crate) struct LineElement {
     /// the others so the current match in a run of `n`/`N` stands out. `None`
     /// when there is no current match.
     pub(crate) active: Option<(usize, usize)>,
-    /// Text size to shape and paint at; the row's height follows it.
+    /// Text size to shape and paint at; the line's height follows it.
     pub(crate) size: f32,
+    /// How much of this line's colour survives: 1.0 is the palette's own, less is
+    /// every colour it draws pulled toward the background by the dimming system.
+    /// The cursor, the selection and a search match's background are never faded,
+    /// because those are the user's marks on the text rather than the text.
+    pub(crate) dim: f32,
     /// Whether the row belongs to a fenced code block, whose background spans
     /// the full width of the editor rather than just its text.
     pub(crate) block: bool,
@@ -275,6 +286,7 @@ fn build_runs(
     styles: &LineStyles,
     base_font: &Font,
     palette: &Palette,
+    dim: f32,
 ) -> Vec<TextRun> {
     let total = text.len();
     let plain = RunStyle::plain(palette);
@@ -338,12 +350,14 @@ fn build_runs(
         while j < total && painted[j] == style {
             j += 1;
         }
-        runs.push(style.text_run(j - i, base_font));
+        // Faded after coalescing: two runs that shared a style still share it once
+        // dimmed, and dimming first would compare the wrong values above.
+        runs.push(style.faded(dim, palette.bg).text_run(j - i, base_font));
         i = j;
     }
     if runs.is_empty() {
         // An empty display line still gets one (empty) run.
-        runs.push(plain.text_run(0, base_font));
+        runs.push(plain.faded(dim, palette.bg).text_run(0, base_font));
     }
     runs
 }
@@ -601,7 +615,7 @@ impl Element for LineElement {
                     .map(|range| self.map.rebase_marks(&[range]))
                     .unwrap_or_default(),
             };
-            let runs = build_runs(&self.text, &styles, &base_font, &self.palette);
+            let runs = build_runs(&self.text, &styles, &base_font, &self.palette, self.dim);
             let line = text_system.shape_line(self.text.clone(), px(self.size), &runs, None);
             // The fold marker is not buffer text, so it is shaped on its own and
             // painted after the line rather than being spliced into it.
@@ -647,7 +661,7 @@ impl Element for LineElement {
                     self.active,
                     &map,
                 );
-                let runs = build_runs(&painted, &styles, &base_font, &self.palette);
+                let runs = build_runs(&painted, &styles, &base_font, &self.palette, self.dim);
                 CellShaped {
                     line: text_system.shape_line(
                         SharedString::from(painted),
@@ -698,8 +712,13 @@ impl Element for LineElement {
         }
 
         // A fenced block's background covers the whole line, not just its text.
+        // The block's own colours fade with the rest of the row, or a dimmed code
+        // block would still shout at the reader from across the note.
         if self.block {
-            window.paint_quad(fill(bounds, rgb(self.palette.code_block_bg)));
+            window.paint_quad(fill(
+                bounds,
+                rgb(fade(self.palette.code_block_bg, self.palette.bg, self.dim)),
+            ));
         }
 
         // A callout is a box: a background across the whole line and an accent
@@ -707,13 +726,20 @@ impl Element for LineElement {
         // the `[!type]` header are hidden by live preview, so what is left of
         // the line reads as the box's content.
         if let Some(kind) = self.callout {
-            window.paint_quad(fill(bounds, rgb(self.palette.callout_bg)));
+            window.paint_quad(fill(
+                bounds,
+                rgb(fade(self.palette.callout_bg, self.palette.bg, self.dim)),
+            ));
             window.paint_quad(fill(
                 Bounds::from_corners(
                     gpui::point(bounds.left(), bounds.top()),
                     gpui::point(bounds.left() + px(2.), bounds.bottom()),
                 ),
-                rgb(self.palette.callout_accent(kind)),
+                rgb(fade(
+                    self.palette.callout_accent(kind),
+                    self.palette.bg,
+                    self.dim,
+                )),
             ));
         }
 
@@ -727,7 +753,7 @@ impl Element for LineElement {
                     gpui::point(bounds.left(), y - px(0.5)),
                     gpui::point(bounds.right(), y + px(0.5)),
                 ),
-                rgb(self.palette.table_line),
+                rgb(fade(self.palette.table_line, self.palette.bg, self.dim)),
             ));
         }
 
@@ -872,6 +898,7 @@ impl Element for LineElement {
                 bounds,
                 rule: self.rule,
                 callout: self.callout.is_some(),
+                dim: self.dim,
                 fold_marker,
             });
         });
@@ -939,7 +966,7 @@ mod tests {
                 marks,
                 ..LineStyles::default()
             };
-            let runs = build_runs(text, &styles, &font, &Palette::DARK);
+            let runs = build_runs(text, &styles, &font, &Palette::DARK, 1.0);
             let total: usize = runs.iter().map(|r| r.len).sum();
             assert_eq!(total, text.len(), "runs must cover {text:?} exactly");
             if text.is_empty() {
@@ -981,7 +1008,7 @@ mod tests {
             marks: vec![(0, 5)],
             ..LineStyles::default()
         };
-        let runs = build_runs(text, &styles, &font, &Palette::DARK);
+        let runs = build_runs(text, &styles, &font, &Palette::DARK, 1.0);
         let total: usize = runs.iter().map(|r| r.len).sum();
         assert_eq!(total, text.len());
         assert_eq!(runs[0].len, 5, "the marked word is its own run");
@@ -1059,7 +1086,7 @@ mod tests {
             active: vec![(11, 15)],
             ..LineStyles::default()
         };
-        let runs = build_runs(text, &styles, &font, &Palette::DARK);
+        let runs = build_runs(text, &styles, &font, &Palette::DARK, 1.0);
         let total: usize = runs.iter().map(|r| r.len).sum();
         assert_eq!(total, text.len(), "runs must cover the line exactly");
         assert_eq!(

@@ -28,6 +28,7 @@ use shale_core::vault::VaultEntry;
 use shale_core::vim::{Mode, Vim};
 use shale_core::{theme::Palette, Vault};
 
+use crate::dim;
 use crate::line::HitLine;
 
 use self::wrap::{CachedRow, RowPaint};
@@ -171,6 +172,20 @@ pub struct MarkdownEditor {
     /// Which of the three views the note is in: raw source, live preview, or
     /// fully rendered and read-only. See [`View`].
     view: View,
+    /// Draw everything but the block the cursor is in at reduced strength, so the
+    /// note reads one block at a time. The window turns it on from
+    /// `editor.focus` or `:focus`; raw mode ignores it, because raw mode's whole
+    /// point is showing the file as it is.
+    focus: bool,
+    /// How far the lit region reaches: the cursor's block, or its whole heading
+    /// section. See [`dim::Scope`].
+    focus_scope: dim::Scope,
+    /// Keep the cursor's display line near the middle of the window as it moves.
+    typewriter: bool,
+    /// The cursor offset the last typewriter centring was done for. The frame
+    /// re-centres only when the caret actually moved, so it never fights a reader
+    /// who scrolled by hand.
+    typewriter_anchor: Option<usize>,
     dirty: bool,
 }
 
@@ -201,6 +216,10 @@ impl MarkdownEditor {
             palette: Rc::new(Palette::DEFAULT),
             font_size: DEFAULT_FONT_SIZE,
             view: View::Live,
+            focus: false,
+            focus_scope: dim::Scope::default(),
+            typewriter: false,
+            typewriter_anchor: None,
             dirty: false,
         }
     }
@@ -314,6 +333,55 @@ impl MarkdownEditor {
         self.style_cache = None;
         self.quote_cache = None;
         self.wrap_cache = None;
+        cx.notify();
+    }
+
+    // ----- focus mode and typewriter scroll ------------------------------
+
+    /// Whether the frame dims everything but the block the cursor is in.
+    pub(crate) fn focus_mode(&self) -> bool {
+        self.focus
+    }
+
+    /// Turn focus mode on or off. The window owns the answer — it comes from
+    /// `editor.focus` in the config and from `:focus` — and the frame only asks
+    /// whether to fade. Raw mode still draws no fade whatever this says.
+    pub(crate) fn set_focus_mode(&mut self, on: bool, cx: &mut Context<Self>) {
+        if on == self.focus {
+            return;
+        }
+        self.focus = on;
+        cx.notify();
+    }
+
+    /// How far the lit region reaches: the cursor's block or its whole section.
+    pub(crate) fn focus_scope(&self) -> dim::Scope {
+        self.focus_scope
+    }
+
+    /// Set how far the lit region reaches. Worth a repaint on its own: the same
+    /// caret can light one paragraph or a whole section.
+    pub(crate) fn set_focus_scope(&mut self, scope: dim::Scope, cx: &mut Context<Self>) {
+        if scope == self.focus_scope {
+            return;
+        }
+        self.focus_scope = scope;
+        cx.notify();
+    }
+
+    /// Whether the frame keeps the cursor's line near the middle of the window.
+    pub fn typewriter(&self) -> bool {
+        self.typewriter
+    }
+
+    /// Turn typewriter scroll on or off. Turning it on re-centres straight away,
+    /// which is what the user expects when they ask for it.
+    pub fn set_typewriter(&mut self, on: bool, cx: &mut Context<Self>) {
+        if on == self.typewriter {
+            return;
+        }
+        self.typewriter = on;
+        self.typewriter_anchor = None;
         cx.notify();
     }
 
@@ -510,6 +578,14 @@ impl MarkdownEditor {
             .iter()
             .map(|hit| hit.bounds.size.height)
             .collect()
+    }
+
+    /// How much of each display line's colour survived the dimming system: 1.0
+    /// is the palette's own, less is that colour pulled toward the background.
+    /// This is how the focus-mode tests see what the frame actually drew.
+    #[cfg(test)]
+    pub fn painted_dims(&self) -> Vec<f32> {
+        self.hit_lines.iter().map(|hit| hit.dim).collect()
     }
 
     /// The display lines that were painted as a thematic break's rule rather
@@ -761,6 +837,16 @@ impl MarkdownEditor {
             .collect()
     }
 
+    /// Every style span the frame has, in the scanner's order: what the dimming
+    /// system asks about when it decides which block the cursor is in. Empty
+    /// before the first scan.
+    fn all_spans(&self) -> &[StyleSpan] {
+        self.style_cache
+            .as_ref()
+            .map(|(_, spans)| spans.as_slice())
+            .unwrap_or(&[])
+    }
+
     /// The style spans overlapping `start..end`, clipped to it as absolute
     /// buffer offsets, in the order the scanner emitted them.
     fn spans_in(&self, start: usize, end: usize) -> Vec<(usize, usize, Style)> {
@@ -844,6 +930,11 @@ impl MarkdownEditor {
         }
     }
 
+    /// Pull the caret's display line into the viewport.
+    ///
+    /// gpui applies this in the next frame's prepaint, and only scrolls the
+    /// minimum: when typewriter scroll has already put the caret in the middle of
+    /// the window there is nothing for it to do, so the two can both run.
     fn ensure_cursor_visible(&self) {
         let index = self.buffer.display_index_for(self.buffer.cursor());
         self.scroll_handle.scroll_to_item(index);

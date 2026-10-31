@@ -59,6 +59,19 @@ pub struct EditorConfig {
     /// How long the note must sit untouched before an autosave writes it. Long
     /// enough that it never lands between two keystrokes.
     pub autosave_after_ms: u64,
+    /// Draw everything but the block the cursor is in at reduced strength, so the
+    /// note reads one paragraph at a time. Off by default: it changes what the
+    /// whole window looks like, which is not a starting assumption.
+    pub focus: bool,
+    /// How much of the note keeps its full colour around the cursor: `block` (the
+    /// markdown block the cursor is in) or `section` (the whole heading section).
+    /// `sentence` is on the roadmap and not answered yet; anything unrecognised is
+    /// `block`.
+    pub focus_scope: String,
+    /// Keep the line the cursor is on near the middle of the window as it moves,
+    /// so the eye never has to hunt for it. Off by default, because it takes the
+    /// scroll position away from the reader.
+    pub typewriter: bool,
 }
 
 impl Default for EditorConfig {
@@ -69,6 +82,9 @@ impl Default for EditorConfig {
             show_file_tree: true,
             autosave: true,
             autosave_after_ms: 2000,
+            focus: false,
+            focus_scope: "block".to_string(),
+            typewriter: false,
         }
     }
 }
@@ -211,6 +227,13 @@ show_file_tree = true
 # the difference between keeping the note and losing it.
 autosave = true
 autosave_after_ms = 2000
+# Everything but the block the cursor is in is drawn at reduced strength. `block`
+# is the paragraph, list, quote, callout, fence or heading the cursor is in;
+# `section` is the whole span from its heading to the next one of the same level.
+focus = false
+focus_scope = "block"
+# Keep the cursor's line near the middle of the window as it moves.
+typewriter = false
 
 [appearance]
 # The palette: a built-in, or the name of a file in .shale/themes/<name>.toml.
@@ -290,6 +313,28 @@ mod tests {
         let cfg = Config::from_toml("[editor]\nautosave_after_ms = 500\n").unwrap();
         assert_eq!(cfg.editor.autosave_after_ms, 500);
         assert!(cfg.editor.autosave);
+    }
+
+    /// Focus mode and typewriter scroll are both off to start with, and each key
+    /// stands on its own.
+    #[test]
+    fn focus_and_typewriter_start_off() {
+        let cfg = Config::from_toml("").unwrap();
+        assert!(!cfg.editor.focus);
+        assert!(!cfg.editor.typewriter);
+        assert_eq!(cfg.editor.focus_scope, "block");
+
+        let cfg = Config::from_toml("[editor]\nfocus = true\n").unwrap();
+        assert!(cfg.editor.focus);
+        assert!(!cfg.editor.typewriter);
+        assert_eq!(cfg.editor.focus_scope, "block");
+
+        let cfg = Config::from_toml("[editor]\nfocus_scope = \"section\"\n").unwrap();
+        assert_eq!(cfg.editor.focus_scope, "section");
+        assert!(
+            !cfg.editor.focus,
+            "naming a scope does not turn the mode on"
+        );
     }
 
     #[test]

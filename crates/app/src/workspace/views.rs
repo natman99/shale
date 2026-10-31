@@ -10,10 +10,15 @@
 //! editor: a panel about a checker's note, which has to go when preview comes on,
 //! and the status bar's badge naming the view. Remembering the choice in the
 //! vault's config is the part that has to wait for the config work.
+//!
+//! Focus mode and typewriter scroll live here too. They are not views — the note
+//! is still live preview, still editable — but they are the same kind of thing:
+//! a decision the frame makes that the vim engine knows nothing about, reached
+//! from the palette, the command line and one leader chord.
 
 use gpui::{Context, Window};
 
-use crate::acts::{ViewLive, ViewPreview, ViewRaw};
+use crate::acts::{ToggleFocus, ToggleTypewriter, ViewLive, ViewPreview, ViewRaw};
 use crate::editor::View;
 
 use super::Workspace;
@@ -64,5 +69,95 @@ impl Workspace {
     #[cfg(test)]
     pub(crate) fn view(&self, cx: &gpui::App) -> View {
         self.editor.read(cx).view()
+    }
+
+    /// Whether focus mode is on, and how far it reaches. The badge reads the
+    /// editor directly; these are for the tests.
+    #[cfg(test)]
+    pub(crate) fn focus_mode(&self, cx: &gpui::App) -> bool {
+        self.editor.read(cx).focus_mode()
+    }
+
+    /// The scope focus mode lights: `"block"` or `"section"`.
+    #[cfg(test)]
+    pub(crate) fn focus_scope(&self, cx: &gpui::App) -> String {
+        self.editor.read(cx).focus_scope().word().to_string()
+    }
+
+    /// Whether typewriter scroll is on.
+    #[cfg(test)]
+    pub(crate) fn typewriter(&self, cx: &gpui::App) -> bool {
+        self.editor.read(cx).typewriter()
+    }
+
+    // ----- focus mode and typewriter scroll -------------------------------
+
+    /// `space d`, and its palette row: turn focus mode around. The way out is the
+    /// same two keys as the way in, which is what a toggle is for.
+    pub(super) fn toggle_focus(
+        &mut self,
+        _: &ToggleFocus,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.flip_focus(cx);
+    }
+
+    /// Focus mode, told rather than toggled: `:focus on|off`.
+    pub(crate) fn set_focus(&mut self, on: bool, cx: &mut Context<Self>) {
+        self.editor
+            .update(cx, |editor, cx| editor.set_focus_mode(on, cx));
+        // The status bar's badge is the only place the mode is reported, so the
+        // command line says nothing: `:focus on` next to a badge saying `focus
+        // block` would be the same label twice.
+        cx.notify();
+    }
+
+    /// Focus mode, asked rather than told: a bare `:focus`.
+    pub(crate) fn flip_focus(&mut self, cx: &mut Context<Self>) {
+        let on = !self.editor.read(cx).focus_mode();
+        self.set_focus(on, cx);
+    }
+
+    /// `:typewriter`, and its palette row: keep the cursor's line near the middle
+    /// of the window.
+    pub(super) fn toggle_typewriter(
+        &mut self,
+        _: &ToggleTypewriter,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let on = !self.editor.read(cx).typewriter();
+        self.set_typewriter(on, cx);
+    }
+
+    /// Typewriter scroll, asked rather than told: a bare `:typewriter`.
+    pub(crate) fn flip_typewriter(&mut self, cx: &mut Context<Self>) {
+        let on = !self.editor.read(cx).typewriter();
+        self.set_typewriter(on, cx);
+    }
+
+    /// Typewriter scroll, on or off. Unlike focus mode it has no badge — nothing
+    /// about it is visible in the text — so the status line is the only place it
+    /// can be reported, and the command line reports it there.
+    pub(crate) fn set_typewriter(&mut self, on: bool, cx: &mut Context<Self>) {
+        let was = self.editor.read(cx).typewriter();
+        self.editor
+            .update(cx, |editor, cx| editor.set_typewriter(on, cx));
+        self.status = if was == on {
+            format!("typewriter scroll is already {}", on_off(on)).into()
+        } else {
+            format!("typewriter scroll {}", on_off(on)).into()
+        };
+        cx.notify();
+    }
+}
+
+/// The status line's word for a mode being on or off.
+fn on_off(on: bool) -> &'static str {
+    if on {
+        "on"
+    } else {
+        "off"
     }
 }

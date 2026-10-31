@@ -10,6 +10,7 @@ use gpui::{
 use shale_core::vim::{Key, Mode};
 
 use crate::acts::*;
+use crate::dim;
 use crate::image;
 use crate::line::LineElement;
 use crate::preview::{LineLayout, PieceMap};
@@ -169,6 +170,25 @@ impl Render for MarkdownEditor {
             )
         };
         let cursor_display = self.buffer.display_index_for(cursor);
+        // Focus mode: one alpha per buffer row, measured from the block (or the
+        // heading section) the cursor is in. Raw mode is the file as it sits on
+        // disk, so it never fades anything.
+        let alphas = if self.focus && self.view != View::Raw {
+            dim::row_alphas(
+                self.buffer.text(),
+                self.all_spans(),
+                cursor,
+                self.focus_scope,
+                line_count,
+            )
+        } else {
+            Vec::new()
+        };
+        // Typewriter scroll moves the viewport, so it happens before the frame is
+        // built and only when the caret actually moved.
+        if self.typewriter {
+            self.typewriter_scroll(cursor, cursor_display);
+        }
 
         // Ask gpui for each picture it will draw. It decodes on a background
         // thread and marks the view for redraw when the file arrives, so the
@@ -537,6 +557,9 @@ impl Render for MarkdownEditor {
                         // colour of its type; the markers stay visible on the row the
                         // cursor is on, exactly as with other markdown syntax.
                         let callout = row_styles.get(dl.row).copied().unwrap_or_default().callout;
+                        // How much of this line's colour survives. A row the
+                        // dimming system does not mention is drawn in full.
+                        let dim = alphas.get(dl.row).copied().unwrap_or(1.0);
                         // A heading whose section is folded shut carries a marker
                         // with the number of hidden rows, on the row's last
                         // display line (a wrapped heading gets one marker, not one
@@ -578,6 +601,7 @@ impl Render for MarkdownEditor {
                                 hits: line_hits,
                                 active: line_active,
                                 size: dl.size,
+                                dim,
                                 block,
                                 rule,
                                 callout,
@@ -608,5 +632,42 @@ impl Render for MarkdownEditor {
                             })
                     })),
             )
+    }
+}
+
+impl MarkdownEditor {
+    /// Typewriter scroll: put the caret's display line near the middle of the
+    /// window, so the eye does not have to hunt for it after `j` walks off the
+    /// bottom or `G` jumps away.
+    ///
+    /// It acts only when the caret moved, which is what leaves a reader who
+    /// scrolled by hand alone: moving the viewport without moving the caret is
+    /// their doing, not the frame's. The line's position comes from the previous
+    /// frame's child bounds, which is one frame behind at worst and costs no
+    /// measuring of its own.
+    ///
+    /// gpui's own scroll-into-view still runs; it only moves the viewport the
+    /// minimum to bring an off-screen caret back, so once the caret is centred it
+    /// has nothing left to do.
+    fn typewriter_scroll(&mut self, cursor: usize, cursor_display: usize) {
+        if self.typewriter_anchor == Some(cursor) {
+            return;
+        }
+        self.typewriter_anchor = Some(cursor);
+        let Some(line) = self.scroll_handle.bounds_for_item(cursor_display) else {
+            // The first frame has no measured geometry to work from.
+            return;
+        };
+        let view = self.scroll_handle.bounds();
+        if view.size.height <= px(0.) {
+            return;
+        }
+        // The same arithmetic gpui's own `scroll_to_item` does to bring a child to
+        // the top of the viewport, plus enough to bring it to the middle instead.
+        let middle = (view.size.height - line.size.height) / 2.;
+        let max = self.scroll_handle.max_offset().y;
+        let mut offset = self.scroll_handle.offset();
+        offset.y = (view.top() - line.top() + middle).clamp(-max, px(0.));
+        self.scroll_handle.set_offset(offset);
     }
 }

@@ -13,6 +13,7 @@ use gpui::{Focusable, TestAppContext, VisualTestContext, WindowHandle};
 mod autosave;
 mod blocks;
 mod commands;
+mod focus;
 mod jumps;
 mod keys;
 mod motions;

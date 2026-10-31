@@ -95,6 +95,15 @@ impl Render for Workspace {
         // state the note is nearly always in should not compete with the two that
         // mean something is different.
         let view = self.editor.read(cx).view();
+        // Focus mode gets a badge only while it is on, and names its scope with
+        // it, because "dimmed" and "dimmed to the whole section" are different
+        // things to see. Unlike the view badge this slot comes and goes: a mode
+        // that is nearly always off would only add a word to every status line.
+        let focus = if self.editor.read(cx).focus_mode() {
+            format!("focus {}", self.editor.read(cx).focus_scope().word())
+        } else {
+            String::new()
+        };
         // The checker's count, so "no underlines" can be told apart from "the
         // checker has not answered yet". Preview draws no underlines at all, so it
         // has nothing to count either.
@@ -140,6 +149,8 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::show_raw))
             .on_action(cx.listener(Self::show_live))
             .on_action(cx.listener(Self::show_preview))
+            .on_action(cx.listener(Self::toggle_focus))
+            .on_action(cx.listener(Self::toggle_typewriter))
             .on_action(cx.listener(Self::command_palette))
             .on_action(cx.listener(Self::command_line))
             .on_action(cx.listener(Self::change_theme))
@@ -339,6 +350,13 @@ impl Render for Workspace {
                             }))
                             .child(view.word().to_string()),
                     )
+                    .when(!focus.is_empty(), |d| {
+                        d.child(
+                            div()
+                                .text_color(gpui::rgb(self.palette.accent))
+                                .child(focus),
+                        )
+                    })
                     // The save state gets its own element and the palette's
                     // accent rather than riding along in the mode string: it is
                     // the one part of the bar the user has to read without

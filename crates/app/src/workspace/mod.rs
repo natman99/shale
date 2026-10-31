@@ -34,6 +34,7 @@ use shale_core::watch::{Stamp, VaultChanges};
 use shale_core::{Config, Vault};
 
 use crate::acts::*;
+use crate::dim;
 use crate::editor::{EditorEvent, MarkdownEditor};
 use crate::lsp::{absolute, Diagnostic, Fix, Spell};
 use crate::picker;
@@ -196,6 +197,14 @@ impl Workspace {
         editor.update(cx, |editor, cx| {
             editor.set_palette(Rc::clone(&palette), cx);
             editor.set_font_size(config.appearance.font_size, cx);
+        });
+        // Focus mode and typewriter scroll come from the config the same way the
+        // font and the theme do. Both default to off, so a vault that never
+        // mentions them keeps the frame it has always had.
+        editor.update(cx, |editor, cx| {
+            editor.set_focus_mode(config.editor.focus, cx);
+            editor.set_focus_scope(dim::Scope::from_word(&config.editor.focus_scope), cx);
+            editor.set_typewriter(config.editor.typewriter, cx);
         });
         let editor_events = cx.subscribe(&editor, |ws, _editor, event, cx| match event {
             EditorEvent::FollowLink { target } => ws.follow_link(target, cx),
@@ -883,6 +892,27 @@ impl Workspace {
     pub(crate) fn cursor_position<C: gpui::AppContext>(&self, cx: &C) -> (usize, usize) {
         self.editor
             .read_with(cx, |editor, _cx| editor.cursor_position())
+    }
+
+    /// Whether the cursor's display line is inside the viewport as it was last
+    /// painted. What the typewriter-scroll tests ask: a caret the reader cannot
+    /// see is the whole complaint the mode exists to answer.
+    #[cfg(test)]
+    pub(crate) fn cursor_line_is_visible<C: gpui::AppContext>(&self, cx: &C) -> bool {
+        let line = self
+            .editor
+            .read_with(cx, |editor, _cx| editor.display_position().0);
+        self.display_line_is_visible(cx, line)
+    }
+
+    /// Whether the display line `line` is inside the viewport as it was last
+    /// painted. The typewriter pair asks about a line *below* the caret: plain
+    /// scroll-into-view stops at the caret, so a line a few rows down is only on
+    /// screen when the frame centred the caret in the window.
+    #[cfg(test)]
+    pub(crate) fn display_line_is_visible<C: gpui::AppContext>(&self, cx: &C, line: usize) -> bool {
+        self.editor
+            .read_with(cx, |editor, _cx| editor.line_is_visible(line))
     }
 
     #[cfg(test)]

@@ -105,6 +105,11 @@ pub enum Outcome {
     ViewLive,
     /// `space p` was typed: fully rendered, and read-only.
     ViewPreview,
+    /// `space d` was typed: turn focus mode around. Like the view chords this is
+    /// the window's answer, not the engine's — it changes what the frame draws and
+    /// the engine is not told about it — and it is a toggle rather than an on and
+    /// an off because the way out has to be the same two keys as the way in.
+    ToggleFocus,
     /// `K` was typed outside a table: vim's "look this up". Shale has no man
     /// pages, but the window's spell and grammar checker has something to say
     /// about the word under the cursor, and the engine has no idea that a checker
@@ -296,6 +301,10 @@ impl Vim {
             // the engine's business, so the leader is what makes it the outward
             // copy.
             (true, Key::Char('y')) => Some(Outcome::YankClipboard),
+            // Focus mode, which dims everything but the block the cursor is in.
+            // `d` because the mode is the note going quiet, and because every
+            // letter the view chords did not take is worth spending once.
+            (true, Key::Char('d')) => Some(Outcome::ToggleFocus),
             _ => None,
         };
         if let Some(outcome) = chord.filter(|_| !self.mode.is_visual()) {
