@@ -253,6 +253,14 @@ all existing tests green.
   shutdown (flush DB, write pending edits, finish in-flight saves); all writes
   atomic (temp + rename); SIGKILL out of scope. **Land this with the DB** —
   it's the first stateful thing that can be corrupted.
+- **P1.5b Single-writer DB discipline** (binding, adopted 2026-10-29 from the
+  external review): one dedicated writer thread owns the SQLite write
+  connection; UI, MCP handlers, and reconciliation send write requests over a
+  channel queue; readers use separate connections (WAL). Short transactions,
+  never held across heavy work; visible-state writes post back to the UI
+  thread; the P1.5 barrier drains in-flight DB work. Decide this **before**
+  P1.1 is written — retrofitting single-writer discipline is painful.
+  Full rule in PROJECT.md (Database).
 - **P1.6 DB backup** — daily copy to `.shale/backups/`, keep 7. DB is cache;
   notes are the source of truth.
 - **P1.7 `:wordcount [folder]`** + status-bar count — first DB-backed feature;
@@ -291,9 +299,18 @@ user/MCP/rename writes; `kill -TERM` leaves a clean DB (verify with
   localhost** (live state: current note, selection, jump chain, tabs) +
   standalone `shale-mcp` **stdio** (vault + DB, no live tools) + lockfile in
   `.shale` for detection/proxying. The lockfile doubles as the capture socket.
+  **Operational rules (binding, 2026-10-29 review):** probe the HTTP endpoint
+  before offering live tools — never trust the lockfile blindly (PID reuse);
+  fall back to vault+DB with an explicit "live tools unavailable". Expose a
+  `shale://status` resource (`{app_running, live_tools}`) as the pollable
+  mid-session contract for app open/close. Live tools queue behind modal
+  overlays and never bypass the review path. Full rules in PROJECT.md (MCP).
 - **P2.4 Scoped agent vaults** (brainstorm ✅): `[mcp.profile."name"]` with
   read/write path globs, `deny`, and a tool allowlist; `shale-mcp --profile`.
-  Review mode is an attribute of the profile.
+  Review mode is an attribute of the profile. **Enforcement is server-side
+  only** (never trust the client), `deny` globs beat `write` globs, and every
+  MCP path goes through the same `Vault` normalization/confinement as the
+  app's file code — no fresh path logic in MCP handlers.
 - **P2.5 Agent edit review** (brainstorm ✅): pending edits as **plain-text
   files** in `.shale/pending-edits/` (DB only indexes them); review strip with
   per-hunk accept/reject; quit prompts, unanswered/killed → files persist and
@@ -464,6 +481,24 @@ and the DB; "notes the agent modified this week" returns the right set.
 - Repo hygiene: one `cargo` build at a time, default `target/` (two parallel
   builds with separate `CARGO_TARGET_DIR` wedged the desktop once). Check for a
   running build before starting one.
+- **Design gate for interaction-heavy features** (2026-10-29 review): ✅ items
+  whose *interaction* is unspecified — edit-review strip, focus dimming,
+  transclusion cursor handoff — get a short interaction design pass before
+  implementation. This repo specifies behavior well and interaction feel
+  thinly; the gate closes that gap.
+- **Integration contract before graph M1b.** The two-agent file split is clean
+  while the graph is pure `core`. Before M1b touches workspace state (tabs,
+  jump chain, theme, idle flag), write a short contract doc: what the graph
+  view may read/write, how it receives vault changes, how it respects the
+  idle rules. Cheap insurance against the boundary breaking mid-phase.
+- **App-side testing bar** (2026-10-29 review): the graph core has benches and
+  unit tests; cross-cutting app behavior — pending edits surviving SIGTERM,
+  transclusion dirty state, modes mutating live tables, provenance filters
+  across surfaces — needs headless GPUI integration tests, not eyeballs.
+  Each such feature lands with at least one integration test.
+- **Obsidian parity ruling** (2026-10-29): round-trip the common cases
+  cleanly; do not chase every edge case (properties-schema quirks, community
+  plugin conventions, Canvas). Parity serves import, not identity.
 
 ## Open decisions the roadmap needs
 

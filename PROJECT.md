@@ -45,6 +45,53 @@ Gui pickers should have a search bar with fuzzy search, but arrow keys + enter c
 
 - Plugins
 
+### Identity (binding, adopted 2026-10-29 from the external Grok-chat review)
+
+**Positioning:** Shale is the local markdown workbench that makes agent
+collaboration auditable and the history of a vault visible. Keyboard-first,
+pure Rust, the vault is the single source of truth, and the LLM is a
+first-class, auditable collaborator.
+
+**The failure test:** if users describe Shale as "Obsidian but in Rust with
+vim," the identity has failed. Every feature decision should be checkable
+against the ranked axes below.
+
+**Ranked identity axes:**
+
+1. **Agent-native by construction** — provenance on every write, pending-edit
+   review that survives kills, scoped profiles, two-mode MCP, and the agent
+   seeing the same jump chain / selection / open tabs the human sees. This is
+   the primary differentiator, not an add-on.
+2. **Custom renderer as advantage, not liability** — editable transclusion,
+   secret blocks that stay plain Markdown, focus dimming sharing the alpha
+   machinery with search illumination, dice that write results back into the
+   source, initiative as a mode over a plain table, render-only graph
+   features that respect the idle contract.
+3. **Vim as a complete environment** — markdown text objects, marks + jump
+   chain, vault-wide ex commands with preview, an outliner that stays plain
+   Markdown, and one command registry that palette, ex, macros, and MCP all
+   speak.
+4. **Local, honest, quiet** — notes are the source of truth, the DB is a
+   cache, the sim sleeps, the idle contract is measured, no sync, no mobile,
+   no plugin marketplace.
+5. **Domain depth over general breadth** — the TTRPG toolkit is the flagship
+   vertical proving props + DB + graph + renderer support deep use without a
+   plugin system.
+
+**What Shale is not:** a Canvas/whiteboard, mobile, sync, a plugin host (MCP
+is the extension surface), a full Obsidian-parity chase, an Electron app with
+a vim layer, or a built-in AI agent (a first-party MCP *client* companion may
+come; an agent runtime inside the binary may not).
+
+**Naming (ruled 2026-10-29):** keep **Shale**. Correction for the record:
+shale is *sedimentary*, not volcanic — the metaphor is layered knowledge
+compressed under pressure, splitting along planes into readable strata. That
+is the story; the "volcanic sibling of Obsidian" framing is factually wrong
+and should not be repeated publicly. The external check found no standalone
+"Shale" trademark registered in the software/notes space and `shale.md` as a
+public-facing form would be cleaner — **unverified, re-check with a real
+search before any public launch.**
+
 ### Tech Stack
 
 Keep as much in Rust as possible, no bindings external libraries. Update the
@@ -74,6 +121,30 @@ libraries and FFI-heavy deps.
 Shale has an MCP server with support for reading, writing, and searching vaults. The MCP server should _either_ be a separate binary which shares core functionality with a `core` crate in the project, or if speed will be acceptable use the main binary.
 
 If the app is open it should inform the user when the MCP is used to edit files and what files were changed. Make a toasts feature that will appear in the corner. Toasts always disappear after a few seconds. The timer on that can pause if the app isn't focused.
+
+**MCP operational rules (binding, adopted 2026-10-29 from the external review):**
+
+- **Probe before live tools.** The standalone `shale-mcp` never trusts the
+  `.shale` lockfile blindly (PID reuse is real): before offering any live
+  tool it probes the in-app HTTP endpoint; if unreachable it serves
+  vault+DB tools only and says so explicitly ("live tools unavailable").
+  Never leave an agent half-connected.
+- **`shale://status` resource** — `{app_running, live_tools: […]}` so an
+  agent can adapt mid-session when the app opens or closes. Tool-list
+  notifications are a nice-to-have; the pollable status check is the
+  contract.
+- **Live tools queue behind modal overlays.** An agent's `open_note`/jump/
+  selection tools never punch through a picker, prompt, or review flow that
+  has focus — they respect keymap context and overlay ownership, and live
+  tools are never a bypass of the pending-edit review path.
+- **Profiles enforced server-side.** Tool allowlists are never trusted from
+  the client; `deny` globs beat `write` globs; every MCP path goes through
+  the same `Vault` normalization/confinement as the app's own file code —
+  no fresh path logic in MCP handlers.
+- **Resources for stable context, tools for mutations.** The generated
+  command reference (P2.2), DB schema, pending-edit list, and capabilities
+  are MCP *resources* (host-pulled, no tool-call cost); anything that
+  mutates is a *tool*.
 
 ### Graph View
 
@@ -116,6 +187,18 @@ The user will be able to write in line SQL queries (heavily sanitized, read only
 These are equivalent to Obsidian bases, which allow dynamically updating views into vault contents based on tags, referenced other notes, referenced by notes, and Obsidian note "properties".
 
 **Note:** The DB remains an extra feature. The plain text notes are the source of truth always. If you need to persist note contents to the DB (for user searching or whatever else) that's okay, but it will never be the primary source of information.
+
+**Single-writer discipline (binding, adopted 2026-10-29):** one dedicated
+writer thread owns the SQLite write connection; everyone else (UI, MCP
+handlers, the reconciliation thread) sends write requests over a channel
+queue. Readers use separate connections (WAL mode). Transactions stay
+short — never held across heavy computation or I/O. A background write
+that affects visible state posts a message back to the UI thread to
+refresh the relevant caches. The shutdown barrier (roadmap P1.5) waits
+for in-flight DB work or cancels it cleanly. The standalone `shale-mcp`
+uses the same schema and the same atomic note-write discipline when the
+app is closed; the startup reconciliation thread picks up the delta on
+next launch.
 
 ## Current status (updated as the project progresses)
 
