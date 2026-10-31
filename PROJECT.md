@@ -210,8 +210,11 @@ Workspace layout:
   that has none, and the comment-preserving one-line splice writer), the vault
   index (`db/`: `mod.rs` the `Db` handle — one writer thread owning the only
   read-write connection, a channel queue for everyone else's write jobs, separate
-  read-only connections under WAL, and the shutdown barrier — `schema.rs` the
-  tables and the `user_version` stamp, `tests.rs` the contract), text
+  read-only connections under WAL, and the shutdown barrier — `index.rs` keeping the
+  index in step with the notes (the startup reconciliation, the watcher's change
+  lists, and what each note contributes: words, tags, links and the events worth
+  logging), `schema.rs` the tables and the `user_version` stamp, `tests.rs` the
+  contract), text
   `Buffer` with undo/redo, the vim mode engine, `mdstyle` (the
   presentation-agnostic markdown style scanner, split into `mdstyle/mod.rs` for
   the vocabulary and the line walk, `mdstyle/block.rs` for what a line *is* and
@@ -272,7 +275,7 @@ Workspace layout:
   **command palette** (`ctrl-shift-p`) beside vim's **command line** (`:`, which is
   deliberately *not* the palette: one word, matched exactly — `:w`, `:q`, `:wq`,
   `:x`, `:e`, `:harper on|off|1|0`, `:theme [name]`, `:raw|:live|:preview`,
-  `:focus|:dim on|off`, `:typewriter on|off`;
+  `:focus|:dim on|off`, `:typewriter on|off`, `:wordcount [folder]`;
   `ex.rs` is its whole
   vocabulary, and a word it does not know runs nothing) — both pickers
   *overlay* the note rather than pushing it down, and the note has margins around
@@ -315,6 +318,8 @@ Workspace layout:
   on, kept here so `n`/`N` outlive the field that typed the query,
   `commands.rs` the command palette's list
   — every command's label, the keys that run it and the action it dispatches —
+  `index.rs` the vault index inside the window (the startup pass, telling the index
+  what Shale's own save/create/rename/delete just did, and `:wordcount`),
   `render.rs` the frame, `testhooks.rs` the accessors only the tests call),
   `tree.rs` (turning the vault's entries
   into rows), `views.rs` (the three views, focus mode and typewriter scroll) and
@@ -417,26 +422,23 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
 - Run the test binaries under `ulimit -v` when working on anything that scans
   text (a scanner bug can allocate until the OOM killer takes the editor down —
   see the table postmortem).
-  Current peak RSS of the test binaries (2026-10-30, app 259 / core 363 with 10
-  ignored / mcp 6 tests — core now includes the `db::` tests, and its RSS rose from
-  7.9 MB to 12.7 MB because of them, which is nowhere near the 200 MB line worth
-  investigating): core 12.5 MB, app 79 MB,
-  mcp 3.5 MB. The
+  Current peak RSS of the test binaries (2026-10-31, app 266 / core 372 with 10
+  ignored / mcp 6 tests — core's `db::` tests cost it nothing worth mentioning: 12.5
+  MB to 15 MB, and the app's 79 MB to 83 MB is the seven `tests::index` windows that
+  each open a real DB, which is nowhere near the 200 MB line worth investigating):
+  core 15 MB, app 83 MB,
+  mcp 3.4 MB. The
   app binary's *address space* (not RSS) is far larger because of gpui/wgpu
   reservations, and it now needs **4 GB or more** — a 1 GB cap makes it die in an
   80-byte allocation. Build with `cargo test --workspace --no-run`, then run each
   `target/debug/deps/<name>-<hash>` binary under `sh -c 'ulimit -v N; /usr/bin/
   time -v ./binary'`; never wrap `cargo test` itself, and re-derive the hashes
   after a rebuild.
-- **Two agents, one `target/`.** The graph track — `crates/core/src/graph/**`,
-  `pub mod graph;` in `crates/core/src/lib.rs`, the `petgraph` lines in the two
-  Cargo.tomls, and `PROGRESS.md` — belongs to the other agent; nothing else is
-  shared, and neither edits the other's files. A build that fails inside `graph/`
-  is their work in progress, not a regression to fix from the outside. To check
-  `core` while that happens, copy the workspace to a scratch directory, delete
-  `crates/core/src/graph` and the `pub mod graph;` line **in the copy**, and run
-  `cargo test -p shale-core` there. The app crate needs core's *lib*, which
-  usually compiles well before core's test target does.
+- **Two agents, one `target/` — resolved 2026-10-31.** The graph track
+  (`crates/core/src/graph/**`, `pub mod graph;`, the `petgraph` lines in the two
+  Cargo.tomls, and `PROGRESS.md`) was the other agent's work and has landed; the
+  split no longer applies, and `crates/core` is shared again. The lesson stays in
+  the next bullet.
   - **Prefer polling the real build to making a copy.** A scratch copy is a hazard,
     not a shortcut: cargo's artifact name for a workspace member does not include
     its path, so building the copy with `CARGO_TARGET_DIR` pointed at the project's
@@ -453,6 +455,11 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
   scheduler that drops a still-pending local task from another thread and
   panics. `tests/spell.rs` covers the window's side with a command that cannot
   start, and `lsp/`'s own tests cover the protocol without a server.
+- The same harness turns `[index]` **off**: a DB file and a writer thread per window
+  is not what a keymap or a paint test is about. `tests::index` opens one on purpose
+  with `indexed_vault`, which writes the notes *before* the window exists so the
+  startup reconciliation has them to find rather than racing with them, and waits for
+  that pass (it reads the vault on a background thread).
 
 ### Open threads (write findings here as they come up)
 
@@ -1962,7 +1969,8 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   module gained reach. Splitting a `mod tests { … }` block the same way works,
   but note that a child test module's `use super::*` reaches the parent's own
   `use`s, so the extra `use crate::vim::*` lines are dead weight.
-Largest files now (2026-10-30, after Phase 0's module splits):
+Largest files now (2026-10-30, after Phase 0's module splits; what the DB spine
+  changed is spelled out after the list):
   `tests/popup.rs` 1104, `line.rs` 1086, `workspace/mod.rs` 1050,
   `graph/sim.rs` 908, `editor/mod.rs` 857, `tests/paint.rs` 806, `vault.rs`
   750, `graph/quadtree.rs` 719, `buffer/tests.rs` 701, `lsp/mod.rs` 687,
@@ -1988,6 +1996,14 @@ Largest files now (2026-10-30, after Phase 0's module splits):
   `workspace/commands.rs` 168, `ex.rs` 158, `workspace/views.rs` 68.
   The graph track's own largest are `graph/sim.rs` 908
   and `graph/quadtree.rs` 719; that tree is the other agent's to split.
+  **Since then (2026-10-31, the DB spine):** `db/index.rs` 899 is new — the indexer,
+  of which 330 lines are its own tests — and is the vault's largest core file.
+  `workspace/mod.rs` is 855 → **949** (the `db` field, opening it, and the four call
+  sites that report a write), `workspace/edits.rs` 468 → 486, `config/mod.rs` 405 →
+  458 (the `[index]` section), `ex.rs` 158 → 250, `db/mod.rs` 332, `db/schema.rs` 208,
+  and new `workspace/index.rs` 179 and `tests/index.rs` 170. **Still nothing over the
+  rule**, but `workspace/mod.rs` at 949 is the one to watch: the next thing that lands
+  in it should be a split, not a field.
   **Nothing is over the rule (2026-10-30).** The three that were — `tests/popup.rs`
   1104, `line.rs` 1086, `workspace/mod.rs` 1050 — split as planned: `line/`
   `{mod,runs,tests}.rs` 775/156/208, `tests/popup/` `{mod,keyboard,pointer}.rs`
@@ -2584,6 +2600,43 @@ Next steps, roughly in order:
     - **Watch out in tests:** the status countdown is 8 s and the autosave debounce
       is 2 s, so a test that advances one advances the other. The state-segment test
       runs with `autosave = false` for exactly that reason.
+
+25. **The vault index: SQLite spine, the indexer, and `:wordcount`** — Phase 1 up to
+    P1.7 (2026-10-31). The notes stay the source of truth; the DB is a cache.
+    - **Landed:** `crates/core/src/db/` (`Db` handle, single writer thread, WAL,
+      schema v2, `index.rs` the indexer) wired into the window as
+      `Workspace::db: Option<Arc<Db>>`, and `:wordcount [folder]` / `:wc` plus a
+      palette row as the first feature that reads the index instead of the notes.
+    - **Two schema columns the roadmap's sketch implied but did not name** (v2,
+      unreleased, so v1 is dropped and rebuilt rather than migrated): `notes.size`,
+      because `modified_at` is only as fine as a second and an edit inside that
+      second is otherwise invisible to the startup pass — a test sets a note's mtime
+      back to the stamped value, changes its length, and asserts the size is what
+      noticed — and `links.target_kind` (`note`/`attachment`/`ghost`), which is what
+      makes an unresolved-link list possible at all.
+    - **The startup pass reuses the watcher's diff.** `Db::reconcile` turns the rows
+      back into a `BTreeMap<PathBuf, Stamp>` and calls `VaultChanges::between`, so
+      there is one "what changed on disk" in the project. It has to truncate the
+      disk's mtimes to whole seconds first (`whole_seconds`): the index remembers
+      seconds, a filesystem hands out nanoseconds, and without that every note looks
+      modified at every startup.
+    - **What counts as an event** (a decision, not an accident): create, delete,
+      rename, and a modify whose provenance is *not* the user. A plain user save
+      writes no row — autosave fires every two seconds of quiet, and what the user
+      typed is git's history. The startup pass writes no events either: "new to the
+      index" is not "created".
+    - **Reading and parsing stay outside the write transaction**, on the caller's
+      thread, so one unreadable note costs its own row and not the pass
+      (`SyncReport.failed` names them). The writer thread never touches the disk.
+    - **A missing index is a missing feature.** `index.enabled = false` or a DB that
+      will not open leaves `db: None`; every index call from the window is
+      best-effort and logs, so a failed index never fails the save that caused it,
+      and `:wordcount` says there is no index rather than reporting zero. Same
+      posture as a `harper-ls` that will not start.
+    - **Not done yet:** P1.5's signal handler (`Db::shutdown` is the barrier, but
+      nothing catches SIGTERM), P1.6 backups, P1.8 `session.json`, frontmatter into
+      `edges`, `events` line spans (they want the save diff), and MCP/template
+      provenance, which wait on the features that write notes.
 
 ## Parked threads (agreed 2026-10-28; not being worked now)
 

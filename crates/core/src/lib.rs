@@ -18,7 +18,7 @@ pub mod watch;
 
 pub use buffer::Buffer;
 pub use config::Config;
-pub use db::{now_epoch, Db, Provenance, SCHEMA_VERSION};
+pub use db::{now_epoch, word_count, Db, EventKind, Provenance, SyncReport, SCHEMA_VERSION};
 pub use fuzzy::{fuzzy_match, ranked, FuzzyMatch};
 pub use theme::Palette;
 pub use vault::Vault;

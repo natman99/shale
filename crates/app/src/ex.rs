@@ -53,6 +53,10 @@ pub(crate) enum Ex {
     /// `p` / `paste`: the system clipboard in at the caret, and into the vim
     /// register, so `p` and `.` can carry the same text on.
     PasteClipboard,
+    /// `wordcount` / `wc [folder]`: how many words the vault — or one folder of it,
+    /// as typed — holds. The count comes from the vault index, so it is the index's
+    /// answer rather than a fresh read of every note.
+    WordCount(String),
     /// Anything else, with the word that was typed. Nothing runs: an unknown word
     /// is a typo, not something to guess at.
     Unknown(String),
@@ -123,6 +127,9 @@ pub(crate) fn parse(line: &str) -> Ex {
         // already knows; `clip` and `paste` spell it out for the rest.
         "y" | "yank" | "clip" | "copy" => Ex::YankClipboard,
         "p" | "paste" => Ex::PasteClipboard,
+        // The folder is whatever follows the word, so `:wordcount notes/daily` is
+        // one argument; an unknown word after it is not guessed at.
+        "wordcount" | "wc" => Ex::WordCount(rest.to_string()),
         _ => Ex::Unknown(word),
     }
 }

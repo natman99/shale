@@ -9,6 +9,7 @@
 
 pub(crate) mod commands;
 mod edits;
+mod index;
 mod jumps;
 mod keys;
 mod open;
@@ -26,9 +27,11 @@ pub(crate) use open::PickerTarget;
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Arc;
 use std::time::Duration;
 
 use gpui::{prelude::*, Context, Entity, SharedString, Subscription, Task, Window};
+use shale_core::db::{Db, Provenance};
 use shale_core::theme::{self, Palette};
 use shale_core::vault::VaultEntry;
 use shale_core::watch::{Stamp, VaultChanges};
@@ -122,6 +125,19 @@ pub(crate) struct Workspace {
     /// What every path in the vault looked like the last time the disk was
     /// checked, which is what the next check explains the difference to.
     signature: BTreeMap<PathBuf, Stamp>,
+    /// The vault index, when one is configured and opened: the cache of notes,
+    /// tags, links and word counts that `:wordcount` reads now and the graph,
+    /// vault search and agent read later.
+    ///
+    /// `None` is a missing feature rather than a broken window — the same posture
+    /// as a checker that will not start — because the notes are the source of truth
+    /// and the index can always be rebuilt from them. It is shared by `Arc` so the
+    /// startup pass can hold one handle on a background thread while the window
+    /// keeps its own.
+    db: Option<Arc<Db>>,
+    /// The startup reconciliation pass. Kept so it is cancelled with the window;
+    /// it ends on its own otherwise (see [`Workspace::start_index`]).
+    _index: Option<Task<()>>,
     /// The subscription to the open prompt, replaced when another one opens.
     _prompt_events: Option<Subscription>,
     /// The open picker, if one is open: quick-open, the command palette or a
@@ -246,6 +262,21 @@ impl Workspace {
         } else {
             (None, None)
         };
+        // The vault index is a cache the notes can always rebuild, so an index that
+        // is switched off in the config or will not open is a missing feature rather
+        // than a broken window: reported, and the window carries on without one.
+        let db = if config.index.enabled {
+            match Db::open(vault.root()) {
+                Ok(db) => Some(db),
+                Err(err) => {
+                    tracing::warn!("no vault index: {err:#}");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        let db = db.map(Arc::new);
         // Keybinding bugs on Linux are almost always "what did the platform
         // actually deliver, and which action did it resolve to", so log both —
         // at trace level, since this fires for every keystroke and floods the
@@ -260,7 +291,7 @@ impl Workspace {
                 "keystroke"
             );
         });
-        Self {
+        let mut workspace = Self {
             focus_handle: cx.focus_handle(),
             vault,
             config,
@@ -293,6 +324,8 @@ impl Workspace {
             picker_return_focus: None,
             _picker_events: None,
             signature,
+            db,
+            _index: None,
             _prompt_events: None,
             status: "".into(),
             status_seq: 0,
@@ -304,7 +337,12 @@ impl Workspace {
             _activation_events: None,
             _hover_events: None,
             _keystroke_observer: keystroke_observer,
-        }
+        };
+        // The one startup pass that catches what other programs did to the vault
+        // while Shale was closed. After it, the watcher and the save paths keep the
+        // index current between them.
+        workspace.start_index(cx);
+        workspace
     }
 
     /// Wire up the part of the window that needs a window to act on: the pointer's
@@ -623,6 +661,8 @@ impl Workspace {
                 // Shale just changed the disk itself; re-stamping it is what stops
                 // the watcher reporting our own save as an outside edit.
                 self.resign();
+                // ...and the index has to be told, for the same reason.
+                self.index_saved(&path);
                 self.say(format!("saved {}", path.display()), cx);
             }
             Err(err) => {
@@ -693,6 +733,7 @@ impl Workspace {
                 self.editor.update(cx, |editor, _cx| editor.mark_clean());
                 // Our own write must not come back as somebody else's edit.
                 self.resign();
+                self.index_saved(&path);
                 tracing::debug!(path = %path.display(), "autosaved");
             }
             Err(err) => {
@@ -766,6 +807,10 @@ impl Workspace {
         );
         self.signature = after;
         self.refresh_entries(cx);
+        // The index follows the disk as surely as the tree does, and gets the same
+        // change list. Everything in it is best-effort: a failed index is a log
+        // line, never a reason the window stops showing the vault.
+        self.index_changes(&changes, Provenance::External);
         // A note that is gone cannot be jumped to, so it leaves the chain — the
         // same rule the explicit delete follows.
         for removed in &changes.removed {

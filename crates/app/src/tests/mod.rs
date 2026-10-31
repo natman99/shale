@@ -9,12 +9,14 @@ use super::*;
 use crate::editor::MarkdownEditor;
 use crate::workspace::{keybindings, Workspace};
 use gpui::{BackgroundExecutor, Focusable, TestAppContext, VisualTestContext, WindowHandle};
+use std::path::Path;
 use std::time::Duration;
 
 mod autosave;
 mod blocks;
 mod commands;
 mod focus;
+mod index;
 mod jumps;
 mod keys;
 mod motions;
@@ -56,8 +58,13 @@ pub(crate) fn workspace(
     // process per window. The tests here are about the window, not the checker
     // (`tests::spell` and `crate::lsp` cover that), and a `harper-ls` per test is
     // hundreds of megabytes of other people's dictionaries.
+    //
+    // The vault index is off for the same reason: a DB file and a writer thread per
+    // window is not what a keymap or a paint test is about. `tests::index` turns it
+    // back on, and it is on in the app.
     let mut config = Config::default();
     config.spellcheck.enabled = false;
+    config.index.enabled = false;
     workspace_with(cx, files, config)
 }
 
@@ -78,7 +85,14 @@ pub(crate) fn workspace_with(
         }
         std::fs::write(&path, "").unwrap();
     }
-    let vault = Rc::new(Vault::open(dir.path()).unwrap());
+    let window = open_window(cx, dir.path(), config);
+    (dir, window)
+}
+
+/// The window both helpers end up with: the vault over `dir`, the keymap bound, and
+/// the note focused the way `main` focuses it.
+fn open_window(cx: &mut TestAppContext, dir: &Path, config: Config) -> WindowHandle<Workspace> {
+    let vault = Rc::new(Vault::open(dir).unwrap());
     cx.update(|cx| cx.bind_keys(keybindings()));
     let window = cx.add_window(|_window, cx| Workspace::new(vault.clone(), Rc::new(config), cx));
     window
@@ -89,6 +103,34 @@ pub(crate) fn workspace_with(
             ws.focus_editor(&FocusEditor, window, cx);
         })
         .unwrap();
+    window
+}
+
+/// A window that **does** keep a vault index, over a vault holding `notes` with
+/// real text in them.
+///
+/// The notes are written before the window exists, so the startup reconciliation
+/// pass has them to find rather than racing with them; the wait afterwards is that
+/// pass finishing, since it reads the vault on a background thread.
+///
+/// The `TempDir` is returned so the caller can change what is on disk and check
+/// what the index made of it.
+pub(crate) fn indexed_vault(
+    cx: &mut TestAppContext,
+    notes: &[(&str, &str)],
+) -> (tempfile::TempDir, WindowHandle<Workspace>) {
+    let mut config = Config::default();
+    config.spellcheck.enabled = false;
+    let dir = tempfile::tempdir().unwrap();
+    for (name, text) in notes {
+        let path = dir.path().join(name);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(&path, text).unwrap();
+    }
+    let window = open_window(cx, dir.path(), config);
+    cx.run_until_parked();
     (dir, window)
 }
 

@@ -38,10 +38,11 @@ pub(crate) enum Command {
     CopyText,
     PasteText,
     YankClipboard,
+    WordCount,
 }
 
 /// Every command, in the order the palette lists them before anything is typed.
-const ALL: [Command; 26] = [
+const ALL: [Command; 27] = [
     Command::Save,
     Command::Quit,
     Command::NewNote,
@@ -68,6 +69,7 @@ const ALL: [Command; 26] = [
     Command::CopyText,
     Command::PasteText,
     Command::YankClipboard,
+    Command::WordCount,
 ];
 
 impl Command {
@@ -105,6 +107,7 @@ impl Command {
             Command::CopyText => "Copy the selection to the clipboard",
             Command::PasteText => "Paste from the clipboard",
             Command::YankClipboard => "Copy the selection, or the last yank, to the clipboard",
+            Command::WordCount => "Count the vault's words",
         }
     }
 
@@ -139,6 +142,7 @@ impl Command {
             Command::CopyText => "ctrl-shift-c",
             Command::PasteText => "ctrl-shift-v, :paste",
             Command::YankClipboard => "space y, :yank",
+            Command::WordCount => ":wordcount [folder]",
         }
     }
 
@@ -173,6 +177,7 @@ impl Command {
             Command::CopyText => Box::new(CopyText),
             Command::PasteText => Box::new(PasteText),
             Command::YankClipboard => Box::new(YankClipboard),
+            Command::WordCount => Box::new(WordCount),
         }
     }
 }

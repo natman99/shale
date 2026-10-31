@@ -336,14 +336,67 @@ and `workspace/{mod,testhooks}.rs`. The largest file in the tree is
   - `marks(name, path, position, label, created_at)`
   - `edges(src, kind, dst)` — typed edges (brainstorm: typed edges ✅):
     frontmatter link-properties become edges at index time; body wikilinks
-    are kind `link`. One directed row per fact; display inverses live in
-    the edge-type registry, never in the DB.
-- **P1.3 Incremental indexing + startup reconciliation** — exactly as
-  PROJECT.md's Database section promises: background thread reconciles files
-  changed by external editors at launch, then ends; further updates are
-  event-driven off the existing `watch` + save paths.
-- **P1.4 Provenance stamped on every write path** — user save, MCP write,
-  rename, template, capture. One helper; every writer calls it.
+    are kind `link`. One directed row per fact; display inverses live in the
+    edge-type registry, never in the DB.
+  **Version 2 (2026-10-31, with P1.3)** adds two columns the indexer needs and the
+  sketch above implies but does not name: **`notes.size`** (bytes, so an edit that
+  lands inside the second the note was last indexed is still a change — `modified_at`
+  is only as fine as a second) and **`links.target_kind`** (`note` / `attachment` /
+  `ghost`, which is what makes an unresolved link list possible at all; a ghost's
+  `target` is what the author wrote, not a path).
+  An index at an **older** version is **dropped and rebuilt**, never migrated: the
+  notes hold everything the index has, so growing a migration framework around a
+  cache would be machinery protecting nothing. A **newer** version is still refused
+  out loud, because rebuilding there would throw away rows the newer Shale expects.
+  `SCHEMA_V1` stays in `schema.rs` (test-only) so the rebuild test builds a real v1
+  rather than a sketch of one.
+- **P1.3 Incremental indexing + startup reconciliation** — **DONE 2026-10-31**
+  (`db/index.rs` for the work, `workspace/index.rs` for the window's half).
+  `Db::reconcile(&vault)` turns the index back into a signature — the same shape
+  `Vault::signature()` returns — and diffs it against the disk with the watcher's own
+  `VaultChanges::between`, so there is one diff in the project rather than two. It
+  runs once, on a background thread, at startup, and ends; after that the watcher's
+  ticks call `Db::sync` with the change list they already computed, and Shale's own
+  save / create / rename / delete paths report themselves, because their writes are
+  re-stamped out of the watcher's view and nothing else would ever notice them.
+  `notes` (path, created/modified from the stamp, `size`, `word_count`), `tags`
+  (reusing `graph::extract_tags`) and `links` (wiki-links through
+  `Vault::resolve_link` then `resolve_attachment`, ghosts kept as written) are all
+  filled.
+  - **Reading and parsing happen outside the write transaction**, on the caller's
+    thread: the writer is the vault's only one, and one unreadable note must cost its
+    own row rather than the pass. `SyncReport.failed` names them and the pass stands.
+  - **`created_at` is when the index first saw the note**, not the filesystem's birth
+    time — `watch::Stamp` does not read one. Re-indexing never moves it, and a link's
+    `first_seen_at` survives a re-index for the same reason (links are read back,
+    replaced, and re-stamped with `last_seen_at`).
+  - **The index is a cache and is treated as one**: `index.enabled = false` in the
+    config, or a DB that will not open, leaves `Workspace.db` as `None`, which is a
+    missing feature reported in the log rather than a broken window — the checker's
+    posture. Every index call from the window is best-effort; a failed index is a log
+    line and never fails the save that triggered it.
+  - **The test harness turns the index off** (`tests::workspace`) so 250 keymap and
+    paint tests do not each pay for a DB file and a writer thread; `tests::index`
+    turns it back on with `indexed_vault`.
+  - What is *not* indexed yet: frontmatter (so `edges` stays empty until P3.3), and
+    the note's own `open_count` / `edit_count`, which need P1.8 to say what an open
+    is. Line spans for `events` are not captured yet either — they want the save
+    diff.
+- **P1.4 Provenance stamped on every write path** — **half done 2026-10-31, and the
+  half that is left does not exist yet.** `Provenance` is a closed enum (`User`,
+  `Mcp`, `Rename`, `Template`, `External`) and every write path the app has stamps
+  it: `notes_saved` / `note_created` / `note_deleted` carry `User`, the rename path
+  carries `Rename`, the watcher carries `External`, and the value lands in both
+  `notes.last_modified_by` and `events.provenance`. MCP, template and capture
+  provenance arrive with the features that write notes (P3.4, P5.2); there is no
+  separate helper to call, because the provenance is an argument on the one call each
+  path already makes.
+  **What counts as an event is a decision, not an accident:** `events` records
+  create, delete, rename, and a modify whose provenance is *not* the user. A plain
+  user save writes no row — autosave fires every two seconds of quiet, and what the
+  user typed is git's history (PROJECT.md, "What the DB is *not* for"). The startup
+  pass writes no events at all: "new to the index" is not the same statement as
+  "created".
 - **P1.5 Shutdown integrity rule** (brainstorm ✅, binding): SIGTERM = graceful
   shutdown (flush DB, write pending edits, finish in-flight saves); all writes
   atomic (temp + rename); SIGKILL out of scope. **Land this with the DB** —
@@ -371,8 +424,16 @@ and `workspace/{mod,testhooks}.rs`. The largest file in the tree is
   the UI thread, which needs something worth refreshing (P1.3).
 - **P1.6 DB backup** — daily copy to `.shale/backups/`, keep 7. DB is cache;
   notes are the source of truth.
-- **P1.7 `:wordcount [folder]`** + status-bar count — first DB-backed feature;
-  proves the spine end to end.
+- **P1.7 `:wordcount [folder]`** + status-bar count — **DONE 2026-10-31.** The
+  command line's `:wordcount [folder]` (and `:wc`) and a palette row for the whole
+  vault; the count comes from `notes.word_count` with one `SUM`, not by reading the
+  notes again, which is what makes it the spine's end-to-end proof. It answers in the
+  status line — "9 words in 2 notes", "…under notes/" for a folder — and says *which*
+  number it is: a vault with no index says there is no index rather than inventing a
+  zero. A folder is a path prefix, so `notes/` and `notesx/` are different answers.
+  **Word count is defined as** whitespace-delimited runs holding at least one letter
+  or digit, so a heading's `#`, a bullet's `-` and bold's `**` are not words
+  (`core::db::word_count`).
 - **P1.8 Session state — what the vault looked like last time** (the user asked
   for it 2026-10-29; simple, and it belongs with the `.shale/` work). Save on a
   graceful quit and on the autosave's beat; restore on open. Contents: the open
@@ -395,6 +456,10 @@ and `workspace/{mod,testhooks}.rs`. The largest file in the tree is
 external edit picked up within the watch interval; provenance correct for
 user/MCP/rename writes; `kill -TERM` leaves a clean DB (verify with
 `PRAGMA integrity_check`); `:wordcount` correct for vault and a subtree.
+**Met 2026-10-31 except** the SIGTERM half (P1.5: `Db`'s `Drop`/`shutdown` barrier
+exists, but nothing catches the signal yet) and MCP provenance (no MCP write path
+exists yet). The demo-vault rebuild time and the `kill -TERM` check are still to be
+measured by hand.
 
 ---
 

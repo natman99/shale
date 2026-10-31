@@ -34,10 +34,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::{Context as _, Result};
 use rusqlite::Connection;
 
+mod index;
 mod schema;
 #[cfg(test)]
 mod tests;
 
+pub use index::{target_kind, word_count, EventKind, SyncReport};
 pub use schema::SCHEMA_VERSION;
 
 /// The directory Shale keeps its per-vault state in: the config, the themes, the

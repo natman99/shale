@@ -164,6 +164,7 @@ impl Workspace {
             // The clipboard in. The editor owns the paste, and fills the vim
             // register with what it reads, so `p` can repeat it from there.
             ex::Ex::PasteClipboard => window.dispatch_action(PasteText.boxed_clone(), cx),
+            ex::Ex::WordCount(folder) => self.wordcount(&folder, cx),
             ex::Ex::Unknown(word) => self.say(format!("unknown command: {word}"), cx),
         }
         cx.notify();
@@ -202,6 +203,7 @@ impl Workspace {
             prompt::PromptKind::NewNote => {
                 let created = self.vault.create_note(self.target_dir().join(answer))?;
                 self.refresh_entries(cx);
+                self.index_created(&created);
                 self.tree_selection = Some(created.clone());
                 self.open_note(&created, cx);
                 self.say(format!("created {}", created.display()), cx);
@@ -230,6 +232,12 @@ impl Workspace {
                 let renamed = self.vault.rename(&from, &to)?;
                 let report = self.apply_rewrites(&from, &renamed, &rewrites, cx)?;
                 self.refresh_entries(cx);
+                // The note itself moves in one step, and the notes the rename
+                // rewrote to point at it are re-indexed alongside it: Shale's own
+                // writes are stamped out of the watcher's view, so nothing else
+                // would ever notice them.
+                self.index_renamed(&from, &renamed);
+                self.index_rewrites(&report.written);
                 if self.active.as_deref() == Some(from.as_path()) {
                     self.active = Some(renamed.clone());
                 }
@@ -264,6 +272,7 @@ impl Workspace {
                 }
                 // And every jump that named it.
                 self.jumps.forget(&target);
+                self.index_deleted(&target);
                 self.tree_selection = None;
                 self.refresh_entries(cx);
                 self.say(format!("deleted {}", target.display()), cx);
@@ -317,6 +326,7 @@ impl Workspace {
             self.vault.write(&path, &rewrite.text)?;
             report.files += 1;
             report.links += rewrite.changed;
+            report.written.push(path.clone());
             if is_open {
                 let text = rewrite.text.clone();
                 self.editor
@@ -439,6 +449,9 @@ struct RewriteReport {
     files: usize,
     /// Links rewritten across them.
     links: usize,
+    /// Where those writes went, so the index can be told. Vault-relative, and the
+    /// renamed note appears under its new name.
+    written: Vec<PathBuf>,
     /// The open note holds unsaved edits, so its links were left alone.
     skipped_open: bool,
 }

@@ -157,6 +157,7 @@ impl Render for Workspace {
             .on_action(cx.listener(|ws, _: &CheckerOn, _window, cx| ws.set_checker(true, cx)))
             .on_action(cx.listener(|ws, _: &CheckerOff, _window, cx| ws.set_checker(false, cx)))
             .on_action(cx.listener(Self::yank_clipboard))
+            .on_action(cx.listener(Self::show_wordcount))
             // Clicking off the picker or the command line closes it. Both float over
             // the note, and a click under them used to belong to nothing at all, so
             // they simply stayed up until `escape`. A click inside a panel never
@@ -369,8 +370,14 @@ impl Render for Workspace {
                                 .child(dirty),
                         )
                     })
-                    .child(self.status.clone())
-                    .child(spell)
+                    .when(!self.status.is_empty(), |d| {
+                        // A message only takes a slot when there is one. An empty
+                        // child is still a flex item, so leaving it in put a gap on
+                        // both sides of nothing and split the bar with a wider space
+                        // than anywhere else in it.
+                        d.child(self.status.clone())
+                    })
+                    .when(!spell.is_empty(), |d| d.child(spell))
                     // The search's own readout, so the count does not overwrite the
                     // status line the way a transient message would.
                     .when(!search.is_empty(), |d| {

@@ -40,6 +40,8 @@ pub struct Config {
     pub appearance: AppearanceConfig,
     #[serde(default)]
     pub spellcheck: SpellcheckConfig,
+    #[serde(default)]
+    pub index: IndexConfig,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -125,6 +127,24 @@ impl Default for SpellcheckConfig {
             command: "harper-ls".to_string(),
             args: vec!["--stdio".to_string()],
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct IndexConfig {
+    /// Keep `.shale/shale.db` up to date: the index of notes, tags and links the
+    /// word count and (later) the graph, search and agent read. On by default.
+    ///
+    /// Off means those features have nothing to read, exactly as if the DB file had
+    /// been deleted — which is always a safe thing to do to it, because the notes
+    /// are the source of truth and the index is a cache.
+    pub enabled: bool,
+}
+
+impl Default for IndexConfig {
+    fn default() -> Self {
+        Self { enabled: true }
     }
 }
 
@@ -237,6 +257,13 @@ live_preview = true
 enabled = true
 command = "harper-ls"
 args = ["--stdio"]
+
+[index]
+# The vault index: .shale/shale.db, a cache of notes, tags, links and word counts.
+# Deleting that file is always safe — the notes are the source of truth and Shale
+# rebuilds the index from them. Off leaves it unwritten, and the features that read
+# it say so rather than guessing.
+enabled = true
 "#
     }
 }

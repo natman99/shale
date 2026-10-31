@@ -168,6 +168,10 @@ actions!(
         // (`space y`, `:yank`). The way out; `ctrl-shift-v` / `:paste` is the way
         // back in, and it fills the vim register too.
         YankClipboard,
+        // How many words the vault holds, counted from the index rather than by
+        // reading every note again (`:wordcount [folder]`). The palette row counts
+        // the whole vault; the command line can scope it to one folder.
+        WordCount,
     ]
 );
 
