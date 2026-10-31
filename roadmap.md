@@ -444,6 +444,19 @@ and `workspace/{mod,testhooks}.rs`. The largest file in the tree is
   the UI thread, which needs something worth refreshing (P1.3).
 - **P1.6 DB backup** — daily copy to `.shale/backups/`, keep 7. DB is cache;
   notes are the source of truth.
+  **Landed 2026-10-31.** `db/backup.rs`: `Db::backup()` copies the index with
+  SQLite's online backup API, as a job on the writer thread — a plain file copy
+  would race the checkpoint and a torn copy is worse than no copy, and the writer
+  is the one place the source cannot change mid-copy (the single tolerated
+  exception to "no file I/O on the writer", bounded by the page-step size). The
+  destination stages through the same `.shale-tmp` convention as every atomic
+  write, so P1.5's rule holds for the copies too. Files are
+  `shale-YYYY-MM-DD.db` — UTC day, so the rotation does not move with the
+  timezone, and the civil-date conversion is `civil_from_days` because a date
+  library is not wanted for one format. Keep 7. The window's loop
+  (`workspace/index.rs`): first attempt at startup, then hourly — a directory
+  listing until the day rolls over. Needs only rusqlite's `backup` feature, the
+  same bundled crate.
 - **P1.7 `:wordcount [folder]`** + status-bar count — **DONE 2026-10-31.** The
   command line's `:wordcount [folder]` (and `:wc`) and a palette row for the whole
   vault; the count comes from `notes.word_count` with one `SUM`, not by reading the

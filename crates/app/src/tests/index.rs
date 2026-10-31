@@ -191,3 +191,38 @@ fn a_vault_without_an_index_says_so(cx: &mut TestAppContext) {
         status(&window, cx)
     );
 }
+
+/// The window keeps a copy of the cache beside it: opening a vault on a day that
+/// has no copy yet makes one, in `.shale/backups/` and nowhere else (roadmap
+/// P1.6). The rotation's own arithmetic — same-day skip, keep seven — is
+/// `shale_core::db::backup`'s tests to make; this is the proof the window
+/// actually runs it.
+#[gpui::test]
+fn opening_a_vault_takes_todays_index_backup(cx: &mut TestAppContext) {
+    let (dir, _window) = indexed_vault(cx, &[("Welcome.md", WELCOME)]);
+    let backups = dir.path().join(".shale").join("backups");
+    let copies: Vec<_> = std::fs::read_dir(&backups)
+        .expect("the window made today's copy")
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(copies.len(), 1, "one copy for today: {copies:?}");
+    assert!(
+        copies[0].starts_with("shale-") && copies[0].ends_with(".db"),
+        "named by day: {}",
+        copies[0]
+    );
+
+    // And the vault itself stayed clean: a backup is state, not a note.
+    let stray = std::fs::read_dir(dir.path())
+        .unwrap()
+        .filter(|entry| {
+            entry
+                .as_ref()
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with("shale-")
+        })
+        .count();
+    assert_eq!(stray, 0, "no backup in the vault's root");
+}

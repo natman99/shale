@@ -21,7 +21,10 @@ const TMP_SUFFIX: &str = ".shale-tmp";
 
 /// The temp path a write to `path` stages through: the same directory, so the
 /// rename at the end cannot cross a filesystem and cannot be anything but a rename.
-fn staging_path(path: &Path) -> std::path::PathBuf {
+///
+/// Also what the DB backup (roadmap P1.6) stages through: the convention, not just
+/// the text writer, is the thing worth sharing.
+pub(crate) fn staging_path(path: &Path) -> std::path::PathBuf {
     let mut staged = std::ffi::OsString::from(".");
     if let Some(name) = path.file_name() {
         staged.push(name);

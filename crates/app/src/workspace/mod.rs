@@ -139,6 +139,9 @@ pub(crate) struct Workspace {
     /// The startup reconciliation pass. Kept so it is cancelled with the window;
     /// it ends on its own otherwise (see [`Workspace::start_index`]).
     _index: Option<Task<()>>,
+    /// The daily index backup loop. Kept so it is cancelled with the window; it
+    /// never ends on its own (see [`Workspace::start_backups`]).
+    _backup: Option<Task<()>>,
     /// The task that watches for a termination signal. Only started by `main`, and
     /// only for as long as the window is (see [`exit`]).
     _termination: Option<Task<()>>,
@@ -330,6 +333,7 @@ impl Workspace {
             signature,
             db,
             _index: None,
+            _backup: None,
             _termination: None,
             _prompt_events: None,
             status: "".into(),

@@ -217,7 +217,9 @@ Workspace layout:
   checkpoint — `index.rs` keeping the
   index in step with the notes (the startup reconciliation, the watcher's change
   lists, and what each note contributes: words, tags, links and the events worth
-  logging), `schema.rs` the tables and the `user_version` stamp, `tests.rs` the
+  logging), `schema.rs` the tables and the `user_version` stamp, `backup.rs` the
+  daily copy rotation in `.shale/backups/` (SQLite's online backup API, run as a
+  writer-thread job), `tests.rs` the
   contract), text
   `Buffer` with undo/redo, the vim mode engine, `mdstyle` (the
   presentation-agnostic markdown style scanner, split into `mdstyle/mod.rs` for
@@ -324,7 +326,8 @@ Workspace layout:
   `commands.rs` the command palette's list
   — every command's label, the keys that run it and the action it dispatches —
   `index.rs` the vault index inside the window (the startup pass, telling the index
-  what Shale's own save/create/rename/delete just did, and `:wordcount`),
+  what Shale's own save/create/rename/delete just did, `:wordcount`, and the daily
+  backup loop),
   `exit.rs` the termination-signal exit (polling the flag the handler raised, and
   what an exit owes the disk),
   `render.rs` the frame, `testhooks.rs` the accessors only the tests call),
@@ -429,9 +432,9 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
 - Run the test binaries under `ulimit -v` when working on anything that scans
   text (a scanner bug can allocate until the OOM killer takes the editor down —
   see the table postmortem).
-  Current peak RSS of the test binaries (2026-10-31, app 273 / core 377 with 10
+  Current peak RSS of the test binaries (2026-10-31, app 274 / core 381 with 10
   ignored / mcp 6 tests — core's `db::` tests cost it nothing worth mentioning: 12.5
-  MB to 15 MB, and the app's 79 MB to 85 MB is the seven `tests::index` windows that
+  MB to 15 MB, and the app's 79 MB to 85 MB is the eight `tests::index` windows that
   each open a real DB, which is nowhere near the 200 MB line worth investigating):
   core 15 MB, app 85 MB,
   mcp 3.4 MB. The
@@ -2011,8 +2014,10 @@ Largest files now (2026-10-30, after Phase 0's module splits; what the DB spine
   and new `workspace/index.rs` 179 and `tests/index.rs` 193. **P1.5 the same day:**
   new `atomic.rs` 193 (90 of them its own tests), `workspace/exit.rs` 62 and
   `tests/exit.rs` 99; `db/mod.rs` 332 → 350, `config/edit.rs` down to 313 (it lost
-  its private writer). **Still nothing over the rule**, but two are close:
-  `workspace/mod.rs` **988** and `editor/mod.rs` **960**.
+  its private writer). **P1.6 the same day:** new `db/backup.rs` 251 (100 of them
+  its own tests), `workspace/index.rs` 179 → 238. **Still nothing over the rule**,
+  but two are close, and one is now at the line:
+  `workspace/mod.rs` **992** and `editor/mod.rs` **960**.
   The next thing that wants to land in either should be a split, not a field —
   `workspace/mod.rs` is the state plus the vault-edit actions plus the bar's free
   functions, and the bar's segments (`save_indicator`, `mode_label`, `word_badge`,
@@ -2661,10 +2666,10 @@ Next steps, roughly in order:
       best-effort and logs, so a failed index never fails the save that caused it,
       and `:wordcount` says there is no index rather than reporting zero. Same
       posture as a `harper-ls` that will not start.
-    - **Not done yet:** P1.6 backups, P1.8 `session.json`, frontmatter into
+    - **Not done yet:** P1.8 `session.json`, frontmatter into
       `edges`, `events` line spans (they want the save diff), and MCP/template
       provenance, which wait on the features that write notes. (P1.5's signal half
-      landed the same day — thread 26.)
+      and P1.6's backups landed the same day — threads 26 and 27.)
 
 26. **Shutdown integrity: the atomic write and the termination signal** — P1.5
     (2026-10-31).
@@ -2704,6 +2709,31 @@ Next steps, roughly in order:
       queue and empties the `-wal`), two in `tests/exit.rs` (a raised flag writes
       the dirty note; no note open still exits cleanly). The live `kill -TERM` +
       `PRAGMA integrity_check` check on the demo vault is still owed by hand.
+
+27. **The daily index backup** — P1.6 (2026-10-31).
+    - **What a backup is for, given the DB is a cache:** insurance against a slow
+      corruption being *read* into the graph, not against loss — the notes
+      rebuild a deleted index in a second. One copy per day in
+      `<vault>/.shale/backups/`, the newest seven kept; a few megabytes of cache,
+      never a second vault.
+    - **SQLite's online backup API, as a writer-thread job.** A plain file copy
+      would race the checkpoint (the main DB file is rewritten piecemeal when the
+      WAL folds in) and a torn copy is worse than none, because pruning would
+      count it as one of seven. The writer thread is the one place the source
+      cannot change mid-copy — the single tolerated exception to "no file I/O on
+      the writer", bounded by the page-step size. The destination stages through
+      the same dot-prefixed `.shale-tmp` convention as every other atomic write.
+    - **Named by UTC day** (`shale-2026-10-31.db`), so the rotation does not move
+      with the timezone and sorting the names sorts them chronologically — which
+      is all `prune` needs. The epoch→civil-date conversion is `civil_from_days`
+      (Hinnant's algorithm), tested at the year boundary and a leap day, because
+      a date library is not wanted for one format string.
+    - **The window's loop** (`workspace/index.rs`): first attempt at startup, so
+      a vault opened on a new day is backed up without waiting; then hourly — a
+      directory listing until the day rolls over, and `Db::backup()` answers
+      `Ok(None)` when today's copy exists. Every outcome is a log line; a failed
+      backup never disturbs the window. rusqlite's `backup` feature (the same
+      bundled crate) is the only dependency change.
 
 ## Parked threads (agreed 2026-10-28; not being worked now)
 

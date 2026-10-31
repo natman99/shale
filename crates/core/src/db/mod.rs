@@ -34,6 +34,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::{Context as _, Result};
 use rusqlite::Connection;
 
+mod backup;
 mod index;
 mod schema;
 #[cfg(test)]

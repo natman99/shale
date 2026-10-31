@@ -6,13 +6,16 @@
 //! not open) is a window with a few features missing rather than a broken one — the
 //! same posture the spellchecker has.
 //!
-//! Two paths keep it current. [`Workspace::start_index`] runs the one startup pass
-//! that catches what other programs did while Shale was closed; after that the
-//! watcher's ticks and Shale's own save, create, rename and delete paths report
-//! what changed, which is what keeps the steady state free: nothing is re-read
-//! unless its stamp moved.
+//! Two paths keep it current. [`Workspace::start_index`] runs the one startup
+//! pass that catches what other programs did while Shale was closed; after that
+//! the watcher's ticks and Shale's own save, create, rename and delete paths
+//! report what changed, which is what keeps the steady state free: nothing is
+//! re-read unless its stamp moved. A third keeps a copy rather than the cache:
+//! [`Workspace::start_backups`], roadmap P1.6's daily rotation in
+//! `.shale/backups/`.
 
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use gpui::{Context, Window};
 use shale_core::db::Provenance;
@@ -20,6 +23,11 @@ use shale_core::watch::VaultChanges;
 
 use super::Workspace;
 use crate::acts::WordCount;
+
+/// How often the backup loop asks whether a new day has started. The question is
+/// a directory listing, so an hour is generous and the day boundary slips by at
+/// most that much — and a Shale left running for weeks still rotates daily.
+const BACKUP_POLL: Duration = Duration::from_secs(3_600);
 
 impl Workspace {
     /// The startup reconciliation: read the vault once on a background thread,
@@ -32,6 +40,7 @@ impl Workspace {
         let Some(db) = self.db.clone() else {
             return;
         };
+        self.start_backups(cx);
         // A copy of the vault rather than the `Rc`: the walk and the reading happen
         // on a background thread, and `Rc` cannot cross one.
         let vault = (*self.vault).clone();
@@ -61,6 +70,41 @@ impl Workspace {
                     tracing::warn!("could not bring the vault index up to date: {err:#}");
                 }
             }
+        }));
+    }
+
+    /// The daily backup loop (roadmap P1.6): take today's copy if today's copy
+    /// has not been taken, then ask again every hour.
+    ///
+    /// The first answer comes at startup, so a vault opened on a new day is
+    /// backed up without waiting out the poll. The copy itself happens on the
+    /// index's own writer thread ([`shale_core::db::Db::backup`], off the
+    /// window's thread), and every outcome is a log line: a backup that fails is
+    /// tomorrow's insurance question, not a reason to disturb the window.
+    pub(super) fn start_backups(&mut self, cx: &mut Context<Self>) {
+        let Some(db) = self.db.clone() else {
+            return;
+        };
+        self._backup = Some(cx.spawn(async move |_ws, cx| loop {
+            // A handle per round trip: the loop outlives each backup, so the
+            // `Db` is cloned into the job rather than moved.
+            let db = db.clone();
+            let outcome = cx
+                .background_executor()
+                .spawn(async move { db.backup() })
+                .await;
+            match outcome {
+                Ok(Some(path)) => {
+                    tracing::info!(path = %path.display(), "the vault index was backed up");
+                }
+                // Today's copy already existed: the normal answer, forty-seven
+                // times a day.
+                Ok(None) => {}
+                Err(err) => {
+                    tracing::warn!("the vault index was not backed up: {err:#}");
+                }
+            }
+            cx.background_executor().timer(BACKUP_POLL).await;
         }));
     }
 
