@@ -216,15 +216,39 @@ Small, unblocking, and three of them are already-parked user requests.
   quotation on the line under a list item, a callout or a fence had no pair — not a
   quirk of the block parser, and a test now asks every object from the line below
   another block to prove the rest were never broken.
-- **P0.8 Focus / typewriter mode** (brainstorm ✅): per-block alpha ramp in the
-  renderer. Establishes the dimming machinery that search-illumination and
-  note-pinning later reuse.
+- **P0.8 Focus / typewriter mode** (brainstorm ✅) — **DONE 2026-10-30.**
+  `crates/app/src/dim.rs` answers one question per buffer row: how far is this row
+  from the block the caret is in? Three steps down to a floor of 0.3, so the rest
+  of the note goes quiet rather than away. A block is a run of non-blank rows; a
+  heading row and each blank row are blocks of their own, which is what makes the
+  ramp follow the note's shape instead of counting lines. `scope = "section"` asks
+  the markdown object parser for the heading section the caret sits under and lights
+  all of it, falling back to the block when the caret is above the first heading.
+  The alpha is applied to each coalesced run in `line/runs.rs` (one colour per run,
+  not per byte) and to the code-block, callout and thematic-break quads; the caret,
+  selection and search-hit backgrounds are never faded, and raw mode draws no fade
+  at all, the same rule that keeps its markdown syntax and embeds. `space d` and
+  `:focus`/`:dim` (badge in the status bar, no status message to sit beside it);
+  `:typewriter` reports in the status line, because nothing on screen shows it.
+  Typewriter scroll centres the caret using the previous frame's child bounds, so it
+  costs no measuring of its own, and acts only when the caret moved, which leaves a
+  reader who scrolled by hand alone. Config: `editor.focus`, `editor.focus_scope`,
+  `editor.typewriter`, all off.
+  **Left:** the `sentence` scope is not implemented (`from_word("sentence")` gives
+  `block`); nothing is written back to the config, so neither mode persists; no
+  mouse wheel yet, which is what would make the ramp follow a scroll.
 
 **Exit criteria:** config lives in `.shale/` and a root `shale.toml` is *moved*
 there on open rather than read from, autosave on by default, no file over 1000
 lines, the popup and the picker both scroll, `/` and the three views work,
 `ctrl-o`/`ctrl-i` walk the jump chain, the markdown text objects answer `i`/`a`,
 all existing tests green.
+
+**Met 2026-10-30.** Phase 0 is closed. The last criterion to fall was the file
+size: `line.rs`, `tests/popup.rs` and `workspace/mod.rs` were each over 1000 lines
+and are now `line/{mod,runs,tests}.rs`, `tests/popup/{mod,keyboard,pointer}.rs`
+and `workspace/{mod,testhooks}.rs`. The largest file in the tree is
+`editor/mod.rs` at 948.
 
 ---
 

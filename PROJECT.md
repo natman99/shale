@@ -267,7 +267,8 @@ Workspace layout:
   each with the cursor where they left it) and a
   **command palette** (`ctrl-shift-p`) beside vim's **command line** (`:`, which is
   deliberately *not* the palette: one word, matched exactly — `:w`, `:q`, `:wq`,
-  `:x`, `:e`, `:harper on|off|1|0`, `:theme [name]`, `:raw|:live|:preview`;
+  `:x`, `:e`, `:harper on|off|1|0`, `:theme [name]`, `:raw|:live|:preview`,
+  `:focus|:dim on|off`, `:typewriter on|off`;
   `ex.rs` is its whole
   vocabulary, and a word it does not know runs nothing) — both pickers
   *overlay* the note rather than pushing it down, and the note has margins around
@@ -281,7 +282,13 @@ Workspace layout:
   a time, anchored to the line it belongs to, not an OS window, and ended by
   `escape`, by a row, or by the pointer walking off either edge of it). The
   checker itself can be switched off and on without a restart (`:harper off`,
-  `:harper on`). Split into `main.rs` (the
+  `:harper on`). Two ways the frame follows the cursor rather than the other way
+  round: **focus mode** (`space d`, `:focus`) fades everything but the block the
+  caret is in — a three-step ramp down to a floor, so the rest of the note goes
+  quiet rather than away, with `editor.focus_scope = "block" | "section"` deciding
+  how much is lit — and **typewriter scroll** (`:typewriter`) keeps the caret's
+  line near the middle of the window after a jump. Both are off until asked for
+  (`[editor]` in the config). Split into `main.rs` (the
   command line and the window it opens), `acts.rs` (every action the keymap
   names — the two namespaces its `actions!` calls generate are what the keymap
   and the tests match on, so they are load-bearing, not just namespaces),
@@ -303,14 +310,20 @@ Workspace layout:
   on, kept here so `n`/`N` outlive the field that typed the query,
   `commands.rs` the command palette's list
   — every command's label, the keys that run it and the action it dispatches —
-  `render.rs` the frame), `tree.rs` (turning the vault's entries
-  into rows) and its headless tests in `tests/` (`keys.rs`, `motions.rs`,
-  `blocks.rs`, `paint.rs`, `tree.rs`, `picker.rs`, `commands.rs`, `popup.rs`,
-  `search.rs`, `autosave.rs`, `spell.rs`), `editor/` (the view: `mod.rs`
+  `render.rs` the frame, `testhooks.rs` the accessors only the tests call),
+  `tree.rs` (turning the vault's entries
+  into rows), `views.rs` (the three views, focus mode and typewriter scroll) and
+  its headless tests in `tests/` (`keys.rs`, `motions.rs`,
+  `blocks.rs`, `paint.rs`, `tree.rs`, `picker.rs`, `commands.rs`, `search.rs`,
+  `autosave.rs`, `spell.rs`, `focus.rs`, and `popup/` — `mod.rs` the fixtures,
+  `keyboard.rs` the `K` and offer-list half, `pointer.rs` the resting-mouse half),
+  `dim.rs` (focus mode: how far each buffer row is from the block the caret is in,
+  and the colour that answers it), `editor/` (the view: `mod.rs`
   holds the state and accessors, `wrap.rs` the display model, `render.rs` builds
   the frame and the key context, `actions.rs` the key handlers, `input.rs` the
-  IME/paste/click surface), `line.rs` (the `LineElement` that paints one display
-  line, and the run builder), `preview.rs` (the painted form of a display line and
+  IME/paste/click surface), `line/` (the `LineElement` that paints one display
+  line in `mod.rs`, the run builder in `runs.rs`, its own tests in `tests.rs`),
+  `preview.rs` (the painted form of a display line and
   the buffer <-> painted-offset map), `image.rs` (resolving an embed target to a
   vault attachment and sizing the picture), `table_view.rs` (the table grid
   geometry: column widths and cell offsets, in character cells), `theme.rs` (the
@@ -399,9 +412,9 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
 - Run the test binaries under `ulimit -v` when working on anything that scans
   text (a scanner bug can allocate until the OOM killer takes the editor down —
   see the table postmortem).
-  Current peak RSS of the test binaries (2026-10-29, app 234 / core 352 with 10
+  Current peak RSS of the test binaries (2026-10-30, app 255 / core 353 with 10
   ignored / mcp 6 tests — core's count includes the graph agent's `graph::` tests,
-  which are committed and green): core 7.8 MB, app 68 MB,
+  which are committed and green): core 8.1 MB, app 78 MB,
   mcp 3.5 MB. The
   app binary's *address space* (not RSS) is far larger because of gpui/wgpu
   reservations, and it now needs **4 GB or more** — a 1 GB cap makes it die in an
@@ -1943,7 +1956,7 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   module gained reach. Splitting a `mod tests { … }` block the same way works,
   but note that a child test module's `use super::*` reaches the parent's own
   `use`s, so the extra `use crate::vim::*` lines are dead weight.
-Largest files now (2026-10-29, after the smart-quote rendering):
+Largest files now (2026-10-30, after Phase 0's module splits):
   `tests/popup.rs` 1104, `line.rs` 1086, `workspace/mod.rs` 1050,
   `graph/sim.rs` 908, `editor/mod.rs` 857, `tests/paint.rs` 806, `vault.rs`
   750, `graph/quadtree.rs` 719, `buffer/tests.rs` 701, `lsp/mod.rs` 687,
@@ -1969,17 +1982,19 @@ Largest files now (2026-10-29, after the smart-quote rendering):
   `workspace/commands.rs` 168, `ex.rs` 158, `workspace/views.rs` 68.
   The graph track's own largest are `graph/sim.rs` 908
   and `graph/quadtree.rs` 719; that tree is the other agent's to split.
-  **Three files are over the rule now (2026-10-29): `tests/popup.rs` 1104,
-  `line.rs` 1086 and `workspace/mod.rs` 1050** — `line.rs` went over with
-  the `/` matches. None of the three splits is in that commit. The plans:
-  `line.rs` splits as the element (`line/mod.rs`) plus the run builder and the
-  style map (`line/runs.rs`), and P0.5 made that seam real — `build_runs`,
-  `LineStyles` and `cell_styles` are one thing and the `Element` impl is another;
-  `workspace/mod.rs` wants the popup state and its
-  accessors gathered out (the test-only accessors alone are ~90 lines and would
-  sit happily in `workspace/testhooks.rs`), and `tests/popup.rs` splits as
-  `tests/popup/{mod,keyboard,pointer}.rs` with the shared fixtures (`marked_note`,
-  `hover_at`, `line_box`, `place`, `bottom_note`) in `mod.rs`.
+  **Nothing is over the rule (2026-10-30).** The three that were — `tests/popup.rs`
+  1104, `line.rs` 1086, `workspace/mod.rs` 1050 — split as planned: `line/`
+  `{mod,runs,tests}.rs` 775/156/208, `tests/popup/` `{mod,keyboard,pointer}.rs`
+  256/414/450, and `workspace/mod.rs` 855 with its 27 test-only accessors in
+  `workspace/testhooks.rs` 211. What a split costs, in visibility: `line/runs.rs`
+  needed `pub(super)` on `build_runs`, `cell_styles`, `LineStyles` **and its
+  fields** (the element builds a `LineStyles` by struct literal), and `CellShaped`
+  needed `pub(crate)` fields for the same reason — a child module sees its
+  parent's privates, but the parent does not see a child's. `workspace/testhooks.rs`
+  needed nothing at all: as a child of `workspace` it reads the window's private
+  fields exactly as before. `tests/popup/mod.rs` had to keep `place` and
+  `bottom_note`, which look like pointer fixtures but the offer-list test asks for
+  a panel near the bottom of the window too.
 
 System dependency (Linux): `libxkbcommon-x11-devel` (plus fontconfig, freetype,
 x11, xcb, wayland dev packages) and a working Vulkan driver (the Linux renderer
@@ -2454,6 +2469,73 @@ Next steps, roughly in order:
       typing keeps the note straight, a pointer on a curly glyph, a wrapped row
       curly all the way down, a table cell). Taking the substitutions out of the
       frame fails 5 of those 7, so the net is load-bearing.
+    - **Found later (2026-10-30), on Windows:** `PieceMap::identity(start, end)` was
+      setting the piece's **painted** range to `(start, end)` — buffer coordinates.
+      It cancelled out everywhere it was used, because a painted index handed back to
+      `Piece::offset_at` came from the same shaped line it had been measured on. It
+      stopped cancelling out for a row painted as an **embedded image**: that row's
+      shaped line is empty, so `closest_index_for_x` answers painted index 0, and
+      `0 - painted.0` subtracted underflowed. Linux never took the path; Windows
+      surfaced it on alt-tab and on mouse-over. The fix is `painted: (0, end - start)`
+      — a piece is indexed from its own front — which also makes a click on a
+      picture mean the start of its row rather than byte 0 of the note. `saturating_
+      sub` in `painted_at`/`offset_at` is the belt-and-braces for the paint loop.
+      `an_identity_map_starts_at_the_front_of_its_own_text` is the test that carries
+      it: revert `identity` and only that test fails.
+
+23. **Focus / typewriter mode — `space d`, `:focus`, `:typewriter`** — Done
+    (2026-10-30, P0.8). Two ways the frame can follow the cursor instead of the
+    other way round, and one piece of machinery both needed: `crates/app/src/dim.rs`.
+    - **One question, one system.** `row_alphas(text, spans, cursor, scope,
+      line_count)` answers "how far is this row from the caret?" and the renderer
+      turns the answer into a colour. The roadmap wants search-illumination and
+      note-pinning (P1/P2) to reuse the same ramp rather than grow a second one, so
+      the module knows nothing about gpui: it returns `Vec<f32>`, one alpha per buffer
+      row, and `theme::RunStyle::faded` and `dim::fade` are the only places a colour
+      is touched.
+    - **The block model, not a line count.** A block is a maximal run of non-blank
+      rows; a heading row is a block of its own, and so is each blank row. That is
+      what makes the fade follow the note's shape: in `first\nsecond\n\nthird`, the
+      caret on `first` lights `first` and `second`, dims the blank line one step, the
+      next paragraph two, and everything past that holds at the floor. Three steps
+      (`RAMP = [1.0, 0.7, 0.45]`) down to `FLOOR = 0.3`: the rest of the note has to
+      stay readable, which is the difference between quiet and gone.
+    - **Scope is a setting, and it reuses the text-object parser.** `scope =
+      "section"` asks `mdstyle::object::range(cursor, Object::Section, false)` for the
+      heading section the caret sits under and lights all of it, falling back to the
+      block when the caret is above the first heading. `sentence` is not implemented:
+      `Scope::from_word("sentence")` quietly gives `block`, which is the one rough
+      edge a user should hear about before P1.
+    - **Faded after coalescing, never on the caret.** `build_runs` dims each run once
+      the neighbours that shared a style have merged, so the cost is one colour per
+      run rather than per byte — and dimming *before* the coalescing pass would
+      compare dimmed values and split runs that should be one. The caret, selection
+      and search-hit backgrounds are never faded: a dimmed caret is a caret the user
+      cannot find, which is the opposite of what the mode is for. Raw mode draws no
+      fade at all, the same rule that keeps its markdown syntax, tables and embeds.
+    - **Typewriter scroll reads the previous frame.** `bounds_for_item(cursor)` is
+      last frame's child geometry, which is one frame behind at worst and costs no
+      measuring of its own; the arithmetic is gpui's own `scroll_to_item` plus half a
+      viewport to bring the line to the middle instead of the top, clamped to
+      `(-max_offset.y, 0]`. It only acts when the caret *moved*, which is what leaves
+      a reader who scrolled by hand alone. gpui's `ensure_cursor_visible` still runs
+      alongside it: `ScrollStrategy::FirstVisible` moves the viewport the minimum, so
+      once the caret is centred it has nothing left to do — that turned out to be true
+      and is why there is no special case for it in the editor.
+    - **Reporting is split on purpose.** Focus mode shows a badge in the status bar
+      (`focus block` / `focus section`) and `:focus` deliberately writes no status
+      message, because the badge already says it; typewriter scroll has nothing on
+      screen to show it, so `:typewriter` reports in the status line instead.
+    - **Tests**: 10 in `dim.rs` (the ramp and its floor, blocks and blank rows, the
+      section scope, the fade arithmetic) and 11 in `tests/focus.rs` (resting state,
+      the ramp away from the caret, raw never dims, `space d` both ways with the note
+      untouched, `:focus on|off` and `:dim`, the section scope, the config starting
+      both modes, and the typewriter pair). The typewriter pair is the interesting
+      one: both tests jump with `5 0 G` and assert the caret's row is 49, then ask
+      whether a line five rows *below* the caret is on screen. Centred, it is; pulled
+      to the edge by gpui's minimal scroll, it is not. Asserting only "is the caret
+      visible" passed in both cases and proved nothing — `scroll_to_item` already
+      guarantees it.
 
 ## Parked threads (agreed 2026-10-28; not being worked now)
 
