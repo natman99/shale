@@ -254,6 +254,17 @@ and are now `line/{mod,runs,tests}.rs`, `tests/popup/{mod,keyboard,pointer}.rs`
 and `workspace/{mod,testhooks}.rs`. The largest file in the tree is
 `editor/mod.rs` at 948.
 
+### Phase 0 addendum (2026-10-29 renderer rulings — one revisit)
+
+- **P0.9 Focus mode completion** (reopens P0.8's scope, small): the semantic
+  ruling (brainstorm: focus/typewriter) adds the **`sentence` scope** (already
+  on P0.8's "Left" list) and **laser mode** — dimming the chrome (file tree,
+  status bar, tab bar) alongside the unit — plus the single cycle keybinding
+  (off → unit → unit+laser). Pure renderer work on the existing `dim.rs`
+  machinery; no foundations needed, so it stays a quick win rather than
+  sliding into a later phase. `:focus sentence` and the laser state follow
+  P0.8's ruling: session state, not config.
+
 ---
 
 ## Phase 1 — The DB spine (the big unlock)
@@ -277,6 +288,10 @@ and `workspace/{mod,testhooks}.rs`. The largest file in the tree is
     is acceptable because every consumer expires in minutes. Do not build
     permanent annotations on them.
   - `marks(name, path, position, label, created_at)`
+  - `edges(src, kind, dst)` — typed edges (brainstorm: typed edges ✅):
+    frontmatter link-properties become edges at index time; body wikilinks
+    are kind `link`. One directed row per fact; display inverses live in
+    the edge-type registry, never in the DB.
 - **P1.3 Incremental indexing + startup reconciliation** — exactly as
   PROJECT.md's Database section promises: background thread reconciles files
   changed by external editors at launch, then ends; further updates are
@@ -364,6 +379,13 @@ user/MCP/rename writes; `kill -TERM` leaves a clean DB (verify with
 - **P2.7 `:Gsub` / vault-wide ex commands** (brainstorm ✅): scoped by
   search/DB, preview affected notes before applying. Registry + DB make this
   compose.
+- **P2.8 Agent presence & provenance visibility** (brainstorm ✅, 2026-10-29):
+  provenance badges (gutter/tab/tree, hover → event row), file-tree ticks
+  (profile-colored, presence-now, distinct from the heatmap), presence by
+  inference from the event log, editor-side glow (`[editor] glow`,
+  timestamp-derived, never a ticking animation). All rides P1.2's event
+  spans + P2.3's connection info; all config-off-able as a group; zero
+  animation, zero frames when idle.
 
 **Exit criteria:** palette and `:` dispatch the same command ids; docs
 regenerate in CI/test; an external agent can drive the app over HTTP and its
@@ -419,6 +441,11 @@ app both up and down.
   constellations + static mode → heatmap/groups/arrows → signature features
   (thread, pulses+glow, MST star-lines, nebulae, hjkl + f-jump, illumination,
   drift, orbit focus, link-age, minimap).
+  **Brainstorm rulings that feed M5 (2026-10-29):** typed edges as an edge
+  layer + kind filter (P1.2 `edges` table; display registry with inverse
+  labels; no layout springs in v1), hook→payoff dashed arcs, region
+  clustering via `region:` props, minimap constellation mode (mirrors the
+  graph tab's active filter only while that tab has focus).
   Note: **glow, link-age, and the heatmap all need P1** — schedule them after
   Phase 1 lands even though the graph itself doesn't.
 
@@ -470,7 +497,13 @@ and the DB; "notes the agent modified this week" returns the right set.
 - **P5.2 Stats timeline** ✅ — word-count sparkline above the scrubber.
 - **P5.3 Export playback** ✅ — frames rendered from the scene → GIF/MP4 (no
   screenshot-tool dependency).
-- **P5.4 Parked extras:** compare mode (two dates), ghost view, session view.
+- **P5.4 Parked extras:** compare mode (two dates), session view.
+- **P5.5 Scrubber-linked note view** ✅ (ruled 2026-10-29; was the parked
+  "ghost view"): while the scrubber is active, the open note shows its past
+  self — overlay primary (past-only content dimmed in place, current-only at
+  full alpha, positions locked; P4 diff renderer aligns blocks, same visual
+  grammar as the review overlay). Read-only while scrubbing; restore stays
+  the time machine's separate verb. Each scrub step paints once.
 
 ---
 
@@ -487,16 +520,21 @@ and the DB; "notes the agent modified this week" returns the right set.
   delete`), documented from the registry.
 - **P6.4 Templates + template variables** (`{{date}}`, `{{title}}`,
   `{{ask:x}}`, `{{selected}}`) — goal.
-- **P6.5 PDF export** — goal. Needs a print path; decide: headless render to
-  image pages → PDF, or a markdown→HTML→external converter (the latter breaks
-  the no-external-deps preference; prefer the former).
+- **P6.5 PDF export / print surfaces** (goal; design ruled 2026-10-29, see
+  brainstorm "Print surfaces"): the renderer's layout written to a second
+  sink — a small pure-Rust PDF writer, no webview, no headless browser, no
+  external converter. One export command with presets (plain / handout /
+  statblock card / broadsheet) driven by the render-profile registry;
+  screen and print share the profiles. Exports provenance-logged.
 - **P6.6 Tree-sitter code highlighting** — goal. **Ruled ✅ (2026-10-28): C
   bindings are fine here** — the user wants the developer-friendly feature; the
   SQLite-style exception now covers tree-sitter (bundled C, build-time).
   Use `tree-sitter` + `tree-sitter-markdown` (or per-language code-block
   grammars) for fenced-block highlighting.
 - **P6.7 Horizontal scrolling + wide-glyph columns** (parked #7), `K` with
-  count (#6), live grammar fixes (#5), hover capability check (#4).
+  count (#6), live grammar fixes (#5), hover capability check (#4), status
+  jump-chain breadcrumb (`aria ← session-12 ← hook-rats`, ruled 2026-10-29 —
+  status area, not a gutter filament).
 - **P6.8 Lua tier** — only if TOML macros demonstrably hit a wall.
 
 ---
@@ -550,7 +588,9 @@ and the DB; "notes the agent modified this week" returns the right set.
 2. **Edit-review UX pass** before P2.5 — strip placement, keys, diff rendering.
 3. ~~`/` search scope~~ **RESOLVED 2026-10-28:** `/` searches the **open buffer**;
    the vault stays `ctrl-shift-f` (see P0.5).
-4. **PDF export route** — headless scene render vs external converter (P6.5).
+4. ~~PDF export route~~ **RESOLVED 2026-10-29:** headless render through the
+   renderer's own layout into a pure-Rust PDF writer (no external converter);
+   presets + profile registry per brainstorm "Print surfaces" (P6.5).
 5. ~~Graduating `brainstorm.md` ✅ items into PROJECT.md~~ **Half done
    2026-10-28:** the Goals list now carries checkmarks for what is built. The ✅
    feature designs themselves still live only in `brainstorm.md`; graduate them

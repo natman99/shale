@@ -365,6 +365,46 @@ zero frames when idle — and all of it is config-off-able as a group
 
 ---
 
+## Typed edges ✅ (general model, ruled 2026-10-29)
+
+The graph's single untyped edge (wikilink) generalizes: **any frontmatter
+property whose value is a wikilink is a typed edge** — the property name is
+the edge kind. Same links-as-data trick as props-as-data and tasks-as-data.
+
+- **DB:** one table `edges(src, kind, dst)` updated on save/index alongside
+  `note_props`; body wikilinks stay kind `link`. Directed, one row per fact
+  — never store both directions (sync-bug factory).
+- **Zero built-in kinds.** The app ships no semantics for any kind;
+  `allied:`/`rival:`/`member_of:` are vault conventions. This respects the
+  lineage rejection: the app doesn't track bloodlines; if a kind is ever
+  wanted, the user invents it and the graph draws it.
+- **Graph view:** typed edges render as an edge layer per kind with display
+  attributes (color, dashed, arrow) from a small registry
+  (`.shale/edge-types.json` or `:edge-types`); filter UI grows an
+  edge-kinds dimension next to orphans-on/off.
+- **Direction & inverse labels (option b, ruled):** the registry optionally
+  declares inverse display names (`member_of` ↔ `has member`); storage
+  stays one directed row, labels are presentation. The **authoring side
+  never sees inverses** — you write `allied: [[zhentarim]]`, full stop;
+  inverses only appear on surfaces rendering from the other end (backlinks
+  panel grouped by kind, hover labels, `.shq` columns). Inference-first:
+  a tiny built-in list of symmetric words needs no inverse; everything else
+  defaults to `← kind` with the arrow showing direction until the user
+  curates a phrase. Works with zero config, prettier the more you curate.
+- **Direction is visible without labels:** typed edges get a small
+  arrowhead (or source-taper) so unlabeled kinds can't mislead.
+- **Ghost nodes inherit:** `rival: [[the-hidden-one]]` pointing at a
+  nonexistent note = a ghost with a typed edge in — an unresolved rival is
+  a visible plot hole; do not "fix" this.
+- **Search/`.shq`:** `rel:rival:[[x]]`, `has-rel:allied` ride the
+  search-operator grammar; edges are just a table for `.shq`.
+- **Layout springs ❄️:** typed edges influencing sim forces (allies attract,
+  rivals repel) is deferred — it makes edge kinds load-bearing for layout.
+  v1 typed edges are render/filter only.
+- Cost: one table, one registry, one filter dimension — the parser already
+  reads frontmatter, the indexer already runs on save, the graph already
+  batches edge paths.
+
 ## Graph open questions (resolved)
 
 ### Tag-node coloring ✅
