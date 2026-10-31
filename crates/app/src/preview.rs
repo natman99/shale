@@ -50,7 +50,11 @@ impl Piece {
                 self.painted.1
             }
         } else {
-            self.painted.0 + (offset - self.buf.0)
+            // Every caller clamps the offset into the run first, so the
+            // subtraction cannot go negative; it saturates rather than panics
+            // because this arithmetic runs inside the paint loop, where a wrong
+            // offset is survivable and a crash is not.
+            self.painted.0 + offset.saturating_sub(self.buf.0)
         }
     }
 
@@ -61,7 +65,7 @@ impl Piece {
         if self.expanded() {
             self.buf.0
         } else {
-            self.buf.0 + (index - self.painted.0)
+            self.buf.0 + index.saturating_sub(self.painted.0)
         }
     }
 }
@@ -79,11 +83,17 @@ pub(crate) struct PieceMap {
 
 impl PieceMap {
     /// A line painted exactly as the note holds it.
+    ///
+    /// The piece's *painted* range starts at 0, not at the note offset: a painted
+    /// string is always indexed from its own front, and a row that is not the
+    /// note's first has a painted index below its first byte — a pointer over a
+    /// row drawn as an embedded image asks for index 0, and subtracting the row's
+    /// start from that used to wrap around.
     pub(crate) fn identity(start: usize, end: usize) -> Self {
         PieceMap {
             pieces: vec![Piece {
                 buf: (start, end),
-                painted: (start, end),
+                painted: (0, end - start),
                 glyph: None,
             }],
         }
@@ -315,6 +325,22 @@ mod tests {
         let l = layout();
         assert_eq!(l.text.as_str(), "hello world");
         assert_eq!(l.map.pieces(), vec![(0, 6, 0), (8, 11, 6), (13, 15, 9)]);
+    }
+
+    #[test]
+    fn an_identity_map_starts_at_the_front_of_its_own_text() {
+        // A row drawn as an embedded image paints no text, so a pointer anywhere
+        // on it asks for painted index 0 — on a row that does not begin at byte 0
+        // of the note. The painted space is the line's own, so that index is the
+        // row's first byte rather than a subtraction that wraps.
+        let map = PieceMap::identity(41, 55);
+        assert_eq!(map.offset_for_index(0), 41);
+        assert_eq!(map.offset_for_index(7), 48);
+        assert_eq!(map.index_for_offset(41), 0);
+        assert_eq!(map.index_for_offset(55), 14);
+        // Questions from outside the row answer with an edge, both ways.
+        assert_eq!(map.offset_for_index(99), 55);
+        assert_eq!(map.index_for_offset(0), 0);
     }
 
     #[test]
