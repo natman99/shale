@@ -173,9 +173,9 @@ pub struct MarkdownEditor {
     /// fully rendered and read-only. See [`View`].
     view: View,
     /// Draw everything but the block the cursor is in at reduced strength, so the
-    /// note reads one block at a time. The window turns it on from
-    /// `editor.focus` or `:focus`; raw mode ignores it, because raw mode's whole
-    /// point is showing the file as it is.
+    /// note reads one block at a time. The window turns it on with `space d` or
+    /// `:focus`; raw mode ignores it, because raw mode's whole point is showing the
+    /// file as it is.
     focus: bool,
     /// How far the lit region reaches: the cursor's block, or its whole heading
     /// section. See [`dim::Scope`].
@@ -343,9 +343,10 @@ impl MarkdownEditor {
         self.focus
     }
 
-    /// Turn focus mode on or off. The window owns the answer — it comes from
-    /// `editor.focus` in the config and from `:focus` — and the frame only asks
-    /// whether to fade. Raw mode still draws no fade whatever this says.
+    /// Turn focus mode on or off. The window owns the answer — `space d` or
+    /// `:focus`, and the session file (roadmap P1.8) will own it across restarts —
+    /// and the frame only asks whether to fade. Raw mode still draws no fade
+    /// whatever this says.
     pub(crate) fn set_focus_mode(&mut self, on: bool, cx: &mut Context<Self>) {
         if on == self.focus {
             return;

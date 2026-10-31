@@ -145,6 +145,7 @@ impl Workspace {
             ex::Ex::Checker(on) => self.set_checker(on, cx),
             ex::Ex::Focus(Some(on)) => self.set_focus(on, cx),
             ex::Ex::Focus(None) => self.flip_focus(cx),
+            ex::Ex::FocusScope(word) => self.set_focus_scope(&word, cx),
             ex::Ex::Typewriter(Some(on)) => self.set_typewriter(on, cx),
             ex::Ex::Typewriter(None) => self.flip_typewriter(cx),
             ex::Ex::ThemePicker => window.dispatch_action(ChangeTheme.boxed_clone(), cx),

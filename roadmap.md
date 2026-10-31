@@ -232,11 +232,15 @@ Small, unblocking, and three of them are already-parked user requests.
   `:typewriter` reports in the status line, because nothing on screen shows it.
   Typewriter scroll centres the caret using the previous frame's child bounds, so it
   costs no measuring of its own, and acts only when the caret moved, which leaves a
-  reader who scrolled by hand alone. Config: `editor.focus`, `editor.focus_scope`,
-  `editor.typewriter`, all off.
+  reader who scrolled by hand alone.
+  **Not config keys** (the user's ruling, 2026-10-30): they are state the user
+  chose in a running window, so they belong with the session file, not with the
+  settings they edit by hand — see P1.8, which now lists them. The window comes up
+  with both off and the scope at `block`, and `:focus block|section` is how the
+  scope is set for the session.
   **Left:** the `sentence` scope is not implemented (`from_word("sentence")` gives
-  `block`); nothing is written back to the config, so neither mode persists; no
-  mouse wheel yet, which is what would make the ramp follow a scroll.
+  `block`); neither mode persists yet, which is P1.8's job rather than a config
+  splice; no mouse wheel yet, which is what would make the ramp follow a scroll.
 
 **Exit criteria:** config lives in `.shale/` and a root `shale.toml` is *moved*
 there on open rather than read from, autosave on by default, no file over 1000
@@ -299,8 +303,11 @@ and `workspace/{mod,testhooks}.rs`. The largest file in the tree is
   for it 2026-10-29; simple, and it belongs with the `.shale/` work). Save on a
   graceful quit and on the autosave's beat; restore on open. Contents: the open
   note with its **cursor and scroll offset**, which folders are **expanded in the
-  file tree**, which **view** the note was in, and — once P3.1/P3.2 land — the
-  **tabs and the pane layout**, including which pane held the keyboard and which
+  file tree**, which **view** the note was in, **focus mode and its scope** and
+  **typewriter scroll** (those three came out of `[editor]` on 2026-10-30 for
+  exactly this item: they are choices made in a window, not settings the user
+  edits by hand), and — once P3.1/P3.2 land — the **tabs and the pane
+  layout**, including which pane held the keyboard and which
   were pinned. The jump chain is worth saving too: `ctrl-o` back through notes
   from before the restart is what the feature is for.
   **File, not DB:** `.shale/session.json`. The DB is a cache that may be rebuilt

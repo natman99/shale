@@ -8,17 +8,19 @@
 //!
 //! What the window owns is the way in and the two things that live outside the
 //! editor: a panel about a checker's note, which has to go when preview comes on,
-//! and the status bar's badge naming the view. Remembering the choice in the
-//! vault's config is the part that has to wait for the config work.
+//! and the status bar's badge naming the view. Remembering the choice across a
+//! restart is the session file's job (roadmap P1.8), not the config's.
 //!
 //! Focus mode and typewriter scroll live here too. They are not views — the note
 //! is still live preview, still editable — but they are the same kind of thing:
 //! a decision the frame makes that the vim engine knows nothing about, reached
-//! from the palette, the command line and one leader chord.
+//! from the palette, the command line and one leader chord. They are session state
+//! as well, which is why neither is a config key.
 
 use gpui::{Context, Window};
 
 use crate::acts::{ToggleFocus, ToggleTypewriter, ViewLive, ViewPreview, ViewRaw};
+use crate::dim;
 use crate::editor::View;
 
 use super::Workspace;
@@ -117,6 +119,29 @@ impl Workspace {
     pub(crate) fn flip_focus(&mut self, cx: &mut Context<Self>) {
         let on = !self.editor.read(cx).focus_mode();
         self.set_focus(on, cx);
+    }
+
+    /// `:focus block|section`: how far the lit region reaches. The mode itself is
+    /// left alone, because asking how wide the light should be is not a request to
+    /// turn it on. Unlike `:focus on|off` this one does report in the status line:
+    /// the badge that would otherwise say it only appears while the mode is on.
+    pub(crate) fn set_focus_scope(&mut self, word: &str, cx: &mut Context<Self>) {
+        let scope = dim::Scope::from_word(word);
+        self.editor
+            .update(cx, |editor, cx| editor.set_focus_scope(scope, cx));
+        // `sentence` is named on the roadmap and not built, and `from_word` answers
+        // it with `block`. Saying so is the difference between a command that did
+        // something surprising and one that admits it.
+        let message = if scope.word() != word {
+            format!(
+                "focus scope {word} is not built yet; using {}",
+                scope.word()
+            )
+        } else {
+            format!("focus scope {}", scope.word())
+        };
+        self.say(message, cx);
+        cx.notify();
     }
 
     /// `:typewriter`, and its palette row: keep the cursor's line near the middle

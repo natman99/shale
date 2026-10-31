@@ -40,8 +40,9 @@ pub(crate) enum Scope {
 }
 
 impl Scope {
-    /// The scope a config word names. Anything unrecognised is [`Scope::Block`],
-    /// which is also what a config that never mentions the key asks for.
+    /// The scope a word names — as the session file (roadmap P1.8) will spell it,
+    /// or as a status line says it. Anything unrecognised is [`Scope::Block`],
+    /// which is also what a window that never changed it has.
     pub(crate) fn from_word(word: &str) -> Self {
         match word.trim().to_ascii_lowercase().as_str() {
             "section" => Scope::Section,
@@ -49,7 +50,7 @@ impl Scope {
         }
     }
 
-    /// The word for it, which is what the config and the status line say.
+    /// The word for it, which is what the session file and the status line say.
     pub(crate) fn word(self) -> &'static str {
         match self {
             Scope::Block => "block",
@@ -311,7 +312,7 @@ mod tests {
         assert_eq!(Scope::from_word("Section"), Scope::Section);
         assert_eq!(Scope::from_word("block"), Scope::Block);
         assert_eq!(Scope::from_word(""), Scope::Block);
-        // Not a scope yet: a config that asks for it gets the default rather than
+        // Not a scope yet: a word that asks for it gets the default rather than
         // an error, and the roadmap records what is still owed.
         assert_eq!(Scope::from_word("sentence"), Scope::Block);
         assert_eq!(Scope::Section.word(), "section");

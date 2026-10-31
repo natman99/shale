@@ -35,7 +35,6 @@ use shale_core::watch::{Stamp, VaultChanges};
 use shale_core::{Config, Vault};
 
 use crate::acts::*;
-use crate::dim;
 use crate::editor::{EditorEvent, MarkdownEditor};
 use crate::lsp::{absolute, Diagnostic, Fix, Spell};
 use crate::picker;
@@ -206,14 +205,10 @@ impl Workspace {
             editor.set_palette(Rc::clone(&palette), cx);
             editor.set_font_size(config.appearance.font_size, cx);
         });
-        // Focus mode and typewriter scroll come from the config the same way the
-        // font and the theme do. Both default to off, so a vault that never
-        // mentions them keeps the frame it has always had.
-        editor.update(cx, |editor, cx| {
-            editor.set_focus_mode(config.editor.focus, cx);
-            editor.set_focus_scope(dim::Scope::from_word(&config.editor.focus_scope), cx);
-            editor.set_typewriter(config.editor.typewriter, cx);
-        });
+        // Focus mode and typewriter scroll deliberately do *not* come from the
+        // config: they are state the user chose in this window, and they belong
+        // with the session file (roadmap P1.8) rather than the settings they edit
+        // by hand. The editor's own defaults — both off, scope `block` — stand.
         let editor_events = cx.subscribe(&editor, |ws, _editor, event, cx| match event {
             EditorEvent::FollowLink { target } => ws.follow_link(target, cx),
             // The buffer moved, so the checker's copy of the note is out of date

@@ -217,6 +217,62 @@ fn the_command_line_turns_focus_mode_both_ways(cx: &mut TestAppContext) {
     );
 }
 
+/// The scope is a separate setting, and `:focus` is how it is set now that no
+/// config key is: a scope word changes how wide the light reaches and leaves the
+/// mode where it was.
+#[gpui::test]
+fn the_command_line_widens_and_narrows_the_lit_region(cx: &mut TestAppContext) {
+    let (_dir, window) = window_with(cx, NOTE);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    type_command("focus section", cx);
+    assert_eq!(
+        window
+            .update(cx, |ws, _window, cx| ws.focus_scope(cx))
+            .unwrap(),
+        "section",
+        "the scope moved"
+    );
+    assert!(
+        !window
+            .update(cx, |ws, _window, cx| ws.focus_mode(cx))
+            .unwrap(),
+        "and the mode was left alone"
+    );
+    assert!(
+        status(&window, cx).contains("focus scope section"),
+        "and says so, because no badge is up to say it: {:?}",
+        status(&window, cx)
+    );
+    type_command("dim block", cx);
+    assert_eq!(
+        window
+            .update(cx, |ws, _window, cx| ws.focus_scope(cx))
+            .unwrap(),
+        "block",
+        "`dim` takes the scope words too"
+    );
+    // `sentence` is named on the roadmap and not built. The command accepts it and
+    // admits what it actually did rather than reporting a scope it does not have.
+    type_command("focus sentence", cx);
+    assert_eq!(
+        window
+            .update(cx, |ws, _window, cx| ws.focus_scope(cx))
+            .unwrap(),
+        "block",
+        "the unbuilt scope leaves the default"
+    );
+    assert!(
+        status(&window, cx).contains("not built yet"),
+        "{status:?}",
+        status = status(&window, cx)
+    );
+    assert_eq!(
+        status(&window, cx),
+        "focus scope sentence is not built yet; using block",
+        "the whole sentence, so the user knows which scope they got"
+    );
+}
+
 /// The scope is a separate setting: the same caret can light one paragraph or the
 /// whole section it sits under.
 #[gpui::test]
@@ -341,26 +397,21 @@ fn the_command_line_reports_typewriter_scroll(cx: &mut TestAppContext) {
     );
 }
 
-/// The config decides what the window starts with, like every other editor key.
+/// The window comes up with both modes off and the scope at `block`. These are
+/// not config keys — they are state the user chose in a running window, and they
+/// belong with the session file (roadmap P1.8) rather than the settings they edit
+/// by hand — so what a test can ask is that nothing turns them on by itself.
 #[gpui::test]
-fn the_config_starts_both_modes(cx: &mut TestAppContext) {
-    let mut config = Config::default();
-    // No spell server: this test is about what the window reads out of the config.
-    config.spellcheck.enabled = false;
-    config.editor.focus = true;
-    config.editor.focus_scope = "section".to_string();
-    config.editor.typewriter = true;
-    let (_dir, window) = workspace_with(cx, &["a.md"], config);
+fn the_window_starts_with_both_modes_off(cx: &mut TestAppContext) {
+    let (_dir, window) = workspace(cx, &["a.md"]);
     cx.update(|cx| cx.bind_keys(keybindings()));
-    assert!(
+    assert_eq!(
         window
-            .update(cx, |ws, _window, cx| (
-                ws.focus_mode(cx),
-                ws.focus_scope(cx),
-                ws.typewriter(cx)
-            ))
-            .unwrap()
-            == (true, "section".to_string(), true),
-        "the window came up as the config asked"
+            .update(cx, |ws, _window, cx| {
+                (ws.focus_mode(cx), ws.focus_scope(cx), ws.typewriter(cx))
+            })
+            .unwrap(),
+        (false, "block".to_string(), false),
+        "off, off, and the scope nobody asked to widen"
     );
 }

@@ -130,7 +130,7 @@ impl Command {
             Command::ViewRaw => "space r, :raw",
             Command::ViewLive => "space l, :live",
             Command::ViewPreview => "space p, :preview",
-            Command::ToggleFocus => "space d, :focus",
+            Command::ToggleFocus => "space d, :focus on|off, :focus block|section",
             Command::ToggleTypewriter => ":typewriter",
             Command::WindowLeft => "ctrl-w h",
             Command::WindowRight => "ctrl-w l",

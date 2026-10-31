@@ -59,19 +59,6 @@ pub struct EditorConfig {
     /// How long the note must sit untouched before an autosave writes it. Long
     /// enough that it never lands between two keystrokes.
     pub autosave_after_ms: u64,
-    /// Draw everything but the block the cursor is in at reduced strength, so the
-    /// note reads one paragraph at a time. Off by default: it changes what the
-    /// whole window looks like, which is not a starting assumption.
-    pub focus: bool,
-    /// How much of the note keeps its full colour around the cursor: `block` (the
-    /// markdown block the cursor is in) or `section` (the whole heading section).
-    /// `sentence` is on the roadmap and not answered yet; anything unrecognised is
-    /// `block`.
-    pub focus_scope: String,
-    /// Keep the line the cursor is on near the middle of the window as it moves,
-    /// so the eye never has to hunt for it. Off by default, because it takes the
-    /// scroll position away from the reader.
-    pub typewriter: bool,
 }
 
 impl Default for EditorConfig {
@@ -82,9 +69,6 @@ impl Default for EditorConfig {
             show_file_tree: true,
             autosave: true,
             autosave_after_ms: 2000,
-            focus: false,
-            focus_scope: "block".to_string(),
-            typewriter: false,
         }
     }
 }
@@ -227,13 +211,6 @@ show_file_tree = true
 # the difference between keeping the note and losing it.
 autosave = true
 autosave_after_ms = 2000
-# Everything but the block the cursor is in is drawn at reduced strength. `block`
-# is the paragraph, list, quote, callout, fence or heading the cursor is in;
-# `section` is the whole span from its heading to the next one of the same level.
-focus = false
-focus_scope = "block"
-# Keep the cursor's line near the middle of the window as it moves.
-typewriter = false
 
 [appearance]
 # The palette: a built-in, or the name of a file in .shale/themes/<name>.toml.
@@ -315,26 +292,30 @@ mod tests {
         assert!(cfg.editor.autosave);
     }
 
-    /// Focus mode and typewriter scroll are both off to start with, and each key
-    /// stands on its own.
+    /// Focus mode and typewriter scroll are **not** config keys: they are state
+    /// the user chose in a running window, which belongs with the session file
+    /// (roadmap P1.8), not with the settings they edit by hand. A config that
+    /// still names them is refused rather than quietly ignored, because a typo in
+    /// a config is the same shape as a removed key and deserves the same message.
     #[test]
-    fn focus_and_typewriter_start_off() {
-        let cfg = Config::from_toml("").unwrap();
-        assert!(!cfg.editor.focus);
-        assert!(!cfg.editor.typewriter);
-        assert_eq!(cfg.editor.focus_scope, "block");
-
-        let cfg = Config::from_toml("[editor]\nfocus = true\n").unwrap();
-        assert!(cfg.editor.focus);
-        assert!(!cfg.editor.typewriter);
-        assert_eq!(cfg.editor.focus_scope, "block");
-
-        let cfg = Config::from_toml("[editor]\nfocus_scope = \"section\"\n").unwrap();
-        assert_eq!(cfg.editor.focus_scope, "section");
-        assert!(
-            !cfg.editor.focus,
-            "naming a scope does not turn the mode on"
-        );
+    fn focus_and_typewriter_are_not_config_keys() {
+        for key in ["focus = ", "focus_scope = ", "typewriter = "] {
+            assert!(
+                !Config::starter().contains(key),
+                "the starter does not offer {key}"
+            );
+        }
+        for key in [
+            "focus = true",
+            "focus_scope = \"section\"",
+            "typewriter = true",
+        ] {
+            let err = Config::from_toml(&format!("[editor]\n{key}\n")).unwrap_err();
+            assert!(
+                err.to_string().contains("unknown field"),
+                "{key} is refused, not ignored: {err}"
+            );
+        }
     }
 
     #[test]

@@ -285,10 +285,11 @@ Workspace layout:
   `:harper on`). Two ways the frame follows the cursor rather than the other way
   round: **focus mode** (`space d`, `:focus`) fades everything but the block the
   caret is in — a three-step ramp down to a floor, so the rest of the note goes
-  quiet rather than away, with `editor.focus_scope = "block" | "section"` deciding
+  quiet rather than away, with `:focus` scope `block` or `section` deciding
   how much is lit — and **typewriter scroll** (`:typewriter`) keeps the caret's
-  line near the middle of the window after a jump. Both are off until asked for
-  (`[editor]` in the config). Split into `main.rs` (the
+  line near the middle of the window after a jump. Both are off until asked for,
+  and neither is a config key: they are state the user chose in a window, so they
+  wait on the session file (roadmap P1.8). Split into `main.rs` (the
   command line and the window it opens), `acts.rs` (every action the keymap
   names — the two namespaces its `actions!` calls generate are what the keymap
   and the tests match on, so they are load-bearing, not just namespaces),
@@ -2526,16 +2527,58 @@ Next steps, roughly in order:
       (`focus block` / `focus section`) and `:focus` deliberately writes no status
       message, because the badge already says it; typewriter scroll has nothing on
       screen to show it, so `:typewriter` reports in the status line instead.
+    - **Not config keys** (the user's ruling, 2026-10-30, the day after they
+      shipped). They went into `[editor]` first, which was the wrong door: a config
+      is what the user edits by hand before the window exists, and these are choices
+      made *inside* a window — the same kind of thing as which note is open or which
+      folders are expanded. They come out of `EditorConfig` and out of the starter
+      snippet, and `focus_and_typewriter_are_not_config_keys` keeps them out (a
+      a config that still names one is refused with `unknown field`, the same message
+      a typo gets). Where they belong is roadmap **P1.8**, the `.shale/session.json`
+      session file — which does not exist yet, so today both modes start off and
+      nothing persists. That is a real gap, not a decision to leave them unsaved.
+      Taking the config keys out also took away the only way to reach the `section`
+      scope, which is how `:focus block|section` came to exist: a scope word sets the
+      scope and leaves the mode where it was, since asking how wide the light is is
+      not a request to turn it on. `:focus sentence` is accepted and answers `focus
+      scope sentence is not built yet; using block` — the unbuilt scope admits it
+      rather than reporting a scope it does not have.
     - **Tests**: 10 in `dim.rs` (the ramp and its floor, blocks and blank rows, the
       section scope, the fade arithmetic) and 11 in `tests/focus.rs` (resting state,
       the ramp away from the caret, raw never dims, `space d` both ways with the note
-      untouched, `:focus on|off` and `:dim`, the section scope, the config starting
-      both modes, and the typewriter pair). The typewriter pair is the interesting
-      one: both tests jump with `5 0 G` and assert the caret's row is 49, then ask
-      whether a line five rows *below* the caret is on screen. Centred, it is; pulled
-      to the edge by gpui's minimal scroll, it is not. Asserting only "is the caret
-      visible" passed in both cases and proved nothing — `scroll_to_item` already
-      guarantees it.
+      untouched, `:focus on|off` and `:dim`, the section scope, the window starting
+      with both modes off, and the typewriter pair). The typewriter pair is the
+      interesting one: both tests jump with `5 0 G` and assert the caret's row is 49,
+      then ask whether a line five rows *below* the caret is on screen. Centred, it
+      is; pulled to the edge by gpui's minimal scroll, it is not. Asserting only "is
+      the caret visible" passed in both cases and proved nothing — `scroll_to_item`
+      already guarantees it.
+
+24. **The status line stops reporting what the user already read** — Done
+    (2026-10-30, found while testing P0.8).
+    - **The complaint:** `:typewriter off` answered itself and then kept answering
+      itself for the rest of the session, through every other change in the bar.
+    - **The rule the bar follows now:** its segments are either *state* — the mode,
+      the save dot, the checker's count, the search's readout, the focus badge — or
+      a *message*. State is true for exactly as long as it is shown, so it clears
+      itself by changing. A message is a reply to something that just happened, so
+      it is parked with an 8 s countdown and cleared when it runs out.
+    - **One way in:** all 37 places that had assigned `self.status` now call
+      `Workspace::say`, which is the only place that arms the countdown. A new
+      message replaces the parked `Task`, which drops the old countdown and restarts
+      the wait; a sequence number is the belt to that brace, for a countdown that
+      already woke up and has not applied yet. Same shape as the autosave debounce,
+      on purpose.
+    - **What the tests actually pin:** that a message is still there halfway through
+      its wait and gone after it, that a second message gets its own full wait (leave
+      the old countdown running instead of replacing it and all three fail), and that
+      the mode and the save dot outlive the message. `Clock`, the simulated-clock
+      helper, moved from `tests/autosave.rs` to `tests/mod.rs` — gpui's test executor
+      needs two steps for a pause (advance the clock, then `run_until_parked`), and
+      it has to be taken from the `TestAppContext` before a window borrows it.
+    - **Watch out in tests:** the status countdown is 8 s and the autosave debounce
+      is 2 s, so a test that advances one advances the other. The state-segment test
+      runs with `autosave = false` for exactly that reason.
 
 ## Parked threads (agreed 2026-10-28; not being worked now)
 

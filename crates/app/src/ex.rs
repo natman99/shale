@@ -31,6 +31,10 @@ pub(crate) enum Ex {
     /// everything but the block the cursor is in. `dim` is the same command under
     /// the name the feature is usually called.
     Focus(Option<bool>),
+    /// `focus block` / `focus section`: how far the lit region reaches. The mode
+    /// itself is left alone, because asking how wide the light should be is not a
+    /// request to turn it on.
+    FocusScope(String),
     /// `typewriter on|1` / `typewriter off|0`, or bare `typewriter` to turn it
     /// around: keep the cursor's line near the middle of the window.
     Typewriter(Option<bool>),
@@ -90,6 +94,18 @@ pub(crate) fn parse(line: &str) -> Ex {
         "focus" | "dim" => match bool_word(rest) {
             Some(on) => Ex::Focus(Some(on)),
             None if rest.is_empty() => Ex::Focus(None),
+            // A scope word is the other thing `:focus` can be asked for. Spelled
+            // here rather than through `dim::Scope::from_word` so a typo stays a
+            // typo: `:focus blockk` runs nothing, while a scope that exists but is
+            // not implemented yet (`sentence`) is accepted and answered with the
+            // default.
+            None if matches!(
+                rest.to_ascii_lowercase().as_str(),
+                "block" | "section" | "sentence"
+            ) =>
+            {
+                Ex::FocusScope(rest.to_ascii_lowercase())
+            }
             None => Ex::Unknown(format!("{word} {rest}")),
         },
         "typewriter" => match bool_word(rest) {
@@ -204,7 +220,14 @@ mod tests {
         assert_eq!(parse("focus"), Ex::Focus(None));
         assert_eq!(parse("dim"), Ex::Focus(None));
         assert_eq!(parse("typewriter"), Ex::Typewriter(None));
-        // A word that is neither yes nor no is a typo, and says which.
+        // A scope word is the other thing `:focus` answers, and it is not a
+        // toggle: asking how wide the light is does not turn it on.
+        assert_eq!(parse("focus block"), Ex::FocusScope("block".into()));
+        assert_eq!(parse("dim SECTION"), Ex::FocusScope("section".into()));
+        // Named on the roadmap, not built yet: accepted, and the window answers
+        // with the default rather than pretending otherwise.
+        assert_eq!(parse("focus sentence"), Ex::FocusScope("sentence".into()));
+        // A word that is neither yes nor no nor a scope is a typo, and says which.
         assert_eq!(
             parse("focus sideways"),
             Ex::Unknown("focus sideways".into())
