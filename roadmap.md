@@ -238,9 +238,12 @@ Small, unblocking, and three of them are already-parked user requests.
   settings they edit by hand — see P1.8, which now lists them. The window comes up
   with both off and the scope at `block`, and `:focus block|section` is how the
   scope is set for the session.
-  **Left:** the `sentence` scope is not implemented (`from_word("sentence")` gives
-  `block`); neither mode persists yet, which is P1.8's job rather than a config
-  splice; no mouse wheel yet, which is what would make the ramp follow a scroll.
+  **Left → all of it is P0.9:** the `sentence` scope is not implemented (the word
+  parses and admits it is not built); the semantic-unit model the brainstorm rules
+  is what P0.9 adds, with this ramp kept as a fourth granularity; laser mode and
+  the three-state cycle chord are P0.9's; neither mode persists yet, which is
+  P1.8's job rather than a config splice; no mouse wheel yet, which is what would
+  make the ramp follow a scroll.
 
 **Exit criteria:** config lives in `.shale/` and a root `shale.toml` is *moved*
 there on open rather than read from, autosave on by default, no file over 1000
@@ -256,14 +259,39 @@ and `workspace/{mod,testhooks}.rs`. The largest file in the tree is
 
 ### Phase 0 addendum (2026-10-29 renderer rulings — one revisit)
 
-- **P0.9 Focus mode completion** (reopens P0.8's scope, small): the semantic
-  ruling (brainstorm: focus/typewriter) adds the **`sentence` scope** (already
-  on P0.8's "Left" list) and **laser mode** — dimming the chrome (file tree,
-  status bar, tab bar) alongside the unit — plus the single cycle keybinding
-  (off → unit → unit+laser). Pure renderer work on the existing `dim.rs`
-  machinery; no foundations needed, so it stays a quick win rather than
-  sliding into a later phase. `:focus sentence` and the laser state follow
-  P0.8's ruling: session state, not config.
+- **P0.9 Focus mode completion** (reopens P0.8's scope, small) — **deferred behind
+  Phase 1** (ruled 2026-10-30; Phase 0 is closed and the DB is the unlock).
+  **Reconciled 2026-10-30, because P0.8 and the ruling are not the same feature.**
+  What shipped is the **distance ramp**: one alpha per buffer row measured from the
+  caret's row, three steps down to a floor, with the lit region being the caret's
+  `block` or its heading `section`. What the brainstorm rules (semantic version,
+  2026-10-29) is **dim by semantic unit**: everything outside the current unit drops
+  to one low alpha — no ramp — at granularity `sentence | paragraph | section`,
+  default `paragraph`, and the ramp survives only as **a fourth granularity for
+  anyone who liked it**. So P0.8 is done and correct as the ramp; it is not the
+  ruled default, and P0.9 is what makes it the ruled default:
+  - **Unit dimming, not distance.** `dim::row_alphas` grows a second answer: rows in
+    the unit are 1.0, rows outside it are the floor. The unit boundaries come from
+    `mdstyle::object` — `Section` is already answered there (P0.8 uses it), and
+    `paragraph` is the block model `dim.rs` already has, renamed to the ruled word
+    with `block` kept as an alias.
+  - **`sentence` is the one genuinely new range.** `:focus sentence` already parses
+    and already admits it is not built (`focus scope sentence is not built yet;
+    using block`), so the seam exists and the user is never misled in the meantime.
+  - **Laser mode:** the chrome — file tree, status bar, tab bar when there is one —
+    drops to the same low alpha. Renderer work in `workspace/render.rs` and the
+    tree; no new state beyond a flag.
+  - **One keybinding cycles** off → unit → unit+laser. Today `space d` is a
+    two-state toggle, so the chord becomes a three-state cycle and the badge has to
+    say which of the three it is in.
+  - **The ramp stays**, as a fourth granularity word, so nothing shipped gets
+    removed.
+  - **Persistence follows P0.8's ruling: session state (P1.8), not config.**
+  - **Why it waits:** the brainstorm wants focus dimming, search-illumination and
+    the agent glow to be *three sources, one alpha system*. `dim.rs` is that seam
+    already, and the other two sources arrive with P2/P5. Doing P0.9 now would
+    settle the unit model once and then revisit it for the second source; doing it
+    after Phase 1 lands the DB that both of those read from.
 
 ---
 
