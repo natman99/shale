@@ -76,7 +76,7 @@ impl Workspace {
             })
             .collect::<Vec<_>>();
         if rows.is_empty() {
-            self.status = "the vault holds no notes yet".into();
+            self.say("the vault holds no notes yet", cx);
             cx.notify();
             return;
         }
@@ -267,17 +267,21 @@ impl Workspace {
             PickerTarget::Theme(name) => {
                 // Chosen, so it is saved: the theme the picker was opened with is
                 // the one the next launch should open in.
-                self.status = match self.persist_theme(&name) {
-                    Ok(()) => format!("theme: {name}").into(),
-                    Err(err) => {
-                        tracing::warn!("could not save the theme: {err:#}");
-                        format!("theme: {name}, not saved: {err:#}").into()
-                    }
-                };
+                let saved = self.persist_theme(&name);
+                self.say(
+                    match saved {
+                        Ok(()) => format!("theme: {name}"),
+                        Err(err) => {
+                            tracing::warn!("could not save the theme: {err:#}");
+                            format!("theme: {name}, not saved: {err:#}")
+                        }
+                    },
+                    cx,
+                );
                 cx.notify();
             }
             PickerTarget::Command(command) => {
-                self.status = command.label().into();
+                self.say(command.label(), cx);
                 window.dispatch_action(command.action(), cx);
             }
         }

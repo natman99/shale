@@ -10,8 +10,6 @@
 use std::os::unix::fs::PermissionsExt;
 use std::time::Duration;
 
-use gpui::BackgroundExecutor;
-
 use super::*;
 
 /// The default pause, spelled out here so a test that waits for it says what it
@@ -55,23 +53,6 @@ fn activate(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) {
         .update(cx, |_ws, window, _cx| window.activate_window())
         .unwrap();
     cx.run_until_parked();
-}
-
-/// The simulated clock, taken from the `TestAppContext` before the window context
-/// borrows it.
-///
-/// A pause is two steps, because gpui's test executor makes a `timer` ready
-/// without running the task that was waiting on it: move the clock, then let the
-/// task run. Moving it from inside an app borrow re-enters the app and panics, so
-/// the executor is held here rather than fetched through the window.
-struct Clock(BackgroundExecutor);
-
-impl Clock {
-    /// Let `pause` of simulated time pass, and run what that makes ready.
-    fn pause(&self, cx: &mut VisualTestContext, pause: Duration) {
-        self.0.advance_clock(pause);
-        cx.run_until_parked();
-    }
 }
 
 /// Type, stop, and the note is on disk a pause later with nothing pressed.

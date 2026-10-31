@@ -8,7 +8,8 @@
 use super::*;
 use crate::editor::MarkdownEditor;
 use crate::workspace::{keybindings, Workspace};
-use gpui::{Focusable, TestAppContext, VisualTestContext, WindowHandle};
+use gpui::{BackgroundExecutor, Focusable, TestAppContext, VisualTestContext, WindowHandle};
+use std::time::Duration;
 
 mod autosave;
 mod blocks;
@@ -23,8 +24,26 @@ mod popup;
 mod quotes;
 mod search;
 mod spell;
+mod status;
 mod tree;
 mod views;
+
+/// The simulated clock, taken from the `TestAppContext` before a window context
+/// borrows it.
+///
+/// A pause is two steps, because gpui's test executor makes a `timer` ready
+/// without running the task that was waiting on it: move the clock, then let the
+/// task run. Moving it from inside an app borrow re-enters the app and panics, so
+/// the executor is held here rather than fetched through the window.
+pub(crate) struct Clock(BackgroundExecutor);
+
+impl Clock {
+    /// Let `pause` of simulated time pass, and run what that makes ready.
+    pub(crate) fn pause(&self, cx: &mut VisualTestContext, pause: Duration) {
+        self.0.advance_clock(pause);
+        cx.run_until_parked();
+    }
+}
 
 /// A workspace over a throwaway vault holding `files`, with the note focused the
 /// way `main` focuses it. The `TempDir` is returned so the caller can change what

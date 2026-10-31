@@ -328,11 +328,14 @@ impl Workspace {
             let applied = self
                 .editor
                 .update(cx, |editor, cx| editor.apply_edits(&fix.edits, cx));
-            self.status = if applied {
-                "applied the checker's fix".into()
-            } else {
-                "the note changed under that fix".into()
-            };
+            self.say(
+                if applied {
+                    "applied the checker's fix"
+                } else {
+                    "the note changed under that fix"
+                },
+                cx,
+            );
         }
         if let Some((command, args)) = &fix.command {
             if let Some(spell) = self.spell.clone() {

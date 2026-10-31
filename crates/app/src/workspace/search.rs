@@ -140,7 +140,7 @@ impl Workspace {
     fn step_search(&mut self, delta: i64, cx: &mut Context<Self>) {
         if self.search.hits.is_empty() {
             if self.search.query.is_empty() {
-                self.status = "nothing searched for yet".into();
+                self.say("nothing searched for yet", cx);
             }
             // Otherwise the status bar already says "no match for …"; there is
             // nothing to move to, and the cursor stays where it is.

@@ -144,11 +144,14 @@ impl Workspace {
         let was = self.editor.read(cx).typewriter();
         self.editor
             .update(cx, |editor, cx| editor.set_typewriter(on, cx));
-        self.status = if was == on {
-            format!("typewriter scroll is already {}", on_off(on)).into()
-        } else {
-            format!("typewriter scroll {}", on_off(on)).into()
-        };
+        self.say(
+            if was == on {
+                format!("typewriter scroll is already {}", on_off(on))
+            } else {
+                format!("typewriter scroll {}", on_off(on))
+            },
+            cx,
+        );
         cx.notify();
     }
 }

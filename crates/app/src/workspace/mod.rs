@@ -135,6 +135,13 @@ pub(crate) struct Workspace {
     /// The subscription to the open picker, replaced when another one opens.
     _picker_events: Option<Subscription>,
     status: SharedString,
+    /// Bumped by every message the status bar is given. The countdown that clears
+    /// a message writes only if the number it was started with is still the
+    /// current one, so an older timer can never wipe out a newer message.
+    status_seq: u64,
+    /// The status-bar countdown currently parked. Replacing it drops the old one,
+    /// exactly as [`Workspace::_autosave`] does for the save debounce.
+    _status_timer: Option<Task<()>>,
     editor: Entity<MarkdownEditor>,
     _editor_events: Subscription,
     /// Bumped by every edit to the note. A debounce timer writes only if the
@@ -293,6 +300,8 @@ impl Workspace {
             signature,
             _prompt_events: None,
             status: "".into(),
+            status_seq: 0,
+            _status_timer: None,
             editor,
             _editor_events: editor_events,
             autosave_seq: 0,
@@ -362,6 +371,37 @@ impl Workspace {
         });
     }
 
+    /// Put a message in the status bar and start the countdown that clears it.
+    ///
+    /// The bar's other segments are *state*: the mode, the save dot, the checker's
+    /// count and the search's readout are each true for exactly as long as they
+    /// are on screen, so they clear themselves by changing. A message is different
+    /// — it is a reply to something the user just did, and it goes stale. `:typewriter
+    /// off` is worth reading once, not for the rest of the session, and a bar that
+    /// keeps reporting it is a bar full of old information.
+    ///
+    /// So every message is parked with a timer, in the same shape as the autosave
+    /// debounce: a new message *replaces* the parked task, which drops the old
+    /// countdown and restarts the wait — that is what the tests catch. The sequence
+    /// number is the belt to that brace, for a countdown that already woke up and
+    /// has not applied yet: it writes only if the number it started with is still
+    /// current, so it cannot clear a message that arrived after it.
+    pub(crate) fn say(&mut self, message: impl Into<SharedString>, cx: &mut Context<Self>) {
+        self.status = message.into();
+        self.status_seq += 1;
+        let seq = self.status_seq;
+        self._status_timer = Some(cx.spawn(async move |ws, cx| {
+            cx.background_executor().timer(STATUS_TTL).await;
+            // The weak handle is what stops a countdown outliving its window.
+            let _ = ws.update(cx, |ws, cx| {
+                if ws.status_seq == seq {
+                    ws.status = "".into();
+                    cx.notify();
+                }
+            });
+        }));
+    }
+
     pub(crate) fn open_note(&mut self, path: &PathBuf, cx: &mut Context<Self>) {
         // Going to a different note is a jump, so the place being left goes onto
         // the chain `ctrl-o` walks back.
@@ -386,12 +426,12 @@ impl Workspace {
                 self.editor
                     .update(cx, |editor, cx| editor.set_text(text.clone(), cx));
                 self.checker_opened(path, &text, cx);
-                self.status = path.display().to_string().into();
+                self.say(path.display().to_string(), cx);
                 true
             }
             Err(err) => {
                 tracing::warn!(path = %path.display(), "failed to read note: {err:#}");
-                self.status = format!("{err:#}").into();
+                self.say(format!("{err:#}"), cx);
                 false
             }
         }
@@ -420,12 +460,12 @@ impl Workspace {
             }
             Ok(None) => {
                 tracing::debug!(target, "unresolved wiki-link");
-                self.status = format!("no note named {target}").into();
+                self.say(format!("no note named {target}"), cx);
                 cx.notify();
             }
             Err(err) => {
                 tracing::warn!(target, "failed to resolve link: {err:#}");
-                self.status = format!("{err:#}").into();
+                self.say(format!("{err:#}"), cx);
                 cx.notify();
             }
         }
@@ -505,11 +545,14 @@ impl Workspace {
     /// race or the note does.
     pub(super) fn set_checker(&mut self, on: bool, cx: &mut Context<Self>) {
         if self.spell.is_some() == on {
-            self.status = if on {
-                "the spellchecker is already on".into()
-            } else {
-                "the spellchecker is already off".into()
-            };
+            self.say(
+                if on {
+                    "the spellchecker is already on"
+                } else {
+                    "the spellchecker is already off"
+                },
+                cx,
+            );
             cx.notify();
             return;
         }
@@ -520,7 +563,7 @@ impl Workspace {
                         cx.observe(&spell, |ws, spell, cx| ws.show_checker_notes(spell, cx));
                     self._spell_events = Some(events);
                     self.spell = Some(spell);
-                    self.status = "spellcheck on".into();
+                    self.say("spellcheck on", cx);
                     // This server has never seen the note on screen. Handing it
                     // over in the same breath as starting the server is safe only
                     // because the checker stages the open until its handshake is
@@ -534,7 +577,7 @@ impl Workspace {
                 }
                 Err(err) => {
                     tracing::warn!("no spellcheck: {err:#}");
-                    self.status = format!("{err:#}").into();
+                    self.say(format!("{err:#}"), cx);
                 }
             }
         } else {
@@ -544,7 +587,7 @@ impl Workspace {
             // has nothing left to show.
             self.drop_popup(cx);
             self.show_notes(Vec::new(), cx);
-            self.status = "spellcheck off".into();
+            self.say("spellcheck off", cx);
         }
         cx.notify();
     }
@@ -574,7 +617,7 @@ impl Workspace {
 
     pub(super) fn save(&mut self, _: &Save, _window: &mut Window, cx: &mut Context<Self>) {
         let Some(path) = self.active.clone() else {
-            self.status = "no file open".into();
+            self.say("no file open", cx);
             cx.notify();
             return;
         };
@@ -585,10 +628,10 @@ impl Workspace {
                 // Shale just changed the disk itself; re-stamping it is what stops
                 // the watcher reporting our own save as an outside edit.
                 self.resign();
-                self.status = format!("saved {}", path.display()).into();
+                self.say(format!("saved {}", path.display()), cx);
             }
             Err(err) => {
-                self.status = format!("{err:#}").into();
+                self.say(format!("{err:#}"), cx);
             }
         }
         cx.notify();
@@ -659,7 +702,7 @@ impl Workspace {
             }
             Err(err) => {
                 tracing::warn!(path = %path.display(), "autosave failed: {err:#}");
-                self.status = format!("autosave failed: {err:#}").into();
+                self.say(format!("autosave failed: {err:#}"), cx);
                 cx.notify();
             }
         }
@@ -737,28 +780,32 @@ impl Workspace {
             let dirty = self.editor.read_with(cx, |editor, _cx| editor.is_dirty());
             if changes.was_removed(&path) {
                 if dirty {
-                    self.status = format!(
-                        "{} deleted from disk; your edits are still here",
-                        path.display()
-                    )
-                    .into();
+                    self.say(
+                        format!(
+                            "{} deleted from disk; your edits are still here",
+                            path.display()
+                        ),
+                        cx,
+                    );
                 } else {
                     self.active = None;
                     self.editor
                         .update(cx, |editor, cx| editor.set_text(String::new(), cx));
                     self.checker_closed(cx);
-                    self.status = format!("{} deleted from disk", path.display()).into();
+                    self.say(format!("{} deleted from disk", path.display()), cx);
                 }
             } else if changes.was_modified(&path) {
                 if dirty {
-                    self.status = format!(
-                        "{} changed on disk; ctrl-s will overwrite it",
-                        path.display()
-                    )
-                    .into();
+                    self.say(
+                        format!(
+                            "{} changed on disk; ctrl-s will overwrite it",
+                            path.display()
+                        ),
+                        cx,
+                    );
                 } else {
                     self.open_note(&path, cx);
-                    self.status = format!("{} reloaded from disk", path.display()).into();
+                    self.say(format!("{} reloaded from disk", path.display()), cx);
                 }
             }
         }
@@ -777,6 +824,13 @@ impl Workspace {
 /// enough that the walk never lands on a keystroke's path, short enough that a
 /// note created in another program shows up in the tree almost at once.
 const WATCH_INTERVAL: Duration = Duration::from_millis(750);
+
+/// How long a message stays in the status bar. Long enough to read a sentence
+/// about what a command just did — including an error, which is the one message
+/// the user may have to act on — and short enough that the bar does not go on
+/// reporting something that stopped being news. `pub(crate)` so the tests can
+/// wait it out rather than hard-coding a number.
+pub(crate) const STATUS_TTL: Duration = Duration::from_secs(8);
 
 /// Start watching the vault: every [`WATCH_INTERVAL`] the disk is re-walked on a
 /// background thread and any difference is folded into the window by

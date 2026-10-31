@@ -156,11 +156,14 @@ impl Workspace {
             cursor: self.editor.read(cx).cursor_offset(),
         });
         let Some(jump) = self.jumps.step(forward, leaving) else {
-            self.status = if forward {
-                "no newer jump".into()
-            } else {
-                "no older jump".into()
-            };
+            self.say(
+                if forward {
+                    "no newer jump"
+                } else {
+                    "no older jump"
+                },
+                cx,
+            );
             cx.notify();
             return;
         };

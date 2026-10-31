@@ -113,7 +113,7 @@ impl Workspace {
             return;
         }
         if kind == prompt::PromptKind::Delete && !answer.eq_ignore_ascii_case("yes") {
-            self.status = "delete cancelled".into();
+            self.say("delete cancelled", cx);
             self.close_prompt(window, cx);
             return;
         }
@@ -121,7 +121,7 @@ impl Workspace {
             Ok(()) => self.close_prompt(window, cx),
             Err(err) => {
                 tracing::warn!("the prompt was refused: {err:#}");
-                self.status = format!("{err:#}").into();
+                self.say(format!("{err:#}"), cx);
                 cx.notify();
             }
         }
@@ -150,20 +150,20 @@ impl Workspace {
             ex::Ex::ThemePicker => window.dispatch_action(ChangeTheme.boxed_clone(), cx),
             ex::Ex::Theme(name) => match self.set_theme(&name, cx) {
                 Ok(()) => match self.persist_theme(&name) {
-                    Ok(()) => self.status = format!("theme: {name}").into(),
+                    Ok(()) => self.say(format!("theme: {name}"), cx),
                     Err(err) => {
                         tracing::warn!("could not save the theme: {err:#}");
-                        self.status = format!("theme: {name}, not saved: {err:#}").into();
+                        self.say(format!("theme: {name}, not saved: {err:#}"), cx);
                     }
                 },
-                Err(err) => self.status = format!("{err:#}").into(),
+                Err(err) => self.say(format!("{err:#}"), cx),
             },
             ex::Ex::View(view) => self.show_view(view, window, cx),
             ex::Ex::YankClipboard => self.yank_clipboard(&YankClipboard, window, cx),
             // The clipboard in. The editor owns the paste, and fills the vim
             // register with what it reads, so `p` can repeat it from there.
             ex::Ex::PasteClipboard => window.dispatch_action(PasteText.boxed_clone(), cx),
-            ex::Ex::Unknown(word) => self.status = format!("unknown command: {word}").into(),
+            ex::Ex::Unknown(word) => self.say(format!("unknown command: {word}"), cx),
         }
         cx.notify();
     }
@@ -182,9 +182,9 @@ impl Workspace {
             Some(text) => {
                 let chars = text.chars().count();
                 cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
-                self.status = format!("copied {chars} chars to the clipboard").into();
+                self.say(format!("copied {chars} chars to the clipboard"), cx);
             }
-            None => self.status = "nothing to copy".into(),
+            None => self.say("nothing to copy", cx),
         }
         cx.notify();
     }
@@ -203,7 +203,7 @@ impl Workspace {
                 self.refresh_entries(cx);
                 self.tree_selection = Some(created.clone());
                 self.open_note(&created, cx);
-                self.status = format!("created {}", created.display()).into();
+                self.say(format!("created {}", created.display()), cx);
             }
             prompt::PromptKind::NewFolder => {
                 let dir = self.target_dir().join(answer);
@@ -211,7 +211,7 @@ impl Workspace {
                 self.refresh_entries(cx);
                 self.expanded.insert(dir.clone());
                 self.tree_selection = Some(dir.clone());
-                self.status = format!("created {}/", dir.display()).into();
+                self.say(format!("created {}/", dir.display()), cx);
             }
             prompt::PromptKind::Rename => {
                 let from = self.prompt_target()?;
@@ -237,7 +237,7 @@ impl Workspace {
                 // over by hand.
                 self.jumps.rename(&from, &renamed);
                 self.tree_selection = Some(renamed.clone());
-                self.status = rename_status(&renamed, &report).into();
+                self.say(rename_status(&renamed, &report), cx);
             }
             // A command line is not a name for something on disk, and
             // `answer_prompt` sends it off to `answer_command` before this is
@@ -265,7 +265,7 @@ impl Workspace {
                 self.jumps.forget(&target);
                 self.tree_selection = None;
                 self.refresh_entries(cx);
-                self.status = format!("deleted {}", target.display()).into();
+                self.say(format!("deleted {}", target.display()), cx);
             }
         }
         // The edit that just happened was ours, so the watcher's next pass has
@@ -380,7 +380,7 @@ impl Workspace {
         let target = match self.prompt_target() {
             Ok(target) => target,
             Err(err) => {
-                self.status = format!("{err:#}").into();
+                self.say(format!("{err:#}"), cx);
                 cx.notify();
                 return;
             }
@@ -416,7 +416,7 @@ impl Workspace {
         let target = match self.prompt_target() {
             Ok(target) => target,
             Err(err) => {
-                self.status = format!("{err:#}").into();
+                self.say(format!("{err:#}"), cx);
                 cx.notify();
                 return;
             }
