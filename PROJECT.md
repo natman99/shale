@@ -422,7 +422,7 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
 - Run the test binaries under `ulimit -v` when working on anything that scans
   text (a scanner bug can allocate until the OOM killer takes the editor down —
   see the table postmortem).
-  Current peak RSS of the test binaries (2026-10-31, app 266 / core 372 with 10
+  Current peak RSS of the test binaries (2026-10-31, app 271 / core 372 with 10
   ignored / mcp 6 tests — core's `db::` tests cost it nothing worth mentioning: 12.5
   MB to 15 MB, and the app's 79 MB to 83 MB is the seven `tests::index` windows that
   each open a real DB, which is nowhere near the 200 MB line worth investigating):
@@ -2001,9 +2001,12 @@ Largest files now (2026-10-30, after Phase 0's module splits; what the DB spine
   `workspace/mod.rs` is 855 → **949** (the `db` field, opening it, and the four call
   sites that report a write), `workspace/edits.rs` 468 → 486, `config/mod.rs` 405 →
   458 (the `[index]` section), `ex.rs` 158 → 250, `db/mod.rs` 332, `db/schema.rs` 208,
-  and new `workspace/index.rs` 179 and `tests/index.rs` 170. **Still nothing over the
-  rule**, but `workspace/mod.rs` at 949 is the one to watch: the next thing that lands
-  in it should be a split, not a field.
+  and new `workspace/index.rs` 179 and `tests/index.rs` 193. **Still nothing over the
+  rule**, but two are close: `workspace/mod.rs` **970** and `editor/mod.rs` **960**.
+  The next thing that wants to land in either should be a split, not a field —
+  `workspace/mod.rs` is the state plus the vault-edit actions plus the bar's free
+  functions, and the bar's segments (`save_indicator`, `mode_label`, `word_badge`,
+  `status`) are the obvious `bar.rs` when it happens.
   **Nothing is over the rule (2026-10-30).** The three that were — `tests/popup.rs`
   1104, `line.rs` 1086, `workspace/mod.rs` 1050 — split as planned: `line/`
   `{mod,runs,tests}.rs` 775/156/208, `tests/popup/` `{mod,keyboard,pointer}.rs`
@@ -2600,6 +2603,20 @@ Next steps, roughly in order:
     - **Watch out in tests:** the status countdown is 8 s and the autosave debounce
       is 2 s, so a test that advances one advances the other. The state-segment test
       runs with `autosave = false` for exactly that reason.
+    - **Empty segments are not free (found 2026-10-31):** the message and the
+      checker's count were unconditional children of a `gap_4` flex row, so when they
+      were empty they still took a flex slot — a gap on each side of nothing, which is
+      the wider space in the middle of the bar the user noticed. Every optional segment
+      is now gated with `.when(!x.is_empty(), …)`.
+    - **The word-count badge** (2026-10-31, P1.7's status-bar half): the open note's
+      count at the right end of the bar, in `ui_dim` because it is a number to glance
+      at rather than news. It counts the **buffer** (`MarkdownEditor::word_count`,
+      borrowing it rather than copying, since the frame asks every frame), not the
+      index — a count that lagged a save behind would be the stale state the bar is
+      arranged to avoid. `word_badge(has_note, words)` is the free function render and
+      the test hook both call, same shape as `save_indicator`. A probe confirmed the
+      frame really does rebuild on an edit (3 → 6 renders across two keystrokes), so
+      no extra `cx.notify()` was needed to keep the bar live.
 
 25. **The vault index: SQLite spine, the indexer, and `:wordcount`** — Phase 1 up to
     P1.7 (2026-10-31). The notes stay the source of truth; the DB is a cache.

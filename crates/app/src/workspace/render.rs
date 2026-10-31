@@ -10,7 +10,7 @@ use crate::prompt;
 use crate::tree;
 
 use super::tree::{push_node, TreeState};
-use super::{mode_label, save_indicator, Workspace};
+use super::{mode_label, save_indicator, word_badge, Workspace};
 
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -118,6 +118,10 @@ impl Render for Workspace {
         };
         // Which match of how many the cursor is on, while a `/` search is up.
         let search = self.search_label();
+        // The open note's own word count, live from the buffer. It is state, not a
+        // message: it is true for exactly as long as it is shown, and it moves with
+        // the typing rather than a save later.
+        let words = word_badge(self.active.is_some(), self.editor.read(cx).word_count());
 
         div()
             .track_focus(&self.focus_handle)
@@ -385,6 +389,17 @@ impl Render for Workspace {
                             div()
                                 .text_color(gpui::rgb(self.palette.accent))
                                 .child(search),
+                        )
+                    })
+                    .when(!words.is_empty(), |d| {
+                        // The count sits next to the cursor position at the right end
+                        // of the bar, and in the chrome's quiet colour: it is a number
+                        // to glance at, not news, and the accent is reserved for the
+                        // segments that mean something is different.
+                        d.child(
+                            div()
+                                .text_color(gpui::rgb(self.palette.ui_dim))
+                                .child(words),
                         )
                     })
                     .child(format!("{}:{}", line + 1, col + 1)),

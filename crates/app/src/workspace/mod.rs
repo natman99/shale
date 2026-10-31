@@ -947,3 +947,24 @@ pub(super) fn mode_label(mode: shale_core::vim::Mode) -> &'static str {
         shale_core::vim::Mode::VisualLine => "V-LINE",
     }
 }
+
+/// The status bar's word-count badge for the note on screen, or empty when there is
+/// no note to count — an empty segment is still a flex item, so it would put a gap
+/// on both sides of nothing.
+///
+/// The count comes from the **buffer**, not the index: it is the one number in the
+/// bar the user watches change as they type, so a count that lagged a save behind
+/// would be exactly the stale state the bar's segments are arranged to avoid.
+/// `:wordcount` answers the other question — the vault, or one folder of it — from
+/// the index, and both go through [`shale_core::word_count`], so they cannot
+/// disagree about a note that is saved.
+pub(crate) fn word_badge(has_note: bool, words: usize) -> String {
+    if !has_note {
+        return String::new();
+    }
+    if words == 1 {
+        "1 word".to_string()
+    } else {
+        format!("{words} words")
+    }
+}

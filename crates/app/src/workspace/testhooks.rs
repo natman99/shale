@@ -110,6 +110,13 @@ impl Workspace {
     pub(crate) fn dirty_indicator(&self, cx: &gpui::App) -> &'static str {
         save_indicator(self.editor.read(cx).is_dirty())
     }
+    /// What the status bar shows for the open note's word count: how a test checks
+    /// that the badge follows the buffer as the user types, and stays out of the bar
+    /// when there is no note open.
+    #[cfg(test)]
+    pub(crate) fn word_badge(&self, cx: &gpui::App) -> String {
+        word_badge(self.active.is_some(), self.editor.read(cx).word_count())
+    }
     /// The cursor's buffer position (row, column), 0-based: how a test checks
     /// that choosing a search hit lands on the line that row was showing.
     #[cfg(test)]

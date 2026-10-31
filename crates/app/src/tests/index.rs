@@ -154,6 +154,29 @@ fn a_rename_moves_the_count_rather_than_adding_to_it(cx: &mut TestAppContext) {
     );
 }
 
+/// The badge and the command count a word the same way, so the number at the end of
+/// the bar and the number the index reports cannot drift apart for a note that is
+/// saved. They answer different questions — the badge is *this note, right now*, from
+/// the buffer; `:wordcount` is *the vault, as indexed* — and agree where the two
+/// meet.
+#[gpui::test]
+fn the_badge_and_the_command_agree_about_a_saved_note(cx: &mut TestAppContext) {
+    let (_dir, window) = indexed_vault(cx, &[("Welcome.md", WELCOME)]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    window
+        .update(cx, |ws, _window, cx| {
+            ws.open_note(&PathBuf::from("Welcome.md"), cx)
+        })
+        .unwrap();
+    type_command("wordcount", cx);
+    assert_eq!(status(&window, cx), "6 words in 1 note");
+    let badge = window
+        .update(cx, |ws, _window, cx| ws.word_badge(cx))
+        .unwrap();
+    assert_eq!(badge, "6 words");
+}
+
 /// A vault with `index.enabled = false` has nothing to count, and says so rather
 /// than inventing a number — the same posture as a checker that will not start.
 #[gpui::test]

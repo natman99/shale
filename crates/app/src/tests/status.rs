@@ -1,11 +1,12 @@
-//! How long a message stays in the status bar.
+//! How the status bar decides what to show, and for how long.
 //!
-//! The bar's other segments are *state* — the mode, the save dot, the checker's
-//! count, the search's readout — and each is true for exactly as long as it is on
-//! screen, so it clears itself by changing. A message is different: it is a reply
-//! to something the user just did, and it goes stale. These tests ask that it
-//! stops being shown when it stops being news, and that the state segments outlive
-//! it.
+//! The bar's segments are either *state* — the mode, the save dot, the checker's
+//! count, the search's readout, the word-count badge — or a *message*. State is true
+//! for exactly as long as it is shown, so it clears itself by changing. A message is
+//! different: it is a reply to something the user just did, and it goes stale. These
+//! tests ask that a message stops being shown when it stops being news, that the
+//! state segments outlive it, and that the word-count badge counts the note on
+//! screen as the user types it.
 
 use super::*;
 use crate::workspace::STATUS_TTL;
@@ -50,6 +51,85 @@ fn type_command(line: &str, cx: &mut VisualTestContext) {
 /// The status line, where a command reports what it did.
 fn status(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> String {
     window.update(cx, |ws, _window, _cx| ws.status()).unwrap()
+}
+
+// The word-count badge is *state*: it is true for exactly as long as it is shown,
+// and unlike a message it never needs a countdown, because it changes when what it
+// counts changes.
+//
+// It counts the note on screen from the buffer, so it moves with the typing rather
+// than a save later — the index's count is what `:wordcount` reports for the vault,
+// which is a different question.
+
+/// A note with six words in it says so.
+#[gpui::test]
+fn the_word_badge_counts_the_open_note(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("a.md", "one two three four five six\n")]);
+    window
+        .update(cx, |ws, _window, cx| {
+            ws.open_note(&PathBuf::from("a.md"), cx)
+        })
+        .unwrap();
+    let badge = window
+        .update(cx, |ws, _window, cx| ws.word_badge(cx))
+        .unwrap();
+    assert_eq!(badge, "6 words");
+}
+
+/// The badge follows the caret's buffer, not the disk: three words typed are three
+/// words counted at once, with nothing saved and no countdown waited out. A count
+/// that lagged the save would be the stale state the bar is arranged to avoid.
+#[gpui::test]
+fn the_word_badge_moves_with_the_typing(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("a.md", "one two three\n")]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    window
+        .update(cx, |ws, _window, cx| {
+            ws.open_note(&PathBuf::from("a.md"), cx)
+        })
+        .unwrap();
+    assert_eq!(
+        window
+            .update(cx, |ws, _window, cx| ws.word_badge(cx))
+            .unwrap(),
+        "3 words"
+    );
+
+    cx.simulate_keystrokes("A");
+    cx.simulate_input(" four five six");
+    assert_eq!(
+        window
+            .update(cx, |ws, _window, cx| ws.word_badge(cx))
+            .unwrap(),
+        "6 words",
+        "counted before anything was written"
+    );
+}
+
+/// No note, no badge — and the segment leaves the bar rather than sitting in it
+/// empty, which is what put a wider gap in the middle of the bar before.
+#[gpui::test]
+fn no_note_means_no_word_badge(cx: &mut TestAppContext) {
+    let (_dir, window) = workspace(cx, &["a.md"]);
+    let badge = window
+        .update(cx, |ws, _window, cx| ws.word_badge(cx))
+        .unwrap();
+    assert_eq!(badge, "", "nothing is open to count");
+}
+
+/// One word is one word, out loud as well as in the number.
+#[gpui::test]
+fn one_word_is_one_word(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("a.md", "solo\n")]);
+    window
+        .update(cx, |ws, _window, cx| {
+            ws.open_note(&PathBuf::from("a.md"), cx)
+        })
+        .unwrap();
+    let badge = window
+        .update(cx, |ws, _window, cx| ws.word_badge(cx))
+        .unwrap();
+    assert_eq!(badge, "1 word");
 }
 
 /// A message is worth reading once, not for the rest of the session. This is the

@@ -434,6 +434,15 @@ and `workspace/{mod,testhooks}.rs`. The largest file in the tree is
   **Word count is defined as** whitespace-delimited runs holding at least one letter
   or digit, so a heading's `#`, a bullet's `-` and bold's `**` are not words
   (`core::db::word_count`).
+  **The status-bar half is a badge, and it does not come from the DB.** The open
+  note's count sits at the right end of the bar in the chrome's quiet colour, counted
+  from the **buffer** on every frame: it is the one number the user watches move as
+  they type, and a count that lagged a save (2 s of quiet) behind would be exactly
+  the stale state the bar's segments are arranged to avoid. It is *state*, not a
+  message — no countdown, and it leaves the bar entirely when no note is open. Both
+  paths call `shale_core::word_count`, so the badge and `:wordcount` cannot disagree
+  about a note that is saved; they answer different questions (this note now / the
+  vault as indexed).
 - **P1.8 Session state — what the vault looked like last time** (the user asked
   for it 2026-10-29; simple, and it belongs with the `.shale/` work). Save on a
   graceful quit and on the autosave's beat; restore on open. Contents: the open

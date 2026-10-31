@@ -275,6 +275,17 @@ impl MarkdownEditor {
         self.buffer.text().to_string()
     }
 
+    /// How many words the buffer holds, by [`shale_core::word_count`]: whitespace
+    /// runs holding at least one letter or digit, so a heading's `#`, a bullet's `-`
+    /// and bold's `**` are not words.
+    ///
+    /// It borrows the buffer rather than copying it, because the status bar asks on
+    /// every frame. The same function backs `:wordcount`, so the badge and the
+    /// command cannot disagree about a note that is saved.
+    pub fn word_count(&self) -> usize {
+        shale_core::word_count(self.buffer.text())
+    }
+
     /// The body text size the editor paints and measures with.
     pub(crate) fn font_size(&self) -> f32 {
         self.font_size
