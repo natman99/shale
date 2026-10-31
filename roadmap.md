@@ -264,8 +264,14 @@ and `workspace/{mod,testhooks}.rs`. The largest file in the tree is
   - `tags(note, tag)` (flat strings; the tree is built by splitting on `/`)
   - `links(source, target, first_seen_at, last_seen_at)` — the `first_seen`
     that powers link-age coloring and the scrubber
-  - `events(note, kind, at, provenance, detail)` — **append-only**; kinds:
-    created/edited/opened/linked/renamed/deleted. This is the scrubber's data.
+  - `events(note, kind, at, provenance, detail, line_start, line_end)` —
+    **append-only**; kinds: created/edited/opened/linked/renamed/deleted.
+    This is the scrubber's data. The optional line-span is captured at edit
+    time from the save diff and powers the provenance badges + editor glow
+    (brainstorm: agent presence). **Spans are approximate, decaying
+    signals — not anchors**; line numbers drift after later edits and that
+    is acceptable because every consumer expires in minutes. Do not build
+    permanent annotations on them.
   - `marks(name, path, position, label, created_at)`
 - **P1.3 Incremental indexing + startup reconciliation** — exactly as
   PROJECT.md's Database section promises: background thread reconciles files
@@ -339,7 +345,12 @@ user/MCP/rename writes; `kill -TERM` leaves a clean DB (verify with
   files** in `.shale/pending-edits/` (DB only indexes them); review strip with
   per-hunk accept/reject; quit prompts, unanswered/killed → files persist and
   re-offer next launch. Needs a UX design pass first (strip placement, keys,
-  diff rendering — reuse P4's diff renderer).
+  diff rendering — reuse P4's diff renderer). **Design-pass input (ruled
+  2026-10-29):** hybrid — inline phantom-region overlay in the note (dimmed
+  removals, tinted additions, collapsible hunks, `]a`/`[a`/`y`/`x`) + the
+  strip as the authoritative navigation/count; hunks re-anchor by diff
+  context and fall back to strip-only when ambiguous. Full shape in
+  brainstorm.md (agent presence cluster).
 - **P2.6 Quick capture** (brainstorm ✅): `shale capture "text"` → unix socket
   (Linux/macOS) / named pipe (Windows) if the app is up, direct append if not.
   No app-grabbed global hotkeys on Linux; document the niri binding.

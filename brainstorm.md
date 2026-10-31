@@ -74,6 +74,55 @@ Last refined: 2026-10-29 (TTRPG/D&D toolkit section added).
 - Cost: path-glob checks + tool allowlist in the mcp crate; tools are already
   enumerated.
 
+### Agent presence & provenance visibility ✅ (2026-10-29, Grok-review cluster)
+One visual language for "the agent is/has been here", three surfaces, one
+data source (the event log + pending-edits index). All of it is
+timestamp-derived: static paint, expiring on its own, zero animation,
+zero frames when idle — and all of it is config-off-able as a group
+(`[agent] presence = true`, plus per-surface toggles).
+
+- **Event-log line-spans (P1 schema decision).** The `events` table grows
+  optional `line_start/line_end`: the line range an edit touched, captured
+  at edit time from the save diff (the provenance helper already knows it).
+  Spans are **approximate and decaying**, not anchors — line numbers drift
+  after later edits, which is fine because every consumer is a signal that
+  expires in minutes. Schema comment must say so, so nobody later builds
+  permanent annotations on them. Cheap now, painful to retrofit.
+- **Provenance badges.** Gutter/tab/tree glyphs: "last touched by agent",
+  "has pending review", "edited this session"; hover → the exact event-log
+  row (who, when, what span). Note-level is nearly free; line-level rides
+  the spans above.
+- **File-tree ticks.** The tree is the only whole-vault surface, and today
+  nothing marks agent-touched files there (gap this cluster closes): a
+  small profile-colored dot next to any note a connected profile touched
+  within the last N minutes. Distinct from the heatmap (which is
+  edit/visit *frequency*); the tick is *presence now*. Same dot language
+  as the tab badge and gutter tick — three surfaces, one fact.
+- **Presence by inference, not declaration.** No `set_cursor`/`focus` tool
+  required — presence is inferred from recent MCP reads/writes in the
+  event log ("profile X touched these notes in the last N min"). Honest
+  and works with any client. A live `focus` tool that lets a well-behaved
+  agent show *where it's working right now* (ghost cursors) stays the
+  aspiration, unblocked by this.
+- **Editor-side ripple/glow.** The graph's M5b language extended into the
+  note: recently agent-touched blocks get a soft age-decaying halo
+  (<~10 min, intensity = f(age), same rule as the graph). Derived from
+  event timestamps, drawn when dirty — never a ticking decay animation.
+  `[editor] glow = true|false` (off is fully off).
+- **Inline review overlay (hybrid; feeds the P2.5 design pass).** Pending
+  hunks render *in the note* where they would apply: removed lines dimmed
+  + strikethrough, added lines tinted, left-bar per hunk, collapsible to
+  "−2 +4". Phantom regions: not in the buffer, so j/k, selection, wrap,
+  folds, and search skip them for motion but paint them (the row-mapping
+  functions in `line.rs`/hit-testing already centralize this). Keys:
+  `]a`/`[a` hop hunks, `y`/`x` accept/reject, `za` collapse — all registry
+  commands, MCP-visible; the agent can never accept its own edits.
+  Re-anchoring: the pending file's diff context re-matches the current
+  buffer; confident match → stays inline, ambiguous/vanished → hunk leaves
+  inline and lives only in the strip, badge still counts it. **The strip
+  is authoritative, inline is opportunistic** — nothing is ever invisible.
+  Design pass owed at P2.5: exact keys, strip placement, colors.
+
 ---
 
 ## Vim-native Markdown
