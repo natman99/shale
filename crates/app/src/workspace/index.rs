@@ -64,6 +64,21 @@ impl Workspace {
         }));
     }
 
+    /// Drain what is queued and checkpoint the WAL, so an exit leaves one DB file
+    /// and no writes still sitting in the log (roadmap P1.5).
+    ///
+    /// Best-effort like every other index call: an index that could not be
+    /// checkpointed is still a cache the notes can rebuild, so it is logged and the
+    /// exit goes ahead.
+    pub(super) fn flush_index(&self) {
+        let Some(db) = self.db.as_ref() else {
+            return;
+        };
+        if let Err(err) = db.flush() {
+            tracing::warn!("the vault index was not checkpointed: {err:#}");
+        }
+    }
+
     /// Fold one set of disk changes into the index.
     pub(super) fn index_changes(&self, changes: &VaultChanges, provenance: Provenance) {
         let Some(db) = self.db.as_ref() else {

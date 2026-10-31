@@ -401,6 +401,26 @@ and `workspace/{mod,testhooks}.rs`. The largest file in the tree is
   shutdown (flush DB, write pending edits, finish in-flight saves); all writes
   atomic (temp + rename); SIGKILL out of scope. **Land this with the DB** —
   it's the first stateful thing that can be corrupted.
+  **Landed 2026-10-31.** The correction the rule needed on the way in: "all writes
+  atomic" was *not* yet true — `Vault::write` was a plain `fs::write`
+  (truncate-then-write) until this. `crates/core/src/atomic.rs` is now the one
+  implementation every file Shale owns goes through: a dot-prefixed temp file
+  (`.name.shale-tmp`, so a crash leftover is invisible to the vault walk rather
+  than becoming a note), `sync_all`, then `rename`; the config splice's private
+  temp+rename now calls it too. Two things `rename` gets wrong by default, fixed
+  in the module: it consults the *directory*, not the target, so a `chmod 444`
+  note would be replaced over the user's lock (the write now refuses — which is
+  what the refuse-to-close test depends on), and the replacement inode starts at
+  the default mode, so the old mode is copied onto the staging file. No
+  *directory* fsync: the one durability step whose cost is disproportionate, and
+  after a power cut the worst case is the rename not yet recorded, never a corrupt
+  note. `Db::flush()` is the drain — a `wal_checkpoint(TRUNCATE)` job queued behind
+  everything queued before it (the channel is FIFO), leaving one DB file and no
+  `-wal`. Signals: `main` installs SIGTERM/SIGHUP/SIGINT handlers that only do an
+  atomic store (a signal context allows nothing else) and the window polls the flag
+  every 200 ms (`workspace/exit.rs`): dirty note written, index flushed, then quit
+  — and `quit`/`:q` now make the same promise, index flush included. SIGKILL stays
+  out of scope by definition: that is what the atomic writes are for.
 - **P1.5b Single-writer DB discipline** (binding, adopted 2026-10-29 from the
   external review): one dedicated writer thread owns the SQLite write
   connection; UI, MCP handlers, and reconciliation send write requests over a
@@ -465,10 +485,9 @@ and `workspace/{mod,testhooks}.rs`. The largest file in the tree is
 external edit picked up within the watch interval; provenance correct for
 user/MCP/rename writes; `kill -TERM` leaves a clean DB (verify with
 `PRAGMA integrity_check`); `:wordcount` correct for vault and a subtree.
-**Met 2026-10-31 except** the SIGTERM half (P1.5: `Db`'s `Drop`/`shutdown` barrier
-exists, but nothing catches the signal yet) and MCP provenance (no MCP write path
-exists yet). The demo-vault rebuild time and the `kill -TERM` check are still to be
-measured by hand.
+**Met 2026-10-31 except** MCP provenance (no MCP write path exists yet). The
+SIGTERM half landed with P1.5 the same day. The demo-vault rebuild time and the
+`kill -TERM` + `PRAGMA integrity_check` check are still to be measured by hand.
 
 ---
 

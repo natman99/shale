@@ -23,6 +23,8 @@ mod workspace;
 
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use anyhow::{Context as _, Result};
 use clap::Parser;
@@ -66,6 +68,28 @@ fn main() -> Result<()> {
     tracing::info!(?source, path = %Config::path(vault.root()).display(), "config");
     let config = Rc::new(config);
     let initial_note = args.note.clone();
+
+    // Roadmap P1.5: a termination signal is an exit the user asked for, not a crash.
+    // The handler runs in signal context, where the only safe work is an atomic
+    // store, so it raises a flag and the window polls it (`workspace::exit`).
+    // SIGKILL cannot be caught, which is why the note writes themselves are atomic
+    // (`shale_core::atomic`) and the index is a cache rather than a record.
+    let terminating = Arc::new(AtomicBool::new(false));
+    let _signal_handlers = [libc::SIGTERM, libc::SIGHUP, libc::SIGINT]
+        .into_iter()
+        .map(|signal| {
+            let flag = Arc::clone(&terminating);
+            // `register` chains whatever handler was already there — gpui installs
+            // none for these — and the action has to be async-signal-safe, which an
+            // atomic store is. The handles are kept for the run: dropping one puts
+            // the previous handler back, and the previous handler for SIGTERM is
+            // "drop the process where it stands".
+            unsafe {
+                signal_hook_registry::register(signal, move || flag.store(true, Ordering::SeqCst))
+            }
+        })
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .context("installing the termination handlers")?;
 
     let app = gpui_platform::application();
     app.run(move |cx: &mut App| {
@@ -113,6 +137,12 @@ fn main() -> Result<()> {
         // The vault can change while Shale is open — Obsidian, git, another
         // terminal — so the tree and the open note follow the disk.
         start_watcher(&workspace, cx);
+
+        // ...and a `kill` is answered the same way a quit is: the note to the disk,
+        // the index checkpointed, then the window.
+        workspace.update(cx, |ws, cx| {
+            ws.watch_for_termination(terminating.clone(), cx)
+        });
 
         if let Some(secs) = args.open_after {
             let ws = workspace.clone();

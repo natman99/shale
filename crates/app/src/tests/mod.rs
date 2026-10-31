@@ -15,6 +15,7 @@ use std::time::Duration;
 mod autosave;
 mod blocks;
 mod commands;
+mod exit;
 mod focus;
 mod index;
 mod jumps;

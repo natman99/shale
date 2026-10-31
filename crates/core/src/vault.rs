@@ -221,13 +221,14 @@ impl Vault {
     }
 
     /// Write `content` to `rel`, creating parent directories as needed.
+    /// Replace a note's contents **atomically** ([`crate::atomic`]): a crash, a
+    /// signal, or an ENOSPC part-way through leaves the old note standing rather than
+    /// an empty or half-written one. The notes are the source of truth, which is why
+    /// they do not get to be written any other way.
     pub fn write(&self, rel: impl AsRef<Path>, content: &str) -> Result<()> {
         let path = self.resolve(rel)?;
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("creating directory {}", parent.display()))?;
-        }
-        fs::write(&path, content).with_context(|| format!("writing note {}", path.display()))
+        crate::atomic::write_file(&path, content)
+            .with_context(|| format!("writing note {}", path.display()))
     }
 
     // ----- creating, renaming and deleting (the file tree's edits) ------
@@ -253,7 +254,11 @@ impl Vault {
             fs::create_dir_all(parent)
                 .with_context(|| format!("creating directory {}", parent.display()))?;
         }
-        fs::write(&path, "").with_context(|| format!("creating note {}", path.display()))?;
+        // Written the atomic way like every other note, even though an empty file
+        // cannot be half-written: the day this grows a template body to put in the
+        // new note, a plain write would be a note that can be lost at birth.
+        crate::atomic::write_file(&path, "")
+            .with_context(|| format!("creating note {}", path.display()))?;
         Ok(rel)
     }
 

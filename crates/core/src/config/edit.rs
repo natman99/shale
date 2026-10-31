@@ -18,7 +18,7 @@
 
 use std::path::Path;
 
-use anyhow::Context as _;
+use crate::atomic::write_file;
 
 use super::Config;
 
@@ -142,20 +142,6 @@ pub fn write_setting(
         }
     };
     write_file(&path, &set(&text, table, key, value))
-}
-
-/// Write `text` to `path` atomically: a temp file in the same directory, then a
-/// rename onto the target.
-fn write_file(path: &Path, text: &str) -> anyhow::Result<()> {
-    let dir = path
-        .parent()
-        .unwrap_or_else(|| Path::new("."))
-        .to_path_buf();
-    std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
-    let tmp = path.with_extension("toml.tmp");
-    std::fs::write(&tmp, text).with_context(|| format!("writing {}", tmp.display()))?;
-    std::fs::rename(&tmp, path)
-        .with_context(|| format!("renaming {} to {}", tmp.display(), path.display()))
 }
 
 /// The table a header line names (`[appearance]`, with a trailing comment

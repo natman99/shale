@@ -194,6 +194,36 @@ fn a_newer_schema_is_refused_rather_than_rebuilt() {
     assert!(err.to_string().contains("newer than this Shale"), "{err}");
 }
 
+/// Roadmap P1.5's drain: `flush` runs after everything queued before it (the
+/// channel is FIFO), and the TRUNCATE checkpoint folds the WAL back into the one
+/// DB file — which is what P1.6's backups will copy and what `integrity_check`
+/// will inspect.
+#[test]
+fn a_flush_drains_the_queue_and_empties_the_wal() {
+    let (dir, db) = opened();
+    // Fire-and-forget, so the row is *not* known to be committed at this point.
+    db.queue(|conn| {
+        conn.execute(
+            "INSERT INTO notes (path, created_at, modified_at) VALUES ('a.md', 1, 2)",
+            [],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    db.flush().unwrap();
+
+    let conn = db.read().unwrap();
+    let count: i64 = conn
+        .query_row("SELECT count(*) FROM notes", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(count, 1, "the queued job ran before the checkpoint did");
+    drop(conn);
+
+    let wal = dir.path().join(".shale").join("shale.db-wal");
+    let size = fs::metadata(&wal).map(|m| m.len()).unwrap_or(0);
+    assert_eq!(size, 0, "a TRUNCATE checkpoint leaves no log behind");
+}
+
 /// The barrier is not optional bookkeeping: dropping the handle must not leave a
 /// thread running against a temp directory that is about to disappear.
 #[test]

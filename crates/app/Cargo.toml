@@ -14,8 +14,14 @@ clap = { version = "4", features = ["derive"] }
 futures.workspace = true
 gpui.workspace = true
 gpui_platform.workspace = true
+# The termination signals (roadmap P1.5): `signal-hook-registry` installs a handler
+# that only raises a flag, and `libc` supplies the signal numbers. Both are already
+# in the tree through gpui's Linux backend, so this adds no code to the binary — and
+# neither is a binding to a library beyond the libc every Linux process links.
+libc = "0.2"
 serde_json.workspace = true
 shale-core.workspace = true
+signal-hook-registry = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 

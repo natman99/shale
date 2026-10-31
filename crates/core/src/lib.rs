@@ -1,3 +1,4 @@
+mod atomic;
 pub mod buffer;
 pub mod config;
 pub mod continuation;

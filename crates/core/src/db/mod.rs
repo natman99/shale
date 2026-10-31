@@ -224,6 +224,24 @@ impl Db {
         Ok(conn)
     }
 
+    /// Drain what is queued and checkpoint the WAL, so the index is one file again.
+    ///
+    /// The queue is FIFO, so a job that only checkpoints runs after every job that
+    /// was queued before it: that is the drain, without the handle having to know
+    /// what is in the queue. Roadmap P1.5 asks for it at shutdown, and it is worth
+    /// asking for at any clean exit, because an index with no `-wal` beside it is
+    /// what P1.6's backup copies and what `PRAGMA integrity_check` inspects.
+    ///
+    /// An index whose writer already failed reports that rather than pretending it
+    /// is current.
+    pub fn flush(&self) -> Result<()> {
+        self.write(|conn| {
+            conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+                .context("could not checkpoint the vault index")?;
+            Ok(())
+        })
+    }
+
     /// The barrier roadmap P1.5 asks for: stop accepting work, let what is already
     /// queued finish, and report anything the writer failed on.
     pub fn shutdown(mut self) -> Result<()> {

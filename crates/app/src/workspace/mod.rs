@@ -9,6 +9,7 @@
 
 pub(crate) mod commands;
 mod edits;
+mod exit;
 mod index;
 mod jumps;
 mod keys;
@@ -138,6 +139,9 @@ pub(crate) struct Workspace {
     /// The startup reconciliation pass. Kept so it is cancelled with the window;
     /// it ends on its own otherwise (see [`Workspace::start_index`]).
     _index: Option<Task<()>>,
+    /// The task that watches for a termination signal. Only started by `main`, and
+    /// only for as long as the window is (see [`exit`]).
+    _termination: Option<Task<()>>,
     /// The subscription to the open prompt, replaced when another one opens.
     _prompt_events: Option<Subscription>,
     /// The open picker, if one is open: quick-open, the command palette or a
@@ -326,6 +330,7 @@ impl Workspace {
             signature,
             db,
             _index: None,
+            _termination: None,
             _prompt_events: None,
             status: "".into(),
             status_seq: 0,
@@ -633,10 +638,10 @@ impl Workspace {
     /// danger is the same; `:wq` asks for the write whether or not the note is
     /// dirty. Closing the window from outside Shale — the window manager's button —
     /// does not reach this action, so `attach_window` makes the same promise there.
-    pub(super) fn quit(&mut self, _: &Quit, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn quit(&mut self, _: &Quit, _window: &mut Window, cx: &mut Context<Self>) {
         let dirty = self.editor.read_with(cx, |editor, _cx| editor.is_dirty());
         if dirty {
-            self.save(&Save, window, cx);
+            self.write_note(cx);
             // The save said why it failed in the status bar. Quitting now would
             // throw the note away, so the user gets to see that first.
             let still = self.editor.read_with(cx, |editor, _cx| editor.is_dirty());
@@ -645,10 +650,21 @@ impl Workspace {
                 return;
             }
         }
+        // Roadmap P1.5: an exit leaves the index drained and checkpointed, so the
+        // next launch opens one DB file rather than a WAL full of unapplied writes.
+        self.flush_index();
         cx.quit();
     }
 
     pub(super) fn save(&mut self, _: &Save, _window: &mut Window, cx: &mut Context<Self>) {
+        self.write_note(cx);
+        cx.notify();
+    }
+
+    /// The write itself: no window, no repaint. The exits that end a session — `quit`
+    /// and a termination signal — come through here, because neither has a frame to
+    /// report through afterwards.
+    fn write_note(&mut self, cx: &mut Context<Self>) {
         let Some(path) = self.active.clone() else {
             self.say("no file open", cx);
             cx.notify();
@@ -666,10 +682,12 @@ impl Workspace {
                 self.say(format!("saved {}", path.display()), cx);
             }
             Err(err) => {
+                // Logged as well as said: an exit path can fail a save with nobody
+                // left to read the status bar.
+                tracing::error!(path = %path.display(), "save failed: {err:#}");
                 self.say(format!("{err:#}"), cx);
             }
         }
-        cx.notify();
     }
 
     /// Restart the autosave countdown for an edit that just happened.

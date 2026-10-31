@@ -99,7 +99,10 @@ tech stack as needed. **Ruled exceptions (2026-10-28):** bundled build-time C
 dependencies are fine where they're the right tool — **SQLite** (`rusqlite`,
 for the vault DB) and **tree-sitter** (code-block highlighting, developer-
 friendly feature wanted). The rule still stands against runtime-linked system
-libraries and FFI-heavy deps.
+libraries and FFI-heavy deps. **2026-10-31:** `libc` + `signal-hook-registry`
+(P1.5's termination signals) were judged inside the rule — pure Rust over the
+libc every Linux process already links, and both were already in the tree
+through gpui's own Linux backend, so they add no code to the binary.
 
 - Tokio for async
 - GPUI for UI — **from Zed's repo, tag `v1.25.3`** (`gpui` + `gpui_platform`
@@ -210,7 +213,8 @@ Workspace layout:
   that has none, and the comment-preserving one-line splice writer), the vault
   index (`db/`: `mod.rs` the `Db` handle — one writer thread owning the only
   read-write connection, a channel queue for everyone else's write jobs, separate
-  read-only connections under WAL, and the shutdown barrier — `index.rs` keeping the
+  read-only connections under WAL, the shutdown barrier, and `flush()`'s WAL
+  checkpoint — `index.rs` keeping the
   index in step with the notes (the startup reconciliation, the watcher's change
   lists, and what each note contributes: words, tags, links and the events worth
   logging), `schema.rs` the tables and the `user_version` stamp, `tests.rs` the
@@ -228,7 +232,8 @@ Workspace layout:
   the candidate the query consumed), `watch` (the
   vault signature — every path stamped with size and mtime, or just existence for
   a folder — and the added/removed/modified diff built from two of them), `rename`
-  (rewriting the wiki-links that point at a note when it is renamed) and `theme` (the
+  (rewriting the wiki-links that point at a note when it is renamed), `atomic` (the
+  one temp+rename write every file Shale owns goes through, roadmap P1.5) and `theme` (the
   colour palette as data: the `Palette` roles and 20 built-in values — Shale's
   `dark`/`light` plus the palettes of seven families, one module per family
   (`theme/catppuccin.rs`, `tokyo_night.rs`, `gruvbox.rs`, `nord.rs`,
@@ -320,12 +325,14 @@ Workspace layout:
   — every command's label, the keys that run it and the action it dispatches —
   `index.rs` the vault index inside the window (the startup pass, telling the index
   what Shale's own save/create/rename/delete just did, and `:wordcount`),
+  `exit.rs` the termination-signal exit (polling the flag the handler raised, and
+  what an exit owes the disk),
   `render.rs` the frame, `testhooks.rs` the accessors only the tests call),
   `tree.rs` (turning the vault's entries
   into rows), `views.rs` (the three views, focus mode and typewriter scroll) and
   its headless tests in `tests/` (`keys.rs`, `motions.rs`,
   `blocks.rs`, `paint.rs`, `tree.rs`, `picker.rs`, `commands.rs`, `search.rs`,
-  `autosave.rs`, `spell.rs`, `focus.rs`, and `popup/` — `mod.rs` the fixtures,
+  `autosave.rs`, `exit.rs`, `spell.rs`, `focus.rs`, and `popup/` — `mod.rs` the fixtures,
   `keyboard.rs` the `K` and offer-list half, `pointer.rs` the resting-mouse half),
   `dim.rs` (focus mode: how far each buffer row is from the block the caret is in,
   and the colour that answers it), `editor/` (the view: `mod.rs`
@@ -422,11 +429,11 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
 - Run the test binaries under `ulimit -v` when working on anything that scans
   text (a scanner bug can allocate until the OOM killer takes the editor down —
   see the table postmortem).
-  Current peak RSS of the test binaries (2026-10-31, app 271 / core 372 with 10
+  Current peak RSS of the test binaries (2026-10-31, app 273 / core 377 with 10
   ignored / mcp 6 tests — core's `db::` tests cost it nothing worth mentioning: 12.5
-  MB to 15 MB, and the app's 79 MB to 83 MB is the seven `tests::index` windows that
+  MB to 15 MB, and the app's 79 MB to 85 MB is the seven `tests::index` windows that
   each open a real DB, which is nowhere near the 200 MB line worth investigating):
-  core 15 MB, app 83 MB,
+  core 15 MB, app 85 MB,
   mcp 3.4 MB. The
   app binary's *address space* (not RSS) is far larger because of gpui/wgpu
   reservations, and it now needs **4 GB or more** — a 1 GB cap makes it die in an
@@ -2001,8 +2008,11 @@ Largest files now (2026-10-30, after Phase 0's module splits; what the DB spine
   `workspace/mod.rs` is 855 → **949** (the `db` field, opening it, and the four call
   sites that report a write), `workspace/edits.rs` 468 → 486, `config/mod.rs` 405 →
   458 (the `[index]` section), `ex.rs` 158 → 250, `db/mod.rs` 332, `db/schema.rs` 208,
-  and new `workspace/index.rs` 179 and `tests/index.rs` 193. **Still nothing over the
-  rule**, but two are close: `workspace/mod.rs` **970** and `editor/mod.rs` **960**.
+  and new `workspace/index.rs` 179 and `tests/index.rs` 193. **P1.5 the same day:**
+  new `atomic.rs` 193 (90 of them its own tests), `workspace/exit.rs` 62 and
+  `tests/exit.rs` 99; `db/mod.rs` 332 → 350, `config/edit.rs` down to 313 (it lost
+  its private writer). **Still nothing over the rule**, but two are close:
+  `workspace/mod.rs` **988** and `editor/mod.rs` **960**.
   The next thing that wants to land in either should be a split, not a field —
   `workspace/mod.rs` is the state plus the vault-edit actions plus the bar's free
   functions, and the bar's segments (`save_indicator`, `mode_label`, `word_badge`,
@@ -2135,8 +2145,9 @@ Next steps, roughly in order:
     keeps the indentation and the comment written beside it; a key the file never
     mentioned is added inside its table, and a table that isn't there is appended.
     A commented-out `# theme = "x"` is not a setting and stays a comment. CRLF
-    files stay CRLF. Writes are atomic (a temp file in the same directory, then a
-    rename), which is the same rule the DB inherits in P1.5. Because the writer
+    files stay CRLF. Writes are atomic — `edit::set` now goes through
+    `atomic::write_file`, the shared temp+rename writer P1.5 made the rule for
+    every file Shale owns. Because the writer
     can add what is missing, the file can stay **incremental**: the starter holds
     the core settings at their defaults, and a setting added later need not appear
     until it changes.
@@ -2650,10 +2661,49 @@ Next steps, roughly in order:
       best-effort and logs, so a failed index never fails the save that caused it,
       and `:wordcount` says there is no index rather than reporting zero. Same
       posture as a `harper-ls` that will not start.
-    - **Not done yet:** P1.5's signal handler (`Db::shutdown` is the barrier, but
-      nothing catches SIGTERM), P1.6 backups, P1.8 `session.json`, frontmatter into
+    - **Not done yet:** P1.6 backups, P1.8 `session.json`, frontmatter into
       `edges`, `events` line spans (they want the save diff), and MCP/template
-      provenance, which wait on the features that write notes.
+      provenance, which wait on the features that write notes. (P1.5's signal half
+      landed the same day — thread 26.)
+
+26. **Shutdown integrity: the atomic write and the termination signal** — P1.5
+    (2026-10-31).
+    - **The roadmap's premise was wrong, and fixing that is most of the item:**
+      "all writes atomic (temp + rename)" described a state that did not exist —
+      `Vault::write` was a plain `fs::write`, which truncates the note before it
+      writes it, so a crash or an ENOSPC mid-write could empty a note. The earlier
+      claim that note writes were already atomic was false. `atomic.rs` is now the
+      single write path for every file Shale owns (notes, the config splice, and
+      later `session.json`): a dot-prefixed `.name.shale-tmp` in the same
+      directory, `write_all`, `sync_all`, `rename`, cleanup on failure. The dot
+      prefix is load-bearing and tested: a leftover from a hard kill is invisible
+      to `list_markdown` and `signature` rather than becoming a note called
+      `.a.md.shale-tmp`. No *directory* fsync — the one durability step whose cost
+      is disproportionate; after a power cut the worst case is the rename not yet
+      recorded, never a corrupt note.
+    - **Two semantics `rename` changes silently, both restored:** it consults the
+      *directory*, not the target, so a `chmod 444` note — a user saying *do not
+      touch* — would be replaced over the lock; the write now refuses, and the
+      refuse-to-close test only passes because of that check. And the replacement
+      inode starts at the default mode, so editing a `0600` note would make it
+      world-readable; the old mode is copied onto the staging file.
+    - **The drain is a queued job, not a new mechanism:** `Db::flush()` queues a
+      `wal_checkpoint(TRUNCATE)`, and the FIFO channel makes that job the barrier.
+      The result — one DB file and no `-wal` — is what P1.6's backups will copy
+      and what `PRAGMA integrity_check` inspects.
+    - **Signals meet gpui through a flag:** a signal context allows nothing but an
+      atomic store, so `main` installs SIGTERM/SIGHUP/SIGINT handlers
+      (`signal-hook-registry`) that only raise an `AtomicBool`, and the window
+      polls it every 200 ms (`workspace/exit.rs`). Seeing it means: write the
+      dirty note, flush the index, `cx.quit()`. `quit`/`:q` gained the index flush
+      too, and `save` is now a thin wrapper over `write_note` so every exit path
+      shares one write; a failed save on an exit path is logged as well as said,
+      because nobody is left to read the status bar.
+    - **Tests:** four in `atomic.rs` (no leftovers, invisible crash leftover,
+      read-only refusal, mode preserved), one in `db/tests.rs` (flush drains the
+      queue and empties the `-wal`), two in `tests/exit.rs` (a raised flag writes
+      the dirty note; no note open still exits cleanly). The live `kill -TERM` +
+      `PRAGMA integrity_check` check on the demo vault is still owed by hand.
 
 ## Parked threads (agreed 2026-10-28; not being worked now)
 
