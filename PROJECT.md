@@ -207,7 +207,11 @@ Workspace layout:
   extraction/resolution/backlinks, search (`search.rs`: the vault-wide line scan
   behind `ctrl-shift-f`, and `find_all`, the in-note matcher behind `/`), TOML config (`config/`: the settings,
   the file at `<vault>/.shale/config.toml`, the starter Shale writes for a vault
-  that has none, and the comment-preserving one-line splice writer), text
+  that has none, and the comment-preserving one-line splice writer), the vault
+  index (`db/`: `mod.rs` the `Db` handle — one writer thread owning the only
+  read-write connection, a channel queue for everyone else's write jobs, separate
+  read-only connections under WAL, and the shutdown barrier — `schema.rs` the
+  tables and the `user_version` stamp, `tests.rs` the contract), text
   `Buffer` with undo/redo, the vim mode engine, `mdstyle` (the
   presentation-agnostic markdown style scanner, split into `mdstyle/mod.rs` for
   the vocabulary and the line walk, `mdstyle/block.rs` for what a line *is* and
@@ -413,9 +417,10 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
 - Run the test binaries under `ulimit -v` when working on anything that scans
   text (a scanner bug can allocate until the OOM killer takes the editor down —
   see the table postmortem).
-  Current peak RSS of the test binaries (2026-10-30, app 255 / core 353 with 10
-  ignored / mcp 6 tests — core's count includes the graph agent's `graph::` tests,
-  which are committed and green): core 8.1 MB, app 78 MB,
+  Current peak RSS of the test binaries (2026-10-30, app 259 / core 363 with 10
+  ignored / mcp 6 tests — core now includes the `db::` tests, and its RSS rose from
+  7.9 MB to 12.7 MB because of them, which is nowhere near the 200 MB line worth
+  investigating): core 12.5 MB, app 79 MB,
   mcp 3.5 MB. The
   app binary's *address space* (not RSS) is far larger because of gpui/wgpu
   reservations, and it now needs **4 GB or more** — a 1 GB cap makes it die in an

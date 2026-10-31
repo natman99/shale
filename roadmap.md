@@ -297,12 +297,30 @@ and `workspace/{mod,testhooks}.rs`. The largest file in the tree is
 
 ## Phase 1 — The DB spine (the big unlock)
 
-- **P1.1 SQLite in `crates/core`** — `rusqlite` (user ruled it in: bundled,
-  build-time, small static dep; the "no external bindings" rule stands for
-  everything else). DB at `<vault>/.shale/shale.db`, **WAL mode** (needed for
-  app + standalone MCP concurrent access).
-- **P1.2 Schema:**
-  - `notes(path PK, created_at, modified_at, word_count, created_by,
+- **P1.1 SQLite in `crates/core`** — **DONE 2026-10-30.** `rusqlite` 0.41 with
+  **`bundled`**, so SQLite is compiled from source and every platform gets the same
+  version (the user ruled `rusqlite` in; the "no external bindings" rule stands for
+  everything else). `crates/core/src/db/`: `Db::open` puts the file at
+  `<vault>/.shale/shale.db`, creates `.shale/` if the vault has no state directory
+  yet, and starts the writer thread. Every connection sets `journal_mode = WAL`,
+  `busy_timeout = 4000` and `synchronous = NORMAL` — WAL because the standalone
+  `shale-mcp` and the app's readers have to work while the writer holds the write
+  lock, NORMAL because a power loss losing the last few index rows is acceptable
+  when the index can be rebuilt. The schema is applied on the calling thread before
+  the writer starts, so a schema this build cannot handle is an error from `open`
+  rather than something the queue discovers later. A DB written by a **newer**
+  Shale is refused out loud: deleting `.shale/shale.db` is always a valid repair,
+  silently rebuilding is not.
+- **P1.2 Schema** — **DONE 2026-10-30** (`db/schema.rs`, version stamped in `PRAGMA
+  user_version`, every statement `IF NOT EXISTS` so re-running it on launch is the
+  normal path). The tables are exactly as listed below, with two notes:
+  **timestamps are unix epoch seconds in an `INTEGER`** (SQLite renders them with
+  `datetime(col, 'unixepoch')`, they sort and subtract, and it keeps a date library
+  out of `shale-core` for a column the editor never parses), and **`events` carries
+  an `id INTEGER PRIMARY KEY` rowid** the sketch below does not mention — the
+  scrubber needs a stable order within the second a burst of events was stamped,
+  and an append-only log is what a rowid is good at.
+  - `notes(path PK, created_at, modified_at, word_count, created_by,`
     last_modified_by, open_count, edit_count)`
   - `tags(note, tag)` (flat strings; the tree is built by splitting on `/`)
   - `links(source, target, first_seen_at, last_seen_at)` — the `first_seen`
@@ -338,6 +356,19 @@ and `workspace/{mod,testhooks}.rs`. The largest file in the tree is
   thread; the P1.5 barrier drains in-flight DB work. Decide this **before**
   P1.1 is written — retrofitting single-writer discipline is painful.
   Full rule in PROJECT.md (Database).
+  **Decided and landed with P1.1 (2026-10-30), which is why it is listed first.**
+  `Db` hands out no write connection at all: `write` (waits) and `queue`
+  (fire-and-forget) send a closure over an `mpsc` channel to the thread `open`
+  spawned, which owns the only read-write connection; `read()` gives callers their
+  own connection with `PRAGMA query_only = ON`, so a reader cannot become a second
+  writer by accident. **One job = one transaction**, opened and committed by the
+  writer, so a multi-statement update is atomic without the caller knowing about
+  transactions — and a job that fails leaves no rows and records its failure, which
+  every later write reports instead of queueing work into a broken connection.
+  `shutdown()` is the P1.5 barrier (close the queue, let it drain, join, report);
+  `Drop` does the same without the report, so a handle that is never closed cannot
+  leak its thread. What is *not* done yet: posting visible-state changes back to
+  the UI thread, which needs something worth refreshing (P1.3).
 - **P1.6 DB backup** — daily copy to `.shale/backups/`, keep 7. DB is cache;
   notes are the source of truth.
 - **P1.7 `:wordcount [folder]`** + status-bar count — first DB-backed feature;

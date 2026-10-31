@@ -1,6 +1,7 @@
 pub mod buffer;
 pub mod config;
 pub mod continuation;
+pub mod db;
 pub mod fold;
 pub mod fuzzy;
 pub mod graph;
@@ -17,6 +18,7 @@ pub mod watch;
 
 pub use buffer::Buffer;
 pub use config::Config;
+pub use db::{now_epoch, Db, Provenance, SCHEMA_VERSION};
 pub use fuzzy::{fuzzy_match, ranked, FuzzyMatch};
 pub use theme::Palette;
 pub use vault::Vault;

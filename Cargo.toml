@@ -23,6 +23,10 @@ gpui_platform = {
     features = ["wayland", "x11", "font-kit"],
 }
 pulldown-cmark = "0.13"
+# The vault index (roadmap P1.1). `bundled` compiles SQLite from source, so the
+# binary carries no system sqlite dependency and every platform gets the same
+# version. MIT / Unlicense. Ruled in by the user: the one external binding allowed.
+rusqlite = { version = "0.41", features = ["bundled"] }
 # The graph's adjacency structure (graph-view-plan.md). MIT, pure Rust.
 petgraph = "0.8"
 # Streams and channels for the language-server client: the reader thread hands
