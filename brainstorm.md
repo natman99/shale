@@ -256,17 +256,61 @@ zero frames when idle — and all of it is config-off-able as a group
   because web-tech editors (Obsidian) make it hard — for us it's natural.
   Finicky to make *feel* good (cursor handoff, scroll sync, dirty state) —
   polish pass required.
+- **Undo (v1 ruling, 2026-10-29): buffer-local with a seam indicator.** Ctrl-Z
+  unwinds in whichever buffer holds the cursor; no shared undo timeline across
+  the boundary. When local undo is exhausted, the next Ctrl-Z reports "next
+  undo is in [[morgoth]]" instead of beeping — the discoverability of a shared
+  chain without its hazards (the embedded note may be open elsewhere with its
+  own undo state). A shared undo group can be layered on later; no data change
+  blocks it.
+- **Dirty/save:** each note keeps its own dirty state (it is its own file);
+  save/autosave covers host + embeds together; closing a host with a dirty
+  embed warns through the same machinery as closing a dirty tab. The host never
+  *silently* saves the embed.
+- **Nesting cap (binding, 2026-10-29): 1 editable embed + 2 read-only embeds =
+  max 3 levels deep**, killing infinite embed loops by construction. Deeper
+  embeds render as a **badge/sticker showing the note name** (clickable, but no
+  content). `gd` on an embed jumps into the embedded note; `gd` with the cursor
+  on a wikilink *inside* an embed jumps to that link instead.
 
-### Focus / typewriter mode ✅
-- Dim all but the current block (sentence/paragraph/section granularity, config);
-  pure alpha ramp in the renderer. Optional typewriter scroll (active line pinned
-  near center). Same dimming machinery as search-illumination — three sources,
-  one system.
+### Focus / typewriter mode ✅ (semantic version ruled 2026-10-29)
+- **Dim by semantic unit, not distance:** everything except the current unit
+  drops to low alpha. Granularity config: `sentence | paragraph | section`
+  (default paragraph; `section` = the heading unit, the long-document mode).
+  The distance-ramp stays as a fourth option for anyone who liked the original.
+  Unit boundaries come from `mdlayout`/`mdstyle` — the same knowledge the
+  markdown text objects use (`ci*` callout, `da#` section); no fuzzy math.
+- **Laser mode dims the chrome too** — file tree, status bar, tab bar drop to
+  the same low alpha. One keybinding cycles: off → unit → unit+laser.
+- **Typewriter scroll:** active unit pinned near mid-screen. Must respect folds
+  and soft-wrap row math; "gentle" = one short animation that is itself the
+  dirty-marker, then stops — idle stays idle.
+- Same dimming machinery as search-illumination and the agent glow — three
+  sources, one alpha system.
 
 ### Writing stats ✅
 - Live word count, sentence-length histogram, reading time, most-used words this
   session (computed from the parsed buffer; HarperLS piggyback for grammar stats).
 - Panel also hosts the per-folder word-count tree.
+
+### Inline computed surfaces ✅ (policy ruled 2026-10-29; one widget to start)
+- Render-only widgets sourced from the DB, buffer untouched. **The policy is the
+  feature; widgets are added only as real consumers appear.**
+- **Placement: the note's margins only** — gutter beside specific lines, header
+  strip above the note, or the status area. Never phantom lines inside prose.
+- **The division of labor (binding):** the status bar owns whole-note/vault
+  facts (word count already lives there); a computed surface must be
+  **region-anchored** — something the status bar structurally cannot do. This
+  keeps the two from overlapping by construction.
+- **No user-authored widgets** — that's a plugin, and plugins are out. Data
+  tables in notes are `.shq` (content the user chose); computed surfaces are
+  small chrome the app offers.
+- DB-read at render time, cached per note, updated on existing dirty beats; no
+  new storage, no animation.
+- **First widget: the rolls chip** — anchored to a `!r` line, hover shows that
+  expression's roll history from the `rolls` table (consumer exists the day
+  inline dice ship). Second candidate if the chip proves the pattern:
+  current-section word count in the gutter. Expand only after the first lands.
 
 ### Hover link preview ✅
 - Wiki-link under cursor → floating card: first lines of the note + its graph
