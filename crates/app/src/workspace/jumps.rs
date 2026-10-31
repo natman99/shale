@@ -22,6 +22,7 @@ use crate::acts::{JumpBack, JumpForward};
 use super::Workspace;
 
 /// One place in the chain.
+#[derive(Clone)]
 pub(crate) struct Jump {
     /// The note the user was in.
     pub(crate) path: PathBuf,
@@ -96,6 +97,20 @@ impl Jumps {
                 jump.path = to.to_path_buf();
             }
         }
+    }
+
+    /// The chain as a session file wants it (roadmap P1.8): both halves, in
+    /// their walking order.
+    pub(crate) fn snapshot(&self) -> (Vec<Jump>, Vec<Jump>) {
+        (self.back.clone(), self.forward.clone())
+    }
+
+    /// Put the chain back the way a saved session had it. Only the session
+    /// restore calls this, before the user has jumped anywhere in the new
+    /// window.
+    pub(crate) fn restore(&mut self, back: Vec<Jump>, forward: Vec<Jump>) {
+        self.back = back;
+        self.forward = forward;
     }
 
     /// How far the user can still go each way: `(back, forward)`. Only the tests

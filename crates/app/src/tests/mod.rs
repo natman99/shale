@@ -26,6 +26,7 @@ mod picker;
 mod popup;
 mod quotes;
 mod search;
+mod session;
 mod spell;
 mod status;
 mod tree;

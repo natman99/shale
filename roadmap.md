@@ -490,9 +490,24 @@ and `workspace/{mod,testhooks}.rs`. The largest file in the tree is
   **File, not DB:** `.shale/session.json`. The DB is a cache that may be rebuilt
   and is derived from the notes; this is state the user chose, and it has to
   survive a rebuild. Same atomic write as P1.5.
+  **The feature half is DONE 2026-10-31.** `shale_core::session` owns the file
+  (incremental like the config: every field optional, unknown fields ignored,
+  corrupt file = a log line and a fresh start); `workspace/session.rs` captures
+  and restores. Saved on the autosave's beat and on every graceful exit (`:q`,
+  the window manager's close, a termination signal); restored once in
+  `Workspace::new`, before the first frame. Contents as specced: open note +
+  cursor (a byte offset — what the buffer takes directly; a stale one clamps)
+  + scroll (gpui's own offset, saved as it came), expanded folders, view, focus
+  mode + scope, typewriter, and the jump chain — `ctrl-o` back through notes
+  from before the restart is tested end to end. Restore order: note first (no
+  jump recorded), then the frame's decisions, then the chain; a note deleted
+  since last time opens nothing and costs nothing else. Scroll restore applies
+  the saved offset, then gpui's *minimum* cursor reveal — the saved view stands
+  unless the cursor was off it.
   **Not gating Phase 1's exit.** The half that needs no new feature (open note,
   cursor, folds, view) can land as soon as the view is a setting; the tab/pane
-  half lands with P3.1/P3.2 and only extends the same file.
+  half lands with P3.1/P3.2 and only extends the same file. **Still open: the
+  tab/pane fields**, which wait on those features exactly as written above.
 
 **Exit criteria:** DB rebuilds from an empty `.shale` in <1s on the demo vault;
 external edit picked up within the watch interval; provenance correct for

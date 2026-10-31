@@ -7,6 +7,7 @@
 //! so they reach `Workspace`'s private state directly; anything one of them calls
 //! on another is `pub(super)`.
 
+mod bar;
 pub(crate) mod commands;
 mod edits;
 mod exit;
@@ -17,11 +18,14 @@ mod open;
 mod popups;
 mod render;
 mod search;
+mod session;
+#[cfg(test)]
 mod testhooks;
 mod themes;
 mod tree;
 mod views;
 
+pub(crate) use bar::STATUS_TTL;
 pub(crate) use keys::keybindings;
 pub(crate) use open::PickerTarget;
 
@@ -347,6 +351,9 @@ impl Workspace {
             _hover_events: None,
             _keystroke_observer: keystroke_observer,
         };
+        // Roadmap P1.8: the window comes up where the last one left it, before
+        // anything else has a chance to look at what "where" was.
+        workspace.restore_session(cx);
         // The one startup pass that catches what other programs did to the vault
         // while Shale was closed. After it, the watcher and the save paths keep the
         // index current between them.
@@ -403,11 +410,18 @@ impl Workspace {
         let weak = cx.entity().downgrade();
         window.on_window_should_close(cx, move |window, cx| {
             weak.update(cx, |ws, cx| {
-                if !ws.editor.read_with(cx, |editor, _cx| editor.is_dirty()) {
-                    return true;
+                if ws.editor.read_with(cx, |editor, _cx| editor.is_dirty()) {
+                    ws.save(&Save, window, cx);
+                    if ws.editor.read_with(cx, |editor, _cx| editor.is_dirty()) {
+                        // The write failed: the window stays, with the reason in
+                        // the status bar.
+                        return false;
+                    }
                 }
-                ws.save(&Save, window, cx);
-                !ws.editor.read_with(cx, |editor, _cx| editor.is_dirty())
+                // Roadmap P1.8: the session goes with the note — this is the last
+                // moment the window knows what it looked like.
+                ws.save_session(cx);
+                true
             })
             .unwrap_or(true)
         });
@@ -657,6 +671,9 @@ impl Workspace {
         // Roadmap P1.5: an exit leaves the index drained and checkpointed, so the
         // next launch opens one DB file rather than a WAL full of unapplied writes.
         self.flush_index();
+        // ...and roadmap P1.8: it leaves the session too, so the next window opens
+        // on this note, at this place, in this view.
+        self.save_session(cx);
         cx.quit();
     }
 
@@ -756,6 +773,11 @@ impl Workspace {
                 // Our own write must not come back as somebody else's edit.
                 self.resign();
                 self.index_saved(&path);
+                // The session rides the same beat (roadmap P1.8): the pause that
+                // writes the note is also the moment the window knows what it
+                // looks like, and a crash between here and the next pause loses
+                // at most one pause's worth of state.
+                self.save_session(cx);
                 tracing::debug!(path = %path.display(), "autosaved");
             }
             Err(err) => {
@@ -887,13 +909,6 @@ impl Workspace {
 /// note created in another program shows up in the tree almost at once.
 const WATCH_INTERVAL: Duration = Duration::from_millis(750);
 
-/// How long a message stays in the status bar. Long enough to read a sentence
-/// about what a command just did — including an error, which is the one message
-/// the user may have to act on — and short enough that the bar does not go on
-/// reporting something that stopped being news. `pub(crate)` so the tests can
-/// wait it out rather than hard-coding a number.
-pub(crate) const STATUS_TTL: Duration = Duration::from_secs(8);
-
 /// Start watching the vault: every [`WATCH_INTERVAL`] the disk is re-walked on a
 /// background thread and any difference is folded into the window by
 /// [`Workspace::apply_disk_changes`].
@@ -945,48 +960,4 @@ fn note_keys(entries: &[VaultEntry]) -> HashSet<String> {
         }
     }
     keys
-}
-
-/// The status bar's save indicator: a note that is ahead of the disk. Empty when
-/// the note is written, so the mark appearing and disappearing is the whole
-/// message — and it is drawn in the palette's accent rather than in the text
-/// colour, because it is the one thing in the bar the user has to notice without
-/// looking for it.
-pub(crate) fn save_indicator(dirty: bool) -> &'static str {
-    if dirty {
-        "●"
-    } else {
-        ""
-    }
-}
-
-/// The mode as the status bar shows it.
-pub(super) fn mode_label(mode: shale_core::vim::Mode) -> &'static str {
-    match mode {
-        shale_core::vim::Mode::Normal => "NORMAL",
-        shale_core::vim::Mode::Insert => "INSERT",
-        shale_core::vim::Mode::Visual => "VISUAL",
-        shale_core::vim::Mode::VisualLine => "V-LINE",
-    }
-}
-
-/// The status bar's word-count badge for the note on screen, or empty when there is
-/// no note to count — an empty segment is still a flex item, so it would put a gap
-/// on both sides of nothing.
-///
-/// The count comes from the **buffer**, not the index: it is the one number in the
-/// bar the user watches change as they type, so a count that lagged a save behind
-/// would be exactly the stale state the bar's segments are arranged to avoid.
-/// `:wordcount` answers the other question — the vault, or one folder of it — from
-/// the index, and both go through [`shale_core::word_count`], so they cannot
-/// disagree about a note that is saved.
-pub(crate) fn word_badge(has_note: bool, words: usize) -> String {
-    if !has_note {
-        return String::new();
-    }
-    if words == 1 {
-        "1 word".to_string()
-    } else {
-        format!("{words} words")
-    }
 }

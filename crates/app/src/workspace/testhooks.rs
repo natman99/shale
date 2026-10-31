@@ -6,6 +6,7 @@
 //! never by the window's own code, and they are a lot of lines. A child module
 //! sees its parent's private fields, so they ask for what they need directly.
 
+use super::bar::{mode_label, save_indicator, word_badge};
 use super::*;
 
 impl Workspace {

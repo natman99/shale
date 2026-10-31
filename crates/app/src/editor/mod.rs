@@ -99,6 +99,17 @@ impl View {
             View::Preview => "preview",
         }
     }
+
+    /// The view a saved session named (roadmap P1.8). Anything unrecognised is
+    /// [`View::Live`], the view a note starts in — a session file written by a
+    /// future Shale must not strand the next window in a view it cannot name.
+    pub fn from_word(word: &str) -> View {
+        match word {
+            "raw" => View::Raw,
+            "preview" => View::Preview,
+            _ => View::Live,
+        }
+    }
 }
 
 /// What one display line is told to draw for `/`: every match that overlaps it,
@@ -702,6 +713,26 @@ impl MarkdownEditor {
     /// Where the cursor is, as a buffer byte offset.
     pub fn cursor_offset(&self) -> usize {
         self.buffer.cursor()
+    }
+
+    /// How far the note is scrolled, in gpui's own units and sign (the scroll
+    /// handle's offset, saved and restored as it came). The session file's
+    /// other half; see [`Self::restore_place`].
+    pub fn scroll_y(&self) -> f32 {
+        self.scroll_handle.offset().y.as_f32()
+    }
+
+    /// Put the note back where a saved session left it (roadmap P1.8): the
+    /// scroll offset is applied as saved, and the cursor then goes to `offset`
+    /// and is pulled into view with gpui's *minimum* scroll. So the saved
+    /// scroll stands when the cursor was already on screen, and if it was not,
+    /// the viewport moves only as far as showing the cursor requires.
+    pub fn restore_place(&mut self, offset: usize, scroll_y: Option<f32>, cx: &mut Context<Self>) {
+        if let Some(y) = scroll_y {
+            self.scroll_handle
+                .set_offset(gpui::point(Pixels::ZERO, Pixels::from(y)));
+        }
+        self.reveal_offset(offset, cx);
     }
 
     /// Whether the editor is in normal mode.

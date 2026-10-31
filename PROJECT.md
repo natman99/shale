@@ -235,7 +235,11 @@ Workspace layout:
   vault signature — every path stamped with size and mtime, or just existence for
   a folder — and the added/removed/modified diff built from two of them), `rename`
   (rewriting the wiki-links that point at a note when it is renamed), `atomic` (the
-  one temp+rename write every file Shale owns goes through, roadmap P1.5) and `theme` (the
+  one temp+rename write every file Shale owns goes through, roadmap P1.5),
+  `session` (the session file — where the last window stood: open note, cursor
+  and scroll, expanded folders, view, focus mode and scope, typewriter, the jump
+  chain — `.shale/session.json`, incremental like the config and written with
+  that same atomic discipline) and `theme` (the
   colour palette as data: the `Palette` roles and 20 built-in values — Shale's
   `dark`/`light` plus the palettes of seven families, one module per family
   (`theme/catppuccin.rs`, `tokyo_night.rs`, `gruvbox.rs`, `nord.rs`,
@@ -323,6 +327,8 @@ Workspace layout:
   opening, closing, and applying what the checker offered,
   `search.rs` the `/` search: the query, its matches and which one the cursor is
   on, kept here so `n`/`N` outlive the field that typed the query,
+  `bar.rs` the status bar's segments (`save_indicator`, `mode_label`,
+  `word_badge`) and its TTL,
   `commands.rs` the command palette's list
   — every command's label, the keys that run it and the action it dispatches —
   `index.rs` the vault index inside the window (the startup pass, telling the index
@@ -330,12 +336,14 @@ Workspace layout:
   backup loop),
   `exit.rs` the termination-signal exit (polling the flag the handler raised, and
   what an exit owes the disk),
+  `session.rs` the session file (capture, save on the autosave beat and every
+  graceful exit, restore once in `new`),
   `render.rs` the frame, `testhooks.rs` the accessors only the tests call),
   `tree.rs` (turning the vault's entries
   into rows), `views.rs` (the three views, focus mode and typewriter scroll) and
   its headless tests in `tests/` (`keys.rs`, `motions.rs`,
   `blocks.rs`, `paint.rs`, `tree.rs`, `picker.rs`, `commands.rs`, `search.rs`,
-  `autosave.rs`, `exit.rs`, `spell.rs`, `focus.rs`, and `popup/` — `mod.rs` the fixtures,
+  `autosave.rs`, `exit.rs`, `session.rs`, `spell.rs`, `focus.rs`, and `popup/` — `mod.rs` the fixtures,
   `keyboard.rs` the `K` and offer-list half, `pointer.rs` the resting-mouse half),
   `dim.rs` (focus mode: how far each buffer row is from the block the caret is in,
   and the colour that answers it), `editor/` (the view: `mod.rs`
@@ -432,7 +440,7 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
 - Run the test binaries under `ulimit -v` when working on anything that scans
   text (a scanner bug can allocate until the OOM killer takes the editor down —
   see the table postmortem).
-  Current peak RSS of the test binaries (2026-10-31, app 274 / core 381 with 10
+  Current peak RSS of the test binaries (2026-10-31, app 278 / core 385 with 10
   ignored / mcp 6 tests — core's `db::` tests cost it nothing worth mentioning: 12.5
   MB to 15 MB, and the app's 79 MB to 85 MB is the eight `tests::index` windows that
   each open a real DB, which is nowhere near the 200 MB line worth investigating):
@@ -2015,13 +2023,13 @@ Largest files now (2026-10-30, after Phase 0's module splits; what the DB spine
   new `atomic.rs` 193 (90 of them its own tests), `workspace/exit.rs` 62 and
   `tests/exit.rs` 99; `db/mod.rs` 332 → 350, `config/edit.rs` down to 313 (it lost
   its private writer). **P1.6 the same day:** new `db/backup.rs` 251 (100 of them
-  its own tests), `workspace/index.rs` 179 → 238. **Still nothing over the rule**,
-  but two are close, and one is now at the line:
-  `workspace/mod.rs` **992** and `editor/mod.rs` **960**.
-  The next thing that wants to land in either should be a split, not a field —
-  `workspace/mod.rs` is the state plus the vault-edit actions plus the bar's free
-  functions, and the bar's segments (`save_indicator`, `mode_label`, `word_badge`,
-  `status`) are the obvious `bar.rs` when it happens.
+  its own tests), `workspace/index.rs` 179 → 238. **P1.8 the same day:** new core
+  `session.rs` 167, `workspace/session.rs` 147, `tests/session.rs` 190 — and
+  `workspace/mod.rs` crossed the rule at 1011 on the way, so the planned split
+  landed: `bar.rs` 61 now holds the bar's segments and `STATUS_TTL`, and
+  `workspace/mod.rs` is back to **962**. The file to watch is now
+  `editor/mod.rs` **991**: the next thing that wants to land in it is a split,
+  not a method.
   **Nothing is over the rule (2026-10-30).** The three that were — `tests/popup.rs`
   1104, `line.rs` 1086, `workspace/mod.rs` 1050 — split as planned: `line/`
   `{mod,runs,tests}.rs` 775/156/208, `tests/popup/` `{mod,keyboard,pointer}.rs`
@@ -2666,10 +2674,11 @@ Next steps, roughly in order:
       best-effort and logs, so a failed index never fails the save that caused it,
       and `:wordcount` says there is no index rather than reporting zero. Same
       posture as a `harper-ls` that will not start.
-    - **Not done yet:** P1.8 `session.json`, frontmatter into
+    - **Not done yet:** frontmatter into
       `edges`, `events` line spans (they want the save diff), and MCP/template
-      provenance, which wait on the features that write notes. (P1.5's signal half
-      and P1.6's backups landed the same day — threads 26 and 27.)
+      provenance, which wait on the features that write notes. (P1.5's signal
+      half, P1.6's backups and P1.8's session file landed the same day — threads
+      26, 27 and 28.)
 
 26. **Shutdown integrity: the atomic write and the termination signal** — P1.5
     (2026-10-31).
@@ -2734,6 +2743,46 @@ Next steps, roughly in order:
       `Ok(None)` when today's copy exists. Every outcome is a log line; a failed
       backup never disturbs the window. rusqlite's `backup` feature (the same
       bundled crate) is the only dependency change.
+
+28. **The session file: what the vault looked like last time** — P1.8
+    (2026-10-31).
+    - **File, not DB, because it is chosen state, not derived state:** the index
+      can be deleted and rebuilt from the notes; the session cannot be rebuilt
+      from anything, so it lives in `.shale/session.json`, written with the same
+      atomic discipline (thread 26) as every other file Shale owns. It is
+      incremental like the config: every field `#[serde(default)]`, unknown
+      fields ignored, so a newer Shale writes more and an older one reads less
+      without either breaking. A file that does not parse is a log line and a
+      fresh start — forgotten state is sad, a window that will not open is worse.
+    - **What is in it:** the open note, its cursor (a **byte offset** — what the
+      buffer takes directly, and a stale one simply clamps at restore) and scroll
+      (gpui's own offset, saved and handed back as it came), the tree's expanded
+      folders, the view, focus mode and its scope, typewriter scroll, and the
+      jump chain. The last three of the frame decisions left the config on
+      2026-10-30 for exactly this item. Tabs and panes will extend the same file
+      when P3.1/P3.2 land.
+    - **Two beats write it:** the autosave's pause (the moment the window knows
+      what it looks like anyway) and every graceful exit — `:q`/`ctrl-q`, the
+      window manager's close, and the termination signal. Restore is once, in
+      `Workspace::new`, before the first frame: note first (through `load_note`,
+      not `open_note` — restoring a seat is not a jump and must not shove the
+      restored chain), then the frame's decisions, then the chain. A note
+      deleted since last time opens nothing; the rest of the session still
+      restores.
+    - **Scroll and cursor cooperate:** the saved offset is applied as saved, then
+      gpui's `scroll_to_item` reveal pulls the cursor in with the *minimum*
+      scroll — so the saved view stands when the cursor was already on screen,
+      and the viewport moves only as far as it must when it was not.
+    - **`workspace/mod.rs` crossed 1000 lines on the way in**, so the split the
+      size notes had planned landed with it: `bar.rs` holds the bar's segments
+      (`save_indicator`, `mode_label`, `word_badge`) and `STATUS_TTL`. Also
+      noticed on the way: `mod testhooks` was ungated while every item in it was
+      `#[cfg(test)]` — now the module itself is gated, which is what its header
+      always claimed.
+    - **Tests:** 4 in core `session.rs` (round trip, no file, partial file, and
+      corrupt-is-an-error), 4 in `tests/session.rs` (the full restore including
+      `ctrl-o` through the restart, the deleted-note case, the autosave beat, and
+      `:q` leaving the session behind).
 
 ## Parked threads (agreed 2026-10-28; not being worked now)
 

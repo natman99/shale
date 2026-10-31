@@ -7,9 +7,10 @@
 //! atomic store — and the window polls that flag. gpui's event loop is not ours to
 //! wake, so polling is where the two meet.
 //!
-//! What the promise is: the note the user can see reaches the disk, the index is
-//! drained and checkpointed, and then the process goes. SIGKILL is out of scope by
-//! definition — nothing runs — which is why the note writes themselves are atomic
+//! What the promise is: the note the user can see reaches the disk, the session
+//! file says where they were in it, the index is drained and checkpointed, and
+//! then the process goes. SIGKILL is out of scope by definition — nothing runs —
+//! which is why the note writes themselves are atomic
 //! ([`shale_core::atomic`]) and the index is a cache rather than a record.
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -46,8 +47,8 @@ impl Workspace {
         }));
     }
 
-    /// The exit a signal asked for: the note on screen to the disk, the index
-    /// checkpointed, then the window closed.
+    /// The exit a signal asked for: the note on screen to the disk, the session
+    /// written, the index checkpointed, then the window closed.
     ///
     /// A failed write does not stop the exit. `kill` means the process must go; the
     /// difference between this and dying where told is that it goes having tried, and
@@ -56,6 +57,7 @@ impl Workspace {
         if self.editor.read_with(cx, |editor, _cx| editor.is_dirty()) {
             self.write_note(cx);
         }
+        self.save_session(cx);
         self.flush_index();
         cx.quit();
     }

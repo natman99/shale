@@ -9,8 +9,9 @@ use crate::editor::View;
 use crate::prompt;
 use crate::tree;
 
+use super::bar::{mode_label, save_indicator, word_badge};
 use super::tree::{push_node, TreeState};
-use super::{mode_label, save_indicator, word_badge, Workspace};
+use super::Workspace;
 
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
