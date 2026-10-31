@@ -280,11 +280,15 @@ zero frames when idle — and all of it is config-off-able as a group
 
 ### Focus / typewriter mode ✅ (semantic version ruled 2026-10-29)
 - **Dim by semantic unit, not distance:** everything except the current unit
-  drops to low alpha. Granularity config: `sentence | paragraph | section`
-  (default paragraph; `section` = the heading unit, the long-document mode).
-  The distance-ramp stays as a fourth option for anyone who liked the original.
+  drops to low alpha. Scopes: `sentence | block | section` (default block;
+  `block` = the paragraph unit P0.8 shipped, `section` = the heading unit,
+  the long-document mode; `sentence` is P0.9). The distance-ramp stays as a
+  fourth option for anyone who liked the original.
   Unit boundaries come from `mdlayout`/`mdstyle` — the same knowledge the
   markdown text objects use (`ci*` callout, `da#` section); no fuzzy math.
+- **Scope is session state, not config** (P0.8's ruling stands, 2026-10-30):
+  `:focus block|section|sentence` sets it for the running window; it persists
+  with the session file (P1.8), not with the settings the user edits by hand.
 - **Laser mode dims the chrome too** — file tree, status bar, tab bar drop to
   the same low alpha. One keybinding cycles: off → unit → unit+laser.
 - **Typewriter scroll:** active unit pinned near mid-screen. Must respect folds
@@ -304,9 +308,10 @@ zero frames when idle — and all of it is config-off-able as a group
 - **Placement: the note's margins only** — gutter beside specific lines, header
   strip above the note, or the status area. Never phantom lines inside prose.
 - **The division of labor (binding):** the status bar owns whole-note/vault
-  facts (word count already lives there); a computed surface must be
-  **region-anchored** — something the status bar structurally cannot do. This
-  keeps the two from overlapping by construction.
+  facts (the word count P1.7 puts there); a computed surface must be
+  **region-anchored** — something the status bar structurally cannot do.
+  This keeps the two from overlapping by construction: a surface never
+  duplicates a fact the status bar already reports.
 - **No user-authored widgets** — that's a plugin, and plugins are out. Data
   tables in notes are `.shq` (content the user chose); computed surfaces are
   small chrome the app offers.
