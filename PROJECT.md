@@ -2788,7 +2788,9 @@ Next steps, roughly in order:
       `:q` leaving the session behind), and one in `jumps.rs` (a restored chain
       longer than the cap is trimmed at the far end of each half). The startup
       index pass now logs `indexed`/`removed`/`took_ms` at **info** when there
-      was work — the line that answers the roadmap's rebuild-time check.
+      was work and `took_ms` alone at **debug** when there was not — so the spine
+      is visible on every launch, and the roadmap's rebuild-time check is a line
+      to read after deleting `.shale/shale.db`.
 
 ## Parked threads (agreed 2026-10-28; not being worked now)
 

@@ -64,6 +64,15 @@ impl Workspace {
                             took_ms = started.elapsed().as_millis(),
                             "the vault index was brought up to date"
                         );
+                    } else {
+                        // The quiet case still says the pass ran and what it
+                        // cost, at debug: the startup check wants to see the
+                        // spine working on every launch, not only on the ones
+                        // that had work to do.
+                        tracing::debug!(
+                            took_ms = started.elapsed().as_millis(),
+                            "the vault index was already up to date"
+                        );
                     }
                     for (path, why) in &report.failed {
                         // One note that cannot be read costs its own rows, not the
