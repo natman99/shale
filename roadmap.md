@@ -542,9 +542,21 @@ already wrote.)
   written by hand rather than read out of the keymap, so a rebinding has to edit the
   row too; and `every()`/`ex()`/`args()` are `allow(dead_code)` until P2.2's docs
   generator reads them.
-- **P2.2 Generated docs from the registry** (brainstorm ✅): `docs/commands.md`
-  in the repo **and** served as MCP resources so an agent can read the command
-  reference at runtime. Same pipeline later backs `:help`.
+  **With it (asked for mid-flight):** `app.quit-force` — `:q!` quits and throws the
+  note's unsaved edits away — and `:q` now **refuses** a dirty note when
+  `editor.autosave` is off, pointing at `:w` or `:q!`. With autosave on it still
+  writes on the way out, and an exit the user did not type (window manager, signal)
+  still neither refuses nor discards. `:wq` became `write_quit`: write, then exit only
+  if the write worked.
+- **P2.2 Generated docs from the registry** (brainstorm ✅) — **DONE 2026-11-01 for
+  the repo half.** `Command::docs()` renders `docs/commands.md` from the table: id,
+  label, keys, every command-line spelling with its argument, and a generated list of
+  the commands the palette does not offer. A test reads the file back and fails when it
+  and the table disagree; `SHALE_UPDATE_DOCS=1 cargo test -p shale-app` rewrites it.
+  **Why a file rather than only a function:** the standalone `shale-mcp` cannot link
+  against the app binary, so the generated text is the artifact both sides can read.
+  **Still open:** serving it as an MCP resource (P2.3) and backing `:help` with the
+  same pipeline.
 - **P2.3 MCP two-mode architecture** (brainstorm ✅): in-app **HTTP on
   localhost** (live state: current note, selection, jump chain, tabs) +
   standalone `shale-mcp` **stdio** (vault + DB, no live tools) + lockfile in

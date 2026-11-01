@@ -95,6 +95,9 @@ actions!(
     [
         Save,
         Quit,
+        // `:q!`. No key is bound to it: the command line is the only way in, and the
+        // bang the user types is the whole point of it.
+        QuitForce,
         NewNote,
         NewFolder,
         RenameNote,

@@ -5,6 +5,7 @@
 
 use super::*;
 use shale_core::theme::Palette;
+use shale_core::Session;
 
 /// The status line, which is where a command reports what it did — or refused to.
 fn status(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> String {
@@ -34,8 +35,10 @@ fn open_note(cx: &mut TestAppContext, window: &WindowHandle<Workspace>) {
         .unwrap();
 }
 
-/// `:w` writes the open note. Shale has no autosave, so the reflex key does the
-/// real thing rather than nothing — which is also what makes it safe to type.
+/// `:w` writes the open note. It is a real save rather than a no-op because
+/// autosave can be turned off, and because a save that does nothing for someone who
+/// does not trust it to have run yet is a lie. Autosave on makes it redundant, not
+/// wrong.
 #[gpui::test]
 fn w_writes_the_note(cx: &mut TestAppContext) {
     let (dir, window) = vault_with(cx, &[("a.md", "one line\n")]);
@@ -294,5 +297,101 @@ fn paste_brings_the_clipboard_in_and_fills_the_register(cx: &mut TestAppContext)
             .unwrap(),
         "extra\none\nextra\n",
         "and `p` repeats it, because the paste filled the vim register too"
+    );
+}
+
+/// A window with autosave **off** and a note whose edits are only in memory: the
+/// state in which a quit has to choose between writing, refusing, and throwing the
+/// work away. The disk says `on the disk` until one of the three decides otherwise.
+fn dirty_without_autosave(cx: &mut TestAppContext) -> (tempfile::TempDir, WindowHandle<Workspace>) {
+    let mut config = Config::default();
+    config.spellcheck.enabled = false;
+    config.index.enabled = false;
+    config.editor.autosave = false;
+    let (dir, window) = workspace_with(cx, &["a.md"], config);
+    std::fs::write(dir.path().join("a.md"), "on the disk\n").unwrap();
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(cx, &window);
+    cx.simulate_keystrokes("A");
+    cx.simulate_input(" too");
+    assert!(
+        window
+            .update(cx, |ws, _window, cx| ws.buffer_is_dirty(cx))
+            .unwrap(),
+        "the edit is in the buffer and nowhere else"
+    );
+    (dir, window)
+}
+
+/// With autosave off, `:q` on a dirty note is refused. Autosave on means the disk is
+/// never more than a pause behind the screen, so writing on the way out is what the
+/// user meant; autosave off means they chose to save by hand, and a quit that
+/// quietly writes a note they never saved is a surprise in the other direction too.
+///
+/// What proves the window did not exit is the session file: a graceful exit always
+/// writes it, and `Session::load` answers a missing file with an empty session.
+#[gpui::test]
+fn q_refuses_a_dirty_note_when_autosave_is_off(cx: &mut TestAppContext) {
+    let (dir, window) = dirty_without_autosave(cx);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    type_command("q", cx);
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("a.md")).unwrap(),
+        "on the disk\n",
+        "the refusal wrote nothing"
+    );
+    let session = Session::load(dir.path()).unwrap();
+    assert_eq!(
+        session.open_note, None,
+        "and the window is still open, so no session was left: {session:?}"
+    );
+    assert!(
+        status(&window, cx).contains(":q!"),
+        "and the bar says how to get out: {}",
+        status(&window, cx)
+    );
+}
+
+/// `:q!` is the way out the refusal points at: the exit happens, and the note on the
+/// disk stays exactly as it was. The session still goes, because it records where the
+/// window stood, not what the note said.
+#[gpui::test]
+fn q_bang_throws_the_unsaved_edits_away(cx: &mut TestAppContext) {
+    let (dir, window) = dirty_without_autosave(cx);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    type_command("q!", cx);
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("a.md")).unwrap(),
+        "on the disk\n",
+        "the bang wrote nothing"
+    );
+    let session = Session::load(dir.path()).unwrap();
+    assert_eq!(
+        session.open_note.as_deref(),
+        Some(Path::new("a.md")),
+        "but the exit happened"
+    );
+}
+
+/// `:wq` writes whether or not the note is dirty, then exits — the way to leave with
+/// autosave off without being refused and without throwing anything away.
+#[gpui::test]
+fn wq_writes_the_note_then_exits(cx: &mut TestAppContext) {
+    let (dir, window) = dirty_without_autosave(cx);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    type_command("wq", cx);
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("a.md")).unwrap(),
+        "on the disk too\n",
+        "the write happened"
+    );
+    let session = Session::load(dir.path()).unwrap();
+    assert_eq!(
+        session.open_note.as_deref(),
+        Some(Path::new("a.md")),
+        "and so did the exit"
     );
 }

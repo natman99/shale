@@ -647,35 +647,6 @@ impl Workspace {
         cx.notify();
     }
 
-    /// Quit, writing the open note first when it holds unsaved edits.
-    ///
-    /// Autosave usually has already written it, but a quit can come in the middle
-    /// of the countdown, and work the user can see on screen must not be lost to a
-    /// keystroke timing. `ctrl-q`, `:q` and `:wq` all come through here because the
-    /// danger is the same; `:wq` asks for the write whether or not the note is
-    /// dirty. Closing the window from outside Shale — the window manager's button —
-    /// does not reach this action, so `attach_window` makes the same promise there.
-    pub(super) fn quit(&mut self, _: &Quit, _window: &mut Window, cx: &mut Context<Self>) {
-        let dirty = self.editor.read_with(cx, |editor, _cx| editor.is_dirty());
-        if dirty {
-            self.write_note(cx);
-            // The save said why it failed in the status bar. Quitting now would
-            // throw the note away, so the user gets to see that first.
-            let still = self.editor.read_with(cx, |editor, _cx| editor.is_dirty());
-            if still {
-                cx.notify();
-                return;
-            }
-        }
-        // Roadmap P1.5: an exit leaves the index drained and checkpointed, so the
-        // next launch opens one DB file rather than a WAL full of unapplied writes.
-        self.flush_index();
-        // ...and roadmap P1.8: it leaves the session too, so the next window opens
-        // on this note, at this place, in this view.
-        self.save_session(cx);
-        cx.quit();
-    }
-
     pub(super) fn save(&mut self, _: &Save, _window: &mut Window, cx: &mut Context<Self>) {
         self.write_note(cx);
         cx.notify();

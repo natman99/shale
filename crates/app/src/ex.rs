@@ -22,6 +22,9 @@ pub(crate) enum Ex {
     Write,
     /// `q` / `quit`: close Shale, writing the note first if it is unsaved.
     Quit,
+    /// `q!` / `quit!`: close Shale and throw the note's unsaved edits away. The bang
+    /// is the user saying they know; without it a quit never loses work.
+    QuitForce,
     /// `wq` / `x`: write, then close.
     WriteQuit,
     /// `e` / `open`: the quick-open picker.
@@ -74,6 +77,7 @@ impl Ex {
             Ex::Empty | Ex::Unknown(_) => return None,
             Ex::Write => "note.save",
             Ex::Quit => "app.quit",
+            Ex::QuitForce => "app.quit-force",
             Ex::WriteQuit => "note.write-quit",
             Ex::Open => "note.open",
             Ex::Checker(true) => "checker.on",
@@ -100,6 +104,7 @@ impl Ex {
         Command::by_id(match self {
             Ex::Write
             | Ex::Quit
+            | Ex::QuitForce
             | Ex::Open
             | Ex::Checker(_)
             | Ex::Focus(None)
@@ -127,6 +132,9 @@ pub(crate) fn parse(line: &str) -> Ex {
     match word.as_str() {
         "w" | "write" => Ex::Write,
         "q" | "quit" => Ex::Quit,
+        // The bang is part of the word, not a separate argument: vim reads `q!` as
+        // one command, and so does this.
+        "q!" | "quit!" => Ex::QuitForce,
         "wq" | "x" | "xit" | "exit" => Ex::WriteQuit,
         "e" | "edit" | "open" => Ex::Open,
         "harper" | "spellcheck" | "spell" => match rest.to_ascii_lowercase().as_str() {
@@ -208,6 +216,8 @@ mod tests {
         assert_eq!(parse("write"), Ex::Write);
         assert_eq!(parse("q"), Ex::Quit);
         assert_eq!(parse("quit"), Ex::Quit);
+        assert_eq!(parse("q!"), Ex::QuitForce);
+        assert_eq!(parse("quit!"), Ex::QuitForce);
         assert_eq!(parse("wq"), Ex::WriteQuit);
         assert_eq!(parse("x"), Ex::WriteQuit);
         assert_eq!(parse("e"), Ex::Open);
@@ -309,6 +319,7 @@ mod tests {
         for command in [
             Ex::Write,
             Ex::Quit,
+            Ex::QuitForce,
             Ex::Open,
             Ex::Checker(true),
             Ex::Checker(false),

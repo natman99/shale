@@ -96,13 +96,16 @@ impl Workspace {
                 (
                     PickerItem {
                         label: SharedString::from(command.label()),
-                        detail: SharedString::from(command.keys()),
+                        detail: SharedString::from(command.hint()),
                         // The keys match too, so `ctrl-w` finds the window commands.
-                        search: SharedString::from(format!(
-                            "{} {}",
-                            command.label(),
-                            command.keys()
-                        )),
+                        // The command-line spellings are shown but *not* searched:
+                        // their letters are what make `new note` match the word
+                        // count, and a palette that offers the wrong command is
+                        // worse than one that does not know the alias.
+                        search: SharedString::from(match command.keys() {
+                            "" => command.label().to_string(),
+                            keys => format!("{} {}", command.label(), keys),
+                        }),
                     },
                     PickerTarget::Command(command),
                 )

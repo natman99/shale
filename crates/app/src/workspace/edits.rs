@@ -151,10 +151,11 @@ impl Workspace {
         match command {
             ex::Ex::Empty => {}
             ex::Ex::WriteQuit => {
-                // Not one action: `:wq` is save then quit, and the quit has to be
-                // the window's own (it flushes the database on the way out).
-                self.save(&Save, window, cx);
-                self.quit(&Quit, window, cx);
+                // Not one action: `:wq` is a write that does not care whether the
+                // note was dirty, then the exit — and the exit has to be the
+                // window's own, which flushes the database and writes the session
+                // on the way out.
+                self.write_quit(cx);
             }
             ex::Ex::Focus(Some(on)) => self.set_focus(on, cx),
             ex::Ex::FocusScope(word) => self.set_focus_scope(&word, cx),
@@ -175,6 +176,7 @@ impl Workspace {
             // already dispatched it as an action.
             ex::Ex::Write
             | ex::Ex::Quit
+            | ex::Ex::QuitForce
             | ex::Ex::Open
             | ex::Ex::Checker(_)
             | ex::Ex::Focus(None)

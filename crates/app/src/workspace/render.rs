@@ -133,6 +133,7 @@ impl Render for Workspace {
             .text_color(gpui::rgb(self.palette.ui_fg))
             .on_action(cx.listener(Self::save))
             .on_action(cx.listener(Self::quit))
+            .on_action(cx.listener(Self::quit_forced))
             // The vault edits are available from anywhere: the tree's selection
             // says what they act on, and the open note is the fallback.
             .on_action(cx.listener(Self::new_note))

@@ -274,8 +274,11 @@ Workspace layout:
   previews the palette its highlighted row names — `escape` puts the old one back,
   and a theme that is actually chosen is written back to `appearance.theme` so
   the next launch opens in it),
-  ctrl+s save (`:w` does the same, and quitting writes a dirty note first so a
-  `:q` cannot lose work), and a file tree that can create, rename and delete notes and
+  ctrl+s save (`:w` does the same). Quitting writes a dirty note first, so a `:q`
+  cannot lose work — unless autosave is off, where a dirty note is refused and the bar
+  says so, because choosing to save by hand means a quit that writes silently is its
+  own surprise; `:q!` quits and throws the edits away, and `:wq` writes on purpose),
+  and a file tree that can create, rename and delete notes and
   folders through a one-line prompt (`prompt.rs`); a rename also rewrites the
   wiki-links that pointed at the old name, in every other note and in the open one
   if it has no unsaved edits. It follows the disk when
@@ -284,12 +287,12 @@ Workspace layout:
   open), **jump back/forward** (`ctrl-o`/`ctrl-i`: the notes the user came from,
   each with the cursor where they left it) and a
   **command palette** (`ctrl-shift-p`) beside vim's **command line** (`:`, which is
-  deliberately *not* the palette: one word, matched exactly — `:w`, `:q`, `:wq`,
-  `:x`, `:e`, `:harper on|off|1|0`, `:theme [name]`, `:raw|:live|:preview`,
+  deliberately *not* the palette: one word, matched exactly — `:w`, `:q`, `:q!`,
+  `:wq`, `:x`, `:e`, `:harper on|off|1|0`, `:theme [name]`, `:raw|:live|:preview`,
   `:focus|:dim on|off`, `:typewriter on|off`, `:wordcount [folder]`;
   `ex.rs` is its whole
   vocabulary, and a word it does not know runs nothing). One **command registry**
-  (`command.rs`) is behind both front-ends: 28 rows, each with a stable dotted id
+  (`command.rs`) is behind both front-ends: 29 rows, each with a stable dotted id
   (`note.save`), a label, the keys that reach it, the `:` words that spell it, how
   its argument is spelled, and the gpui action that runs it. The palette lists the
   rows marked for it, and the command line dispatches the *same* action for every
@@ -373,6 +376,12 @@ Workspace layout:
   `tree.rs`.
 - `crates/mcp` (`shale-mcp` binary): MCP stdio server exposing list/read/
   write/search/backlinks tools.
+- `docs/`: `commands.md`, the command reference **generated** from the registry in
+  `crates/app/src/command.rs` (`Command::docs()`). A test reads the file back and
+  fails when it and the table disagree; `SHALE_UPDATE_DOCS=1 cargo test -p shale-app`
+  rewrites it. It is a file rather than only a function because roadmap P2.3 serves
+  it as an MCP resource: the standalone `shale-mcp` cannot link against the app
+  binary, so the generated text is the shared artifact.
 - `refs/` (**gitignored, not shipped**): local copies of the Vim help files
   (`motion`, `visual`, `change`, `insert`, `editing`, `pattern`, `repeat`,
   `quickref`, `undo`, `options`) and ~57 Obsidian help pages, fetched 2026-10-26
@@ -448,12 +457,12 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
 - Run the test binaries under `ulimit -v` when working on anything that scans
   text (a scanner bug can allocate until the OOM killer takes the editor down —
   see the table postmortem).
-  Current peak RSS of the test binaries (2026-11-01, app 285 / core 385 with 10
+  Current peak RSS of the test binaries (2026-11-01, app 289 / core 385 with 10
   ignored / mcp 6 tests — core's `db::` tests cost it nothing worth mentioning: 12.5
   MB to 16 MB, and the app's 79 MB to 88 MB is the eight `tests::index` windows that
   each open a real DB, which is nowhere near the 200 MB line worth investigating):
-  core 15.8 MB, app 87.6 MB,
-  mcp 3.2 MB. The
+  core 15.5 MB, app 87.4 MB,
+  mcp 3.5 MB. The
   app binary's *address space* (not RSS) is far larger because of gpui/wgpu
   reservations, and it now needs **4 GB or more** — a 1 GB cap makes it die in an
   80-byte allocation. Build with `cargo test --workspace --no-run`, then run each
@@ -2053,11 +2062,16 @@ Largest files now (2026-10-30, after Phase 0's module splits; what the DB spine
   a panel near the bottom of the window too.
   **P2.1 (2026-11-01):** new `command.rs` 466, 84 of them its own tests, and
   `workspace/commands.rs` 168 **deleted** — the palette's table moved into the
-  registry instead of the registry wrapping it. `ex.rs` 250 → 351 (the id and
-  no-argument accessors plus their two tests), `workspace/edits.rs` 486 → 505,
-  `workspace/open.rs` 352 → 355, and `workspace/views.rs` lost the duplicate
-  `flip_typewriter` (187). Nothing new is near the rule; `editor/mod.rs` 991 still
-  is.
+  registry instead of the registry wrapping it. `ex.rs` 250 → 362 (the id and
+  no-argument accessors plus their tests), `workspace/edits.rs` 486 → 507,
+  `workspace/open.rs` 352 → 358, and `workspace/views.rs` lost the duplicate
+  `flip_typewriter` (187).
+  **P2.2 and `:q!` (the same day):** `command.rs` 466 → **606** (the docs renderer,
+  102 of the file its own tests), `tests/commands.rs` 298 → 397 (the three quit
+  tests), and `workspace/mod.rs` went back over the rule at 1020 on the way, so the
+  four exit functions — `quit`, `quit_forced`, `write_quit`, `leave` — moved to
+  `workspace/exit.rs` 62 → **151**, leaving `mod.rs` at **933**. Nothing new is near
+  the rule; `editor/mod.rs` 991 still is.
 
 System dependency (Linux): `libxkbcommon-x11-devel` (plus fontconfig, freetype,
 x11, xcb, wayland dev packages) and a working Vulkan driver (the Linux renderer
@@ -2846,6 +2860,36 @@ Next steps, roughly in order:
       as an action, `toggle_typewriter` became the only flip and the duplicate
       helper was deleted. `flip_focus` stays: `toggle_focus` is its only caller,
       and `:focus on|off` still needs `set_focus` directly.
+    - **P2.2 the same day: the docs are generated from the table.**
+      `Command::docs()` renders `docs/commands.md` — one row per command, id, label,
+      keys, every command-line spelling with its argument, and a generated list of
+      the commands the palette does not offer. The test `the_docs_are_the_registry`
+      reads the file back and fails when it and the table disagree; the same test
+      rewrites the file when `SHALE_UPDATE_DOCS=1` is in the environment, which is
+      what you run after editing the table. **Why a file and not just a function:**
+      roadmap P2.3 serves the reference as an MCP resource, and the standalone
+      `shale-mcp` cannot link against the app binary — the generated text is the
+      artifact both sides can see. `:help` is the same pipeline later.
+    - **The palette does not search the `:` spellings,** which is what P2.2 found.
+      Putting the command-line words in the palette's search text made `new note`
+      match *Count the vault's words* (`n` in Cou**n**t, `e` in **e**, `w` in
+      **w**ords, then `note` out of `[fold**e**r]`…). The hint still *shows* the
+      first spelling, and the docs list all of them; the search is the label and the
+      keys, as it was. A palette that offers the wrong command is worse than one
+      that does not know an alias.
+    - **`:q!`, and `:q` refusing a dirty note** (asked for while P2.2 was landing).
+      Quitting still writes a dirty note on the way out **when autosave is on**: the
+      disk is never more than a pause behind the screen, so writing is what the user
+      meant. With `editor.autosave = false` they chose to save by hand, so `:q` (and
+      `ctrl-q`, and the palette's *Quit Shale* — one command, one rule) refuses and
+      the bar says `unsaved edits: :w to keep them, :q! to throw them away`. `:q!` is
+      a new command (`app.quit-force`, `QuitForce`, no key bound, not in the palette:
+      a list you pick from should not offer "throw the work away" next to *Quit
+      Shale*) and exits without writing, logging that it discarded edits. `:wq` is
+      now `write_quit`: write unconditionally, then exit only if the write worked —
+      a failed write already said why in the bar, so the refusal message does not
+      cover it up. The window manager's close button and a termination signal are
+      unchanged: an exit the user did not type never refuses, and never discards.
 
 ## Parked threads (agreed 2026-10-28; not being worked now)
 
