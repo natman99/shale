@@ -35,6 +35,15 @@ pub(crate) struct Jump {
 /// could step through by hand.
 const LIMIT: usize = 100;
 
+/// Trim a restored chain half to the newest [`LIMIT`] entries (module docs on
+/// [`Jumps::restore`]).
+fn trimmed(mut jumps: Vec<Jump>) -> Vec<Jump> {
+    if jumps.len() > LIMIT {
+        jumps.drain(..jumps.len() - LIMIT);
+    }
+    jumps
+}
+
 /// The chain, as the two halves around where the user stands — the same shape a
 /// browser's back/forward pair uses, which is what makes `ctrl-i` mean "undo my
 /// `ctrl-o`" rather than "the next note I happened to visit".
@@ -108,9 +117,16 @@ impl Jumps {
     /// Put the chain back the way a saved session had it. Only the session
     /// restore calls this, before the user has jumped anywhere in the new
     /// window.
+    ///
+    /// The cap is re-applied on the way in: `record` and `step` keep a live
+    /// chain under [`LIMIT`], but a session file is a file — hand-edited or
+    /// written by a future Shale with a larger cap — and the window's own
+    /// bound should not be a suggestion. The end of each half is the nearest
+    /// stop, so the oldest back entries and the farthest forward ones are what
+    /// go.
     pub(crate) fn restore(&mut self, back: Vec<Jump>, forward: Vec<Jump>) {
-        self.back = back;
-        self.forward = forward;
+        self.back = trimmed(back);
+        self.forward = trimmed(forward);
     }
 
     /// How far the user can still go each way: `(back, forward)`. Only the tests
@@ -198,5 +214,38 @@ impl Workspace {
     #[cfg(test)]
     pub(crate) fn jump_lens(&self) -> (usize, usize) {
         self.jumps.lens()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn jump(n: usize) -> Jump {
+        Jump {
+            path: PathBuf::from(format!("n{n:04}.md")),
+            cursor: n,
+        }
+    }
+
+    /// A session file is a file: a longer chain than the live cap must not
+    /// smuggle itself into the window, and what goes is the far end of each
+    /// half — the nearest stops stay reachable.
+    #[test]
+    fn restoring_a_chain_trims_it_to_the_live_cap() {
+        let back: Vec<Jump> = (0..LIMIT + 40).map(jump).collect();
+        let forward: Vec<Jump> = (0..LIMIT + 5).map(jump).collect();
+        let mut jumps = Jumps::default();
+        jumps.restore(back, forward);
+
+        assert_eq!(jumps.back.len(), LIMIT);
+        assert_eq!(jumps.forward.len(), LIMIT);
+        // The nearest back stop (the last entry) survived; the 40 oldest did not.
+        assert_eq!(jumps.back.last().unwrap().path, PathBuf::from("n0139.md"));
+        assert_eq!(jumps.back.first().unwrap().path, PathBuf::from("n0040.md"));
+        // And `ctrl-o` from the restored chain takes the nearest stop first.
+        let next = jumps.step(false, None).unwrap();
+        assert_eq!(next.path, PathBuf::from("n0139.md"));
     }
 }

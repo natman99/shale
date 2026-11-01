@@ -440,7 +440,7 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
 - Run the test binaries under `ulimit -v` when working on anything that scans
   text (a scanner bug can allocate until the OOM killer takes the editor down —
   see the table postmortem).
-  Current peak RSS of the test binaries (2026-10-31, app 278 / core 385 with 10
+  Current peak RSS of the test binaries (2026-10-31, app 279 / core 385 with 10
   ignored / mcp 6 tests — core's `db::` tests cost it nothing worth mentioning: 12.5
   MB to 15 MB, and the app's 79 MB to 85 MB is the eight `tests::index` windows that
   each open a real DB, which is nowhere near the 200 MB line worth investigating):
@@ -2768,7 +2768,10 @@ Next steps, roughly in order:
       not `open_note` — restoring a seat is not a jump and must not shove the
       restored chain), then the frame's decisions, then the chain. A note
       deleted since last time opens nothing; the rest of the session still
-      restores.
+      restores. The jump chain is capped both ways: the live chain at 100 per
+      direction (`LIMIT`, vim's number) and `Jumps::restore` re-applies the cap
+      on the way in, so a hand-edited or future-written session file cannot grow
+      the window's chain past it.
     - **Scroll and cursor cooperate:** the saved offset is applied as saved, then
       gpui's `scroll_to_item` reveal pulls the cursor in with the *minimum*
       scroll — so the saved view stands when the cursor was already on screen,
@@ -2782,7 +2785,10 @@ Next steps, roughly in order:
     - **Tests:** 4 in core `session.rs` (round trip, no file, partial file, and
       corrupt-is-an-error), 4 in `tests/session.rs` (the full restore including
       `ctrl-o` through the restart, the deleted-note case, the autosave beat, and
-      `:q` leaving the session behind).
+      `:q` leaving the session behind), and one in `jumps.rs` (a restored chain
+      longer than the cap is trimmed at the far end of each half). The startup
+      index pass now logs `indexed`/`removed`/`took_ms` at **info** when there
+      was work — the line that answers the roadmap's rebuild-time check.
 
 ## Parked threads (agreed 2026-10-28; not being worked now)
 

@@ -514,8 +514,12 @@ external edit picked up within the watch interval; provenance correct for
 user/MCP/rename writes; `kill -TERM` leaves a clean DB (verify with
 `PRAGMA integrity_check`); `:wordcount` correct for vault and a subtree.
 **Met 2026-10-31 except** MCP provenance (no MCP write path exists yet). The
-SIGTERM half landed with P1.5 the same day. The demo-vault rebuild time and the
-`kill -TERM` + `PRAGMA integrity_check` check are still to be measured by hand.
+SIGTERM half landed with P1.5 the same day. The demo-vault rebuild time is now a
+log line to read — the startup pass reports `indexed`/`removed`/`took_ms` at
+info level when there was work to do — and the `kill -TERM` +
+`PRAGMA integrity_check` check is still to be done by hand. (`kill -9` is out of
+scope by design: nothing runs; what survives it is what the last autosave beat
+already wrote.)
 
 ---
 

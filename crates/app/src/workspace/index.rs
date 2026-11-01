@@ -15,7 +15,7 @@
 //! `.shale/backups/`.
 
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use gpui::{Context, Window};
 use shale_core::db::Provenance;
@@ -45,6 +45,7 @@ impl Workspace {
         // on a background thread, and `Rc` cannot cross one.
         let vault = (*self.vault).clone();
         self._index = Some(cx.spawn(async move |_ws, cx| {
+            let started = Instant::now();
             let report = cx
                 .background_executor()
                 .spawn(async move { db.reconcile(&vault) })
@@ -52,9 +53,15 @@ impl Workspace {
             match report {
                 Ok(report) => {
                     if !report.is_empty() {
-                        tracing::debug!(
+                        // Info, not debug: this is the line that answers the
+                        // roadmap's exit question — did the index rebuild, and
+                        // how long did it take — and it only appears when there
+                        // really was work to report, so a quiet startup stays
+                        // quiet.
+                        tracing::info!(
                             indexed = report.indexed,
                             removed = report.removed,
+                            took_ms = started.elapsed().as_millis(),
                             "the vault index was brought up to date"
                         );
                     }
