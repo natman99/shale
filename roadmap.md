@@ -525,9 +525,23 @@ already wrote.)
 
 ## Phase 2 — Command registry + agent-native surface
 
-- **P2.1 Command registry.** Unify the palette's list (`commands.rs`) and the
-  `:` vocabulary (`ex.rs`) into one registry: id, label, args, keymap context,
-  handler. Palette and ex become two front-ends over it.
+- **P2.1 Command registry** — **DONE 2026-11-01.** `crates/app/src/command.rs` is
+  the one table (28 rows), and `workspace/commands.rs` is gone. Each row carries a
+  stable dotted **id** (`note.save`, `theme.change`, `checker.on`), a **label**, the
+  **keys** that reach it, the **ex** words that spell it, how its **args** are
+  spelled, whether the palette lists it, and the gpui **action** that runs it. The
+  palette builds its rows from the rows marked for it; the `:` line dispatches the
+  *same* action for every command that takes no argument, so `:w`, `ctrl-s` and the
+  palette row are one command by id. Only the argument forms (`:theme gruvbox`,
+  `:focus section`, `:wordcount notes/`, `:focus on`) and the composite `:wq` are
+  still acted on in `ex` — an action for a no-argument command cannot carry a value
+  — and those still resolve to a registry id. Three tests keep the two vocabularies
+  from drifting: every `ex` word in the table parses back to the id that lists it,
+  every command `ex::parse` understands has an id in the table, and every `Ex`
+  variant with no argument is in `no_arg_command`. **Not done here:** `keys` is
+  written by hand rather than read out of the keymap, so a rebinding has to edit the
+  row too; and `every()`/`ex()`/`args()` are `allow(dead_code)` until P2.2's docs
+  generator reads them.
 - **P2.2 Generated docs from the registry** (brainstorm ✅): `docs/commands.md`
   in the repo **and** served as MCP resources so an agent can read the command
   reference at runtime. Same pipeline later backs `:help`.

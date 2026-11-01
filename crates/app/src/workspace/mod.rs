@@ -8,7 +8,6 @@
 //! on another is `pub(super)`.
 
 mod bar;
-pub(crate) mod commands;
 mod edits;
 mod exit;
 mod index;

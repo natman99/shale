@@ -145,19 +145,15 @@ impl Workspace {
     }
 
     /// `:typewriter`, and its palette row: keep the cursor's line near the middle
-    /// of the window.
+    /// of the window. The bare `:typewriter` reaches this through the same action as
+    /// the palette row does, so there is one flip, and `set_typewriter` is the one
+    /// place that reports it in the status line.
     pub(super) fn toggle_typewriter(
         &mut self,
         _: &ToggleTypewriter,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let on = !self.editor.read(cx).typewriter();
-        self.set_typewriter(on, cx);
-    }
-
-    /// Typewriter scroll, asked rather than told: a bare `:typewriter`.
-    pub(crate) fn flip_typewriter(&mut self, cx: &mut Context<Self>) {
         let on = !self.editor.read(cx).typewriter();
         self.set_typewriter(on, cx);
     }

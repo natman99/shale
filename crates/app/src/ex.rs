@@ -10,6 +10,7 @@
 //! than a no-op: it costs nothing when the note is already clean, and it is what
 //! the user types when they do not trust the autosave to have run yet.
 
+use crate::command::Command;
 use crate::editor::View;
 
 /// What a typed command line asked for.
@@ -60,6 +61,56 @@ pub(crate) enum Ex {
     /// Anything else, with the word that was typed. Nothing runs: an unknown word
     /// is a typo, not something to guess at.
     Unknown(String),
+}
+
+impl Ex {
+    /// The registry id this line dispatches, or `None` for `Empty` and `Unknown`
+    /// (which run nothing). The argument forms (`:theme gruvbox`,
+    /// `:wordcount notes/`, `:focus section`) resolve to the id of the command
+    /// they are an argument *of*, which is what lets the parity test in
+    /// [`crate::command`] hold for every spelling.
+    pub(crate) fn command_id(&self) -> Option<&'static str> {
+        Some(match self {
+            Ex::Empty | Ex::Unknown(_) => return None,
+            Ex::Write => "note.save",
+            Ex::Quit => "app.quit",
+            Ex::WriteQuit => "note.write-quit",
+            Ex::Open => "note.open",
+            Ex::Checker(true) => "checker.on",
+            Ex::Checker(false) => "checker.off",
+            Ex::Focus(_) | Ex::FocusScope(_) => "focus.toggle",
+            Ex::Typewriter(_) => "typewriter.toggle",
+            Ex::ThemePicker | Ex::Theme(_) => "theme.change",
+            Ex::View(View::Raw) => "view.raw",
+            Ex::View(View::Live) => "view.live",
+            Ex::View(View::Preview) => "view.preview",
+            Ex::YankClipboard => "clipboard.yank",
+            Ex::PasteClipboard => "clipboard.paste",
+            Ex::WordCount(_) => "vault.wordcount",
+        })
+    }
+
+    /// The registry command, when this line runs one with no argument the action
+    /// cannot carry. Those are dispatched through the action — the same call the
+    /// palette makes — so `:w`, `ctrl-s` and the palette row are one dispatch
+    /// reached three ways. The argument and composite forms (`:theme <name>`,
+    /// `:focus section`, `:wq`, …) return `None` and keep their handling in
+    /// [`crate::workspace`].
+    pub(crate) fn no_arg_command(&self) -> Option<Command> {
+        Command::by_id(match self {
+            Ex::Write
+            | Ex::Quit
+            | Ex::Open
+            | Ex::Checker(_)
+            | Ex::Focus(None)
+            | Ex::Typewriter(None)
+            | Ex::ThemePicker
+            | Ex::View(_)
+            | Ex::YankClipboard
+            | Ex::PasteClipboard => self.command_id()?,
+            _ => return None,
+        })
+    }
 }
 
 /// Read one command line. Case-insensitive, like vim's command abbreviations.
@@ -246,5 +297,55 @@ mod tests {
         assert_eq!(parse("xyzzy"), Ex::Unknown("xyzzy".into()));
         assert_eq!(parse(""), Ex::Empty);
         assert_eq!(parse("   "), Ex::Empty);
+    }
+
+    /// The other half of the id parity test in `command`: every word `parse` knows
+    /// that carries no argument must be a row in the registry, because the command
+    /// line runs those as actions rather than by matching on the word. A variant
+    /// left out of `no_arg_command` would reach an `unreachable!` at runtime, and
+    /// this is what keeps that from happening.
+    #[test]
+    fn every_command_with_no_argument_has_an_id() {
+        for command in [
+            Ex::Write,
+            Ex::Quit,
+            Ex::Open,
+            Ex::Checker(true),
+            Ex::Checker(false),
+            Ex::Focus(None),
+            Ex::Typewriter(None),
+            Ex::ThemePicker,
+            Ex::View(View::Raw),
+            Ex::View(View::Live),
+            Ex::View(View::Preview),
+            Ex::YankClipboard,
+            Ex::PasteClipboard,
+        ] {
+            assert!(
+                command.no_arg_command().is_some(),
+                "{command:?} takes no argument but has no command id"
+            );
+        }
+    }
+
+    /// And what carries an argument stays in the command line, where the value can
+    /// be acted on.
+    #[test]
+    fn a_command_with_an_argument_is_not_dispatched_by_id() {
+        for command in [
+            Ex::Empty,
+            Ex::WriteQuit,
+            Ex::Focus(Some(true)),
+            Ex::Typewriter(Some(false)),
+            Ex::Theme("catppuccin-mocha".into()),
+            Ex::FocusScope("heading".into()),
+            Ex::WordCount("notes".into()),
+            Ex::Unknown("xyzzy".into()),
+        ] {
+            assert!(
+                command.no_arg_command().is_none(),
+                "{command:?} carries an argument and must not be dispatched by id"
+            );
+        }
     }
 }

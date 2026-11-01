@@ -288,7 +288,15 @@ Workspace layout:
   `:x`, `:e`, `:harper on|off|1|0`, `:theme [name]`, `:raw|:live|:preview`,
   `:focus|:dim on|off`, `:typewriter on|off`, `:wordcount [folder]`;
   `ex.rs` is its whole
-  vocabulary, and a word it does not know runs nothing) — both pickers
+  vocabulary, and a word it does not know runs nothing). One **command registry**
+  (`command.rs`) is behind both front-ends: 28 rows, each with a stable dotted id
+  (`note.save`), a label, the keys that reach it, the `:` words that spell it, how
+  its argument is spelled, and the gpui action that runs it. The palette lists the
+  rows marked for it, and the command line dispatches the *same* action for every
+  command that takes no argument, so `:w`, `ctrl-s` and the palette's *Save the
+  note* are one command by id; only the argument forms (`:theme gruvbox`,
+  `:focus section`, `:wordcount notes/`) and the composite `:wq` are still acted on
+  in `ex`. Both pickers
   *overlay* the note rather than pushing it down, and the note has margins around
   it. `ctrl-w h`/`ctrl-w l` move the keyboard between the sidebar and the note,
   and **vault search** (`ctrl-shift-f`, or `space s`) lists every line that holds what you type,
@@ -440,12 +448,12 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
 - Run the test binaries under `ulimit -v` when working on anything that scans
   text (a scanner bug can allocate until the OOM killer takes the editor down —
   see the table postmortem).
-  Current peak RSS of the test binaries (2026-10-31, app 279 / core 385 with 10
+  Current peak RSS of the test binaries (2026-11-01, app 285 / core 385 with 10
   ignored / mcp 6 tests — core's `db::` tests cost it nothing worth mentioning: 12.5
-  MB to 15 MB, and the app's 79 MB to 85 MB is the eight `tests::index` windows that
+  MB to 16 MB, and the app's 79 MB to 88 MB is the eight `tests::index` windows that
   each open a real DB, which is nowhere near the 200 MB line worth investigating):
-  core 15 MB, app 85 MB,
-  mcp 3.4 MB. The
+  core 15.8 MB, app 87.6 MB,
+  mcp 3.2 MB. The
   app binary's *address space* (not RSS) is far larger because of gpui/wgpu
   reservations, and it now needs **4 GB or more** — a 1 GB cap makes it die in an
   80-byte allocation. Build with `cargo test --workspace --no-run`, then run each
@@ -2043,6 +2051,13 @@ Largest files now (2026-10-30, after Phase 0's module splits; what the DB spine
   fields exactly as before. `tests/popup/mod.rs` had to keep `place` and
   `bottom_note`, which look like pointer fixtures but the offer-list test asks for
   a panel near the bottom of the window too.
+  **P2.1 (2026-11-01):** new `command.rs` 466, 84 of them its own tests, and
+  `workspace/commands.rs` 168 **deleted** — the palette's table moved into the
+  registry instead of the registry wrapping it. `ex.rs` 250 → 351 (the id and
+  no-argument accessors plus their two tests), `workspace/edits.rs` 486 → 505,
+  `workspace/open.rs` 352 → 355, and `workspace/views.rs` lost the duplicate
+  `flip_typewriter` (187). Nothing new is near the rule; `editor/mod.rs` 991 still
+  is.
 
 System dependency (Linux): `libxkbcommon-x11-devel` (plus fontconfig, freetype,
 x11, xcb, wayland dev packages) and a working Vulkan driver (the Linux renderer
@@ -2791,6 +2806,46 @@ Next steps, roughly in order:
       was work and `took_ms` alone at **debug** when there was not — so the spine
       is visible on every launch, and the roadmap's rebuild-time check is a line
       to read after deleting `.shale/shale.db`.
+29. **One command registry behind the palette and the `:` line** — P2.1
+    (2026-11-01).
+    - **`crates/app/src/command.rs` is the table, and `workspace/commands.rs` is
+      gone.** A `Command` is seven fields: a stable dotted **id** (`note.save`,
+      `theme.change`, `checker.on`), the palette **label**, the **keys** that reach
+      it, the **ex** words that spell it (each a whole invocation, so `harper on`
+      is one entry rather than `harper` plus an argument), how its **argument** is
+      spelled, whether the palette lists it, and the gpui **action** that runs it.
+      28 rows: 27 the palette lists, and `note.write-quit`, which is in the table
+      so the docs and the parity test cover `:wq` but has no action and no row.
+    - **The action is the handler, and that is what makes the two doors agree.**
+      The keymap already named an action per command and the palette already
+      dispatched it; the command line now dispatches the *same* action for every
+      command that takes no argument — `answer_command` asks the parsed line for
+      its `no_arg_command()` and dispatches it, after the line has closed and
+      handed the keyboard back. So `:w`, `ctrl-s` and the palette's *Save the
+      note* are one handler reached by one id. What stays in `ex` is only what an
+      action cannot carry: an argument (`:theme gruvbox`, `:focus section`,
+      `:wordcount notes/`, `:focus on`) — and those still resolve to a registry id
+      through `command_id()`.
+    - **Three tests hold the vocabularies together**, because a registry nobody
+      checks is just a third copy with extra steps: every `ex` word in the table
+      parses back to the id that lists it, every command `parse` knows has an id
+      that is in the table, and every `Ex` variant carrying no argument is in
+      `no_arg_command` — the last of the three is what keeps the `unreachable!`
+      arm in `answer_command` unreachable.
+    - **What the ids are for:** the docs generator (P2.2) and the MCP surface
+      (P2.3) enumerate `Command::every()` instead of each keeping a list, and an
+      agent names commands by id rather than by whatever the label happens to say
+      this release. A command run from the command line is logged by id, which is
+      the line to read when a key, a palette row and a word disagree.
+    - **Two things this does not do.** The `keys` field is written by hand, not
+      read out of the keymap, so rebinding a key means editing the row too: what
+      `tests/keys.rs` proves is the behaviour, not the string. And
+      `every()`/`ex()`/`args()` are `#[allow(dead_code)]` until P2.2 reads them —
+      the running app only ever needs the palette's rows.
+    - **`flip_typewriter` died on the way.** With a bare `:typewriter` dispatched
+      as an action, `toggle_typewriter` became the only flip and the duplicate
+      helper was deleted. `flip_focus` stays: `toggle_focus` is its only caller,
+      and `:focus on|off` still needs `set_focus` directly.
 
 ## Parked threads (agreed 2026-10-28; not being worked now)
 

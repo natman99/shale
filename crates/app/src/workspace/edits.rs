@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use anyhow::{Context as _, Result};
-use gpui::{prelude::*, Action, Context, Entity, Focusable, Window};
+use gpui::{prelude::*, Context, Entity, Focusable, Window};
 use shale_core::rename::LinkRewrite;
 
 use crate::acts::*;
@@ -130,25 +130,35 @@ impl Workspace {
     /// What a command line meant. The line closes before the command runs, so the
     /// keyboard is back where it was and a command that opens a picker takes it
     /// from there, exactly as if the command's key had been typed.
+    ///
+    /// A command that takes no argument is dispatched as the very action its key
+    /// binding and its palette row dispatch, so the three doors cannot drift apart;
+    /// `command::ALL` says which word means which id, and `ex::tests` says that every
+    /// word `parse` knows without an argument is in that list. What is left in the
+    /// match below is what only the command line can ask for: an argument.
     fn answer_command(&mut self, line: &str, window: &mut Window, cx: &mut Context<Self>) {
         let command = ex::parse(line);
         self.close_prompt(window, cx);
+        if let Some(command) = command.no_arg_command() {
+            // The id is what the docs, the MCP surface and an agent all name, so a
+            // command run from the command line is logged by id: that is the line to
+            // read when a key, a palette row and a word disagree.
+            tracing::debug!(id = command.id(), "command from the command line");
+            window.dispatch_action(command.action(), cx);
+            cx.notify();
+            return;
+        }
         match command {
             ex::Ex::Empty => {}
-            ex::Ex::Write => self.save(&Save, window, cx),
-            ex::Ex::Quit => self.quit(&Quit, window, cx),
             ex::Ex::WriteQuit => {
+                // Not one action: `:wq` is save then quit, and the quit has to be
+                // the window's own (it flushes the database on the way out).
                 self.save(&Save, window, cx);
                 self.quit(&Quit, window, cx);
             }
-            ex::Ex::Open => window.dispatch_action(QuickOpen.boxed_clone(), cx),
-            ex::Ex::Checker(on) => self.set_checker(on, cx),
             ex::Ex::Focus(Some(on)) => self.set_focus(on, cx),
-            ex::Ex::Focus(None) => self.flip_focus(cx),
             ex::Ex::FocusScope(word) => self.set_focus_scope(&word, cx),
             ex::Ex::Typewriter(Some(on)) => self.set_typewriter(on, cx),
-            ex::Ex::Typewriter(None) => self.flip_typewriter(cx),
-            ex::Ex::ThemePicker => window.dispatch_action(ChangeTheme.boxed_clone(), cx),
             ex::Ex::Theme(name) => match self.set_theme(&name, cx) {
                 Ok(()) => match self.persist_theme(&name) {
                     Ok(()) => self.say(format!("theme: {name}"), cx),
@@ -159,13 +169,22 @@ impl Workspace {
                 },
                 Err(err) => self.say(format!("{err:#}"), cx),
             },
-            ex::Ex::View(view) => self.show_view(view, window, cx),
-            ex::Ex::YankClipboard => self.yank_clipboard(&YankClipboard, window, cx),
-            // The clipboard in. The editor owns the paste, and fills the vim
-            // register with what it reads, so `p` can repeat it from there.
-            ex::Ex::PasteClipboard => window.dispatch_action(PasteText.boxed_clone(), cx),
             ex::Ex::WordCount(folder) => self.wordcount(&folder, cx),
             ex::Ex::Unknown(word) => self.say(format!("unknown command: {word}"), cx),
+            // Every one of these carries no argument, so `no_arg_command` above
+            // already dispatched it as an action.
+            ex::Ex::Write
+            | ex::Ex::Quit
+            | ex::Ex::Open
+            | ex::Ex::Checker(_)
+            | ex::Ex::Focus(None)
+            | ex::Ex::Typewriter(None)
+            | ex::Ex::ThemePicker
+            | ex::Ex::View(_)
+            | ex::Ex::YankClipboard
+            | ex::Ex::PasteClipboard => {
+                unreachable!("a command with no argument is dispatched by id")
+            }
         }
         cx.notify();
     }

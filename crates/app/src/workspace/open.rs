@@ -13,8 +13,8 @@ use shale_core::search::{search, SearchOptions};
 use crate::acts::{CommandPalette, QuickOpen, SearchVault};
 use crate::picker::{self, PickerItem, RowSource};
 
-use super::commands::Command;
 use super::Workspace;
+use crate::command::Command;
 
 /// What a picker row stands for. The picker only knows about rows and labels, so
 /// the payload travels with the row and comes back through [`Picker::chosen`].
@@ -92,7 +92,6 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         let rows = Command::all()
-            .iter()
             .map(|command| {
                 (
                     PickerItem {
@@ -105,7 +104,7 @@ impl Workspace {
                             command.keys()
                         )),
                     },
-                    PickerTarget::Command(*command),
+                    PickerTarget::Command(command),
                 )
             })
             .collect::<Vec<_>>();

@@ -4,7 +4,7 @@
 //! `enter` chooses a row — a note to open, a line to jump to, or a command to run.
 
 use super::*;
-use crate::workspace::commands::Command;
+use crate::command::Command;
 use shale_core::theme::Palette;
 
 /// What the picker would choose right now, as the note path behind that row.
@@ -335,7 +335,7 @@ fn escape_closes_the_picker_and_gives_the_keyboard_back(cx: &mut TestAppContext)
 
 /// How many commands the palette offers.
 fn command_count() -> usize {
-    Command::all().len()
+    Command::all().count()
 }
 
 /// `ctrl-shift-p` opens the palette with every command in it, labelled with the

@@ -4,6 +4,7 @@
 //! the entry point.
 
 mod acts;
+mod command;
 mod dim;
 mod editor;
 mod ex;
