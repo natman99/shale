@@ -609,16 +609,29 @@ already wrote.)
   per-connection selection the brainstorm mentions ("or per connection") is the
   app-side half that needs to know which connection is which, which is P2.8's
   presence work; and the app does not yet show which profile wrote what.
-- **P2.5 Agent edit review** (brainstorm ✅): pending edits as **plain-text
-  files** in `.shale/pending-edits/` (DB only indexes them); review strip with
-  per-hunk accept/reject; quit prompts, unanswered/killed → files persist and
-  re-offer next launch. Needs a UX design pass first (strip placement, keys,
-  diff rendering — reuse P4's diff renderer). **Design-pass input (ruled
-  2026-10-29):** hybrid — inline phantom-region overlay in the note (dimmed
-  removals, tinted additions, collapsible hunks, `]a`/`[a`/`y`/`x`) + the
-  strip as the authoritative navigation/count; hunks re-anchor by diff
-  context and fall back to strip-only when ambiguous. Full shape in
-  brainstorm.md (agent presence cluster).
+- **P2.5 Agent edit review** (brainstorm ✅; **design pass RULED 2026-11-01**,
+  full shape in brainstorm.md "Agent edit review"). Split into:
+  - **P2.5a — queue + strip (the safety story):** MCP writes from a
+    `review = true` profile stop being refused (P2.4's fail-closed flip) and
+    land as **TOML files** in `.shale/pending-edits/` — one per write call,
+    `[[hunk]]` blocks embedding unified-diff text — written by the **MCP
+    server itself** (atomic temp+rename; queues while the app is down,
+    survives `kill -TERM`); the app discovers via watcher + DB index (DB
+    only indexes; files are the source of truth). **Bottom review strip**
+    above the status bar, per-hunk accept/reject, two-layer keys (bare
+    `j/k y/x o za` strip-focused; `]a`/`[a` + review keymap context in the
+    buffer), all registry commands. Shared **line-level diff primitive**
+    built here (engine: pure-Rust `similar`), reused by P4.2. Conflict
+    policy **apply-or-stale** (no 3-way merge in v1); a read-only
+    `pending_edits` MCP tool lets an agent see its own pending/stale hunks
+    and re-propose (agent may retract its own; accept is user-only). Quit
+    prompts; unanswered/killed → files persist and re-offer next launch.
+    No in-place editing of proposed hunks.
+  - **P2.5b — inline overlay:** phantom-region hunks in the note (dimmed
+    removals, tinted additions, collapsible, `za`), re-anchored by diff
+    context, strip-only fallback when ambiguous — strip authoritative,
+    inline opportunistic. Full shape in brainstorm.md (agent presence
+    cluster).
 - **P2.6 Quick capture** (brainstorm ✅): `shale capture "text"` → unix socket
   (Linux/macOS) / named pipe (Windows) if the app is up, direct append if not.
   No app-grabbed global hotkeys on Linux; document the niri binding.
@@ -709,6 +722,8 @@ app both up and down.
   see brainstorm "Autosave × time machine"), retention 24h full → 30d hourly
   → daily, **100 MB default cap, configurable**. Per-note scrubber + diff view.
 - **P4.2 Diff renderer** — shared by the time machine and P2.5's edit review.
+  The line-level diff primitive (compute + paint, `similar`-backed) ships in
+  **P2.5a**; P4.2 reuses and upgrades it rather than starting fresh.
 - **P4.3 Query notes `.shq`** (brainstorm ✅): `queries/` folder, TOML
   frontmatter + SQL body, read-only connection, results cached by query-hash +
   vault mtime, `![[query-name]]` embedding. This is the "Obsidian bases" goal.
@@ -831,7 +846,9 @@ and the DB; "notes the agent modified this week" returns the right set.
 1. ~~Tree-sitter = C bindings~~ **RESOLVED 2026-10-28:** the SQLite-style
    exception now covers it (PROJECT.md Tech Stack, and P6.6). Bundled C at build
    time is fine; runtime-linked system libraries still are not.
-2. **Edit-review UX pass** before P2.5 — strip placement, keys, diff rendering.
+2. ~~Edit-review UX pass~~ **RESOLVED 2026-11-01:** full design pass ruled —
+   P2.5a/P2.5b split, bottom strip, two-layer keys, diff primitive pulled
+   forward (see brainstorm "Agent edit review" and the P2.5 item).
 3. ~~`/` search scope~~ **RESOLVED 2026-10-28:** `/` searches the **open buffer**;
    the vault stays `ctrl-shift-f` (see P0.5).
 4. ~~PDF export route~~ **RESOLVED 2026-10-29:** headless render through the

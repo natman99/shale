@@ -43,15 +43,56 @@ Last refined: 2026-10-29 (TTRPG/D&D toolkit section added).
 ### Agent edit review ✅
 - MCP edits land as pending diffs (review strip, per-hunk accept/reject,
   keyboard-driven). Pairs with ripples: ripples show *where*, review shows *what*.
-- **Pending edits are stored in plain text** (e.g. `.shale/pending-edits/*.json`
-  or `.toml` — human-readable, git-diffable), NOT only in the DB cache; the DB
-  may index them but the files are the source of truth, so a corrupt DB never
-  loses a pending edit.
+- **Pending edits are stored in plain text** (`.shale/pending-edits/*.toml` —
+  human-readable, git-diffable), NOT only in the DB cache; the DB may index
+  them but the files are the source of truth, so a corrupt DB never loses a
+  pending edit.
 - **On quit:** prompt if edits are pending. If the user closes without answering
   (or the app is killed), the pending file stays on disk and is re-offered next
   launch. Nothing is silently applied or discarded.
-- Design pass owed: where the strip lives, keybindings, diff rendering (reuse the
-  time-machine diff renderer once it exists).
+- **Design pass RULED 2026-11-01** (all of it; feeds roadmap P2.5):
+  - **Split into P2.5a / P2.5b.** a = the safety story: queue, files, strip,
+    keys, the `review = true` unblock, quit prompt — zero phantom-region risk.
+    b = the inline overlay (agent-presence cluster, below). Nothing in a is
+    thrown away by b; inline is additive by construction.
+  - **The MCP server writes the pending file itself** (atomic temp+rename) and
+    returns the edit id in its tool result; the app discovers via watcher +
+    DB index. Falls out of the separate-binary architecture and gets two
+    ruled behaviors free: edits queue while the app is down, and they survive
+    `kill -TERM` because they were never in app memory.
+  - **Format: TOML, one file per MCP write call**
+    (`<timestamp>-<profile>-<tool>.toml`), `[[hunk]]` blocks embedding
+    unified-diff text in multi-line literal strings — readable, git-diffable,
+    serde already in the stack. One file per call so a kill can never
+    half-write a multi-edit file.
+  - **Strip placement: bottom, above the status bar.** The status bar owns
+    whole-note facts and stays untouched; the note never shifts; it reads as
+    vim's command area; it appears only when the queue is non-empty.
+  - **Keys, two layers.** Strip focused: bare `j`/`k` hop, `y`/`x`
+    accept/reject, `o` jump to the note, `za` collapse (a list widget — no
+    collisions). Buffer focused: `]a`/`[a` hop the current-hunk marker, and a
+    **review keymap context** layers in only when the cursor is on/inside a
+    phantom region, where bare `y`/`x`/`za` work — so `y`/`x` never shadow
+    yank/delete in prose (initiative-tracker keymap-context precedent).
+  - **Diff renderer pulled forward:** P2.5a builds the shared line-level diff
+    primitive (compute + paint); P4.2 reuses and upgrades it for the time
+    machine instead of starting fresh. Engine: the pure-Rust `similar` crate
+    (user ruling 2026-11-01: a small pure-Rust crate is fine; the no-bindings
+    rule still stands). Word-level inline diffs within hunks deferred.
+  - **Conflict policy: apply-or-stale.** Accept patches against the current
+    buffer; if the diff context no longer matches (the user edited the same
+    lines, or two agents' hunks overlap), the hunk flips to a `stale` badge
+    in the strip — reject, or let the agent re-propose, are the only moves.
+    No 3-way merge in v1. Overlapping pending hunks get flagged in the strip.
+  - **Agent-side recovery tool:** a read-only `pending_edits` MCP tool lists
+    the calling agent's own pending hunks with diff + status
+    (`pending`/`stale`), so a broken patch is visible to the agent that made
+    it. "Redo" is just a fresh write call re-anchored against the current
+    buffer (queues as a new pending edit). The agent may **retract** its own
+    pending edits — retract is the one queue mutation it keeps; accept stays
+    user-only.
+  - **No in-place editing of proposed hunks** in v1: accept/reject only —
+    reject and re-ask the agent, or accept then fix it yourself.
 
 ### Shutdown integrity rule ✅ (binding, app-wide)
 - In-process file IO must finish before the app exits: handle SIGTERM (compositor
@@ -114,14 +155,18 @@ zero frames when idle — and all of it is config-off-able as a group
   + strikethrough, added lines tinted, left-bar per hunk, collapsible to
   "−2 +4". Phantom regions: not in the buffer, so j/k, selection, wrap,
   folds, and search skip them for motion but paint them (the row-mapping
-  functions in `line.rs`/hit-testing already centralize this). Keys:
-  `]a`/`[a` hop hunks, `y`/`x` accept/reject, `za` collapse — all registry
-  commands, MCP-visible; the agent can never accept its own edits.
+  functions in `line.rs`/hit-testing already centralize this). Keys follow
+  the two-layer scheme ruled in "Agent edit review" (`]a`/`[a` in the
+  buffer; bare `y`/`x`/`za` only inside the review keymap context on a
+  hunk) — all registry commands, MCP-visible; the agent can never accept
+  its own edits.
   Re-anchoring: the pending file's diff context re-matches the current
   buffer; confident match → stays inline, ambiguous/vanished → hunk leaves
   inline and lives only in the strip, badge still counts it. **The strip
-  is authoritative, inline is opportunistic** — nothing is ever invisible.
-  Design pass owed at P2.5: exact keys, strip placement, colors.
+  is authoritative, inline opportunistic** — nothing is ever invisible.
+  Ruled 2026-11-01 as **P2.5b** (after the P2.5a strip-only safety story);
+  colors follow the theme's git-diff palette (dim/strikethrough removals,
+  tinted additions).
 
 ---
 
@@ -912,8 +957,10 @@ build; the rest is configuration of things that already exist.
 3. ~~Scoped agent vaults~~ ✅ RESOLVED: yes.
 4. ~~Graph open questions~~ ✅ RESOLVED (hash hues w/ distinctness constraint,
    unpin-on-release + Shift-pin, time-lapse reworked as history scrubber 🔭).
-5. **Agent edit review UX** — design pass owed (strip placement, keys, diff
-   rendering); feature itself is ✅.
+5. ~~Agent edit review UX~~ ✅ **RESOLVED 2026-11-01** — full design pass in
+   the "Agent edit review" section: P2.5a/P2.5b split, MCP-server-written TOML
+   files, bottom strip, two-layer keys, `similar`-based diff primitive pulled
+   forward from P4.2, apply-or-stale conflicts + `pending_edits` agent tool.
 6. **Roadmap sequencing** — new features vs the unchecked core editor goals
    (live preview, vim, file tree, tabs). Tabs gate the graph; the DB gates query
    notes, word counts, tag tree, bookmarks, link health, time machine, glow.
