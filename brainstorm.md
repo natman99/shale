@@ -961,8 +961,7 @@ build; the rest is configuration of things that already exist.
    the "Agent edit review" section: P2.5a/P2.5b split, MCP-server-written TOML
    files, bottom strip, two-layer keys, `similar`-based diff primitive pulled
    forward from P4.2, apply-or-stale conflicts + `pending_edits` agent tool.
-6. **Roadmap sequencing** — new features vs the unchecked core editor goals
-   (live preview, vim, file tree, tabs). Tabs gate the graph; the DB gates query
-   notes, word counts, tag tree, bookmarks, link health, time machine, glow.
-   Draft a dependency-ordered roadmap.
+6. ~~Roadmap sequencing~~ ✅ **RESOLVED 2026-11-01 (route 3):** P2.5a next,
+   then P3.1 Tabs → graph tab to unblock the graph track; P2.6/P2.7/P2.8
+   deferred to the Phase 3 addendum (see roadmap "Sequencing notes").
 7. **Graduate ✅ items into PROJECT.md** — pending action, not a decision.

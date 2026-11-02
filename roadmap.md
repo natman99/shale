@@ -27,9 +27,13 @@ palettes + `.shale/themes/*.toml`), file watching, spellcheck/grammar via
 harper-ls with the popup + code actions, image embeds, MCP stdio server
 (list/read/write/search/backlinks), headless gpui test harness.
 
-**Unbuilt from the original Goals list:** Tabs, Tiling splits, Graph view,
-Database (SQLite), Database tables/Obsidian-bases, PDF export, Templates,
-"Raw" mode, tree-sitter code highlighting, `/` search.
+**Unbuilt from the original Goals list** (refreshed 2026-11-01): Tabs, Tiling
+splits, Graph view (the `core` math — M1a/M2 — is in flight on the graph
+track; the app-side tab waits on P3.1), Database tables/Obsidian-bases
+(P4.3 `.shq`), PDF export, Templates, tree-sitter code highlighting.
+**Shipped since this section was written (2026-10-28):** the Database (P1),
+"Raw" mode (P0.6), and `/` search (P0.5), plus all of Phases 0–1 and
+P2.1–P2.4.
 
 **Parked threads** (PROJECT.md, the other agent's list): `/` search, scrolling
 popup panel, scrolling picker list, hover-capability check, live grammar fixes,
@@ -632,13 +636,17 @@ already wrote.)
     context, strip-only fallback when ambiguous — strip authoritative,
     inline opportunistic. Full shape in brainstorm.md (agent presence
     cluster).
-- **P2.6 Quick capture** (brainstorm ✅): `shale capture "text"` → unix socket
+- **Route 3 ruling (2026-11-01):** P2.5a is the last Phase 2 item to build;
+  P2.6/P2.7/P2.8 below are **deferred to the Phase 3 addendum** — none of
+  them gates anything, and P3.1 Tabs unblocks the graph track, which gates
+  a lot.
+- **P2.6 Quick capture** (brainstorm ✅; → Phase 3 addendum): `shale capture "text"` → unix socket
   (Linux/macOS) / named pipe (Windows) if the app is up, direct append if not.
   No app-grabbed global hotkeys on Linux; document the niri binding.
-- **P2.7 `:Gsub` / vault-wide ex commands** (brainstorm ✅): scoped by
+- **P2.7 `:Gsub` / vault-wide ex commands** (brainstorm ✅; → Phase 3 addendum): scoped by
   search/DB, preview affected notes before applying. Registry + DB make this
   compose.
-- **P2.8 Agent presence & provenance visibility** (brainstorm ✅, 2026-10-29):
+- **P2.8 Agent presence & provenance visibility** (brainstorm ✅, 2026-10-29; → Phase 3 addendum):
   provenance badges (gutter/tab/tree, hover → event row), file-tree ticks
   (profile-colored, presence-now, distinct from the heatmap), presence by
   inference from the event log, editor-side glow (`[editor] glow`,
@@ -646,10 +654,11 @@ already wrote.)
   spans + P2.3's connection info; all config-off-able as a group; zero
   animation, zero frames when idle.
 
-**Exit criteria:** palette and `:` dispatch the same command ids; docs
-regenerate in CI/test; an external agent can drive the app over HTTP and its
-edits queue as pending files that survive a `kill -TERM`; capture works with the
-app both up and down.
+**Exit criteria (restriped 2026-11-01, route 3):** palette and `:` dispatch the
+same command ids; docs regenerate in CI/test; an external agent can drive the
+app over HTTP and its edits queue as pending files that survive a `kill -TERM`
+— **P2.5a closes Phase 2**. Capture working app-up-and-down moved with P2.6
+into the Phase 3 addendum.
 
 ---
 
@@ -711,6 +720,16 @@ app both up and down.
 **Exit criteria:** tabs and splits fully keyboard-driven; graph tab opens on a
 2k-note synthetic vault at 60 fps with the sim settling then sleeping (verify
 `FrameLoop::Parked` in logs + `pidstat` ~0% idle with drift off).
+
+### Phase 3 addendum — the deferred Phase 2 remainder (route 3, 2026-11-01)
+
+P2.6 (quick capture), P2.7 (`:Gsub`), and P2.8 (agent presence) keep their
+full specs above under Phase 2 and land inside Phase 3 once tabs + the graph
+tab are through. Rationale: none of the three gates any later item — P2.6 is
+a standalone socket, P2.7 composes off the shipped registry + DB, and P2.8
+rides P1.2's event spans (its tab-badge half *needs* P3.1 anyway). Suggested
+slots: P2.8 right after P3.1 (badges want tabs), P2.6/P2.7 as quick wins
+around the graph milestones.
 
 ---
 
@@ -802,6 +821,12 @@ and the DB; "notes the agent modified this week" returns the right set.
 
 ## Sequencing notes
 
+- **Route 3 (ruled 2026-11-01):** build **P2.5a** next — the design pass is
+  done, the lift is small (MCP-crate writes + watcher + one bottom widget +
+  the diff primitive), and it is the agent-trust story that unblocks
+  `review = true` profiles. Then jump to **P3.1 Tabs → P3.4 graph tab** to
+  unblock the graph track's app/ work; a lot of features ride the graph.
+  P2.6/P2.7/P2.8 wait in the Phase 3 addendum.
 - **Start P3.3 (graph core) now**, in parallel with P0 — it has zero
   dependencies and is pure `core` + tests, so it can't conflict with UI work.
   **In flight (2026-10-28):** a second agent owns the graph track. Its files are
