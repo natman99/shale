@@ -13,6 +13,7 @@ mod exit;
 mod index;
 mod jumps;
 mod keys;
+mod live;
 mod open;
 mod popups;
 mod render;
@@ -31,7 +32,7 @@ pub(crate) use open::PickerTarget;
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use gpui::{prelude::*, Context, Entity, SharedString, Subscription, Task, Window};
@@ -148,6 +149,16 @@ pub(crate) struct Workspace {
     /// The task that watches for a termination signal. Only started by `main`, and
     /// only for as long as the window is (see [`exit`]).
     _termination: Option<Task<()>>,
+    /// The window's loopback MCP server, up when `[mcp] live` is on (see
+    /// [`crate::live`] and [`live`]). `None` when the channel is off or the port
+    /// could not be bound.
+    live: Option<crate::live::LiveServer>,
+    /// The window's state as the live server is allowed to see it. Shared so the
+    /// server thread can answer while the main thread keeps publishing.
+    live_snapshot: Option<Arc<Mutex<crate::live::Snapshot>>>,
+    /// The beat that republishes [`Workspace::live_snapshot`]. Kept so it is
+    /// cancelled with the window; it never ends on its own.
+    _live: Option<Task<()>>,
     /// The subscription to the open prompt, replaced when another one opens.
     _prompt_events: Option<Subscription>,
     /// The open picker, if one is open: quick-open, the command palette or a
@@ -338,6 +349,9 @@ impl Workspace {
             _index: None,
             _backup: None,
             _termination: None,
+            live: None,
+            live_snapshot: None,
+            _live: None,
             _prompt_events: None,
             status: "".into(),
             status_seq: 0,
@@ -357,6 +371,9 @@ impl Workspace {
         // while Shale was closed. After it, the watcher and the save paths keep the
         // index current between them.
         workspace.start_index(cx);
+        // Roadmap P2.3: the live channel comes up last, so the first snapshot the
+        // server can answer with already knows the note the session restored.
+        workspace.start_live(cx);
         workspace
     }
 
@@ -420,6 +437,9 @@ impl Workspace {
                 // Roadmap P1.8: the session goes with the note — this is the last
                 // moment the window knows what it looked like.
                 ws.save_session(cx);
+                // ...and the live channel goes with it, so the next `shale-mcp` to
+                // look finds no port and no lock rather than a stale hint.
+                ws.stop_live();
                 true
             })
             .unwrap_or(true)

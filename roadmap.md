@@ -557,16 +557,32 @@ already wrote.)
   against the app binary, so the generated text is the artifact both sides can read.
   **Still open:** serving it as an MCP resource (P2.3) and backing `:help` with the
   same pipeline.
-- **P2.3 MCP two-mode architecture** (brainstorm ✅): in-app **HTTP on
-  localhost** (live state: current note, selection, jump chain, tabs) +
-  standalone `shale-mcp` **stdio** (vault + DB, no live tools) + lockfile in
-  `.shale` for detection/proxying. The lockfile doubles as the capture socket.
-  **Operational rules (binding, 2026-10-29 review):** probe the HTTP endpoint
-  before offering live tools — never trust the lockfile blindly (PID reuse);
-  fall back to vault+DB with an explicit "live tools unavailable". Expose a
-  `shale://status` resource (`{app_running, live_tools}`) as the pollable
-  mid-session contract for app open/close. Live tools queue behind modal
-  overlays and never bypass the review path. Full rules in PROJECT.md (MCP).
+- **P2.3 MCP two-mode architecture** (brainstorm ✅) — **DONE 2026-11-01 for the
+  read-only half.** In-app **HTTP on loopback** (`crates/app/src/live/`: a
+  `127.0.0.1:0` listener, one request per connection, a token from the lockfile, and
+  a `Snapshot` the window publishes on a 250 ms beat because the HTTP thread may not
+  touch gpui state) + standalone `shale-mcp` **stdio** (`main.rs` the protocol, and
+  `vault_tools.rs` / `live.rs` / `resources.rs`) + the lockfile at
+  `.shale/mcp.lock` for detection and proxying. `shale_core::live` is the contract
+  both ends speak, so the shapes cannot drift: the lock record, `x-shale-token`, the
+  four paths (`/status`, `/note`, `/selection`, `/jumps`), `Status`, the client and
+  `probe`. `[mcp] live` (on by default) decides whether a window binds a port at
+  all.
+  **Operational rules (binding, 2026-10-29 review) — all three now hold:** probe the
+  HTTP endpoint before offering live tools, never the lockfile blindly (PID reuse is
+  real — `a_lock_that_names_a_port_that_is_not_shale_is_not_believed` and
+  `a_stale_lock_is_reported_and_ignored` are the rule as tests); fall back to the
+  vault half with an explicit `live tools unavailable`, which is what the tools
+  answer and what `shale://status` reports (`{app_running, live_tools, version,
+  port, overlay}`); live tools queue behind modal overlays and never bypass the
+  review path — the `overlay` field is reported now so the queue has something to
+  read when it is built. Full rules in PROJECT.md (MCP).
+  **Deferred on purpose:** the live tools are **read-only**. A tool that moves the
+  user's screen is forbidden until the edit-review path exists, so `open_note`,
+  setting a selection and walking the jump chain wait for **P2.5**; the DB tools the
+  line above names wait for the same profiles that decide who may call them
+  (**P2.4**); `tabs` in the live surface waits for **P3.1**. The lockfile doubling as
+  the capture socket is **P2.6**.
 - **P2.4 Scoped agent vaults** (brainstorm ✅): `[mcp.profile."name"]` with
   read/write path globs, `deny`, and a tool allowlist; `shale-mcp --profile`.
   Review mode is an attribute of the profile. **Enforcement is server-side

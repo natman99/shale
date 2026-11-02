@@ -20,6 +20,7 @@ mod focus;
 mod index;
 mod jumps;
 mod keys;
+mod live;
 mod motions;
 mod paint;
 mod picker;
@@ -64,9 +65,15 @@ pub(crate) fn workspace(
     // The vault index is off for the same reason: a DB file and a writer thread per
     // window is not what a keymap or a paint test is about. `tests::index` turns it
     // back on, and it is on in the app.
+    //
+    // The live MCP channel is off for a third reason: it binds a port, leaves a
+    // thread per window, and writes `.shale/mcp.lock` into the vault, which is
+    // exactly what a test counting what a command created is not expecting.
+    // `tests::live` turns it back on, and it is on in the app.
     let mut config = Config::default();
     config.spellcheck.enabled = false;
     config.index.enabled = false;
+    config.mcp.live = false;
     workspace_with(cx, files, config)
 }
 
@@ -123,6 +130,7 @@ pub(crate) fn indexed_vault(
 ) -> (tempfile::TempDir, WindowHandle<Workspace>) {
     let mut config = Config::default();
     config.spellcheck.enabled = false;
+    config.mcp.live = false;
     let dir = tempfile::tempdir().unwrap();
     for (name, text) in notes {
         let path = dir.path().join(name);

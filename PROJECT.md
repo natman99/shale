@@ -148,6 +148,11 @@ If the app is open it should inform the user when the MCP is used to edit files 
   command reference (P2.2), DB schema, pending-edit list, and capabilities
   are MCP *resources* (host-pulled, no tool-call cost); anything that
   mutates is a *tool*.
+- **As built (P2.3, 2026-11-01).** Both halves and the probe exist: `shale_core::live`
+  is the shared contract, the app serves the window over loopback behind a token, and
+  `shale-mcp` proxies it and serves `shale://status` and `shale://commands`. The live
+  tools are **read-only** until the review path exists (P2.5), and the DB tools and
+  profiles are P2.4. Thread 30 in Open threads has the decisions and the reasons.
 
 ### Graph View
 
@@ -239,7 +244,12 @@ Workspace layout:
   `session` (the session file — where the last window stood: open note, cursor
   and scroll, expanded folders, view, focus mode and scope, typewriter, the jump
   chain — `.shale/session.json`, incremental like the config and written with
-  that same atomic discipline) and `theme` (the
+  that same atomic discipline), `live` (the **contract** both halves of the live
+  MCP channel speak, roadmap P2.3: the `.shale/mcp.lock` record and its read/write/
+  remove, the token header, the four endpoint paths, the `Status` shape `shale://status`
+  reports, a hand-rolled loopback client and the `probe` that decides whether a port
+  is a Shale window, and the strict reply parser that tells one from some other
+  program's port) and `theme` (the
   colour palette as data: the `Palette` roles and 20 built-in values — Shale's
   `dark`/`light` plus the palettes of seven families, one module per family
   (`theme/catppuccin.rs`, `tokyo_night.rs`, `gruvbox.rs`, `nord.rs`,
@@ -340,13 +350,14 @@ Workspace layout:
   on, kept here so `n`/`N` outlive the field that typed the query,
   `bar.rs` the status bar's segments (`save_indicator`, `mode_label`,
   `word_badge`) and its TTL,
-  `commands.rs` the command palette's list
-  — every command's label, the keys that run it and the action it dispatches —
   `index.rs` the vault index inside the window (the startup pass, telling the index
   what Shale's own save/create/rename/delete just did, `:wordcount`, and the daily
   backup loop),
   `exit.rs` the termination-signal exit (polling the flag the handler raised, and
   what an exit owes the disk),
+  `live.rs` the window's half of the live MCP channel (publishing what is on screen
+  on a quarter-second beat, owning the server, and taking port and lock down on
+  every graceful exit),
   `session.rs` the session file (capture, save on the autosave beat and every
   graceful exit, restore once in `new`),
   `render.rs` the frame, `testhooks.rs` the accessors only the tests call),
@@ -354,7 +365,9 @@ Workspace layout:
   into rows), `views.rs` (the three views, focus mode and typewriter scroll) and
   its headless tests in `tests/` (`keys.rs`, `motions.rs`,
   `blocks.rs`, `paint.rs`, `tree.rs`, `picker.rs`, `commands.rs`, `search.rs`,
-  `autosave.rs`, `exit.rs`, `session.rs`, `spell.rs`, `focus.rs`, and `popup/` — `mod.rs` the fixtures,
+  `autosave.rs`, `exit.rs`, `session.rs`, `spell.rs`, `focus.rs`, `live.rs` (the
+  channel turned on: the lock it leaves, what the port answers about the note, and
+  the beat that keeps it current), and `popup/` — `mod.rs` the fixtures,
   `keyboard.rs` the `K` and offer-list half, `pointer.rs` the resting-mouse half),
   `dim.rs` (focus mode: how far each buffer row is from the block the caret is in,
   and the colour that answers it), `editor/` (the view: `mod.rs`
@@ -372,10 +385,20 @@ Workspace layout:
   handshake, one open document, debounced whole-document sync, and the answers to
   the requests the *server* sends the client; `wire.rs` the JSON-RPC framing, where
   `Content-Length` counts bytes; `mapping.rs` the UTF-16-position to buffer-byte
-  translation) and
+  `mapping.rs` the UTF-16-position to buffer-byte
+  translation), `live/` (the serving end of the live MCP channel: `mod.rs` the
+  loopback listener, the accept loop that can be told to stop, the token check and
+  the one-request-per-connection HTTP, and `state.rs` the `Snapshot` the window
+  publishes and what each endpoint answers from it) and
   `tree.rs`.
-- `crates/mcp` (`shale-mcp` binary): MCP stdio server exposing list/read/
-  write/search/backlinks tools.
+- `crates/mcp` (`shale-mcp` binary): MCP stdio server. `main.rs` is the protocol
+  loop and the dispatch (`initialize`, `ping`, `tools/list`, `tools/call`,
+  `resources/list`, `resources/read`), `vault_tools.rs` the five tools it answers
+  for itself (list/read/write/search/backlinks, every path through `Vault`),
+  `live.rs` the four live tools that proxy a running window over loopback — offered
+  only while a probe of the port in `.shale/mcp.lock` answers — and
+  `resources.rs` the two resources: `shale://status` (the pollable app-open/close
+  contract) and `shale://commands` (the generated table, when it can be found).
 - `docs/`: `commands.md`, the command reference **generated** from the registry in
   `crates/app/src/command.rs` (`Command::docs()`). A test reads the file back and
   fails when it and the table disagree; `SHALE_UPDATE_DOCS=1 cargo test -p shale-app`
@@ -457,18 +480,26 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
 - Run the test binaries under `ulimit -v` when working on anything that scans
   text (a scanner bug can allocate until the OOM killer takes the editor down —
   see the table postmortem).
-  Current peak RSS of the test binaries (2026-11-01, app 290 / core 385 with 10
-  ignored / mcp 6 tests — core's `db::` tests cost it nothing worth mentioning: 12.5
+  Current peak RSS of the test binaries (2026-11-01, app 302 / core 393 with 10
+  ignored / mcp 18 tests — core's `db::` tests cost it nothing worth mentioning: 12.5
   MB to 16 MB, and the app's 79 MB to 88 MB is the eight `tests::index` windows that
   each open a real DB, which is nowhere near the 200 MB line worth investigating):
-  core 15.4 MB, app 86.9 MB,
-  mcp 3.2 MB. The
+  core 15.2 MB, app 85.2 MB,
+  mcp 4.4 MB. The
   app binary's *address space* (not RSS) is far larger because of gpui/wgpu
   reservations, and it now needs **4 GB or more** — a 1 GB cap makes it die in an
   80-byte allocation. Build with `cargo test --workspace --no-run`, then run each
   `target/debug/deps/<name>-<hash>` binary under `sh -c 'ulimit -v N; /usr/bin/
   time -v ./binary'`; never wrap `cargo test` itself, and re-derive the hashes
   after a rebuild.
+- **The live channel is off in the shared test config, and that is load-bearing.**
+  Every `Workspace::new` with `[mcp] live` on spawns an accept-loop thread and binds
+  a loopback port; across ~300 headless tests that is ~300 thread stacks of *virtual*
+  address space, which is what made the 4 GB guard fail at 74 MB RSS. It also wrote
+  `.shale/mcp.lock` into every test vault, which is what made a test that counts what
+  a command created find one file too many. `tests::mod`'s `workspace()` turns it off
+  beside `spellcheck` and `index` for exactly that reason, and `tests/live.rs` turns
+  it back on. A test that turns it on must not leave it running.
 - **Two agents, one `target/` — resolved 2026-10-31.** The graph track
   (`crates/core/src/graph/**`, `pub mod graph;`, the `petgraph` lines in the two
   Cargo.tomls, and `PROGRESS.md`) was the other agent's work and has landed; the
@@ -2072,6 +2103,14 @@ Largest files now (2026-10-30, after Phase 0's module splits; what the DB spine
   four exit functions — `quit`, `quit_forced`, `write_quit`, `leave` — moved to
   `workspace/exit.rs` 62 → **151**, leaving `mod.rs` at **933**. Nothing new is near
   the rule; `editor/mod.rs` 991 still is.
+  **P2.3 (2026-11-01):** new core `live.rs` **365** (the contract: lock, token,
+  endpoints, status, client, probe — 130 of them its tests), new app `live/`
+  `{mod,state}.rs` **383/161**, new `workspace/live.rs` **151**, new
+  `tests/live.rs` **117**. `crates/mcp`'s one 294-line `main.rs` split into
+  `{main,vault_tools,live,resources}.rs` **290/205/311/122** — the split was forced
+  by the live half, not chosen for its own sake. `workspace/mod.rs` 933 → **953**
+  (three fields and one call), `editor/mod.rs` **993**: it is at the rule's door, and
+  the next thing that wants to live there is a split, not a method.
 
 System dependency (Linux): `libxkbcommon-x11-devel` (plus fontconfig, freetype,
 x11, xcb, wayland dev packages) and a working Vulkan driver (the Linux renderer
@@ -2909,6 +2948,52 @@ Next steps, roughly in order:
       a failed write already said why in the bar, so the refusal message does not
       cover it up. The window manager's close button and a termination signal are
       unchanged: an exit the user did not type never refuses, and never discards.
+30. **Two modes, one probe: the live MCP channel** — P2.3 (2026-11-01).
+    - **The shape.** `shale-mcp` (stdio) answers for the vault itself; a running
+      window answers for the window over loopback HTTP. The agent still talks to one
+      server, and that server *proxies* the window: it reads
+      `<vault>/.shale/mcp.lock` to find the port, then asks. `shale_core::live` is
+      the contract both sides speak — the lock record, the token header, the four
+      endpoint paths, the `Status` shape, the client and the probe — so neither side
+      can invent field names the other will not read.
+    - **The lockfile is a hint, never an authority.** That is the binding operational
+      rule, and now the shape of the code: `probe()` asks the port and believes the
+      answer. A `kill -9` leaves a lock naming a dead port, a port can be taken over,
+      a token can be stale. Every question of the form "is the app there" goes
+      through the probe, `shale://status` included.
+    - **Loopback only, and a token.** The server binds `127.0.0.1:0` — port 0 because
+      two vaults can be open at once — and every request must carry the token from
+      the lock. That keeps other local processes from driving the window. It is not a
+      secret from someone who can read `.shale/`, who could read the vault itself.
+    - **Reads only, on purpose.** The four live tools report the open note, the
+      cursor and selection, the jump chain and the status; nothing moves the user's
+      screen. The operational rules forbid a tool that mutates without review, and
+      the review path is P2.5 — so the module headers say what is deferred rather
+      than leaving an agent to discover it.
+    - **No note text in the live surface.** The window knows where the user is; the
+      disk knows what the note says. An agent that wants the text uses `read_note`,
+      and gets the same bytes the app reloads through the watcher.
+    - **A snapshot, not the window.** gpui state belongs to the main thread, so the
+      HTTP thread answers from a `Snapshot` the window publishes on a 250 ms beat:
+      one struct copy four times a second, and a staleness shorter than anything an
+      agent can act on. A copy per keystroke would be work paid for by nobody.
+    - **`overlay` is present before the rule that needs it.** `/status` reports what
+      has the keyboard (`none`/`picker`/`prompt`/`popup`) so that P2.5's queueing has
+      something to read. Nothing acts on it yet.
+    - **Resources, not only tools.** `shale://status` is the pollable open/close
+      contract; `shale://commands` serves the P2.2 table (`--docs`, or found next to
+      the repo — a missing table costs the resource, not the server). Stable context
+      is a resource; a change is a tool.
+    - **A graceful exit takes the port and the lock with it:** `leave()` and the
+      window-manager hook both call `stop_live()`. A `kill -9` does not, which is
+      precisely the case the probe exists for.
+    - **Off is a real setting.** `[mcp] live = false` binds nothing at all; the
+      window is unchanged and `shale-mcp` reports the vault half alone. A port that
+      cannot be bound is the same posture as a spell server that will not start: a
+      log line and a missing feature, never a failed launch.
+    - **Not here yet:** the DB tools the roadmap's P2.3 line names (the standalone
+      server still answers only for the files), the live *mutations* (P2.5), the
+      tabs in the live surface (P3.1) and profiles (P2.4).
 
 ## Parked threads (agreed 2026-10-28; not being worked now)
 

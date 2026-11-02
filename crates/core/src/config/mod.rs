@@ -42,6 +42,8 @@ pub struct Config {
     pub spellcheck: SpellcheckConfig,
     #[serde(default)]
     pub index: IndexConfig,
+    #[serde(default)]
+    pub mcp: McpConfig,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -145,6 +147,25 @@ pub struct IndexConfig {
 impl Default for IndexConfig {
     fn default() -> Self {
         Self { enabled: true }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct McpConfig {
+    /// Answer an MCP client's questions about the **window** while it is open: the
+    /// open note, the cursor and selection, the jump chain. A loopback-only HTTP
+    /// server, whose port the app writes to `.shale/mcp.lock`. On by default.
+    ///
+    /// Off means there is no live surface at all: `shale-mcp` still serves the vault
+    /// and the index, and says so in `shale://status`. Nothing about the vault
+    /// changes either way — the server reads the window and never the notes.
+    pub live: bool,
+}
+
+impl Default for McpConfig {
+    fn default() -> Self {
+        Self { live: true }
     }
 }
 
@@ -264,6 +285,14 @@ args = ["--stdio"]
 # rebuilds the index from them. Off leaves it unwritten, and the features that read
 # it say so rather than guessing.
 enabled = true
+
+[mcp]
+# The live channel an MCP client can ask about while the window is open: which note
+# is open, where the cursor and selection are, the jump chain. It listens on
+# loopback only and writes its port to .shale/mcp.lock; the separate `shale-mcp`
+# process is what reaches the vault itself. Off leaves the live questions unanswered
+# and the vault tools working.
+live = true
 "#
     }
 }
@@ -365,6 +394,18 @@ mod tests {
         assert_eq!(cfg.spellcheck.command, "harper-ls");
     }
 
+    /// The live channel is on unless the vault says otherwise. Off is not "answers
+    /// nothing" but "binds nothing": the window has no port at all, and `shale-mcp`
+    /// reports the vault half alone (roadmap P2.3).
+    #[test]
+    fn the_live_channel_is_on_by_default() {
+        let cfg = Config::from_toml("").unwrap();
+        assert!(cfg.mcp.live);
+
+        let cfg = Config::from_toml("[mcp]\nlive = false\n").unwrap();
+        assert!(!cfg.mcp.live);
+    }
+
     #[test]
     fn full_config_roundtrips() {
         let toml = r#"
@@ -382,6 +423,9 @@ theme = "light"
 [spellcheck]
 command = "my-ls"
 args = ["--stdio", "--quiet"]
+
+[mcp]
+live = false
 "#;
         let cfg = Config::from_toml(toml).unwrap();
         assert!(!cfg.editor.vim_mode);
@@ -390,6 +434,7 @@ args = ["--stdio", "--quiet"]
         assert_eq!(cfg.appearance.theme, "light");
         assert_eq!(cfg.spellcheck.command, "my-ls");
         assert_eq!(cfg.spellcheck.args, vec!["--stdio", "--quiet"]);
+        assert!(!cfg.mcp.live);
     }
 
     #[test]

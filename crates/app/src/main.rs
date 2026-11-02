@@ -12,6 +12,7 @@ mod field;
 mod image;
 mod line;
 mod list;
+mod live;
 mod lsp;
 mod picker;
 mod popup;

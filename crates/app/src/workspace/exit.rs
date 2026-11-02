@@ -145,13 +145,15 @@ impl Workspace {
     }
 
     /// The part of every exit that is not the note: the index drained and
-    /// checkpointed, and the session written. Roadmap P1.5 is the first of those —
-    /// an exit leaves one DB file rather than a WAL full of unapplied writes — and
-    /// P1.8 the second, so the next window opens on this note, at this place, in
-    /// this view.
+    /// checkpointed, the session written, and the live MCP channel taken down.
+    /// Roadmap P1.5 is the first of those — an exit leaves one DB file rather than
+    /// a WAL full of unapplied writes — P1.8 the second, so the next window opens
+    /// on this note, at this place, in this view, and P2.3 the third, so the next
+    /// `shale-mcp` finds no port and no lock rather than a stale hint.
     fn leave(&mut self, cx: &mut Context<Self>) {
         self.flush_index();
         self.save_session(cx);
+        self.stop_live();
         cx.quit();
     }
 }

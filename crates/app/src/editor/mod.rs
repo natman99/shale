@@ -481,8 +481,10 @@ impl MarkdownEditor {
     }
 
     /// Cursor position in buffer coordinates (row, byte column), 0-based.
-    #[cfg(test)]
-    pub fn cursor_position(&self) -> (usize, usize) {
+    ///
+    /// `pub(crate)` rather than test-only because the live MCP snapshot reports where
+    /// the user is (roadmap P2.3).
+    pub(crate) fn cursor_position(&self) -> (usize, usize) {
         self.buffer.row_col(self.buffer.cursor())
     }
 

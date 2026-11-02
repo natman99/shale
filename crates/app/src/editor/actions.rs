@@ -322,17 +322,24 @@ impl MarkdownEditor {
         cx.notify();
     }
 
+    /// The selection as byte offsets `(low, high)`, however it was made: vim's visual
+    /// selection, or a mouse drag. `None` when nothing is selected — and an empty
+    /// drag counts as nothing selected, because copying it would copy nothing.
+    pub(crate) fn selection(&self) -> Option<(usize, usize)> {
+        let range = match self.vim.mode() {
+            Mode::Visual | Mode::VisualLine => self.vim.selection_range(&self.buffer),
+            _ => self.buffer.selection().map(|(a, h)| (a.min(h), a.max(h))),
+        };
+        range.filter(|(a, h)| a != h)
+    }
+
     /// The text the one outward copy hands to the system clipboard — `ctrl-shift-c`,
     /// `space y`, `:y`/`:yank`/`:clip`/`:copy` all ask for this: the selection when
     /// there is one, because that is what the user was looking at, and otherwise the
     /// last yank or delete, which is what they meant when they were holding a copy in
     /// the vim register. `None` when Shale holds nothing to give away.
     pub(crate) fn clipboard_candidate(&self) -> Option<String> {
-        let selection = match self.vim.mode() {
-            Mode::Visual | Mode::VisualLine => self.vim.selection_range(&self.buffer),
-            _ => self.buffer.selection().map(|(a, h)| (a.min(h), a.max(h))),
-        };
-        if let Some((a, h)) = selection.filter(|(a, h)| a != h) {
+        if let Some((a, h)) = self.selection() {
             return Some(self.buffer.text()[a..h].to_string());
         }
         self.vim
