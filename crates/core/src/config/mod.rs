@@ -12,9 +12,12 @@
 //! short as the user wants: a list of what they disagree with the defaults about.
 
 mod edit;
+mod profile;
 
 pub use edit::{write_setting, Value};
+pub use profile::McpProfile;
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::Context as _;
@@ -161,11 +164,20 @@ pub struct McpConfig {
     /// and the index, and says so in `shale://status`. Nothing about the vault
     /// changes either way — the server reads the window and never the notes.
     pub live: bool,
+    /// The named agent scopes, spelled `[mcp.profile."writing-help"]` in the file.
+    /// `shale-mcp --profile writing-help` picks one; a connection with no profile
+    /// gets the whole vault, which is what it has always got. What a profile may and
+    /// may not do is [`McpProfile`]'s business, and the server — never the client —
+    /// is the one that enforces it.
+    pub profile: BTreeMap<String, McpProfile>,
 }
 
 impl Default for McpConfig {
     fn default() -> Self {
-        Self { live: true }
+        Self {
+            live: true,
+            profile: BTreeMap::new(),
+        }
     }
 }
 
@@ -293,6 +305,20 @@ enabled = true
 # process is what reaches the vault itself. Off leaves the live questions unanswered
 # and the vault tools working.
 live = true
+
+# A profile is what an agent is allowed to touch, and `shale-mcp --profile <name>`
+# chooses one. Without a profile an agent sees the whole vault, so a profile is how
+# you narrow that: `read` and `write` are path patterns, `deny` beats both, `tools`
+# is the list the agent may call (empty is all of them), and `review` would queue
+# its edits for you instead of writing them straight through.
+#
+# A pattern with no wildcards is a folder or a note and everything under it; `*` is
+# one folder, `**` is any depth. Uncomment and change to taste.
+# [mcp.profile."writing-help"]
+# read = ["**"]
+# write = ["inbox/", "drafts/"]
+# deny = ["journal/"]
+# tools = ["list_notes", "read_note", "write_note", "search_notes", "backlinks"]
 "#
     }
 }
@@ -404,6 +430,34 @@ mod tests {
 
         let cfg = Config::from_toml("[mcp]\nlive = false\n").unwrap();
         assert!(!cfg.mcp.live);
+    }
+
+    /// A profile is a named table under `[mcp.profile]`, and the keys it does not
+    /// write keep their defaults — so narrowing an agent means naming only what is
+    /// narrower.
+    #[test]
+    fn a_profile_is_a_named_table() {
+        let cfg = Config::from_toml(
+            r#"
+[mcp.profile."writing-help"]
+write = ["inbox/", "drafts/"]
+deny = ["journal/"]
+tools = ["read_note", "write_note"]
+"#,
+        )
+        .unwrap();
+        let profile = &cfg.mcp.profile["writing-help"];
+        assert_eq!(profile.write, vec!["inbox/", "drafts/"]);
+        assert_eq!(profile.deny, vec!["journal/"]);
+        assert_eq!(profile.read, vec!["**"], "unwritten keys keep the default");
+        assert!(!profile.review);
+
+        assert!(profile.can_write(Path::new("inbox/idea.md")));
+        assert!(!profile.can_write(Path::new("journal/february.md")));
+        assert!(!profile.allows_tool("backlinks"));
+
+        // A typo inside a profile is a typo, not a setting nobody looked at.
+        assert!(Config::from_toml("[mcp.profile.x]\nnope = true").is_err());
     }
 
     #[test]

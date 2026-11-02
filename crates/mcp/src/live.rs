@@ -11,15 +11,24 @@
 //! a failure: the vault and its index are still there to serve, which is the other
 //! half of the two-mode design.
 //!
+//! The window's scope is the profile's too (roadmap P2.4). The live surface can name
+//! a note the profile may not read — the user is standing in it — so the answer loses
+//! the name: `path` becomes null with `hidden` beside it, and the jump chain drops
+//! what the profile cannot see. Everything else about where the user is still travels,
+//! because that is what the tools are for.
+//!
 //! Diagnostics go to stderr. Stdout is the protocol.
 
 use std::path::Path;
 
 use anyhow::Result;
 use serde_json::{json, Value};
+use shale_core::config::McpProfile;
 use shale_core::live::{
     get, mcp_json, probe, Lock, Status, PATH_JUMPS, PATH_NOTE, PATH_SELECTION, PATH_STATUS,
 };
+
+use crate::refusal;
 
 /// The live tools, in the order `tools/list` offers them. Each is one endpoint of
 /// the window's answer, and each takes no arguments: the question is always "what is
@@ -78,7 +87,7 @@ pub(crate) fn available(vault_root: &Path) -> bool {
 /// Ask the window one of the four questions. A window that is not there is an
 /// `isError` result the agent can read, not a protocol failure: the vault tools are
 /// still good, and the reason the live half is not is worth more than an error code.
-pub(crate) fn call(vault_root: &Path, name: &str) -> Result<Value> {
+pub(crate) fn call(vault_root: &Path, profile: &McpProfile, name: &str) -> Result<Value> {
     let Some(path) = endpoint(name) else {
         anyhow::bail!("unknown tool: {name}");
     };
@@ -88,12 +97,41 @@ pub(crate) fn call(vault_root: &Path, name: &str) -> Result<Value> {
         Err(err) => return unavailable(&format!(".shale/mcp.lock could not be read: {err:#}")),
     };
     match get(lock.port, &lock.token, path) {
-        Ok(body) => Ok(mcp_json(&body)),
+        Ok(body) => Ok(mcp_json(&withheld(body, profile))),
         Err(err) => unavailable(&format!(
             "the port in .shale/mcp.lock ({}) is not answering: {err:#}",
             lock.port
         )),
     }
+}
+
+/// Drop the note names the profile may not read out of the window's answer.
+///
+/// The name is the leak: an agent that is told the user is standing in
+/// `journal/february.md` has been told something about a note it cannot open. So the
+/// field becomes null with `hidden` beside it — withheld, which is a different fact
+/// from "there is no note", and the agent can act on the difference.
+fn withheld(mut body: Value, profile: &McpProfile) -> Value {
+    for key in ["path", "current"] {
+        let hidden = body
+            .get(key)
+            .and_then(Value::as_str)
+            .is_some_and(|note| !profile.can_read(Path::new(note)));
+        if hidden {
+            body[key] = Value::Null;
+            body["hidden"] = json!(true);
+        }
+    }
+    for key in ["back", "forward"] {
+        if let Some(jumps) = body.get(key).and_then(Value::as_array) {
+            body[key] = json!(jumps
+                .iter()
+                .filter_map(|jump| jump.as_str())
+                .filter(|note| profile.can_read(Path::new(note)))
+                .collect::<Vec<_>>());
+        }
+    }
+    body
 }
 
 /// The endpoint a live tool asks, or `None` for a name that is not one.
@@ -110,16 +148,10 @@ fn endpoint(name: &str) -> Option<&'static str> {
 /// The "live tools unavailable" answer, spelled the same wherever it comes from so
 /// an agent can act on the phrase rather than on the reason beside it.
 fn unavailable(why: &str) -> Result<Value> {
-    Ok(json!({
-        "content": [{
-            "type": "text",
-            "text": format!(
-                "live tools unavailable: {why}. The vault tools still work; ask those, or \
-                 start Shale and try again."
-            )
-        }],
-        "isError": true,
-    }))
+    Ok(refusal(&format!(
+        "live tools unavailable: {why}. The vault tools still work; ask those, or \
+         start Shale and try again."
+    )))
 }
 
 #[cfg(test)]
@@ -218,7 +250,7 @@ mod tests {
         assert!(!available(dir.path()), "no lock, no live tools");
         assert_eq!(status(dir.path()), Status::absent());
 
-        let answer = call(dir.path(), "live_note")?;
+        let answer = call(dir.path(), &McpProfile::default(), "live_note")?;
         assert_eq!(answer["isError"], true);
         assert!(answer["content"][0]["text"]
             .as_str()
@@ -239,7 +271,7 @@ mod tests {
         assert_eq!(status.port, window.port);
         assert_eq!(status.live_tools, shale_core::live::LIVE_TOOLS);
 
-        let answer = call(dir.path(), "live_note")?;
+        let answer = call(dir.path(), &McpProfile::default(), "live_note")?;
         assert_eq!(answer["isError"], Value::Null);
         assert_eq!(answer["structuredContent"]["path"], "Now Here.md");
         Ok(())
@@ -260,7 +292,7 @@ mod tests {
             !available(dir.path()),
             "the token is refused, so no live tools"
         );
-        let answer = call(dir.path(), "live_status")?;
+        let answer = call(dir.path(), &McpProfile::default(), "live_status")?;
         assert_eq!(answer["isError"], true);
         assert!(answer["content"][0]["text"]
             .as_str()
@@ -289,7 +321,7 @@ mod tests {
         .write(dir.path())?;
 
         assert!(!available(dir.path()));
-        let answer = call(dir.path(), "live_jumps")?;
+        let answer = call(dir.path(), &McpProfile::default(), "live_jumps")?;
         assert_eq!(answer["isError"], true);
         assert!(
             answer["content"][0]["text"]
@@ -306,6 +338,40 @@ mod tests {
     #[test]
     fn a_live_tool_that_does_not_exist_is_an_error() {
         let dir = tempfile::tempdir().unwrap();
-        assert!(call(dir.path(), "live_dance").is_err());
+        assert!(call(dir.path(), &McpProfile::default(), "live_dance").is_err());
+    }
+
+    /// The scope reaches the live surface too: a note the profile may not read is
+    /// withheld from the window's answer rather than named. The user's cursor still
+    /// travels — that is what the tool is for — the note's name does not.
+    #[test]
+    fn a_note_the_scope_cannot_read_is_withheld() {
+        let profile = McpProfile {
+            read: vec!["inbox/".into()],
+            ..McpProfile::default()
+        };
+
+        let note = withheld(
+            json!({ "path": "journal/february.md", "view": "live" }),
+            &profile,
+        );
+        assert_eq!(note["path"], Value::Null);
+        assert_eq!(note["hidden"], true, "withheld is not the same as none");
+
+        let jumps = withheld(
+            json!({
+                "back": ["inbox/idea.md", "journal/february.md"],
+                "forward": [],
+                "current": "journal/february.md",
+            }),
+            &profile,
+        );
+        assert_eq!(jumps["back"], json!(["inbox/idea.md"]));
+        assert_eq!(jumps["current"], Value::Null);
+
+        // What the scope may see travels untouched, with no `hidden` beside it.
+        let open = withheld(json!({ "path": "inbox/idea.md" }), &profile);
+        assert_eq!(open["path"], "inbox/idea.md");
+        assert_eq!(open.get("hidden"), None);
     }
 }

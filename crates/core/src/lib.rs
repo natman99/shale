@@ -5,6 +5,7 @@ pub mod continuation;
 pub mod db;
 pub mod fold;
 pub mod fuzzy;
+pub mod glob;
 pub mod graph;
 pub mod live;
 pub mod markdown;

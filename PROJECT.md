@@ -153,6 +153,14 @@ If the app is open it should inform the user when the MCP is used to edit files 
   `shale-mcp` proxies it and serves `shale://status` and `shale://commands`. The live
   tools are **read-only** until the review path exists (P2.5), and the DB tools and
   profiles are P2.4. Thread 30 in Open threads has the decisions and the reasons.
+- **As built (P2.4, the same day).** Profiles exist and are enforced in `shale-mcp`:
+  `[mcp.profile."name"]` with `read`/`write`/`deny` path patterns and a `tools`
+  allowlist, chosen by `--profile`, server-side only, `deny` winning over both other
+  lists, and the same `Vault` confinement underneath. `shale://access` reports the
+  scope, and the live surface withholds a note name the scope may not read. What is
+  **not** built: `review = true` refuses writes rather than queueing them (P2.5), and
+  there is no per-connection selection yet — one process, one scope, so which profile
+  touched what is P2.8's presence work. Thread 31 in Open threads.
 
 ### Graph View
 
@@ -215,7 +223,9 @@ Workspace layout:
   extraction/resolution/backlinks, search (`search.rs`: the vault-wide line scan
   behind `ctrl-shift-f`, and `find_all`, the in-note matcher behind `/`), TOML config (`config/`: the settings,
   the file at `<vault>/.shale/config.toml`, the starter Shale writes for a vault
-  that has none, and the comment-preserving one-line splice writer), the vault
+  that has none, the comment-preserving one-line splice writer, and `profile.rs`
+  the agent scopes — what a `[mcp.profile."name"]` may read, write, never see, and
+  call), the vault
   index (`db/`: `mod.rs` the `Db` handle — one writer thread owning the only
   read-write connection, a channel queue for everyone else's write jobs, separate
   read-only connections under WAL, the shutdown barrier, and `flush()`'s WAL
@@ -241,6 +251,9 @@ Workspace layout:
   a folder — and the added/removed/modified diff built from two of them), `rename`
   (rewriting the wiki-links that point at a note when it is renamed), `atomic` (the
   one temp+rename write every file Shale owns goes through, roadmap P1.5),
+  `glob` (the path patterns an agent profile is written with, roadmap P2.4: a folder
+  as a prefix with a separator boundary, `*` inside one path segment, `**` across
+  segments, `?` for one character, and an empty pattern that covers nothing),
   `session` (the session file — where the last window stood: open note, cursor
   and scroll, expanded folders, view, focus mode and scope, typewriter, the jump
   chain — `.shale/session.json`, incremental like the config and written with
@@ -392,13 +405,17 @@ Workspace layout:
   publishes and what each endpoint answers from it) and
   `tree.rs`.
 - `crates/mcp` (`shale-mcp` binary): MCP stdio server. `main.rs` is the protocol
-  loop and the dispatch (`initialize`, `ping`, `tools/list`, `tools/call`,
-  `resources/list`, `resources/read`), `vault_tools.rs` the five tools it answers
-  for itself (list/read/write/search/backlinks, every path through `Vault`),
+  loop, the dispatch (`initialize`, `ping`, `tools/list`, `tools/call`,
+  `resources/list`, `resources/read`) and the scope the connection runs in
+  (`--profile`, which refuses to start on a name the vault does not define),
+  `vault_tools.rs` the five tools it answers for itself (list/read/write/search/
+  backlinks, every path through `Vault` and then through the profile),
   `live.rs` the four live tools that proxy a running window over loopback — offered
-  only while a probe of the port in `.shale/mcp.lock` answers — and
-  `resources.rs` the two resources: `shale://status` (the pollable app-open/close
-  contract) and `shale://commands` (the generated table, when it can be found).
+  only while a probe of the port in `.shale/mcp.lock` answers, and with a note name
+  the profile may not read withheld — and
+  `resources.rs` the three resources: `shale://status` (the pollable app-open/close
+  contract), `shale://access` (this connection's own scope) and `shale://commands`
+  (the generated table, when it can be found).
 - `docs/`: `commands.md`, the command reference **generated** from the registry in
   `crates/app/src/command.rs` (`Command::docs()`). A test reads the file back and
   fails when it and the table disagree; `SHALE_UPDATE_DOCS=1 cargo test -p shale-app`
@@ -480,12 +497,12 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
 - Run the test binaries under `ulimit -v` when working on anything that scans
   text (a scanner bug can allocate until the OOM killer takes the editor down —
   see the table postmortem).
-  Current peak RSS of the test binaries (2026-11-01, app 302 / core 393 with 10
-  ignored / mcp 18 tests — core's `db::` tests cost it nothing worth mentioning: 12.5
+  Current peak RSS of the test binaries (2026-11-01, app 302 / core 406 with 10
+  ignored / mcp 28 tests — core's `db::` tests cost it nothing worth mentioning: 12.5
   MB to 16 MB, and the app's 79 MB to 88 MB is the eight `tests::index` windows that
   each open a real DB, which is nowhere near the 200 MB line worth investigating):
-  core 15.2 MB, app 85.2 MB,
-  mcp 4.4 MB. The
+  core 15.4 MB, app 87.0 MB,
+  mcp 5.2 MB. The
   app binary's *address space* (not RSS) is far larger because of gpui/wgpu
   reservations, and it now needs **4 GB or more** — a 1 GB cap makes it die in an
   80-byte allocation. Build with `cargo test --workspace --no-run`, then run each
@@ -2111,6 +2128,12 @@ Largest files now (2026-10-30, after Phase 0's module splits; what the DB spine
   by the live half, not chosen for its own sake. `workspace/mod.rs` 933 → **953**
   (three fields and one call), `editor/mod.rs` **993**: it is at the rule's door, and
   the next thing that wants to live there is a split, not a method.
+  **P2.4 (2026-11-01):** new core `glob.rs` **185** (99 of them its tests) and
+  `config/profile.rs` **197** (110 tests) — the pattern vocabulary and the scope
+  model, both in core so the app can enforce the same rules later. `config/mod.rs`
+  503 → **557**, and `crates/mcp` grew inside its existing files:
+  `main.rs` 290 → **506**, `vault_tools.rs` 205 → **385**, `live.rs` 311 → **377**,
+  `resources.rs` 122 → **206**. Nothing new is over the rule.
 
 System dependency (Linux): `libxkbcommon-x11-devel` (plus fontconfig, freetype,
 x11, xcb, wayland dev packages) and a working Vulkan driver (the Linux renderer
@@ -2994,6 +3017,61 @@ Next steps, roughly in order:
     - **Not here yet:** the DB tools the roadmap's P2.3 line names (the standalone
       server still answers only for the files), the live *mutations* (P2.5), the
       tabs in the live surface (P3.1) and profiles (P2.4).
+31. **Profiles: what one agent is allowed to touch** — P2.4 (2026-11-01).
+    - **The shape.** `[mcp.profile."writing-help"]` in the vault's config, with
+      `read`, `write`, `deny` (path patterns) and `tools` (an allowlist; empty is
+      every tool). `shale-mcp --profile writing-help` picks one; no `--profile` is the
+      whole vault, which is what this binary has always been, so nothing that worked
+      yesterday stops working today.
+    - **A typo fails closed.** `--profile writting-help` stops the server with a
+      message listing the profiles the vault *does* define. A permission flag that
+      quietly fell back to "no profile" would be a wider scope than the user typed,
+      which is the one direction a permission system must not fail in.
+    - **The pattern vocabulary is ours, and small** (`core/src/glob.rs`): a pattern
+      with no wildcards is a **path prefix with a separator boundary** — `journal`
+      covers `journal/2026/february.md` and not `journaling.md`, which is what someone
+      means when they write `deny = ["journal"]` and what a substring matcher would
+      have got wrong. `*` stays inside one path segment, `**` walks whole segments, a
+      trailing `**` needs at least one (`notes/**` does not cover a note named
+      `notes`), `?` is one character, matching is case-sensitive like the vault, and
+      an empty pattern covers **nothing**. Nine tests, mostly about the boundaries.
+    - **`deny` beats `read` and `write`,** and a denied path is not listed either.
+      That is the binding rule, and it is a test (`deny_beats_read_and_write`).
+    - **The leak this actually closes is listings, not reads.** `list_notes`,
+      `search_notes` and `backlinks` all go through `McpProfile::visible` and the
+      entries are filtered **before** the search runs — filtering the hits afterwards
+      would still leak how many there were, and `max_hits` would be spent on notes the
+      agent cannot see. `backlinks` is checked both ways: asking who links to a hidden
+      note is refused, and a hidden note never appears in an answer about a visible
+      one.
+    - **`tools/list` is narrowed by the same allowlist as `tools/call`,** so a client
+      is never shown a tool that will only refuse. `shale://status`'s `live_tools` is
+      filtered the same way, because an agent that read two different answers from the
+      same server would chase a tool that does not exist.
+    - **The live surface can name a note the agent may not read** — the user is
+      standing in it. So the answer loses the name: `path` becomes null with `hidden:
+      true` beside it (withheld is a different fact from "there is no note"), and the
+      jump chain drops what the scope cannot see. The cursor, view and mode still
+      travel, because that is what the tools are for.
+    - **A refusal is an answer, not a protocol failure:** `isError` plus a sentence
+      that names who refused (`the profile "writing-help" may not write journal/…`) and,
+      for a tool outside the allowlist, what *is* allowed. An agent that can read why
+      stops retrying the same path.
+    - **`shale://access`** reports the scope this connection runs in — the patterns,
+      the tool list, and `tools_offered` (the offer, not just the rule). An agent's
+      first question is what it may do; making it discover that by being refused is a
+      worse contract than telling it.
+    - **`review = true` refuses writes today.** The review path is P2.5, and until it
+      exists a profile that promises review gets "not yet" rather than writes that
+      skipped the promise. Fail closed, and say which roadmap item will open it.
+    - **Write does not imply read.** A capture agent that may append to `inbox/` and
+      never read it is a thing a user legitimately wants, so the two lists are
+      independent rather than one implying the other.
+    - **Still the vault's wall, not the profile's.** A path that escapes the vault is
+      refused by `Vault::resolve` whatever the scope says; a profile narrows what is
+      *inside*, it never moves the wall around it. That is why the enforcement lives in
+      core (`config/profile.rs`) rather than in the MCP handlers: the app will need the
+      same answers for presence and review.
 
 ## Parked threads (agreed 2026-10-28; not being worked now)
 

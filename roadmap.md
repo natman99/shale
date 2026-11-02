@@ -583,12 +583,32 @@ already wrote.)
   line above names wait for the same profiles that decide who may call them
   (**P2.4**); `tabs` in the live surface waits for **P3.1**. The lockfile doubling as
   the capture socket is **P2.6**.
-- **P2.4 Scoped agent vaults** (brainstorm ✅): `[mcp.profile."name"]` with
-  read/write path globs, `deny`, and a tool allowlist; `shale-mcp --profile`.
-  Review mode is an attribute of the profile. **Enforcement is server-side
-  only** (never trust the client), `deny` globs beat `write` globs, and every
-  MCP path goes through the same `Vault` normalization/confinement as the
-  app's file code — no fresh path logic in MCP handlers.
+- **P2.4 Scoped agent vaults** (brainstorm ✅) — **DONE 2026-11-01, except the
+  review half.** `[mcp.profile."name"]` in the vault's config with `read`/`write`
+  path patterns, `deny`, a `tools` allowlist and `review`; `shale-mcp --profile name`
+  picks one and a typo'd name stops the server rather than widening it. The patterns
+  are `crates/core/src/glob.rs` — a folder (`journal`, or `journal/`), `*` inside one
+  path segment, `**` across segments, `?` for one character — written so that what a
+  human types by hand means what it looks like, and so a stray empty pattern covers
+  nothing rather than everything. `shale_core::config::McpProfile` is the enforcement
+  (`can_read`/`can_write`/`allows_tool`/`visible`), and `shale-mcp` applies it to
+  every call: `deny` beats `read` and `write`, `list_notes`/`search_notes`/`backlinks`
+  filter the **entries before they are searched** (filtering afterwards would leak
+  both hits and counts), `tools/list` is narrowed by the same allowlist as
+  `tools/call` so a client is never shown a tool that will only refuse, and the live
+  surface withholds a note name the profile may not read (`path: null` with `hidden`
+  beside it — withheld is not the same as none). A new `shale://access` resource lets
+  an agent read its own scope instead of discovering it one refusal at a time, and
+  `shale://status`'s `live_tools` is filtered by the profile so the two agree with
+  `tools/list`. **Enforcement is server-side only** (never trust the client), and
+  every path still goes through the same `Vault` normalization/confinement as the
+  app's file code — no fresh path logic in MCP handlers; a profile narrows what is
+  inside the vault, it never moves the wall around it.
+  **Deferred:** `review = true` is parsed and **refuses writes** until P2.5 can keep
+  the promise (fail closed, never write unreviewed because a flag said not to); the
+  per-connection selection the brainstorm mentions ("or per connection") is the
+  app-side half that needs to know which connection is which, which is P2.8's
+  presence work; and the app does not yet show which profile wrote what.
 - **P2.5 Agent edit review** (brainstorm ✅): pending edits as **plain-text
   files** in `.shale/pending-edits/` (DB only indexes them); review strip with
   per-hunk accept/reject; quit prompts, unanswered/killed → files persist and
