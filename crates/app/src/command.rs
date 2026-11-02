@@ -216,9 +216,10 @@ impl Command {
         out.push_str(&format!(
             "\n\
              The palette does not list {}: `note.write-quit` is save and then quit, two\n\
-             actions rather than one, and `app.quit-force` is the exit that throws unsaved\n\
-             edits away, which is not a row to offer next to *Quit Shale* in a list you\n\
-             pick from.\n",
+             actions rather than one, `app.quit-force` is the exit that throws unsaved\n\
+             edits away (not a row to offer next to *Quit Shale* in a list you pick\n\
+             from), and the `review.*` keys other than `review.focus` mean nothing while\n\
+             the review strip is off screen — which is only when nothing is waiting.\n",
             hidden.join(", "),
         ));
         out
@@ -493,6 +494,75 @@ const ALL: &[Command] = &[
         args: "[folder]",
         in_palette: true,
         action: Some(|| Box::new(WordCount)),
+    },
+    // ---- agent edit review (roadmap P2.5a) --------------------------------
+    // The strip only exists while the queue is non-empty, so only the way *in* is a
+    // palette row: the rest mean nothing with nothing waiting, and a palette full of
+    // rows that would each answer "nothing to accept" is noise. They are still
+    // registry commands, because the keys, the docs and the MCP surface all read this
+    // one table, and a command that is not here is a command no door can name.
+    Command {
+        id: "review.focus",
+        label: "Review the agent edits that are waiting",
+        keys: "",
+        ex: &["review", "pending"],
+        args: "",
+        in_palette: true,
+        action: Some(|| Box::new(ReviewFocus)),
+    },
+    Command {
+        id: "review.next",
+        label: "Next pending hunk",
+        keys: "j in the strip, ]a in the note",
+        ex: &[],
+        args: "",
+        in_palette: false,
+        action: Some(|| Box::new(ReviewNext)),
+    },
+    Command {
+        id: "review.prev",
+        label: "Previous pending hunk",
+        keys: "k in the strip, [a in the note",
+        ex: &[],
+        args: "",
+        in_palette: false,
+        action: Some(|| Box::new(ReviewPrev)),
+    },
+    Command {
+        id: "review.accept",
+        label: "Accept the pending hunk under the marker",
+        keys: "y in the strip",
+        ex: &[],
+        args: "",
+        in_palette: false,
+        action: Some(|| Box::new(ReviewAccept)),
+    },
+    Command {
+        id: "review.reject",
+        label: "Reject the pending hunk under the marker",
+        keys: "x in the strip",
+        ex: &[],
+        args: "",
+        in_palette: false,
+        action: Some(|| Box::new(ReviewReject)),
+    },
+    Command {
+        id: "review.open-note",
+        label: "Open the note the pending hunk is about",
+        keys: "o in the strip",
+        ex: &[],
+        args: "",
+        in_palette: false,
+        action: Some(|| Box::new(ReviewOpenNote)),
+    },
+    Command {
+        id: "review.collapse",
+        label: "Collapse or expand the pending proposal under the marker",
+        keys: "za in the strip",
+        ex: &[],
+        args: "",
+        in_palette: false,
+        action: Some(|| Box::new(ReviewCollapse)),
     },
 ];
 

@@ -17,6 +17,7 @@ mod live;
 mod open;
 mod popups;
 mod render;
+mod review;
 mod search;
 mod session;
 #[cfg(test)]
@@ -159,6 +160,16 @@ pub(crate) struct Workspace {
     /// The beat that republishes [`Workspace::live_snapshot`]. Kept so it is
     /// cancelled with the window; it never ends on its own.
     _live: Option<Task<()>>,
+    /// The review strip: the agent proposals waiting for the user, and the marker the
+    /// review keys move (see [`crate::review`] and [`review`]). It is always there;
+    /// it is only drawn when the queue is not empty.
+    review: Entity<crate::review::Review>,
+    /// The beat that notices the queue folder changing on disk. Kept so it is cancelled
+    /// with the window; it never ends on its own (see [`review`]).
+    _pending: Option<Task<()>>,
+    /// The queue files the window could not read, which it complains about once rather
+    /// than once a second.
+    pending_unreadable: Vec<PathBuf>,
     /// The subscription to the open prompt, replaced when another one opens.
     _prompt_events: Option<Subscription>,
     /// The open picker, if one is open: quick-open, the command palette or a
@@ -312,6 +323,9 @@ impl Workspace {
                 "keystroke"
             );
         });
+        // The strip is drawn from the same palette as everything else, so a theme
+        // change repaints it with the rest of the window.
+        let review = cx.new(|cx| crate::review::Review::new(Rc::clone(&palette), cx));
         let mut workspace = Self {
             focus_handle: cx.focus_handle(),
             vault,
@@ -352,6 +366,9 @@ impl Workspace {
             live: None,
             live_snapshot: None,
             _live: None,
+            review,
+            _pending: None,
+            pending_unreadable: Vec::new(),
             _prompt_events: None,
             status: "".into(),
             status_seq: 0,
@@ -371,6 +388,11 @@ impl Workspace {
         // while Shale was closed. After it, the watcher and the save paths keep the
         // index current between them.
         workspace.start_index(cx);
+        // Roadmap P2.5a: the queue of agent proposals is read before the window is on
+        // screen, so a proposal that arrived while Shale was closed is on screen the
+        // moment it is — and the beat that keeps reading it is started here because a
+        // proposal nobody ever sees is the one failure this feature cannot have.
+        workspace.start_pending_watch(cx);
         // Roadmap P2.3: the live channel comes up last, so the first snapshot the
         // server can answer with already knows the note the session restored.
         workspace.start_live(cx);
@@ -440,6 +462,9 @@ impl Workspace {
                 // ...and the live channel goes with it, so the next `shale-mcp` to
                 // look finds no port and no lock rather than a stale hint.
                 ws.stop_live();
+                // ...and so does the queue beat. The queue itself stays: an unanswered
+                // proposal is on disk for the next window to offer again (P2.5a).
+                ws.stop_pending_watch();
                 true
             })
             .unwrap_or(true)

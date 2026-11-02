@@ -161,6 +161,18 @@ If the app is open it should inform the user when the MCP is used to edit files 
   **not** built: `review = true` refuses writes rather than queueing them (P2.5), and
   there is no per-connection selection yet — one process, one scope, so which profile
   touched what is P2.8's presence work. Thread 31 in Open threads.
+- **As built (P2.5a, the same day).** `review = true` no longer refuses: `write_note`
+  diffs the proposal against the note **on disk**, and `shale_core::pending::write`
+  puts it in `<vault>/.shale/pending-edits/<epoch>-<profile>-<tool>-<hex>.toml`
+  atomically, returning the id in the tool result. Two tools were added: `pending_edits`
+  (read-only, scoped to the calling profile's own proposals, each hunk marked
+  `pending` or `stale` against the note as it is now) and `retract_pending` (an agent
+  may take **its own** proposals out; a hostile id is refused, and accept is the
+  user's alone). The app reads the same files and offers them in a review strip; the
+  queue is **not** in the DB — the files are the source of truth, and no table was
+  added, so `pending_edits` and the strip both answer from disk. What is **not** built:
+  the inline phantom-region overlay (P2.5b), per-connection selection, and any
+  provenance badge saying which profile wrote what (P2.8). Thread 32 in Open threads.
 
 ### Graph View
 
@@ -251,6 +263,20 @@ Workspace layout:
   a folder — and the added/removed/modified diff built from two of them), `rename`
   (rewriting the wiki-links that point at a note when it is renamed), `atomic` (the
   one temp+rename write every file Shale owns goes through, roadmap P1.5),
+  `diff` (the line-level diff primitive agent review is built on, roadmap P2.5a, and
+  the apply-or-stale patcher "accept" is: `hunks` turns "the note was this, an agent
+  wants it that" into unified-diff hunks carrying three lines of context, `apply`
+  puts one back onto whatever the note says now or says it is *stale*, `region` is
+  the same verdict as the byte range a live buffer edits by, and `Hunk::shift` moves
+  a hunk's recorded position by an exact line count and rewrites its `@@` header —
+  engine: the pure-Rust `similar` crate, ruled in by the user 2026-11-01; P4.2's time
+  machine reuses this rather than starting fresh),
+  `pending` (the queue those proposals live in, roadmap P2.5a: one TOML file per MCP
+  write call in `<vault>/.shale/pending-edits/`, named
+  `<epoch>-<profile>-<tool>-<hex>.toml`, `[[hunk]]` tables carrying the diff text —
+  **the files are the source of truth**, so a corrupt or missing DB loses nothing;
+  `list`/`read`/`write`/`remove`, an id that cannot escape the queue, and
+  `stale_hunks`/`without_hunk`, which are the strip's whole model of a hunk),
   `glob` (the path patterns an agent profile is written with, roadmap P2.4: a folder
   as a prefix with a separator boundary, `*` inside one path segment, `**` across
   segments, `?` for one character, and an empty pattern that covers nothing),
@@ -312,10 +338,10 @@ Workspace layout:
   **command palette** (`ctrl-shift-p`) beside vim's **command line** (`:`, which is
   deliberately *not* the palette: one word, matched exactly — `:w`, `:q`, `:q!`,
   `:wq`, `:x`, `:e`, `:harper on|off|1|0`, `:theme [name]`, `:raw|:live|:preview`,
-  `:focus|:dim on|off`, `:typewriter on|off`, `:wordcount [folder]`;
+  `:focus|:dim on|off`, `:typewriter on|off`, `:wordcount [folder]`, `:review`;
   `ex.rs` is its whole
   vocabulary, and a word it does not know runs nothing). One **command registry**
-  (`command.rs`) is behind both front-ends: 29 rows, each with a stable dotted id
+  (`command.rs`) is behind both front-ends: 36 rows, each with a stable dotted id
   (`note.save`), a label, the keys that reach it, the `:` words that spell it, how
   its argument is spelled, and the gpui action that runs it. The palette lists the
   rows marked for it, and the command line dispatches the *same* action for every
@@ -334,7 +360,27 @@ Workspace layout:
   a time, anchored to the line it belongs to, not an OS window, and ended by
   `escape`, by a row, or by the pointer walking off either edge of it). The
   checker itself can be switched off and on without a restart (`:harper off`,
-  `:harper on`). Two ways the frame follows the cursor rather than the other way
+  `:harper on`). **Agent edit review** (roadmap P2.5a): an MCP profile whose
+  `review = true` cannot write a note — `shale-mcp` queues the change as a pending
+  file instead (see `crates/mcp`), and the window notices the queue on a one-second
+  beat (the vault watcher deliberately ignores dot directories, so `.shale/` needs
+  its own poll) and shows a **review strip** at the bottom of the window, above the
+  status bar: one row per hunk — note, profile, line, `−N +M`, and a `stale` or
+  `clash` badge — with the keys named in its header. It appears only when something
+  is waiting. The keys are two layers: while the strip has the keyboard (`:review`)
+  bare `j`/`k` hop the marker, `y`/`x` accept and reject, `o` opens the note, `za`
+  collapses a proposal (and then `y` answers all of its hunks), `escape` gives the
+  keyboard back; while the note has it, only `]a`/`[a` reach the marker — which is
+  why `y` and `x` never shadow yank and delete in prose. Accepting is apply-or-stale:
+  the hunk goes into the **buffer** when the note is open (one undo step, cursor and
+  unsaved edits intact) and onto the **disk** when it is not, and what is left of the
+  proposal is written back re-anchored by the exact line shift the accepted hunk
+  caused. `:q` is refused while proposals are unanswered (`:q!` leaves them queued for
+  the next window); a window-manager close or a signal is never refused, and the
+  files survive either way. `]a`/`[a` are owned by the vim engine rather than bound
+  as a two-stroke chord, because gpui holds a chord's first key as pending input and a
+  literal `[` has to stay reachable as the argument of `f`, `t` or an operator.
+  Two ways the frame follows the cursor rather than the other way
   round: **focus mode** (`space d`, `:focus`) fades everything but the block the
   caret is in — a three-step ramp down to a floor, so the rest of the note goes
   quiet rather than away, with `:focus` scope `block` or `section` deciding
@@ -371,6 +417,9 @@ Workspace layout:
   `live.rs` the window's half of the live MCP channel (publishing what is on screen
   on a quarter-second beat, owning the server, and taking port and lock down on
   every graceful exit),
+  `review.rs` the window's half of agent edit review (reading the queue off disk and
+  badging each hunk stale or clashing, the one-second beat that notices it, and what
+  accept/reject/collapse/open do to the buffer, the disk and the queue file),
   `session.rs` the session file (capture, save on the autosave beat and every
   graceful exit, restore once in `new`),
   `render.rs` the frame, `testhooks.rs` the accessors only the tests call),
@@ -380,7 +429,9 @@ Workspace layout:
   `blocks.rs`, `paint.rs`, `tree.rs`, `picker.rs`, `commands.rs`, `search.rs`,
   `autosave.rs`, `exit.rs`, `session.rs`, `spell.rs`, `focus.rs`, `live.rs` (the
   channel turned on: the lock it leaves, what the port answers about the note, and
-  the beat that keeps it current), and `popup/` — `mod.rs` the fixtures,
+  the beat that keeps it current), `review.rs` (the queue discovered at startup, the
+  two layers of keys, accept into the buffer and onto the disk, the stale and clash
+  badges, a hunk of two accepted one at a time, and the quit refusal), and `popup/` — `mod.rs` the fixtures,
   `keyboard.rs` the `K` and offer-list half, `pointer.rs` the resting-mouse half),
   `dim.rs` (focus mode: how far each buffer row is from the block the caret is in,
   and the colour that answers it), `editor/` (the view: `mod.rs`
@@ -403,16 +454,25 @@ Workspace layout:
   loopback listener, the accept loop that can be told to stop, the token check and
   the one-request-per-connection HTTP, and `state.rs` the `Snapshot` the window
   publishes and what each endpoint answers from it) and
+  `review.rs` (the strip widget itself: the queue as rows, the marker, the collapsed
+  proposals, and the `review` key context — it never learns what accepting a hunk
+  *does*, exactly as the popup never learns what a checker's fix is) and
   `tree.rs`.
 - `crates/mcp` (`shale-mcp` binary): MCP stdio server. `main.rs` is the protocol
   loop, the dispatch (`initialize`, `ping`, `tools/list`, `tools/call`,
   `resources/list`, `resources/read`) and the scope the connection runs in
   (`--profile`, which refuses to start on a name the vault does not define),
   `vault_tools.rs` the five tools it answers for itself (list/read/write/search/
-  backlinks, every path through `Vault` and then through the profile),
+  backlinks, every path through `Vault` and then through the profile; a `write_note`
+  from a profile with `review = true` is diffed against the note on disk and queued
+  as a pending file rather than written, roadmap P2.5a),
   `live.rs` the four live tools that proxy a running window over loopback — offered
   only while a probe of the port in `.shale/mcp.lock` answers, and with a note name
-  the profile may not read withheld — and
+  the profile may not read withheld —
+  `pending_tools.rs` the two tools a reviewing profile is answered with
+  (`pending_edits`, read-only and scoped to the calling profile's own proposals with
+  each hunk marked pending or stale, and `retract_pending`, the one queue mutation an
+  agent keeps for itself — accept is the user's alone), and
   `resources.rs` the three resources: `shale://status` (the pollable app-open/close
   contract), `shale://access` (this connection's own scope) and `shale://commands`
   (the generated table, when it can be found).
@@ -497,12 +557,12 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
 - Run the test binaries under `ulimit -v` when working on anything that scans
   text (a scanner bug can allocate until the OOM killer takes the editor down —
   see the table postmortem).
-  Current peak RSS of the test binaries (2026-11-01, app 302 / core 406 with 10
-  ignored / mcp 28 tests — core's `db::` tests cost it nothing worth mentioning: 12.5
+  Current peak RSS of the test binaries (2026-11-01, app 320 / core 437 with 10
+  ignored / mcp 35 tests — core's `db::` tests cost it nothing worth mentioning: 12.5
   MB to 16 MB, and the app's 79 MB to 88 MB is the eight `tests::index` windows that
   each open a real DB, which is nowhere near the 200 MB line worth investigating):
-  core 15.4 MB, app 87.0 MB,
-  mcp 5.2 MB. The
+  core 16.0 MB, app 87.5 MB,
+  mcp 5.9 MB. The
   app binary's *address space* (not RSS) is far larger because of gpui/wgpu
   reservations, and it now needs **4 GB or more** — a 1 GB cap makes it die in an
   80-byte allocation. Build with `cargo test --workspace --no-run`, then run each
@@ -517,6 +577,21 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
   a command created find one file too many. `tests::mod`'s `workspace()` turns it off
   beside `spellcheck` and `index` for exactly that reason, and `tests/live.rs` turns
   it back on. A test that turns it on must not leave it running.
+- **The queue beat is on in every test window, on purpose.** Unlike the live channel
+  it starts no thread of its own beyond gpui's task, binds nothing, writes nothing,
+  and `pending::list` on a vault with no queue is one failed `read_dir` — it does not
+  create `.shale/pending-edits/`. So a test that counts files in the vault is safe,
+  and the review tests can drive the queue by writing files the way `shale-mcp` does
+  and calling `scan_pending` directly rather than waiting on simulated time.
+- **A two-stroke keymap chord swallows its first key.** gpui holds the first keystroke
+  of a multi-stroke binding as pending input and never delivers it as text, so binding
+  `"[ a"` in `vim-normal` broke `f[` — the literal `[` no longer reached the editor's
+  input handler. The rule this taught: any key the vim engine may need as a *literal*
+  (the argument of `f`, `t`, `r` or an operator) must be bound as its own action and
+  have its chord owned by the engine, the way `space`, `z`, `s` and `r` already were.
+  `]a`/`[a` are `VimCloseBracket`/`VimOpenBracket` plus `Pending`-style state in the
+  engine (`after_bracket`), and `core/src/vim/tests/chords.rs` keeps the literal case
+  tested.
 - **Two agents, one `target/` — resolved 2026-10-31.** The graph track
   (`crates/core/src/graph/**`, `pub mod graph;`, the `petgraph` lines in the two
   Cargo.tomls, and `PROGRESS.md`) was the other agent's work and has landed; the
@@ -2134,6 +2209,16 @@ Largest files now (2026-10-30, after Phase 0's module splits; what the DB spine
   503 → **557**, and `crates/mcp` grew inside its existing files:
   `main.rs` 290 → **506**, `vault_tools.rs` 205 → **385**, `live.rs` 311 → **377**,
   `resources.rs` 122 → **206**. Nothing new is over the rule.
+  **P2.5a (2026-11-01):** new core `diff.rs` **624** (351 of them its tests — the
+  biggest new file, and the diff primitive P4.2 reuses) and `pending.rs` **451**
+  (127 tests); new `crates/mcp/src/pending_tools.rs` **373** (155 tests); new app
+  `review.rs` **383** (the strip widget), `workspace/review.rs` **520** (the window's
+  half) and `tests/review.rs` **506**. Grown inside existing files: `command.rs` 601 →
+  **671** (7 registry rows), `workspace/mod.rs` 953 → **978** (three fields, the beat,
+  and the close hook), `ex.rs` 364 → **384**, `keys.rs` 238 → **262**, `vim/mod.rs`
+  405 → **434**, `vim/motions.rs` 366 → **378**, `editor/render.rs` and `acts.rs` a
+  few lines each. `editor/mod.rs` is unchanged at **993** — the review work went into
+  new files rather than through its door.
 
 System dependency (Linux): `libxkbcommon-x11-devel` (plus fontconfig, freetype,
 x11, xcb, wayland dev packages) and a working Vulkan driver (the Linux renderer
@@ -3072,6 +3157,59 @@ Next steps, roughly in order:
       *inside*, it never moves the wall around it. That is why the enforcement lives in
       core (`config/profile.rs`) rather than in the MCP handlers: the app will need the
       same answers for presence and review.
+
+32. **The queue and the strip: agent edit review, safety half** — P2.5a (2026-11-01).
+    - **The MCP server writes the pending file itself.** `write_note` on a
+      `review = true` profile diffs against the note on disk and calls
+      `shale_core::pending::write`, returning the id in its tool result. That buys
+      the two ruled behaviours for free: proposals arrive while Shale is closed, and
+      they survive `kill -TERM` because they were never in the window's memory.
+    - **Files are the source of truth, and no DB table was added.** The index may
+      mirror the queue later; today `pending_edits` and the strip both answer from
+      disk, so a corrupt or missing DB loses nothing. Said plainly rather than
+      implied: the roadmap's "DB may index" half is deliberately unbuilt.
+    - **One file per write call, TOML, `[[hunk]]` blocks carrying unified-diff
+      text** — readable, git-diffable, openable in any editor, and it says what it
+      wants to change without containing the note, which is what keeps it valid when
+      the user edits in the meantime. The random hex tail is why two writes in the
+      same second are two files.
+    - **The watcher cannot see the queue, so the window polls it.** The vault watcher
+      deliberately skips dot directories and `.shale` is not vault content — correct
+      for the vault, wrong for the queue. Rather than exempt one dot directory from
+      the watcher, the window reads the folder once a second. Cheap (a `read_dir` of
+      a folder that is almost always empty), and under the latency of the agent's own
+      tool call returning.
+    - **Accept is apply-or-stale, run rather than asked.** `diff::apply` verifies the
+      hunk's own context at its recorded line or says `Stale`; there is no
+      re-anchoring by search and no 3-way merge. `diff::region` is the same verdict as
+      a byte range, which is what lets an accept land in the open buffer as **one undo
+      step** with the cursor and unsaved edits intact instead of rewriting the note.
+      A note that is not open is written to disk and reported to the index.
+    - **The queue file follows every decision.** `pending::without_hunk` drops the
+      hunk and shifts the hunks below it by the exact line count the accepted one
+      changed, so a two-hunk proposal does not go stale merely because something above
+      it moved, and an accepted hunk is never offered twice. The file goes when its
+      last hunk does.
+    - **Two layers of keys, and the reason `]a`/`[a` are not a keymap chord.** Bare
+      `j`/`k`/`y`/`x`/`o`/`za` live only in the strip's `review` context, so they never
+      shadow yank and delete in prose; `]a`/`[a` are the only review keys in the note.
+      Binding `"[ a"` in `vim-normal` **broke `f[`**: gpui holds a chord's first key as
+      pending input, so the literal `[` never reached the editor's input handler. The
+      keys are now single actions (`VimOpenBracket`/`VimCloseBracket`) and the vim
+      engine owns the pair (`after_bracket`), the same way it owns `space`, `z`, `s`
+      and `r`. `core/src/vim/tests/chords.rs` keeps the literal case pinned.
+    - **Collapse is per proposal, keyed by id, and changes what `y` means**: one row
+      for a whole proposal, and `y` accepts every hunk of it that still fits — "yes,
+      do what you suggested" is one key rather than six.
+    - **Quit posture mirrors the dirty note.** `:q` is refused once while proposals
+      are unanswered and names `:review` and `:q!`; `:q!` leaves them queued for the
+      next window; a window-manager close and a signal never refuse, because an exit
+      the user did not type never argues with them. Nothing is ever lost either way —
+      the files are on disk.
+    - **Deferred on purpose:** the inline phantom-region overlay is P2.5b (strip
+      authoritative, inline opportunistic); no in-place editing of a proposed hunk;
+      accept is user-only, the agent keeps only `retract_pending`; no provenance badge
+      saying which profile wrote what (P2.8).
 
 ## Parked threads (agreed 2026-10-28; not being worked now)
 

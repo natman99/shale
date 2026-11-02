@@ -164,6 +164,16 @@ impl Render for Workspace {
             .on_action(cx.listener(|ws, _: &CheckerOff, _window, cx| ws.set_checker(false, cx)))
             .on_action(cx.listener(Self::copy_text))
             .on_action(cx.listener(Self::show_wordcount))
+            // Agent edit review (roadmap P2.5a). Handled here rather than on the strip
+            // itself because these commands are reachable from three doors at once: the
+            // strip's own keys, `]a`/`[a` in the note, and the palette.
+            .on_action(cx.listener(Self::review_focus))
+            .on_action(cx.listener(Self::review_next))
+            .on_action(cx.listener(Self::review_prev))
+            .on_action(cx.listener(Self::review_accept))
+            .on_action(cx.listener(Self::review_reject))
+            .on_action(cx.listener(Self::review_open_note))
+            .on_action(cx.listener(Self::review_collapse))
             // Clicking off the picker or the command line closes it. Both float over
             // the note, and a click under them used to belong to nothing at all, so
             // they simply stayed up until `escape`. A click inside a panel never
@@ -406,6 +416,21 @@ impl Render for Workspace {
                     })
                     .child(format!("{}:{}", line + 1, col + 1)),
             )
+            // The review strip: bottom of the window, above the status bar, and only
+            // when something is waiting (roadmap P2.5a). The status bar owns facts
+            // about the whole note and is left alone, and the note never shifts once
+            // the strip is up: the strip is `flex_none`, and the note column above it
+            // takes what is left.
+            .when(self.review_active(cx), |d| {
+                d.child(
+                    div()
+                        .flex_none()
+                        .w_full()
+                        .border_t_1()
+                        .border_color(gpui::rgb(self.palette.ui_border))
+                        .child(self.review.clone()),
+                )
+            })
             .when_some(popup, |d, (popup, bounds)| {
                 // `anchored` paints at a window coordinate rather than in the
                 // layout, which is what lets the panel sit over the note without

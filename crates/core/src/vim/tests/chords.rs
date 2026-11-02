@@ -337,3 +337,83 @@ fn z_waits_for_its_fold_command() {
     vim.enter_normal();
     assert_eq!(vim.pending_motion(), None);
 }
+
+/// `]a` and `[a` hop the agent-review marker. The engine has no queue and no idea
+/// one exists, so it asks the window — the same shape as the view chords.
+#[test]
+fn bracket_a_requests_the_review_marker() {
+    let mut vim = Vim::new();
+    let mut b = buf();
+    b.set_cursor(2);
+    assert_eq!(
+        vim.handle_normal_key(Key::Char(']'), &mut b),
+        Outcome::Stay,
+        "the bracket waits for the letter that makes it a command"
+    );
+    assert!(vim.awaiting_chord(), "and it is a half-typed command");
+    assert_eq!(
+        vim.handle_normal_key(Key::Char('a'), &mut b),
+        Outcome::ReviewNext
+    );
+    assert_eq!(vim.handle_normal_key(Key::Char('['), &mut b), Outcome::Stay);
+    assert_eq!(
+        vim.handle_normal_key(Key::Char('a'), &mut b),
+        Outcome::ReviewPrev
+    );
+    assert_eq!(b.cursor(), 2, "and the note was never touched");
+    assert_eq!(b.text(), "hello world\nsecond line\nthird");
+    assert!(!vim.awaiting_chord(), "the chord is over");
+}
+
+/// A `]` that does not get its `a` is a command Shale has no use for: it is
+/// cancelled, and the key that cancelled it is not run either — so `]x` does not
+/// delete a character.
+#[test]
+fn a_bracket_without_its_a_does_nothing() {
+    let mut vim = Vim::new();
+    let mut b = buf();
+    type_keys(&mut vim, "]", &mut b);
+    vim.handle_normal_key(Key::Char('x'), &mut b);
+    assert_eq!(b.text(), "hello world\nsecond line\nthird");
+    assert!(!vim.awaiting_chord());
+}
+
+/// The reason `]` and `[` are bound as single keys rather than as a two-stroke
+/// chord: a literal bracket is the argument of a find, and it has to reach the
+/// engine rather than be held as pending keymap input.
+#[test]
+fn a_bracket_is_still_a_literal_find_target() {
+    let mut vim = Vim::new();
+    let mut b = Buffer::new("see [the link] here".to_string());
+    type_keys(&mut vim, "f[", &mut b);
+    assert_eq!(
+        b.cursor(),
+        b.text().find('[').unwrap(),
+        "`f[` landed on the bracket"
+    );
+    type_keys(&mut vim, "f]", &mut b);
+    assert_eq!(b.cursor(), b.text().find(']').unwrap());
+    // An operator can be given a bracket as its motion's argument too — `d[` is not a
+    // Shale motion, so the operator is cancelled rather than let loose on the note.
+    let mut b = Buffer::new("see [the link] here".to_string());
+    b.set_cursor(b.text().find(']').unwrap());
+    type_keys(&mut vim, "d[", &mut b);
+    assert_eq!(b.text(), "see [the link] here");
+}
+
+/// `]` inside a half-typed command is a literal, not the start of a chord.
+#[test]
+fn a_bracket_after_an_operator_is_not_a_chord() {
+    let mut vim = Vim::new();
+    let mut b = Buffer::new("see [the link] here".to_string());
+    type_keys(&mut vim, "y", &mut b);
+    assert!(
+        vim.awaiting_chord(),
+        "the operator is waiting for its motion"
+    );
+    // `y[` is not a Shale motion, so nothing is yanked and nothing is queued.
+    vim.handle_normal_key(Key::Char('['), &mut b);
+    assert!(!vim.awaiting_chord());
+    vim.handle_normal_key(Key::Char('a'), &mut b);
+    assert_eq!(b.text(), "see [the link] here");
+}

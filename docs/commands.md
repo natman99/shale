@@ -40,8 +40,16 @@ as you would type it.
 | `clipboard.copy` | Copy the selection, or the last yank, to the clipboard | `ctrl-shift-c, space y` | `:y`, `:yank`, `:clip`, `:copy` | — |
 | `clipboard.paste` | Paste from the clipboard | `ctrl-shift-v` | `:paste`, `:p` | — |
 | `vault.wordcount` | Count the vault's words | — | `:wordcount [folder]`, `:wc [folder]` | `[folder]` |
+| `review.focus` | Review the agent edits that are waiting | — | `:review`, `:pending` | — |
+| `review.next` | Next pending hunk | `j in the strip, ]a in the note` | — | — |
+| `review.prev` | Previous pending hunk | `k in the strip, [a in the note` | — | — |
+| `review.accept` | Accept the pending hunk under the marker | `y in the strip` | — | — |
+| `review.reject` | Reject the pending hunk under the marker | `x in the strip` | — | — |
+| `review.open-note` | Open the note the pending hunk is about | `o in the strip` | — | — |
+| `review.collapse` | Collapse or expand the pending proposal under the marker | `za in the strip` | — | — |
 
-The palette does not list `app.quit-force`, `note.write-quit`: `note.write-quit` is save and then quit, two
-actions rather than one, and `app.quit-force` is the exit that throws unsaved
-edits away, which is not a row to offer next to *Quit Shale* in a list you
-pick from.
+The palette does not list `app.quit-force`, `note.write-quit`, `review.next`, `review.prev`, `review.accept`, `review.reject`, `review.open-note`, `review.collapse`: `note.write-quit` is save and then quit, two
+actions rather than one, `app.quit-force` is the exit that throws unsaved
+edits away (not a row to offer next to *Quit Shale* in a list you pick
+from), and the `review.*` keys other than `review.focus` mean nothing while
+the review strip is off screen — which is only when nothing is waiting.

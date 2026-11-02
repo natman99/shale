@@ -121,6 +121,12 @@ pub enum Outcome {
     /// register stays inside the engine; the clipboard is the door to other
     /// programs, and only the window can open it.
     YankClipboard,
+    /// `]a` was typed: the UI should hop the agent-review marker to the next pending
+    /// hunk. Like the view and clipboard chords this is a request, not an edit — the
+    /// engine has no idea that a queue of proposals exists, let alone where it is.
+    ReviewNext,
+    /// `[a` was typed: the marker to the previous pending hunk.
+    ReviewPrev,
 }
 
 /// The unnamed register, holding the last yank or delete.
@@ -157,6 +163,16 @@ pub struct Vim {
     /// applied when `space` is typed — deferring it would make a lone `space` look
     /// dead — so a chord is recognised one key late.
     after_space: bool,
+    /// The key just typed was a plain `]` or `[`, so the next key may be the `a` of
+    /// Shale's review-marker chords (`]a` next pending hunk, `[a` previous). Held as
+    /// `Some(true)` for `]` and `Some(false)` for `[`.
+    ///
+    /// These two keys are bound as actions rather than as a two-stroke keymap chord
+    /// on purpose: gpui holds the first key of a chord as pending input, which would
+    /// keep a literal `[` from reaching the engine as the argument of `f`, `t` or an
+    /// operator. As an action the engine sees every `]` and `[` and decides, which is
+    /// what keeps `f[` and `di]` literal and `]a` a command.
+    after_bracket: Option<bool>,
 }
 
 impl Default for Vim {
@@ -176,6 +192,7 @@ impl Vim {
             last_command: None,
             insert_session: false,
             after_space: false,
+            after_bracket: None,
         }
     }
 
@@ -231,7 +248,7 @@ impl Vim {
     /// waiting for its argument. The UI asks this before treating a `p` as a paste,
     /// because `space p` is the preview chord and `dip` is the paragraph object.
     pub fn awaiting_chord(&self) -> bool {
-        self.after_space || !matches!(self.pending, Pending::None)
+        self.after_space || self.after_bracket.is_some() || !matches!(self.pending, Pending::None)
     }
 
     /// The unnamed register's text, if anything has been yanked or deleted. The UI
@@ -257,6 +274,7 @@ impl Vim {
         self.pending = Pending::None;
         self.count = None;
         self.after_space = false;
+        self.after_bracket = None;
     }
 
     pub fn enter_normal(&mut self) {
@@ -264,6 +282,7 @@ impl Vim {
         self.pending = Pending::None;
         self.count = None;
         self.after_space = false;
+        self.after_bracket = None;
         // Leaving insert mode ends the command that started it.
         // Leaving insert mode ends the insert session that was being recorded.
         if self.insert_session && !self.command.is_empty() {
@@ -312,6 +331,21 @@ impl Vim {
             self.count = None;
             self.command.clear();
             return outcome;
+        }
+        // `]a` / `[a`: the agent-review marker's next and previous. The bracket was a
+        // plain one, so this is the only key that can finish the chord; anything else
+        // cancels it and does nothing, which is what vim does with a `]` command it
+        // has no use for.
+        if let Some(forward) = self.after_bracket.take() {
+            if self.mode.is_visual() {
+                return Outcome::Stay;
+            }
+            self.command.clear();
+            return match (forward, key) {
+                (true, Key::Char('a')) => Outcome::ReviewNext,
+                (false, Key::Char('a')) => Outcome::ReviewPrev,
+                _ => Outcome::Stay,
+            };
         }
         if self.mode.is_visual() {
             return self.handle_visual_key(key, buf);

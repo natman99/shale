@@ -184,7 +184,8 @@ impl Workspace {
             | ex::Ex::ThemePicker
             | ex::Ex::View(_)
             | ex::Ex::YankClipboard
-            | ex::Ex::PasteClipboard => {
+            | ex::Ex::PasteClipboard
+            | ex::Ex::Review => {
                 unreachable!("a command with no argument is dispatched by id")
             }
         }

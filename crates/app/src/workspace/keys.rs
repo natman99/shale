@@ -147,6 +147,14 @@ pub(crate) fn keybindings() -> Vec<KeyBinding> {
         // `w`. Linux delivers shift+`;` as the `:` keysym with shift dropped, so
         // this is bindable directly.
         ":" => VimColon,
+        // Agent edit review (roadmap P2.5a): the two keys that hop the marker while
+        // the *note* has the keyboard. `]a`/`[a` are vim's next/previous-of-a-kind
+        // shape, and they are the only review keys in prose — which is what keeps `y`
+        // and `x` meaning yank and delete. The pair is owned by the vim engine rather
+        // than spelled as a two-stroke chord, because gpui holds the first key of a
+        // chord as pending input and a literal `[` must still reach `f`/`t`/operators.
+        "[" => VimOpenBracket,
+        "]" => VimCloseBracket,
     ]);
     bind!("vim-insert", [
         "escape" => VimEscape,
@@ -234,5 +242,21 @@ pub(crate) fn keybindings() -> Vec<KeyBinding> {
     {
         keys.push(KeyBinding::new(key, ApplyRow(row), Some(popup::CONTEXT)));
     }
+    // The review strip, while it has the keyboard (`:review`). These are the bare
+    // half of the two-layer scheme the design pass ruled: the strip is a list widget,
+    // not prose, so `j`/`k`/`y`/`x` are free here — and they are bound *only* here, so
+    // the same letters keep meaning yank and delete in the note. `escape` hands the
+    // keyboard back to the note rather than leaving the strip focused with nowhere to
+    // go; `z a` is the collapse chord, spelled with a space because gpui reads a
+    // whitespace-separated pair as two keystrokes.
+    bind!("review", [
+        "j" => ReviewNext,
+        "k" => ReviewPrev,
+        "y" => ReviewAccept,
+        "x" => ReviewReject,
+        "o" => ReviewOpenNote,
+        "z a" => ReviewCollapse,
+        "escape" => FocusEditor,
+    ]);
     keys
 }

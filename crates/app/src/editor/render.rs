@@ -409,6 +409,16 @@ impl Render for MarkdownEditor {
             .on_action(cx.listener(|this, _: &VimUpperE, window, cx| {
                 this.normal(Key::Char('E'), window, cx)
             }))
+            // `]` and `[`, bound so the engine can own the `]a`/`[a` review chords.
+            // They are single keys rather than a two-stroke chord because a literal
+            // bracket has to reach the engine as the argument of `f`, `t` or an
+            // operator, and gpui holds the first key of a chord as pending input.
+            .on_action(cx.listener(|this, _: &VimCloseBracket, window, cx| {
+                this.normal(Key::Char(']'), window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &VimOpenBracket, window, cx| {
+                this.normal(Key::Char('['), window, cx)
+            }))
             .on_action(
                 cx.listener(|this, _: &VimDot, window, cx| this.normal(Key::Char('.'), window, cx)),
             )

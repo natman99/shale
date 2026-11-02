@@ -615,7 +615,17 @@ already wrote.)
   presence work; and the app does not yet show which profile wrote what.
 - **P2.5 Agent edit review** (brainstorm ✅; **design pass RULED 2026-11-01**,
   full shape in brainstorm.md "Agent edit review"). Split into:
-  - **P2.5a — queue + strip (the safety story):** MCP writes from a
+  - **P2.5a — queue + strip (the safety story): DONE 2026-11-01.**
+    Built as ruled, with three
+    notes on what was *not* built: the **DB does not index the queue** (files are
+    the source of truth; a table can mirror it later and nothing depends on it),
+    the **inline overlay is P2.5b** (untouched), and `]a`/`[a` are **engine-owned
+    strokes, not keymap chords** — binding `"[ a"` in `vim-normal` made gpui hold
+    the `[` as pending chord input so it never reached the editor as text, which
+    broke `f[`; the vim engine now owns the pair the way it owns `space`/`z`/`s`.
+    Discovery is a 1 s poll of `.shale/pending-edits/`, not the watcher, because
+    the watcher deliberately skips dot directories.
+    MCP writes from a
     `review = true` profile stop being refused (P2.4's fail-closed flip) and
     land as **TOML files** in `.shale/pending-edits/` — one per write call,
     `[[hunk]]` blocks embedding unified-diff text — written by the **MCP
@@ -631,7 +641,7 @@ already wrote.)
     and re-propose (agent may retract its own; accept is user-only). Quit
     prompts; unanswered/killed → files persist and re-offer next launch.
     No in-place editing of proposed hunks.
-  - **P2.5b — inline overlay:** phantom-region hunks in the note (dimmed
+  - **P2.5b — inline overlay (open):** phantom-region hunks in the note (dimmed
     removals, tinted additions, collapsible, `za`), re-anchored by diff
     context, strip-only fallback when ambiguous — strip authoritative,
     inline opportunistic. Full shape in brainstorm.md (agent presence
@@ -658,7 +668,8 @@ already wrote.)
 same command ids; docs regenerate in CI/test; an external agent can drive the
 app over HTTP and its edits queue as pending files that survive a `kill -TERM`
 — **P2.5a closes Phase 2**. Capture working app-up-and-down moved with P2.6
-into the Phase 3 addendum.
+into the Phase 3 addendum. **P2.5a landed 2026-11-01, so Phase 2 is closed**
+(P2.5b and the P2.6/7/8 addendum remain open).
 
 ---
 

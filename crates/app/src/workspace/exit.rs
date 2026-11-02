@@ -79,10 +79,16 @@ impl Workspace {
     ///
     /// **With autosave off, a dirty note is refused.** Autosave on means the disk is
     /// never more than a pause behind the screen, so writing on the way out is what
-    /// the user meant. Autosave off means they chose to save by hand, and a quit
-    /// that quietly writes — or quietly drops — a note they have not saved is a
-    /// surprise either way. `:q!` is the way out they asked for, and `:wq` writes on
-    /// purpose.
+    /// the user meant. Autosave off means they chose to save by hand, and a quit that
+    /// quietly writes — or quietly drops — a note they have not saved is a surprise
+    /// either way. `:q!` is the way out they asked for, and `:wq` writes on purpose.
+    ///
+    /// **A queue of agent proposals is refused too** (roadmap P2.5a). Nothing is lost
+    /// by quitting with one — the files are on disk and are offered again next launch —
+    /// but walking away from unanswered proposals without knowing you did is the
+    /// failure this feature exists to prevent, and the answer costs one keypress.
+    /// `:q!` leaves them queued; the window manager's close and a signal are not
+    /// refused, because an exit the user did not type never argues with them.
     pub(super) fn quit(&mut self, _: &Quit, _window: &mut Window, cx: &mut Context<Self>) {
         let dirty = self.editor.read_with(cx, |editor, _cx| editor.is_dirty());
         if dirty && !self.config.editor.autosave {
@@ -102,6 +108,17 @@ impl Workspace {
                 cx.notify();
                 return;
             }
+        }
+        // Read the queue rather than trusting the last beat: a proposal that landed a
+        // moment ago is exactly the one the user is about to walk away from.
+        self.scan_pending(cx);
+        if self.review_active(cx) {
+            self.say(
+                "agent edits are waiting in the review strip: `:review` to see them, `:q!` to leave them queued",
+                cx,
+            );
+            cx.notify();
+            return;
         }
         self.leave(cx);
     }
@@ -145,15 +162,19 @@ impl Workspace {
     }
 
     /// The part of every exit that is not the note: the index drained and
-    /// checkpointed, the session written, and the live MCP channel taken down.
+    /// checkpointed, the session written, the live MCP channel taken down, and the
+    /// queue beat stopped.
     /// Roadmap P1.5 is the first of those — an exit leaves one DB file rather than
     /// a WAL full of unapplied writes — P1.8 the second, so the next window opens
     /// on this note, at this place, in this view, and P2.3 the third, so the next
-    /// `shale-mcp` finds no port and no lock rather than a stale hint.
+    /// `shale-mcp` finds no port and no lock rather than a stale hint. P2.5a's part is
+    /// the last: stopping the beat, because the queue itself is *meant* to outlive the
+    /// window — the files stay, and the next launch reads them again.
     fn leave(&mut self, cx: &mut Context<Self>) {
         self.flush_index();
         self.save_session(cx);
         self.stop_live();
+        self.stop_pending_watch();
         cx.quit();
     }
 }

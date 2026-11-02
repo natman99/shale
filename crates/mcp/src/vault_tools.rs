@@ -108,24 +108,20 @@ pub(crate) fn call(server: &Server, name: &str, arguments: &Value) -> Result<Opt
         }
         "write_note" => {
             let path = arg_str(arguments, "path")?;
+            let content = arg_str(arguments, "content")?;
             if !profile.can_write(path.as_ref()) {
                 return Ok(Some(refusal(&format!(
                     "{} may not write {path}",
                     server.who()
                 ))));
             }
-            // A profile that asked for review cannot be given direct writes: the
-            // review path is roadmap P2.5, and until it exists the honest answer is
-            // "not yet" rather than a write that skipped the promise.
+            // A profile that asked for review does not write: the change becomes a
+            // proposal in the queue, and the user decides. This is the flip of the
+            // fail-closed refusal P2.4 shipped with, now that P2.5a can keep the
+            // promise.
             if profile.review {
-                return Ok(Some(refusal(&format!(
-                    "{} asks for review, and Shale cannot review an agent edit yet \
-                     (roadmap P2.5). Its writes are refused rather than written \
-                     unreviewed.",
-                    server.who()
-                ))));
+                return Ok(Some(crate::pending_tools::propose(server, path, content)?));
             }
-            let content = arg_str(arguments, "content")?;
             vault.write(path, content)?;
             Ok(Some(text_result(format!("wrote {}", path))))
         }
@@ -339,22 +335,25 @@ mod tests {
         Ok(())
     }
 
-    /// A profile that promises review gets no writes at all until P2.5 can keep the
-    /// promise, rather than writes that skipped it.
+    /// P2.5a: a profile that asked for review gets its write queued, not refused and
+    /// not written.
     #[test]
-    fn a_profile_that_asks_for_review_has_its_writes_refused() -> Result<()> {
+    fn a_profile_that_asks_for_review_has_its_writes_queued() -> Result<()> {
         let mut profile = writing_help();
         profile.review = true;
         let (_d, server) = server(profile)?;
 
-        let refused = call(
+        let queued = call(
             &server,
             "write_note",
             &json!({ "path": "inbox/idea.md", "content": "overwritten" }),
         )?
         .expect("write_note is a vault tool");
-        assert_eq!(refused["isError"], true);
-        assert!(text(&refused).contains("P2.5"), "{refused}");
+        assert_eq!(queued["isError"], Value::Null);
+        assert!(
+            text(&queued).starts_with("queued for review as "),
+            "{queued}"
+        );
         assert_eq!(server.vault.read("inbox/idea.md")?, "Hello [[draft]]");
 
         // Reading is still fine: review is about writes, not about seeing.

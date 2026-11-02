@@ -61,6 +61,11 @@ pub(crate) enum Ex {
     /// as typed — holds. The count comes from the vault index, so it is the index's
     /// answer rather than a fresh read of every note.
     WordCount(String),
+    /// `review` / `pending`: give the keyboard to the review strip, the list of agent
+    /// edits waiting to be accepted or rejected (roadmap P2.5a). The strip appears by
+    /// itself whenever there is something in the queue; this is how the user gets to
+    /// it from the note, and how the quit prompt tells them to.
+    Review,
     /// Anything else, with the word that was typed. Nothing runs: an unknown word
     /// is a typo, not something to guess at.
     Unknown(String),
@@ -91,6 +96,7 @@ impl Ex {
             Ex::YankClipboard => "clipboard.copy",
             Ex::PasteClipboard => "clipboard.paste",
             Ex::WordCount(_) => "vault.wordcount",
+            Ex::Review => "review.focus",
         })
     }
 
@@ -112,7 +118,8 @@ impl Ex {
             | Ex::ThemePicker
             | Ex::View(_)
             | Ex::YankClipboard
-            | Ex::PasteClipboard => self.command_id()?,
+            | Ex::PasteClipboard
+            | Ex::Review => self.command_id()?,
             _ => return None,
         })
     }
@@ -191,6 +198,9 @@ pub(crate) fn parse(line: &str) -> Ex {
         // The folder is whatever follows the word, so `:wordcount notes/daily` is
         // one argument; an unknown word after it is not guessed at.
         "wordcount" | "wc" => Ex::WordCount(rest.to_string()),
+        // The review strip. `pending` is there because that is the word the queue is
+        // named by on disk, and the quit prompt says "agent edits are waiting".
+        "review" | "pending" => Ex::Review,
         _ => Ex::Unknown(word),
     }
 }
@@ -311,6 +321,15 @@ mod tests {
         assert_eq!(parse("   "), Ex::Empty);
     }
 
+    /// The review strip is reachable by word as well as by key, which is what the
+    /// quit prompt points at.
+    #[test]
+    fn review_opens_the_strip() {
+        for word in ["review", "pending", "REVIEW"] {
+            assert_eq!(parse(word), Ex::Review, "{word}");
+        }
+    }
+
     /// The other half of the id parity test in `command`: every word `parse` knows
     /// that carries no argument must be a row in the registry, because the command
     /// line runs those as actions rather than by matching on the word. A variant
@@ -333,6 +352,7 @@ mod tests {
             Ex::View(View::Preview),
             Ex::YankClipboard,
             Ex::PasteClipboard,
+            Ex::Review,
         ] {
             assert!(
                 command.no_arg_command().is_some(),

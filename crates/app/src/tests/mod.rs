@@ -26,6 +26,7 @@ mod paint;
 mod picker;
 mod popup;
 mod quotes;
+mod review;
 mod search;
 mod session;
 mod spell;

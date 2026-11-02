@@ -18,6 +18,7 @@ mod picker;
 mod popup;
 mod preview;
 mod prompt;
+mod review;
 mod table_view;
 mod theme;
 mod tree;

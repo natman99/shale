@@ -36,6 +36,7 @@ use shale_core::config::McpProfile;
 use shale_core::Vault;
 
 mod live;
+mod pending_tools;
 mod resources;
 mod vault_tools;
 
@@ -278,6 +279,7 @@ fn tool_definitions(server: &Server) -> Vec<Value> {
             .collect::<Vec<_>>()
     };
     let mut tools = allowed(vault_tools::definitions());
+    tools.extend(allowed(pending_tools::definitions()));
     if live::available(server.vault.root()) {
         tools.extend(allowed(live::definitions()));
     }
@@ -300,6 +302,11 @@ fn call_tool(server: &Server, name: &str, arguments: &Value) -> Result<Value> {
     }
     if let Some(result) = vault_tools::call(server, name, arguments)? {
         return Ok(result);
+    }
+    match name {
+        "pending_edits" => return pending_tools::list(server, arguments),
+        "retract_pending" => return pending_tools::retract(server, arguments),
+        _ => {}
     }
     if shale_core::live::LIVE_TOOLS.contains(&name) {
         return live::call(server.vault.root(), &server.profile, name);
@@ -346,13 +353,14 @@ mod tests {
         Ok(())
     }
 
-    /// Without a window answering, the five vault tools and nothing else.
+    /// Without a window answering, the five vault tools, the two queue tools, and
+    /// nothing else.
     #[test]
     fn tools_list_without_a_window_is_the_vault_half() -> Result<()> {
         let (_d, server) = fixture(None, McpProfile::default(), None);
         let result = dispatch(&server, "tools/list", &json!({}))?;
         let tools = result["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 5);
+        assert_eq!(tools.len(), 7);
         assert!(
             !tools
                 .iter()

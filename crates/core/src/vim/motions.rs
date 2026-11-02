@@ -265,6 +265,16 @@ impl Vim {
                 self.pending = Pending::Fold;
                 return Outcome::Stay;
             }
+            // `]` and `[` are Shale's review-marker chords: `]a` hops the marker to
+            // the next pending hunk, `[a` to the previous. Only a plain one arms the
+            // chord — as the argument of `f`, `t` or an operator the bracket was
+            // consumed by that pending command above, which is what keeps `f[` and
+            // `di]` literal. Nothing else is bound to these keys, so arming costs a
+            // key that would otherwise do nothing.
+            Key::Char(']') | Key::Char('[') => {
+                self.after_bracket = Some(matches!(key, Key::Char(']')));
+                return Outcome::Stay;
+            }
             // Operators
             Key::Char('d') | Key::Char('c') | Key::Char('y') => {
                 let op = match key {

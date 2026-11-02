@@ -70,6 +70,13 @@ actions!(
         VimUpperR,
         VimUpperM,
         VimUpperE,
+        // `]` and `[` are bound so the review-marker chords `]a`/`[a` reach the vim
+        // engine, which owns the pair. They are bound as single keys rather than as a
+        // two-stroke chord because gpui holds the first key of a chord as pending
+        // input, and a literal `[` has to reach the engine as the argument of `f`, `t`
+        // or an operator.
+        VimOpenBracket,
+        VimCloseBracket,
         VimColon,
         VimDot,
         VimEscape,
@@ -175,6 +182,18 @@ actions!(
         // reading every note again (`:wordcount [folder]`). The palette row counts
         // the whole vault; the command line can scope it to one folder.
         WordCount,
+        // Agent edit review (roadmap P2.5a). The strip is a focusable widget with a
+        // key context of its own, so its bare `j`/`k`/`y`/`x`/`o`/`za` reach these
+        // only while it has the keyboard; `]a`/`[a` in the note reach the same two
+        // hopping commands, and the palette reaches `review.focus`. Nothing here
+        // shadows a vim key in prose, which is the whole point of the two layers.
+        ReviewFocus,
+        ReviewNext,
+        ReviewPrev,
+        ReviewAccept,
+        ReviewReject,
+        ReviewOpenNote,
+        ReviewCollapse,
     ]
 );
 

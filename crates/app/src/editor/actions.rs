@@ -93,6 +93,12 @@ impl MarkdownEditor {
             // to. The window owns it, and answers with what the note has to give
             // (see `clipboard_candidate`).
             Outcome::YankClipboard => window.dispatch_action(CopyText.boxed_clone(), cx),
+            // `]a` / `[a`: the agent-review marker's next and previous hunk. The
+            // engine has no idea a queue of proposals exists, so this is a request
+            // like the view chords, and it reaches the same commands the strip's bare
+            // `j`/`k` and the palette reach.
+            Outcome::ReviewNext => window.dispatch_action(ReviewNext.boxed_clone(), cx),
+            Outcome::ReviewPrev => window.dispatch_action(ReviewPrev.boxed_clone(), cx),
             // `space d`: the window owns the frame, so the chord dispatches the
             // same action the palette does rather than setting a flag of its own.
             Outcome::ToggleFocus => window.dispatch_action(ToggleFocus.boxed_clone(), cx),
