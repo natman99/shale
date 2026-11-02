@@ -43,10 +43,11 @@ pub struct McpProfile {
     /// is what an unprofiled connection gets; naming any tool narrows the list to
     /// the names given.
     pub tools: Vec<String>,
-    /// Whether the agent's edits queue for the user's review instead of landing in
-    /// the note. **Not honoured yet** — the review path is roadmap P2.5 — so a
-    /// profile that asks for it has its writes refused rather than quietly written
-    /// straight through.
+    /// Whether the agent's writes queue for the user's review instead of landing in
+    /// the note. On, `write_note` becomes a proposal in `.shale/pending-edits/` and
+    /// the app's review strip decides (roadmap P2.5a); off, the write goes straight
+    /// through. Review narrows what an agent may *do*, never what it may see, and it
+    /// is off by default because an unprofiled connection is the trusted one.
     pub review: bool,
 }
 
