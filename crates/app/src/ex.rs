@@ -88,7 +88,7 @@ impl Ex {
             Ex::View(View::Raw) => "view.raw",
             Ex::View(View::Live) => "view.live",
             Ex::View(View::Preview) => "view.preview",
-            Ex::YankClipboard => "clipboard.yank",
+            Ex::YankClipboard => "clipboard.copy",
             Ex::PasteClipboard => "clipboard.paste",
             Ex::WordCount(_) => "vault.wordcount",
         })
@@ -184,6 +184,8 @@ pub(crate) fn parse(line: &str) -> Ex {
         "preview" | "view" => Ex::View(View::Preview),
         // The clipboard, both directions. `y` and `p` are the letters the reflex
         // already knows; `clip` and `paste` spell it out for the rest.
+        // `space y` asks for the outward copy; the action is the one `ctrl-shift-c`
+        // is bound to, so the chord, the key and `:y` are one command.
         "y" | "yank" | "clip" | "copy" => Ex::YankClipboard,
         "p" | "paste" => Ex::PasteClipboard,
         // The folder is whatever follows the word, so `:wordcount notes/daily` is

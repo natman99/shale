@@ -89,9 +89,10 @@ impl MarkdownEditor {
             Outcome::ViewRaw => window.dispatch_action(ViewRaw.boxed_clone(), cx),
             Outcome::ViewLive => window.dispatch_action(ViewLive.boxed_clone(), cx),
             Outcome::ViewPreview => window.dispatch_action(ViewPreview.boxed_clone(), cx),
-            // `space y`: the window owns the clipboard, and answers with what the
-            // note has to give (see `clipboard_candidate`).
-            Outcome::YankClipboard => window.dispatch_action(YankClipboard.boxed_clone(), cx),
+            // `space y`: the outward copy, the same command `ctrl-shift-c` is bound
+            // to. The window owns it, and answers with what the note has to give
+            // (see `clipboard_candidate`).
+            Outcome::YankClipboard => window.dispatch_action(CopyText.boxed_clone(), cx),
             // `space d`: the window owns the frame, so the chord dispatches the
             // same action the palette does rather than setting a flag of its own.
             Outcome::ToggleFocus => window.dispatch_action(ToggleFocus.boxed_clone(), cx),
@@ -321,23 +322,11 @@ impl MarkdownEditor {
         cx.notify();
     }
 
-    pub(super) fn on_copy(&mut self, _: &CopyText, _window: &mut Window, cx: &mut Context<Self>) {
-        let range = match self.vim.mode() {
-            Mode::Visual | Mode::VisualLine => self.vim.selection_range(&self.buffer),
-            _ => self.buffer.selection().map(|(a, h)| (a.min(h), a.max(h))),
-        };
-        if let Some((a, h)) = range {
-            cx.write_to_clipboard(gpui::ClipboardItem::new_string(
-                self.buffer.text()[a..h].to_string(),
-            ));
-        }
-    }
-
-    /// The text `space y` / `:yank` hands to the system clipboard: the selection
-    /// when there is one, because that is what the user was looking at, and
-    /// otherwise the last yank or delete, which is what they meant when they were
-    /// holding a copy in the vim register. `None` when Shale holds nothing to give
-    /// away.
+    /// The text the one outward copy hands to the system clipboard — `ctrl-shift-c`,
+    /// `space y`, `:y`/`:yank`/`:clip`/`:copy` all ask for this: the selection when
+    /// there is one, because that is what the user was looking at, and otherwise the
+    /// last yank or delete, which is what they meant when they were holding a copy in
+    /// the vim register. `None` when Shale holds nothing to give away.
     pub(crate) fn clipboard_candidate(&self) -> Option<String> {
         let selection = match self.vim.mode() {
             Mode::Visual | Mode::VisualLine => self.vim.selection_range(&self.buffer),

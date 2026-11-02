@@ -435,7 +435,6 @@ impl Render for MarkdownEditor {
             .on_action(cx.listener(Self::on_move_down))
             .on_action(cx.listener(Self::on_undo))
             .on_action(cx.listener(Self::on_redo))
-            .on_action(cx.listener(Self::on_copy))
             .on_action(cx.listener(Self::on_paste))
             .child(
                 div()

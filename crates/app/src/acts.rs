@@ -86,6 +86,10 @@ actions!(
         DeleteWordBack,
         Undo,
         Redo,
+        // The one outward copy (`ctrl-shift-c`, `space y`, `:y`/`:yank`/`:clip`/
+        // `:copy`): the selection when there is one, otherwise the last yank. The
+        // window answers it, because only the window can talk to the system
+        // clipboard; `ctrl-shift-v` / `:paste` is the way back in.
         CopyText,
         PasteText,
     ]
@@ -167,10 +171,6 @@ actions!(
         // Typewriter scroll: keep the cursor's line near the middle of the window
         // (`:typewriter`).
         ToggleTypewriter,
-        // Putting the selection, or the last yank, on the **system** clipboard
-        // (`space y`, `:yank`). The way out; `ctrl-shift-v` / `:paste` is the way
-        // back in, and it fills the vim register too.
-        YankClipboard,
         // How many words the vault holds, counted from the index rather than by
         // reading every note again (`:wordcount [folder]`). The palette row counts
         // the whole vault; the command line can scope it to one folder.

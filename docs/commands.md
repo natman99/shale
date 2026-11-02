@@ -37,9 +37,8 @@ as you would type it.
 | `window.right` | Focus the note | `ctrl-w l` | — | — |
 | `note.undo` | Undo | `u, ctrl-z` | — | — |
 | `note.redo` | Redo | `ctrl-r, ctrl-y, ctrl-shift-z` | — | — |
-| `clipboard.copy` | Copy the selection to the clipboard | `ctrl-shift-c` | — | — |
+| `clipboard.copy` | Copy the selection, or the last yank, to the clipboard | `ctrl-shift-c, space y` | `:y`, `:yank`, `:clip`, `:copy` | — |
 | `clipboard.paste` | Paste from the clipboard | `ctrl-shift-v` | `:paste`, `:p` | — |
-| `clipboard.yank` | Copy the selection, or the last yank, to the clipboard | `space y` | `:y`, `:yank`, `:clip`, `:copy` | — |
 | `vault.wordcount` | Count the vault's words | — | `:wordcount [folder]`, `:wc [folder]` | `[folder]` |
 
 The palette does not list `app.quit-force`, `note.write-quit`: `note.write-quit` is save and then quit, two

@@ -191,16 +191,14 @@ impl Workspace {
         cx.notify();
     }
 
-    /// `space y` / `:yank`: the note's text out to the system clipboard. The vim
-    /// register is the engine's memory of what was yanked; the clipboard is the door
-    /// other programs see, and only the window can open it — which is also why the
-    /// status bar says what went out, or that there was nothing to send.
-    pub(crate) fn yank_clipboard(
-        &mut self,
-        _: &YankClipboard,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    /// The one outward copy: `ctrl-shift-c`, `space y`, and `:y`/`:yank`/`:clip`/
+    /// `:copy` all come through here, because they are one command. The vim register
+    /// is the engine's memory of what was yanked; the clipboard is the door other
+    /// programs see, and only the window can open it — which is also why the status
+    /// bar says what went out, or that there was nothing to send. A plain `y` needs
+    /// no command at all: the editor mirrors its register to the clipboard (see
+    /// `mirror_register`); this is the copy that *reports*.
+    pub(crate) fn copy_text(&mut self, _: &CopyText, _window: &mut Window, cx: &mut Context<Self>) {
         match self.editor.read(cx).clipboard_candidate() {
             Some(text) => {
                 let chars = text.chars().count();

@@ -457,12 +457,12 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
 - Run the test binaries under `ulimit -v` when working on anything that scans
   text (a scanner bug can allocate until the OOM killer takes the editor down —
   see the table postmortem).
-  Current peak RSS of the test binaries (2026-11-01, app 289 / core 385 with 10
+  Current peak RSS of the test binaries (2026-11-01, app 290 / core 385 with 10
   ignored / mcp 6 tests — core's `db::` tests cost it nothing worth mentioning: 12.5
   MB to 16 MB, and the app's 79 MB to 88 MB is the eight `tests::index` windows that
   each open a real DB, which is nowhere near the 200 MB line worth investigating):
-  core 15.5 MB, app 87.4 MB,
-  mcp 3.5 MB. The
+  core 15.4 MB, app 86.9 MB,
+  mcp 3.2 MB. The
   app binary's *address space* (not RSS) is far larger because of gpui/wgpu
   reservations, and it now needs **4 GB or more** — a 1 GB cap makes it die in an
   80-byte allocation. Build with `cargo test --workspace --no-run`, then run each
@@ -2480,6 +2480,25 @@ Next steps, roughly in order:
       `p` after `dd` pasted whatever an older yank had left. A delete is a cut, and
       with the mirror it is a cut other programs can see, so `dd` now yanks the lines
       before removing them.
+    - **Merged with `ctrl-shift-c` (2026-11-01, alongside the command registry).**
+      The mirror made `space y` redundant as a way to get a yank *out* — `y`, `d` and
+      `c` already reach the clipboard on their own — and what it really duplicated was
+      `ctrl-shift-c`: the two computed the same selection range and copied it, under
+      two ids, two actions and two handlers. There is one command now,
+      **`clipboard.copy`**, reached by `ctrl-shift-c`, `space y` and
+      `:y`/`:yank`/`:clip`/`:copy`, handled once by the window, and it always reports
+      what went. `CopyText` is the action; the app's `YankClipboard` action is gone
+      (the engine's `Outcome::YankClipboard` stays — it names what the chord asks
+      for, not the command). What the command still does that a plain `y` cannot:
+      take a **selection**, say out loud how much went, and push the register back out
+      when another program has taken the clipboard since the last yank.
+    - **Found while testing that merge, deliberately not fixed:** char-wise visual
+      selection is inclusive of the head for *every* motion, so `vw` selects
+      `first l` where vim selects `first ` — vim's `w` is an **exclusive** motion and
+      this engine has no such category. `selection_range` is what the highlight, the
+      visual `d`/`c`/`y` and the copy all read, so the extra character shows up in
+      each of them. `vl`, `vll` and `ve` are right; the word motions are one char too
+      wide.
 
 22. **Smart quotes — the `q` object, and the rendering that follows** — both Done
     (2026-10-29). The object came first; the rendering is roadmap P0.7c.

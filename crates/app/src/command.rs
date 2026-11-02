@@ -463,11 +463,15 @@ const ALL: &[Command] = &[
         in_palette: true,
         action: Some(|| Box::new(Redo)),
     },
+    // The one outward copy. A plain `y` needs no command at all — the editor mirrors
+    // its register to the system clipboard — so this is the copy that can take a
+    // *selection*, and the one that says out loud what went. The key, the leader
+    // chord and the four `:` words are one command, one handler, one id.
     Command {
         id: "clipboard.copy",
-        label: "Copy the selection to the clipboard",
-        keys: "ctrl-shift-c",
-        ex: &[],
+        label: "Copy the selection, or the last yank, to the clipboard",
+        keys: "ctrl-shift-c, space y",
+        ex: &["y", "yank", "clip", "copy"],
         args: "",
         in_palette: true,
         action: Some(|| Box::new(CopyText)),
@@ -480,15 +484,6 @@ const ALL: &[Command] = &[
         args: "",
         in_palette: true,
         action: Some(|| Box::new(PasteText)),
-    },
-    Command {
-        id: "clipboard.yank",
-        label: "Copy the selection, or the last yank, to the clipboard",
-        keys: "space y",
-        ex: &["y", "yank", "clip", "copy"],
-        args: "",
-        in_palette: true,
-        action: Some(|| Box::new(YankClipboard)),
     },
     Command {
         id: "vault.wordcount",

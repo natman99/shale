@@ -233,6 +233,45 @@ fn yank_mirrors_to_the_system_clipboard(cx: &mut TestAppContext) {
     );
 }
 
+/// `ctrl-shift-c` and `space y` are one command: the same handler, the same report,
+/// and the same rule about what gets copied — the selection when there is one, the
+/// last yank when there is not.
+#[gpui::test]
+fn the_key_and_the_chord_are_the_same_copy(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("a.md", "first line\nsecond line\n")]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(cx, &window);
+
+    cx.simulate_keystrokes("escape g g v l l ctrl-shift-c");
+    assert_eq!(
+        cx.read_from_clipboard()
+            .and_then(|item| item.text())
+            .as_deref(),
+        Some("fir"),
+        "a visual selection goes out, not the register"
+    );
+    assert_eq!(
+        status(&window, cx),
+        "copied 3 chars to the clipboard",
+        "with the report the mirror never makes"
+    );
+
+    // With nothing selected it is the last yank, which is also the way back when
+    // another program has taken the clipboard since: the report is how the user
+    // learns which of the two went.
+    cx.simulate_keystrokes("escape g g y y");
+    cx.write_to_clipboard(gpui::ClipboardItem::new_string("someone else's\n".into()));
+    cx.simulate_keystrokes("ctrl-shift-c");
+    assert_eq!(
+        cx.read_from_clipboard()
+            .and_then(|item| item.text())
+            .as_deref(),
+        Some("first line\n"),
+        "the register, pushed back out"
+    );
+    assert_eq!(status(&window, cx), "copied 11 chars to the clipboard");
+}
+
 /// The mirror, in: a copy made in another program is what `p` pastes, even when
 /// Shale yanked something more recently.
 #[gpui::test]
