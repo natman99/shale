@@ -671,15 +671,12 @@ impl Render for Workspace {
             // about the whole note and is left alone, and the note never shifts once
             // the strip is up: the strip is `flex_none`, and the note column above it
             // takes what is left.
+            //
+            // It carries no border of its own any more. The strip is raised
+            // (`design-language.md` §5) and draws its own `popup_border` on all four
+            // sides, so a rule here would be a second line one pixel below the first.
             .when(self.review_active(cx), |d| {
-                d.child(
-                    div()
-                        .flex_none()
-                        .w_full()
-                        .border_t_1()
-                        .border_color(gpui::rgb(self.palette.ui_border))
-                        .child(self.review.clone()),
-                )
+                d.child(div().flex_none().w_full().child(self.review.clone()))
             })
             .when_some(popup, |d, (popup, bounds)| {
                 // `anchored` paints at a window coordinate rather than in the

@@ -122,6 +122,47 @@ fn a_queued_proposal_shows_a_row(cx: &mut TestAppContext) {
     );
 }
 
+/// The strip is **raised**, not more chrome (`design-language.md` §5): it paints the
+/// raised pair — `popup_bg` behind it and `popup_border` ruling it — rather than the
+/// status bar's background, which is what used to make it read as a second status bar
+/// sitting under a note it had just been asked about. Pinned here because nothing else in
+/// the suite looks at the strip's colours, and §5 is a rule rather than a preference.
+#[gpui::test]
+fn the_review_strip_paints_the_raised_pair(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = one_proposal(cx);
+    // The first frame has no measured size yet, so paint more than once.
+    for _ in 0..3 {
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+    }
+    let (want_bg, want_border) = window
+        .update(&mut cx, |ws, _window, _cx| {
+            (
+                gpui::Hsla::from(gpui::rgb(ws.palette().popup_bg)),
+                gpui::Hsla::from(gpui::rgb(ws.palette().popup_border)),
+            )
+        })
+        .unwrap();
+    let same = |a: gpui::Hsla, b: gpui::Hsla| {
+        (a.h - b.h).abs() < 0.001 && (a.s - b.s).abs() < 0.001 && (a.l - b.l).abs() < 0.001
+    };
+    let quads = window
+        .update(&mut cx, |_ws, window, _cx| window.painted_quads())
+        .unwrap();
+    assert!(
+        quads
+            .iter()
+            .any(|quad| quad.background.as_solid().is_some_and(|c| same(c, want_bg))),
+        "the strip is painted on `popup_bg`"
+    );
+    assert!(
+        quads
+            .iter()
+            .any(|quad| quad.border_widths.top.as_f32() > 0.0
+                && same(quad.border_color, want_border)),
+        "the strip rules itself with `popup_border`"
+    );
+}
+
 /// `:review` gives the strip the keyboard, which is what the quit prompt points at.
 #[gpui::test]
 fn review_takes_the_keyboard_and_escape_gives_it_back(cx: &mut TestAppContext) {

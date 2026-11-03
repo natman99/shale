@@ -292,8 +292,12 @@ impl Render for Review {
                         )
                     })
                     .when(is_marked, |d| d.bg(gpui::rgb(palette.ui_active_bg)))
+                    // A raised panel's row takes the popup's hover role, not the
+                    // chrome's: the highlight sits on `popup_bg`, and a `ui_*`
+                    // highlight is tuned against `ui_bg` (`design-language.md` §5).
+                    // This is the same ruling the picker's rows follow.
                     .when(!is_marked, |d| {
-                        d.hover(|s| s.bg(gpui::rgb(palette.ui_hover_bg)))
+                        d.hover(|s| s.bg(gpui::rgb(palette.popup_hover_bg)))
                     })
                     // A marked row is a chip, as a file-tree row and a picker row
                     // are: the strip pads its rows, so the corner shows against the
@@ -317,7 +321,16 @@ impl Render for Review {
             .px(PAD)
             .py(PAD)
             .text_size(crate::style::TEXT_XS)
-            .bg(gpui::rgb(palette.ui_status_bg))
+            // The strip is raised, not more chrome. It asks for a decision and it is the
+            // only thing on screen that does, so it takes the raised triple -- `popup_bg`
+            // and `popup_border`, with the corner every other raised panel is drawn with
+            // (`design-language.md` §5). It used to be `ui_status_bg` with no border of
+            // its own, which made it read as a second status bar rather than as a thing
+            // to answer.
+            .bg(gpui::rgb(palette.popup_bg))
+            .border_1()
+            .border_color(gpui::rgb(palette.popup_border))
+            .rounded(crate::style::CHIP_RADIUS)
             .text_color(gpui::rgb(palette.ui_fg))
             .child(
                 div()

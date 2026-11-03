@@ -108,11 +108,16 @@ exactly three tools, in this combination:
 Every floating thing uses the raised triple identically. No new elevation
 level without amending this section.
 
-**⏳ Two surfaces do not obey it yet, and neither is a one-line fix.** The picker's panel is
-`ui_bg` + `ui_border`; the review strip is `ui_status_bg` with no border. Both are listed above
-as raised. Moving the picker means moving the §10 floors too, because the contrast table judges
-`match_text` against `ui_bg` and `ui_active_bg` *as the picker's rows* — so this needs a ruling
-about whether the picker is raised or chrome, not a sweep.
+**Closed 2026-11-03.** Both surfaces that were listed here as disobeying now obey. The
+picker's panel is `popup_bg` + `popup_border` (`b7fd9da`), and the review strip is too: it was
+`ui_status_bg` with no border of its own, which made it read as a second status bar rather than
+as the one thing on screen asking for a decision. Its rows moved to `popup_hover_bg` with it, the
+same ruling the picker's rows follow — a raised panel's row is judged against the panel, not the
+window. The §10 floors already covered the pair (`a panel row's text` and `a panel row's path`
+against `popup_bg`), so no contrast table moved. The strip is in-flow rather than anchored, so it
+takes the border and the bg-shift; the dim step of the triple is about content behind a floating
+panel and does not apply to a bar that pushes the note up. A paint test pins the pair, because
+nothing else in the suite looked at the strip's colours and §5 is a rule rather than a preference.
 
 ## 6. Type — the note's scale exists; the chrome's is now shared
 
@@ -190,7 +195,8 @@ them and the tabs obey §4 instead), and §8's drawn marks.
 `ui_tab_bg` / `ui_tab_active_bg` instead of leaving the roles reserved (`b7fd9da`). Retuning
 Solarized to clear the two new floors turned into a correction: a light Solarized's `ui_dim`
 was `#93a1a1`, which in that variant is the family's *background* grey, not its quiet-content
-one. The review strip's elevation and §8's drawn marks are still open.
+one. **The review strip's elevation is closed too** (§5); §8's drawn marks and §9's key-chips
+are what is left open.
 
 1. **Palette roles** (§1) + built-in values + TOML fallbacks — unblocks
    P2.5a's colors; small, core-side.
