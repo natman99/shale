@@ -656,9 +656,16 @@ entity), cx)` while painting the current frame. Forget it and every character
 - **Every scene primitive pays a bounds-tree search for its draw order, and it is not
   linear.** `Scene::insert_primitive` → `primitive_bounds.insert(…)`; measured 2.4 µs each at
   ~4800 primitives where 1150 cost 1.6 µs each. `Window::paint_layer(bounds, …)` replaces the
-  whole batch's worth of searching with one insert and keeps insertion order inside the layer
-  (gpui's sort by draw order is stable). Fewer primitives is not the only lever — batching
-  them into one layer is the bigger one. Thread 42.
+  whole batch's worth of searching with one insert. Fewer primitives is not the only lever —
+  batching them into one layer is the bigger one. Thread 42.
+- **…but a layer is a *shared* draw order, and gpui breaks draw-order ties by primitive kind.**
+  `BatchIterator` sequences the scene by `(order, kind)`, and `PrimitiveKind` runs Shadow,
+  Quad, Path, Underline, Sprites, Surface — so inside one layer **every quad is drawn before
+  every path**, whatever order they were painted in. Wrapping a whole view in a single
+  `paint_layer` reorders it by type: that is how the graph's links (paths) came to be drawn on
+  top of its nodes (quads), covering them. Use one layer **per phase**, in the order you want
+  them stacked — each layer overlaps the last, so `BoundsTree::insert` hands them increasing
+  orders. Pinned by `layers_are_painted_in_the_order_they_were_opened`. Thread 42.
 
 ### Testing
 
@@ -3984,10 +3991,25 @@ Next steps, roughly in order:
       `bounds_tree.rs:120` `find_max_ordering`), and that search is **not linear in the
       primitive count**: 4768 discs cost 11.6 ms of it (2.4 µs each) where 1151 of the same
       discs cost 1.9 ms. `paint_layer(bounds, …)` is gpui's own way of saying "this batch
-      shares a draw order" — one insert for the pane, and `Scene::finish`'s `sort_by_key` is
-      stable, so insertion order inside the layer is kept: links under nodes under labels,
-      hover ring under the chosen node's fill. Nothing in the graph tab paints over the
-      canvas, so sharing one order costs nothing today.
+      shares a draw order" — one insert instead of a batch's worth of searching.
+    - **…and the first version of it was a bug, because of what "shares a draw order" means.**
+      The claim above — that `Scene::finish`'s stable `sort_by_key` keeps insertion order inside
+      a layer — is true of the *arrays*, and useless: what actually sequences the frame is
+      `BatchIterator` (`scene.rs:288`), which sorts the heads of the eight primitive arrays by
+      **`(order, kind)`**. Give a whole view one order and the kind breaks the tie, and
+      `PrimitiveKind` runs Shadow, Quad, Path, Underline, Sprites, Surface — so every link (a
+      path) was drawn on top of every node (a quad), covering the nodes they hang off. It only
+      surfaced now because before the batching fix a whole-vault view had **no links drawn at
+      all** (the vertex ceiling), so there was nothing to be on top of. The fix is one layer
+      **per phase** — links, the chosen node's links, nodes, labels — which costs four inserts
+      a frame instead of one (measured: 3.33 ms against 3.18 at whole-vault zoom; nothing) and
+      gets increasing orders, because each layer's bounds overlap the last and
+      `BoundsTree::insert` answers max-intersecting-order + 1. Inside the nodes layer the hover
+      ring and the fills are all quads, so insertion order does hold there and the ring stays
+      under the fill. Pinned by `layers_are_painted_in_the_order_they_were_opened`, which paints
+      two quads in one layer, one in a later layer, one in none, and asserts the orders come out
+      in that sequence — paths are not in `painted_quads()`, so the mechanism is what can be
+      tested rather than the graph's own stacking.
     - **Hand-tessellated links.** A butt-capped straight segment *is* a quad; lyon's stroke
       tessellator runs a sweep line over the whole path to discover that (0.45 µs a segment,
       18843 of them). `PathBuilder::build_path` is public and is the very function gpui's

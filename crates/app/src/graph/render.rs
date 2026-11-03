@@ -101,15 +101,6 @@ pub(crate) struct Look {
 /// window-absolute pixels and the graph is routinely larger than its pane, so a link whose
 /// ends are outside the pane used to be painted anyway — across the file tree and the tab
 /// bar, which is what it looks like for a graph to bleed out of its pane.
-///
-/// And everything is painted inside one [`Window::paint_layer`], which is gpui's way of
-/// being told that a batch of geometry shares a draw order: it replaces the bounds-tree
-/// search each primitive otherwise pays for its draw order with one insert for the pane.
-/// On the 5k vault that is 14.8 ms a frame at whole-vault zoom turned into 3.2, because the
-/// search is not free and it is not even linear — 4768 discs cost 11.6 ms of it, 2.4 µs
-/// each, while 1151 of the same discs cost 1.9 ms. Inside the layer the primitives keep
-/// their insertion order (gpui's sort by draw order is stable), so links are still under
-/// nodes and nodes are still under labels.
 pub(crate) fn paint_graph(
     bounds: Bounds<Pixels>,
     camera: Camera,
@@ -119,16 +110,27 @@ pub(crate) fn paint_graph(
     cx: &mut App,
 ) {
     window.with_content_mask(Some(ContentMask { bounds }), |window| {
-        window.paint_layer(bounds, |window| {
-            paint_frame(bounds, camera, frame, look, window, cx);
-        });
+        paint_frame(bounds, camera, frame, look, window, cx);
     });
 }
 
-/// The body of [`paint_graph`], with the clip in place: work out what the canvas can see,
-/// then draw links, nodes, labels, in that order. Split out so the phases can be timed
-/// against each other, and so the clip is something the caller does once rather than
-/// something every phase has to remember.
+/// The body of [`paint_graph`], behind the clip: work out what the canvas can see, then draw
+/// links, the chosen node's links, nodes, labels — **each phase in its own
+/// [`Window::paint_layer`]**.
+///
+/// The layer is what makes a big vault affordable. gpui gives every primitive a draw order by
+/// searching the scene's bounds tree, that search is not linear in the primitive count, and a
+/// layer replaces a whole phase's worth of searching with one insert: on the 5k vault, 14.8 ms
+/// a frame at whole-vault zoom turned into 3.2, with 4768 discs costing 11.6 ms of searching
+/// (2.4 µs each) where 1151 of the same discs cost 1.9 ms.
+///
+/// **One layer per phase, never one for the whole canvas**, because of how the scene reaches
+/// the GPU: `BatchIterator` orders primitives by `(order, kind)`, so when everything shares a
+/// single order the *kind* breaks the tie — and `PrimitiveKind` puts every quad before every
+/// path. One layer over the graph drew every link on top of every node, links covering the
+/// nodes they hang off. Separate layers get increasing orders (each overlaps the last, and
+/// `BoundsTree::insert` answers max-intersecting-order + 1), so links stay under nodes stay
+/// under labels, for four inserts a frame instead of one.
 pub(crate) fn paint_frame(
     bounds: Bounds<Pixels>,
     camera: Camera,
@@ -140,19 +142,27 @@ pub(crate) fn paint_frame(
     let palette = look.palette.as_ref();
     let view = Viewport::new(bounds, &camera);
 
-    paint_links(frame, &camera, &view, palette.graph_edge, window);
+    window.paint_layer(bounds, |window| {
+        paint_links(frame, &camera, &view, palette.graph_edge, window);
+    });
     if let Some(slot) = look.hover {
-        paint_hover_links(
-            frame,
-            &camera,
-            &view,
-            slot,
-            palette.graph_node_active,
-            window,
-        );
+        window.paint_layer(bounds, |window| {
+            paint_hover_links(
+                frame,
+                &camera,
+                &view,
+                slot,
+                palette.graph_node_active,
+                window,
+            );
+        });
     }
-    paint_nodes(frame, &camera, &view, palette, look.hover, window);
-    paint_labels(frame, &camera, &view, &look.labels, palette, window, cx);
+    window.paint_layer(bounds, |window| {
+        paint_nodes(frame, &camera, &view, palette, look.hover, window);
+    });
+    window.paint_layer(bounds, |window| {
+        paint_labels(frame, &camera, &view, &look.labels, palette, window, cx);
+    });
 }
 
 /// The world rectangle the canvas can see. Everything outside it is skipped, and at a few

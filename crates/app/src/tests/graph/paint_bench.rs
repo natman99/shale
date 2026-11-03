@@ -27,8 +27,8 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use gpui::{
-    canvas, div, point, prelude::*, px, Context, Font, IntoElement, PathBuilder, Render,
-    TestAppContext, VisualTestContext, Window, WindowHandle,
+    canvas, div, point, prelude::*, px, Bounds, Context, Font, IntoElement, PathBuilder, Pixels,
+    Render, TestAppContext, VisualTestContext, Window, WindowHandle,
 };
 use shale_core::graph::{geom::Camera, GraphIndex, NodeKind};
 use shale_core::theme::Palette;
@@ -64,10 +64,11 @@ const LINKS: usize = 1;
 const HOVER_LINKS: usize = 2;
 const NODES: usize = 4;
 const LABELS: usize = 8;
-/// The same frame with every paint call inside one `Window::paint_layer`, which is gpui's
-/// way of saying "these primitives share a draw order": it replaces the per-primitive
-/// bounds-tree insert with one insert for the batch. The only difference between this row
-/// and `whole` is how the scene is charged for the drawing.
+/// The same frame with each phase inside its own `Window::paint_layer`, which is what the
+/// renderer does: it replaces the per-primitive bounds-tree search with one insert per phase.
+/// The only difference between this row and `whole` is how the scene is charged for the
+/// drawing — and one layer for the whole canvas is **not** this: gpui breaks a shared draw
+/// order by primitive kind, so links would cover nodes.
 const LAYER: usize = 16;
 /// The nodes as one filled path per colour rather than one quad per node.
 const NODES_PATH: usize = 32;
@@ -180,12 +181,15 @@ impl Render for PaintBench {
                             .count();
                         *counts.borrow_mut() = (nodes, links);
                     }
-                    let mut paint = |window: &mut Window| {
-                        let view = Viewport::new(bounds, &camera);
-                        if phases & LINKS != 0 {
+                    let layered = phases & LAYER != 0;
+                    let view = Viewport::new(bounds, &camera);
+                    if phases & LINKS != 0 {
+                        phase(window, bounds, layered, |window| {
                             paint_links(&paint_frame, &camera, &view, palette.graph_edge, window);
-                        }
-                        if phases & LYON_LINKS != 0 {
+                        });
+                    }
+                    if phases & LYON_LINKS != 0 {
+                        phase(window, bounds, layered, |window| {
                             paint_links_lyon(
                                 &paint_frame,
                                 &camera,
@@ -193,11 +197,13 @@ impl Render for PaintBench {
                                 palette.graph_edge,
                                 window,
                             );
-                        }
-                        if phases & HOVER_LINKS != 0 {
-                            // The middle node stands in for a hub: the pass is over the whole
-                            // edge list either way, and that is what costs.
-                            let slot = paint_frame.nodes.len() / 2;
+                        });
+                    }
+                    if phases & HOVER_LINKS != 0 {
+                        // The middle node stands in for a hub: the pass is over the whole
+                        // edge list either way, and that is what costs.
+                        let slot = paint_frame.nodes.len() / 2;
+                        phase(window, bounds, layered, |window| {
                             paint_hover_links(
                                 &paint_frame,
                                 &camera,
@@ -206,8 +212,10 @@ impl Render for PaintBench {
                                 palette.graph_node_active,
                                 window,
                             );
-                        }
-                        if phases & NODES != 0 {
+                        });
+                    }
+                    if phases & NODES != 0 {
+                        phase(window, bounds, layered, |window| {
                             paint_nodes(
                                 &paint_frame,
                                 &camera,
@@ -216,8 +224,10 @@ impl Render for PaintBench {
                                 None,
                                 window,
                             );
-                        }
-                        if phases & NODES_PATH != 0 {
+                        });
+                    }
+                    if phases & NODES_PATH != 0 {
+                        phase(window, bounds, layered, |window| {
                             paint_nodes_path(
                                 &paint_frame,
                                 &camera,
@@ -225,8 +235,10 @@ impl Render for PaintBench {
                                 palette.as_ref(),
                                 window,
                             );
-                        }
-                        if phases & LABELS != 0 {
+                        });
+                    }
+                    if phases & LABELS != 0 {
+                        phase(window, bounds, layered, |window| {
                             paint_labels(
                                 &paint_frame,
                                 &camera,
@@ -236,12 +248,7 @@ impl Render for PaintBench {
                                 window,
                                 cx,
                             );
-                        }
-                    };
-                    if phases & LAYER != 0 {
-                        window.paint_layer(bounds, paint);
-                    } else {
-                        paint(window);
+                        });
                     }
                 },
             )
@@ -254,6 +261,25 @@ impl Render for PaintBench {
 }
 
 // ----- the measurement ------------------------------------------------------
+
+/// Runs one phase, in a [`gpui::Window::paint_layer`] of its own when the row asked for one.
+///
+/// Per phase, never one layer over the canvas: gpui orders the scene by `(order, kind)`, so
+/// primitives sharing one draw order are sequenced by *kind* — every quad before every path —
+/// and a single layer over the graph put every link on top of every node. The renderer layers
+/// every frame now; the unlayered row stays so the cost of the layers is still measurable.
+fn phase(
+    window: &mut Window,
+    bounds: Bounds<Pixels>,
+    layered: bool,
+    paint: impl FnOnce(&mut Window),
+) {
+    if layered {
+        window.paint_layer(bounds, |window| paint(window));
+    } else {
+        paint(window);
+    }
+}
 
 /// A settled layout over the vault at `root`, built the way the tab builds it: index, sim,
 /// driven to rest, then the frame the tab would be handed.
@@ -380,6 +406,81 @@ fn fixture(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../examples/graph")
         .join(name)
+}
+
+// ----- the mechanism the layering rests on ----------------------------------
+
+/// A view that paints four quads: two in one layer, one in a layer opened afterwards, and one
+/// with no layer at all.
+struct LayerProbe;
+
+impl Render for LayerProbe {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        div().size_full().child(
+            canvas(
+                move |bounds, _window, _cx| bounds,
+                move |bounds, _prepaint, window, _cx| {
+                    let quad = |color: u32| {
+                        gpui::fill(
+                            Bounds {
+                                origin: bounds.origin,
+                                size: bounds.size,
+                            },
+                            gpui::rgb(color),
+                        )
+                    };
+                    window.paint_layer(bounds, |window| {
+                        window.paint_quad(quad(0x00_00_11));
+                        window.paint_quad(quad(0x00_00_12));
+                    });
+                    window.paint_layer(bounds, |window| window.paint_quad(quad(0x00_00_21)));
+                    window.paint_quad(quad(0x00_00_31));
+                },
+            )
+            .size_full(),
+        )
+    }
+}
+
+/// **Why the renderer opens a layer per phase instead of one over the canvas.**
+///
+/// gpui sequences the scene by `(order, kind)` (`Scene::batches` → `BatchIterator`), so
+/// primitives that share a draw order are drawn grouped by kind — every quad before every
+/// path. One layer over the whole graph therefore drew every link (a path) on top of every
+/// node (a quad): links covering the nodes they hang off. Layers opened in sequence get
+/// increasing orders, because each one's bounds overlap the last and `BoundsTree::insert`
+/// answers max-intersecting-order + 1 — which is the contract the per-phase layering depends
+/// on, and gpui's own kind tiebreak is the reason it matters.
+#[gpui::test]
+fn layers_are_painted_in_the_order_they_were_opened(cx: &mut TestAppContext) {
+    let window = cx.add_window(|_window, _cx| LayerProbe);
+    let mut visual = VisualTestContext::from_window(window.into(), cx);
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+
+    let painted = visual.update(|window, _cx| window.painted_quads());
+    let order_of = |color: u32| {
+        let wanted = gpui::Background::from(gpui::rgb(color));
+        painted
+            .iter()
+            .find(|quad| quad.background == wanted)
+            .unwrap_or_else(|| panic!("the {color:#06x} quad was not painted"))
+            .order
+    };
+
+    assert_eq!(
+        order_of(0x00_00_11),
+        order_of(0x00_00_12),
+        "quads inside one layer share its order, which is why the kind tiebreak decides what \
+         lands on top of what when they do"
+    );
+    assert!(
+        order_of(0x00_00_11) < order_of(0x00_00_21),
+        "a layer opened later is drawn later"
+    );
+    assert!(
+        order_of(0x00_00_21) < order_of(0x00_00_31),
+        "and a primitive painted after both layers, in no layer of its own, is above them"
+    );
 }
 
 // ----- the alternatives the bench keeps honest -------------------------------
