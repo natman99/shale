@@ -311,31 +311,40 @@ fn pairs(p: &Palette) -> Vec<(&'static str, u32, &'static str, u32, f32)> {
             p.popup_hover_bg,
             3.5,
         ),
-        (
-            "text on the cursor's line",
-            p.fg,
-            "the cursor's line",
-            p.cursor_line_bg,
-            4.0,
-        ),
-        // A picker's rows are drawn on the window's background, and the
-        // highlighted one on `ui_active_bg`. Matched characters are short, so
-        // they get the floor for short text on an ordinary row and a lower one
-        // on the highlighted row, where the rest of the row is still body text
-        // at full contrast.
+        // A picker's rows are drawn on the panel, and the chosen one on the
+        // panel's hover role. Matched characters are short, so they get the floor
+        // for short text on an ordinary row and a lower one on the highlighted
+        // row, where the rest of the row is still body text at full contrast.
         (
             "a query's matched characters",
             p.match_text,
             "a picker row",
-            p.ui_bg,
+            p.popup_bg,
             3.0,
         ),
         (
             "a query's matched characters",
             p.match_text,
             "the chosen row",
-            p.ui_active_bg,
+            p.popup_hover_bg,
             2.5,
+        ),
+        // The row's path, the panel's label and its footer are all the quiet
+        // colour, now drawn on the raised panel rather than on the window.
+        ("a panel row's path", p.ui_dim, "the panel", p.popup_bg, 2.0),
+        (
+            "a tab's label",
+            p.ui_dim,
+            "an inactive tab",
+            p.ui_tab_bg,
+            2.0,
+        ),
+        (
+            "text on the cursor's line",
+            p.fg,
+            "the cursor's line",
+            p.cursor_line_bg,
+            4.0,
         ),
     ]
 }

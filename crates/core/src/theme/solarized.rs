@@ -66,7 +66,7 @@ pub const DARK: Palette = Palette {
     ui_hover_bg: 0x1b444f,  // base01 #586e75 at 25% over #073642
     ui_active_bg: 0x30525c, // base01 #586e75 at 50% over #073642
     ui_field_bg: 0x002b36,
-    ui_tab_bg: 0x1b444f,        // base01 #586e75 at 25% over #073642
+    ui_tab_bg: 0x17414c,        // base01 #586e75 at 20% over #073642
     ui_tab_active_bg: 0x234a54, // base01 #586e75 at 35% over #073642
     popup_bg: 0x073642,
     popup_border: 0x586e75,
@@ -129,8 +129,13 @@ pub const LIGHT: Palette = Palette {
     callout_bg: 0xd3d3c5,      // base1 #93a1a1 at 30% over #eee8d5
     ui_bg: 0xeee8d5,
     ui_fg: 0x073642,
-    ui_dim: 0x93a1a1,
-    // base01: the family has one grey, so a disabled control is as quiet as a label
+    // base01. The family mirrors: in a light Solarized the greys swap roles, so
+    // #93a1a1 (base1) is a *background* colour and #586e75 is the quiet content
+    // one -- using base1 for hint text put it under the readability floor on
+    // every raised surface.
+    ui_dim: 0x586e75,
+    // base1: the family's lightest grey, so a disabled control is quieter than a
+    // label, which is the whole point of the role.
     ui_disabled: 0x93a1a1,
     ui_status_bg: 0xfdf6e3,
     ui_border: 0x93a1a1,
@@ -142,7 +147,7 @@ pub const LIGHT: Palette = Palette {
     ui_tab_active_bg: 0xaab1aa, // base01 #586e75 at 45% over #eee8d5
     popup_bg: 0xdcd9c9,         // base01 #586e75 at 12% over #eee8d5
     popup_border: 0x93a1a1,
-    popup_hover_bg: 0xbabdb3, // base01 #586e75 at 35% over #eee8d5
+    popup_hover_bg: 0xc1c3b8, // base01 #586e75 at 30% over #eee8d5
     graph_node: 0x268bd2,
     graph_node_active: 0xcb4b16,
     graph_edge: 0x93a1a1,

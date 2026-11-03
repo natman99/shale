@@ -498,8 +498,11 @@ impl<T: Clone + 'static> Render for Picker<T> {
                     .px_1()
                     .py_0p5()
                     .rounded(CHIP_RADIUS)
+                    // A raised panel's row takes the popup's hover role, not the
+                    // chrome's: the highlight sits on `popup_bg`, and a `ui_*`
+                    // highlight is tuned against `ui_bg` (`design-language.md` §5).
                     .when(n == self.selected, |d| {
-                        d.bg(gpui::rgb(palette.ui_active_bg))
+                        d.bg(gpui::rgb(palette.popup_hover_bg))
                     })
                     .child(StyledText::new(item.label.clone()).with_runs(runs(
                         item.label.as_str(),
@@ -577,14 +580,16 @@ impl<T: Clone + 'static> Render for Picker<T> {
                 cx.emit(PickerEvent::Highlight);
             }))
             .border_1()
-            .border_color(gpui::rgb(palette.ui_border))
+            .border_color(gpui::rgb(palette.popup_border))
             // The same corner as every other chip in the window. gpui draws the
             // border with it, so the panel's outline stays one shape.
             .rounded(CHIP_RADIUS)
             // Opaque, because the picker *overlays* the note: a panel that lets
             // the text through is unreadable, which is the price of not pushing
-            // the note down.
-            .bg(gpui::rgb(palette.ui_bg))
+            // the note down. It is raised, so it takes the popup pair rather than
+            // the chrome pair: the panel must read as being above the note, not as
+            // more of the same surface (`design-language.md` §5).
+            .bg(gpui::rgb(palette.popup_bg))
             .child(
                 div()
                     .text_size(crate::style::TEXT_XS)

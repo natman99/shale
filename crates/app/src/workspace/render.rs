@@ -242,7 +242,12 @@ impl Render for Workspace {
                                 close.update(cx, |ws, cx| ws.click_tab_close(id, window, cx));
                             }),
                     )
-                    .when(active, |d| d.bg(gpui::rgb(self.palette.ui_active_bg)))
+                    // The tab bar's own pair: an inactive tab is a raised chip on
+                    // the bar, the open one is the chip that is connected to the
+                    // surface below it. They were unpainted before, which left the
+                    // roles reserved but unused (`design-language.md` §4).
+                    .bg(gpui::rgb(self.palette.ui_tab_bg))
+                    .when(active, |d| d.bg(gpui::rgb(self.palette.ui_tab_active_bg)))
                     .when(!active, |d| {
                         d.hover(|s| s.bg(gpui::rgb(self.palette.ui_hover_bg)))
                     })
