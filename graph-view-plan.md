@@ -280,13 +280,39 @@ canvas(
 
 Cull to viewport before painting; cap labels (300, degree-first). **Verify:** GPUI headless test (`gpui/src/test.rs`) opens the tab against a fixture vault, asserts frame paints and `painted_quads().len() == visible_nodes`.
 
+**Landed 2026-11-02, with three deliberate departures.** (1) **The sim is the
+window's, the view is a camera.** `Workspace.graph_sim` holds the one `GraphSim` and
+ships a `GraphFrame` snapshot to the tab (`graph/frame.rs`) on every change or tick;
+the snippet's view-owned camera and sim would give a second view of the same vault its
+own physics. Each sim slot carries the node's **identity string** (path, or `#tag` /
+`?ghost` + label) because `GraphIndex` rebuilds its arena on every structural change
+and iterates a `HashMap` while doing it — positions are carried across a rebuild by
+identity, and "did the graph change?" compares sorted identity sets, so a prose edit
+that changes no links moves nothing and does not re-heat. (2) **The camera is
+user-set-only, and until then every frame re-fits.** Pinning the camera to the first
+fit — what the snippet implies — was a real bug: the fit is taken against the
+pre-settle spiral, and the settled graph ended up off screen. `GraphView.camera` is
+`Option`, `None` means "keep framing the whole graph" (`Camera::fit`, 24 px margin),
+and a user camera (session restore now, drag/wheel in Task 7) ends the fitting. (3)
+**No sim thread yet**: one gpui task on a 16 ms timer, two ticks per beat, which ends
+itself when the sim settles or the tab closes (the idle contract — a settled graph
+draws zero frames), and tests drive the layout synchronously through `settle_graph`.
+Labels are capped at 300 highest-degree-first and fade in over zoom 0.45→0.85; links
+are one stroked path for the whole frame, never thinner than 0.5 px. The headless
+assertion is *not* `painted_quads().len() == visible_nodes` — the window paints its
+chrome too, and in `mocha` `tag == graph_node`, so the tests count discs
+geometrically and check colour membership as a set (quads come back in ScaledPixels,
+and the test scale factor is 2). Task 8's filter state goes in **`session.json`, not
+`[graph]` in the config**: a view the user never chose to persist is not a setting,
+which is the same ruling that put the camera in the session.
+
 ### Task 7: Interactions
 
 Wheel zoom anchored at cursor (`world = (screen - pan)/zoom`, adjust pan to keep the point under the cursor fixed); left-drag on background = pan; left-drag on node = pin+drag (node's position follows, sim re-heats, release unpins unless Shift-pinned); click = open note in a file tab; hover = set hover index (spatial grid hit-test), `cx.notify()`; right-click = context menu via existing popup machinery (`workspace/popups.rs`). Keyboard context `graph`: `+`/`-`/arrows/Shift/`Enter`/`Escape` per spec. **Verify:** headless tests for zoom-anchor math and hit-test; manual eyeball on niri (ask the user — no screenshot tool).
 
 ### Task 8: Filter panel
 
-Small popover (reuse popup styling) with the four v1 toggles + a fuzzy search line (reuse `picker.rs` input). Changes flip the bitmask and re-heat. Persist filter state in the TOML config under `[graph]`. **Verify:** toggling orphans off removes degree-0 quads (headless quad count).
+Small popover (reuse popup styling) with the four v1 toggles + a fuzzy search line (reuse `picker.rs` input). Changes flip the bitmask and re-heat. Persist filter state in **`session.json`** beside the camera (see Task 6's landed note — not `[graph]` in the config). **Verify:** toggling orphans off removes degree-0 quads (headless quad count).
 
 ## Milestones M2–M4 (later, in order)
 

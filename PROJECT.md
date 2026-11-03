@@ -482,13 +482,18 @@ Workspace layout:
   a tab holds a `TabContent` — a note or the graph — so `editor()` is optional,
   `note_editor()` is the door a note-requiring command goes through, and the
   most-recently-used note tab is where a note goes when the graph is on screen),
+  `notes.rs` (opening a note into a tab and writing it back: the find-or-open rule,
+  the jump record, the save, and the per-tab autosave countdown),
   `render.rs` the frame, `testhooks.rs` the accessors only the tests call),
   `tree.rs` (turning the vault's entries
   into rows), `views.rs` (the three views, focus mode and typewriter scroll),
   `graph/` (roadmap P3.4: `mod.rs` the `GraphView` entity — a focus handle with a
-  `graph` keymap context, the palette it paints with, and the vault's `GraphSummary`
-  counts the tab shows until the canvas lands — plus the `stat` chip that draws one
-  count) and
+  `graph` keymap context, the palette it paints with, the counts row, and the camera
+  that is either the user's or a fresh fit of the whole graph; `frame.rs` the owned
+  snapshot the window ships to the tab; `sim.rs` the window's one force simulation
+  and the identity-keyed slot map that carries a layout across an arena rebuild;
+  `render.rs` the raw paint pass — links, node discs, labels — the only place in
+  Shale that draws with the paint API instead of laying out divs) and
   its headless tests in `tests/` (`keys.rs`, `motions.rs`,
   `blocks.rs`, `paint.rs`, `tree.rs`, `picker.rs`, `commands.rs`, `search.rs`,
   `autosave.rs`, `exit.rs`, `session.rs`, `spell.rs`, `focus.rs`, `tabs.rs` (the
@@ -497,7 +502,10 @@ Workspace layout:
   note that is not on screen), `graph.rs` (the graph tab: `space g` opening it, one
   tab per window, `escape` going back to the note, the bar reporting no note state
   over it, a note opening without converting it, closing it leaving a place to write,
-  the counts row, the index following the vault, and a session reopening the tab),
+  the counts row, the index following the vault, and a session reopening the tab;
+  and the canvas: one dot per node, the layout settling and then the beat stopping,
+  a prose edit that changes no links moving nothing, a new link carrying the old
+  positions, and where the camera goes in and out of the session file),
   `live.rs` (the
   channel turned on: the lock it leaves, what the port answers about the note, and
   the beat that keeps it current), `review.rs` (the queue discovered at startup, the
@@ -2302,7 +2310,18 @@ Largest files now (2026-10-30, after Phase 0's module splits; what the DB spine
   seat, and the `Option` guards), so its checker half — the six methods that hand the
   note to the server and turn its answers into marks — moved to
   `workspace/checker.rs` **142**, leaving `mod.rs` at **989**: below where it started.
-  `editor/mod.rs` is still the one to watch.
+  **P3.4 Task 6 (2026-11-02):** new `graph/frame.rs` **55**, `graph/sim.rs` **234**,
+  `graph/render.rs` **196**; `graph/mod.rs` 162 → **295** (the camera and the canvas
+  element), `tests/graph.rs` 446 → **708**. Grown: `workspace/tabs.rs` 812 → **933**
+  (the sim, the beat, and the settle door the tests drive), `testhooks.rs` 304 →
+  **337**, `workspace/session.rs` 234 → **245**, `workspace/themes.rs` 176 → **194**,
+  core `session.rs` 213 → **234**.
+  `mod.rs` was back over the rule at **1003** — three fields is all it takes at that
+  size — so the note open/save half (`open_note`, `load_note`, `open_note_at`,
+  `follow_link`, `save`, `write_note`, `write_tab`, `queue_autosave`, `autosave`,
+  `autosave_all`) moved to `workspace/notes.rs` **262**, leaving `mod.rs` at **760**
+  with room for the graph's remaining tasks. `tabs.rs` at **933** is the next one to
+  watch, and `editor/mod.rs` is still the other at **993**.
 
 System dependency (Linux): `libxkbcommon-x11-devel` (plus fontconfig, freetype,
 x11, xcb, wayland dev packages) and a working Vulkan driver (the Linux renderer
@@ -3411,6 +3430,79 @@ Next steps, roughly in order:
       to store yet), the right-click menu (one popup slot, and the checker owns it),
       and DB-backed edge extraction. `Tab.path` becoming `Option` plus a `graph` flag
       is backwards compatible, so an old `session.json` still restores.
+
+35. **A layout that survives its own rebuild: the graph's sim, camera and beat** —
+    P3.4 Task 6 (2026-11-02).
+    - **The sim belongs to the window; the view is a camera.** `Workspace.graph_sim`
+      is the one `GraphSim` over the one `GraphIndex`, and `GraphView` holds no
+      physics at all — it is handed a `GraphFrame` (an owned snapshot of positions,
+      radii, kinds, labels and edges) whenever either moves. That is the integration
+      contract's rule, and it is what lets M5j's minimap or a local-graph view look at
+      *the same* positions instead of running a second simulation of one vault.
+    - **A sim slot is identified by a string, not an index.** `GraphIndex::set_note`
+      and `remove_note` **rebuild the arena**, and the rebuild iterates a `HashMap`,
+      so both the node numbering and the slot order can change while the vault stays
+      identical. Carrying positions by slot index would re-heat the whole layout on
+      every save. So each slot carries its node's identity (`key`: the path for a
+      note or attachment, `#label` / `?label` for a tag or ghost — the prefix is what
+      keeps a tag `idea` from matching a ghost `idea`), and positions are carried
+      across a rebuild **by that key**.
+    - **"Did the graph change?" is a set question.** The answer compares sorted node
+      identities and sorted endpoint-identity pairs (`canonical_links`), never
+      ordered lists. Three outcomes, and the difference is what the user sees: no
+      previous → full heat from the phyllotaxis spiral; **same shape** (a prose edit
+      that changes no links) → positions, velocities *and* heat copied over, so the
+      graph does not move at all; changed shape → survivors keep their positions and
+      the sim re-heats to `REHEAT` 0.3, enough for the new node to find a place
+      without the rest jumping. `an_edit_that_changes_no_links_leaves_the_layout_alone`
+      and `a_new_link_carries_the_old_positions` are the two tests that hold this.
+    - **The camera is *user-set or nothing*.** `GraphView.camera` is `Option` and
+      `None` means "keep framing the whole graph", so every frame re-fits
+      (`Camera::fit`, `FIT_MARGIN` 24 px) while the layout is still moving. Locking it
+      to the first fit was a real bug, caught by a paint test: the fit is taken
+      against the pre-settle spiral, so the settled graph ended up hanging off the
+      edge of the screen. A user camera (session restore now; drag and wheel in Task
+      7) ends the auto-fitting. The fit travels out through `pending_fit`, an
+      `Rc<RefCell<Option<Camera>>>`, because the paint phase cannot mutate the entity
+      it is painting; `camera()` reports the user's or that last fit, discarding a fit
+      whose `zoom` is `MIN_ZOOM` — that one came from a canvas with no size yet.
+    - **One task, and it stops itself.** `graph_beat` is a single gpui task
+      (`cx.spawn` + a `background_executor` timer, `TICK` 16 ms, `TICKS_PER_BEAT` 2 —
+      two so a first graph settles in a couple of seconds and still reads as motion).
+      It ends when `advance` reports the sim settled, and `graph_tick` ends it when no
+      graph tab exists. That is the idling rule: a settled graph with drift off must
+      draw **zero** frames, not one per tick. Tests never race the beat —
+      `settle_graph` and `stop_graph_beat` take it down and step the sim synchronously,
+      which is what makes the paint assertions exact.
+    - **Painting is the raw API, and three layout jobs come with it.** One
+      `PathBuilder::stroke` for every visible link (`LINK_WIDTH` 1.0 × zoom, never
+      under `LINK_MIN_PX` 0.5 px, since a thinner path flickers as the sim moves),
+      nodes grouped into colour runs by kind and drawn as rounded quads (an SDF
+      disc), labels capped at `LABEL_CAP` 300 highest-degree-first with an alpha ramp
+      over zoom 0.45→0.85 at 0.8× the note's text. Culling, colour runs and "what is
+      too small to draw" are the three things a layout pass would have done by hand
+      here.
+    - **Two test traps worth remembering.** `painted_quads()` come back in
+      *ScaledPixels* and the test window's scale factor is 2, so a 43.25 px disc is an
+      87×86 quad — geometric filters need ±1 for squareness and ±2 for radius against
+      half-width. And in the default `mocha` palette `tag == graph_node` and
+      `graph_text == ui_dim`, so counting quads by colour cannot tell node kinds
+      apart: count discs geometrically and assert colour *membership* as a set.
+    - **The app crate does not depend on petgraph.** Edges are enumerated with
+      `graph.edge_indices()` and `graph.edge_endpoints(e)` — inherent methods. The
+      friendlier `edge_references()` needs the `EdgeRef` trait in scope, and pulling
+      petgraph into the app to spell it would make the index stop being the only thing
+      that speaks it.
+    - **The camera is session state, not config** (`GraphSeat { pan, zoom }` beside
+      `Tab.camera`), which follows the rule that a view the user did not choose to
+      persist is not a setting. `Tab` and `TabState` lost `Eq` on the way, because a
+      camera carries `f32`.
+    - **Deferred on purpose:** the interactions (Task 7 — wheel zoom anchored at the
+      cursor, background pan, node drag-and-pin, click to open, hover), which is what
+      `GraphNode.path` exists for and why it is `#[allow(dead_code)]` until then; the
+      filter panel and colour-by-tag via `hues::TagHues` (Task 8, with the filter
+      going into the session file too); the `graph` keymap's own keys (`+`/`-`, `f`,
+      `Enter`); and the sim running on a thread rather than on the beat.
 
 ## Parked threads (agreed 2026-10-28; not being worked now)
 

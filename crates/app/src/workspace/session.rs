@@ -56,6 +56,7 @@ impl Workspace {
                 path: tab.path,
                 view: tab.view,
                 graph: tab.graph,
+                camera: tab.camera,
             })
             .collect();
         Session {
@@ -129,6 +130,16 @@ impl Workspace {
                     // and the one-per-window rule means a file that somehow names two
                     // graph tabs restores one.
                     self.open_graph(cx);
+                    // Where the user had left the view. Set before anything is painted,
+                    // so the first frame uses their camera rather than a fresh fit that
+                    // the next frame would have to undo.
+                    if let (Some(seat), Some(view)) = (tab.camera, self.graph_view().cloned()) {
+                        view.update(cx, |view, _cx| {
+                            view.set_camera(Some(shale_core::graph::geom::Camera::new(
+                                seat.pan, seat.zoom,
+                            )))
+                        });
+                    }
                     continue;
                 }
                 let Some(path) = tab.path.as_ref() else {

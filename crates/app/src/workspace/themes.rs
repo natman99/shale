@@ -159,13 +159,18 @@ impl Workspace {
     /// change the user can un-do by changing the tab.
     fn apply_palette(&mut self, palette: Rc<Palette>, cx: &mut Context<Self>) {
         self.palette = Rc::clone(&palette);
+        // The graph's labels are drawn in the note's face, so a theme that changes the
+        // font changes them with it.
+        let (family, size) = self.note_font(cx);
         for tab in self.tabs.iter() {
             match &tab.content {
                 TabContent::Note { editor, .. } => {
                     editor.update(cx, |editor, cx| editor.set_palette(Rc::clone(&palette), cx))
                 }
                 TabContent::Graph(view) => {
-                    view.update(cx, |view, cx| view.set_palette(Rc::clone(&palette), cx));
+                    view.update(cx, |view, cx| {
+                        view.set_appearance(Rc::clone(&palette), family.clone(), size, cx)
+                    });
                 }
             }
         }

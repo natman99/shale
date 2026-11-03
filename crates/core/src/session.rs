@@ -38,7 +38,7 @@ pub struct Jump {
 ///
 /// The view is per tab because a tab keeps its own: leaving one note in raw mode to
 /// read another in preview is the whole point of having both.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Tab {
     /// Vault-relative path of the note the tab holds. `None` for a tab that holds no
     /// note — the graph tab (roadmap P3.4). Optional rather than an empty path so a
@@ -53,6 +53,25 @@ pub struct Tab {
     /// [`Self::path`] is `None`.
     #[serde(default, skip_serializing_if = "is_false")]
     pub graph: bool,
+    /// Where the graph tab was looking (roadmap P3.4). `None` means "fit the whole
+    /// graph", which is also what a session written before a graph tab could be panned
+    /// restores to. Like the scroll position of a note, this is state the user chose in
+    /// a window, so it belongs here rather than in the config.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub camera: Option<GraphSeat>,
+}
+
+/// The graph tab's camera, as the session remembers it.
+///
+/// Three numbers, and no attempt at precision: `f32` is what the camera itself is
+/// made of, and a restored view that is a fraction of a pixel off is not a fact a
+/// person can notice.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct GraphSeat {
+    /// Screen px the world origin lands at.
+    pub pan: [f32; 2],
+    /// World units to screen px.
+    pub zoom: f32,
 }
 
 /// serde: a flag that is `false` is the default, so it does not belong in the file.
@@ -156,11 +175,13 @@ mod tests {
                     path: Some(PathBuf::from("Welcome.md")),
                     view: "live".into(),
                     graph: false,
+                    camera: None,
                 },
                 Tab {
                     path: Some(PathBuf::from("notes/idea.md")),
                     view: "raw".into(),
                     graph: false,
+                    camera: None,
                 },
             ],
             active_tab: Some(1),

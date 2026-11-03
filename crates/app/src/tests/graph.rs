@@ -404,11 +404,13 @@ fn a_session_reopens_the_graph_tab(cx: &mut TestAppContext) {
                 path: Some(PathBuf::from("a.md")),
                 view: "live".into(),
                 graph: false,
+                camera: None,
             },
             Tab {
                 path: None,
                 view: String::new(),
                 graph: true,
+                camera: None,
             },
         ],
         active_tab: Some(1),
@@ -443,4 +445,264 @@ fn a_session_reopens_the_graph_tab(cx: &mut TestAppContext) {
         Some(2),
         "from the notes on disk"
     );
+}
+
+// ----- Task 6: the canvas, and the layout under it -------------------------
+
+/// Drive the layout to rest and draw the frames it needs. The first frame of a window
+/// has no measured size yet — every paint test here has found that — so the camera's
+/// first fit is thrown away and the next one is the real thing.
+fn paint(cx: &mut VisualTestContext, window: &WindowHandle<Workspace>) {
+    window
+        .update(cx, |ws, _window, cx| ws.settle_graph(cx))
+        .unwrap();
+    for _ in 0..3 {
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+    }
+}
+
+/// The positions the graph tab is painting, in slot order. What they are is the sim's
+/// business; what matters here is whether they *moved*.
+fn positions(cx: &mut VisualTestContext, window: &WindowHandle<Workspace>) -> Vec<[f32; 2]> {
+    window
+        .update(cx, |ws, _window, cx| ws.graph_positions(cx))
+        .unwrap()
+}
+
+/// The round things the last frame painted. A quad that is square with its corners
+/// rounded to half its width is a disc, which is how a node is drawn — and the only
+/// discs in a window that is showing the graph are the graph's. The tolerances are
+/// loose because a painted quad is recorded in *scaled* pixels, which rounds: a node
+/// drawn 43.25 px wide at a 2x scale factor comes back as 87 by 86.
+fn circles(cx: &mut VisualTestContext, window: &WindowHandle<Workspace>) -> Vec<gpui::Quad> {
+    window
+        .update(cx, |_ws, window, _cx| {
+            window
+                .painted_quads()
+                .into_iter()
+                .filter(|quad| {
+                    let w = quad.bounds.size.width.as_f32();
+                    let h = quad.bounds.size.height.as_f32();
+                    w > 0.0
+                        && (w - h).abs() <= 1.0
+                        && (quad.corner_radii.top_left.as_f32() * 2.0 - w).abs() <= 2.0
+                })
+                .collect()
+        })
+        .unwrap()
+}
+
+/// How many of the painted discs were filled with one of `colors`.
+fn filled(quads: &[gpui::Quad], colors: &[u32]) -> usize {
+    let wanted: Vec<gpui::Background> = colors
+        .iter()
+        .map(|color| gpui::Background::from(gpui::rgb(*color)))
+        .collect();
+    quads
+        .iter()
+        .filter(|quad| wanted.contains(&quad.background))
+        .count()
+}
+
+/// The graph is drawn, not described: every node is a disc, and the kinds are told
+/// apart by colour — a tag takes the colour a `#tag` has in prose, and a link to a note
+/// that is not there is a dim disc rather than nothing at all.
+#[gpui::test]
+fn the_graph_paints_a_dot_for_every_node(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = linked_vault(cx);
+    cx.simulate_keystrokes("space g");
+    paint(&mut cx, &window);
+
+    let (node, tag, ghost) = window
+        .update(&mut cx, |ws, _window, _cx| ws.graph_colors())
+        .unwrap();
+    let painted = circles(&mut cx, &window);
+    assert_eq!(
+        painted.len(),
+        5,
+        "3 notes, 1 tag and 1 ghost, one disc each"
+    );
+    assert_eq!(
+        filled(&painted, &[ghost]),
+        1,
+        "the missing note is drawn dim rather than absent"
+    );
+    assert_eq!(
+        filled(&painted, &[node, tag]),
+        4,
+        "and the notes and the tag carry the graph's own colours"
+    );
+}
+
+/// The layout runs and then stops: a graph that never settles is a window that never
+/// stops asking for frames, which is the idling rule broken.
+#[gpui::test]
+fn the_layout_settles_and_then_stops(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = linked_vault(cx);
+    cx.simulate_keystrokes("space g");
+    assert!(
+        !window
+            .update(&mut cx, |ws, _window, _cx| ws.graph_settled())
+            .unwrap(),
+        "a fresh layout has work to do"
+    );
+    let before = positions(&mut cx, &window);
+    paint(&mut cx, &window);
+    let after = positions(&mut cx, &window);
+
+    assert_eq!(before.len(), 5, "3 notes, 1 tag, 1 ghost");
+    assert!(
+        before != after,
+        "the forces moved the nodes out of their starting spiral"
+    );
+    assert!(
+        window
+            .update(&mut cx, |ws, _window, _cx| ws.graph_settled())
+            .unwrap(),
+        "and the layout came to rest"
+    );
+}
+
+/// The rule that keeps a graph usable: typing a word in a note must not rearrange the
+/// picture. The index is rebuilt on every save and its arena indexes do not survive
+/// that, so the sim is re-slotted — and when the nodes and the links are the same, the
+/// layout is carried across untouched rather than re-heated.
+#[gpui::test]
+fn an_edit_that_changes_no_links_leaves_the_layout_alone(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = linked_vault(cx);
+    cx.simulate_keystrokes("space g");
+    paint(&mut cx, &window);
+    let before = positions(&mut cx, &window);
+
+    // `escape` hands the keyboard to the note and moves the frame with it; the graph
+    // tab stays on the bar, and so does its picture.
+    cx.simulate_keystrokes("escape");
+    assert!(!window
+        .update(&mut cx, |ws, _w, _cx| ws.showing_graph())
+        .unwrap());
+    cx.simulate_keystrokes("A");
+    cx.simulate_input(" and more prose");
+    cx.simulate_keystrokes("escape ctrl-s");
+
+    let after = positions(&mut cx, &window);
+    assert_eq!(before, after, "a save that changed no links moved no node");
+    assert!(
+        window
+            .update(&mut cx, |ws, _window, _cx| ws.graph_settled())
+            .unwrap(),
+        "and the layout did not re-heat either"
+    );
+}
+
+/// When the graph *does* change, the nodes that were already there keep their places
+/// and only the new arrangement has to be found: the picture jumps on a new link, but
+/// it does not start over.
+#[gpui::test]
+fn a_new_link_carries_the_old_positions(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = linked_vault(cx);
+    cx.simulate_keystrokes("space g");
+    paint(&mut cx, &window);
+    let before = positions(&mut cx, &window);
+
+    cx.simulate_keystrokes("escape");
+    cx.simulate_keystrokes("A");
+    cx.simulate_input(" and [[c]]");
+    cx.simulate_keystrokes("escape ctrl-s");
+    // The save re-heats the layout and starts its beat; take the beat down so what is
+    // read is the frame the change shipped, not whatever the next tick made of it.
+    window
+        .update(&mut cx, |ws, _window, _cx| ws.stop_graph_beat())
+        .unwrap();
+
+    let after = positions(&mut cx, &window);
+    assert_eq!(before.len(), after.len(), "the same five nodes");
+    assert_eq!(before, after, "and each of them is where it was");
+    assert_eq!(
+        window
+            .update(&mut cx, |ws, _window, cx| ws.graph_counts(cx))
+            .unwrap()
+            .map(|counts| counts.links),
+        Some(4),
+        "the new link is in the graph"
+    );
+    assert!(
+        !window
+            .update(&mut cx, |ws, _window, _cx| ws.graph_settled())
+            .unwrap(),
+        "and the layout was warmed up to make room for it"
+    );
+}
+
+/// A graph the user has panned is state they chose in a window, so the session file
+/// remembers it — same rule as a note's scroll, and the reason there is no `[graph]`
+/// section in the config.
+#[gpui::test]
+fn a_painted_graph_records_where_it_is_looking(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = linked_vault(cx);
+    assert!(
+        window
+            .update(&mut cx, |ws, _window, cx| ws.tab_state(cx))
+            .unwrap()
+            .iter()
+            .all(|tab| tab.camera.is_none()),
+        "a window on a note has no camera to remember"
+    );
+    cx.simulate_keystrokes("space g");
+
+    paint(&mut cx, &window);
+    let camera = window
+        .update(&mut cx, |ws, _window, cx| ws.tab_state(cx))
+        .unwrap()
+        .iter()
+        .find(|tab| tab.graph)
+        .and_then(|tab| tab.camera)
+        .expect("a painted graph knows where it is looking");
+    assert!(
+        camera.zoom > 0.0,
+        "the fitted camera has a real zoom, got {camera:?}"
+    );
+}
+
+/// …and the next window opens the graph where the last one left it, rather than
+/// re-framing the whole vault on a user who had zoomed in on one corner of it.
+#[gpui::test]
+fn the_graphs_camera_comes_back_with_the_session(cx: &mut TestAppContext) {
+    use shale_core::session::GraphSeat;
+
+    let session = Session {
+        tabs: vec![
+            Tab {
+                path: Some(PathBuf::from("a.md")),
+                view: "live".into(),
+                graph: false,
+                camera: None,
+            },
+            Tab {
+                path: None,
+                view: String::new(),
+                graph: true,
+                camera: Some(GraphSeat {
+                    pan: [120.0, 40.0],
+                    zoom: 2.0,
+                }),
+            },
+        ],
+        active_tab: Some(1),
+        ..Session::default()
+    };
+    let (_dir, window) = session::vault_with_session(
+        cx,
+        &[("a.md", "see [[b]]\n"), ("b.md", "back to [[a]]\n")],
+        &session,
+    );
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    let camera = window
+        .update(&mut cx, |ws, _window, cx| ws.tab_state(cx))
+        .unwrap()
+        .iter()
+        .find(|tab| tab.graph)
+        .and_then(|tab| tab.camera)
+        .expect("the restored graph tab kept its camera");
+    assert_eq!(camera.pan, [120.0, 40.0]);
+    assert_eq!(camera.zoom, 2.0, "and its zoom");
 }

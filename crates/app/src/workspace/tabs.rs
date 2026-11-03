@@ -28,6 +28,7 @@
 
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::time::Duration;
 
 use gpui::{prelude::*, Context, Entity, Focusable, SharedString, Subscription, Task, Window};
 use shale_core::watch::VaultChanges;
@@ -36,6 +37,19 @@ use crate::acts::{OpenGraph, TabClose, TabNew, TabNext, TabOnly, TabPrev};
 use crate::editor::{EditorEvent, MarkdownEditor, View};
 
 use super::Workspace;
+
+/// How often the graph's beat runs: one frame at 60 fps, which is what makes the
+/// layout look like motion rather than a slideshow.
+const TICK: Duration = Duration::from_millis(16);
+
+/// Sim steps per beat. Two, so a first graph settles in a couple of seconds while
+/// still reading as continuous motion; one would take about five.
+const TICKS_PER_BEAT: usize = 2;
+
+/// The most a test may ask the layout to settle in one go. The sim cools
+/// geometrically, so ~300 ticks is the real answer and this is only the guard rail.
+#[cfg(test)]
+const SETTLE_BOUND: usize = 1000;
 
 /// One tab: a note, and the editor holding it — or the vault's graph.
 pub(crate) struct Tab {
@@ -241,7 +255,11 @@ impl Workspace {
     fn add_graph_tab(&mut self, cx: &mut Context<Self>) -> usize {
         let id = self.tab_seq;
         self.tab_seq += 1;
-        let view = cx.new(|cx| crate::graph::GraphView::new(Rc::clone(&self.palette), cx));
+        // The labels are drawn in the face the rest of the window types in, so a
+        // node's label looks like the note title it names.
+        let (family, size) = self.note_font(cx);
+        let view =
+            cx.new(|cx| crate::graph::GraphView::new(Rc::clone(&self.palette), family, size, cx));
         let index = if self.tabs.is_empty() {
             0
         } else {
@@ -315,8 +333,13 @@ impl Workspace {
         })
     }
 
-    /// Re-send the counts to the graph view, if the window has both an index and a tab
-    /// showing it. Called when the index is built and whenever a note moves under it.
+    /// Re-send the graph to the view: the counts, and the picture.
+    ///
+    /// Called when the index is built and whenever a note moves under it. The sim is
+    /// re-slotted here rather than at every index call site, because "the graph
+    /// changed" and "show the graph" are the same moment, and [`GraphSim::build`] is
+    /// what decides whether that means a re-heat or nothing at all (a prose edit that
+    /// changes no links moves nothing).
     pub(crate) fn refresh_graph(&mut self, cx: &mut Context<Self>) {
         let Some(summary) = self.graph_summary() else {
             return;
@@ -324,9 +347,92 @@ impl Workspace {
         let Some(view) = self.graph_view().cloned() else {
             return;
         };
-        view.update(cx, |view, cx| view.set_summary(summary, cx));
+        let previous = self.graph_sim.take();
+        if let Some(index) = self.graph.as_ref() {
+            self.graph_sim = Some(crate::graph::GraphSim::build(index, previous.as_ref()));
+        }
+        let frame = self
+            .graph_sim
+            .as_ref()
+            .map(|sim| Rc::new(sim.frame()))
+            .unwrap_or_else(|| Rc::new(crate::graph::GraphFrame::empty()));
+        view.update(cx, |view, cx| {
+            view.set_summary(summary, cx);
+            view.set_frame(frame, cx);
+        });
+        self.pump_graph(cx);
     }
 
+    /// Start the sim's beat if it has work to do.
+    ///
+    /// One task, ticking on the main executor: the sim is pure arithmetic over a few
+    /// thousand numbers, so a thread of its own would buy nothing and cost a
+    /// synchronization point per frame. The beat ends by itself when the layout settles
+    /// or the tab closes, which is the idling rule — with the sim settled and drift
+    /// off (M5g, not built), the window must draw zero frames.
+    fn pump_graph(&mut self, cx: &mut Context<Self>) {
+        if self.graph_beat.is_some() {
+            return;
+        }
+        if self.graph_sim.as_ref().is_none_or(|sim| sim.settled()) {
+            return;
+        }
+        self.graph_beat = Some(cx.spawn(async move |ws, cx| {
+            loop {
+                cx.background_executor().timer(TICK).await;
+                // The weak handle: a window that is gone has no graph to lay out, and
+                // `graph_tick` says so when the sim has settled or the tab has closed.
+                let moved = ws.update(cx, |ws, cx| ws.graph_tick(cx)).unwrap_or(false);
+                if !moved {
+                    break;
+                }
+            }
+        }));
+    }
+
+    /// One beat of the layout: tick the sim, ship the new picture, and say whether
+    /// anything moved (which is whether another beat is owed).
+    fn graph_tick(&mut self, cx: &mut Context<Self>) -> bool {
+        if !self.tabs.iter().any(|tab| tab.is_graph()) {
+            self.graph_beat = None;
+            return false;
+        }
+        let Some(sim) = self.graph_sim.as_mut() else {
+            self.graph_beat = None;
+            return false;
+        };
+        let moved = sim.advance(TICKS_PER_BEAT);
+        if moved {
+            let frame = Rc::new(sim.frame());
+            if let Some(view) = self.graph_view().cloned() {
+                view.update(cx, |view, cx| view.set_frame(frame, cx));
+            }
+            cx.notify();
+        } else {
+            self.graph_beat = None;
+        }
+        moved
+    }
+
+    /// Drive the layout to rest, synchronously. The tests' door: nothing here waits on
+    /// a timer or a thread, so a headless test can hold an exactly-settled graph and
+    /// assert on what it paints.
+    #[cfg(test)]
+    pub(crate) fn settle_graph(&mut self, cx: &mut Context<Self>) {
+        self.graph_beat = None;
+        let Some(sim) = self.graph_sim.as_mut() else {
+            return;
+        };
+        // `advance` stops at settle on its own; the bound is only so a test cannot
+        // hang on a sim that refuses to cool.
+        sim.advance(SETTLE_BOUND);
+        let frame = Rc::new(sim.frame());
+        if let Some(view) = self.graph_view().cloned() {
+            view.update(cx, |view, cx| view.set_frame(frame, cx));
+        }
+    }
+
+    /// Records which note tab the frame is on, which is what the graph tab's "where
     /// Fold one set of disk changes into the graph, if it has been built.
     ///
     /// `set_note` and `remove_note` each rebuild the arena, so a burst of changes costs
@@ -790,6 +896,19 @@ impl Workspace {
                     .editor()
                     .map(|editor| editor.read(cx).view().word().to_string())
                     .unwrap_or_default(),
+                // Only the graph tab has a camera, and only once it has been painted
+                // at least once: before that there is nothing to remember.
+                camera: match &tab.content {
+                    TabContent::Graph(view) => {
+                        view.read(cx)
+                            .camera()
+                            .map(|camera| shale_core::session::GraphSeat {
+                                pan: camera.pan,
+                                zoom: camera.zoom,
+                            })
+                    }
+                    TabContent::Note { .. } => None,
+                },
             })
             .collect()
     }
@@ -797,7 +916,7 @@ impl Workspace {
 
 /// What a tab looks like from outside it: enough for the tab bar to draw a row and
 /// for the session file to remember one.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct TabState {
     /// The tab's stable id, which is what a click is answered with.
     pub(crate) id: usize,
@@ -805,6 +924,8 @@ pub(crate) struct TabState {
     pub(crate) path: Option<PathBuf>,
     /// Whether this tab is the vault's graph rather than a note.
     pub(crate) graph: bool,
+    /// Where the graph tab was looking, for the session file. `None` for a note tab.
+    pub(crate) camera: Option<shale_core::session::GraphSeat>,
     /// Whether its note is ahead of the disk: the dot on the tab.
     pub(crate) dirty: bool,
     /// Which of the three views the tab is in, since a tab keeps its own.

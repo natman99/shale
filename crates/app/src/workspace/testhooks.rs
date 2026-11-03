@@ -223,6 +223,39 @@ impl Workspace {
     pub(crate) fn graph_built(&self) -> bool {
         self.graph.is_some()
     }
+    /// The positions the graph tab is painting, in slot order. A test uses these to
+    /// tell "the layout moved" from "the layout was carried over", which is the
+    /// difference between a re-heat and a graph that saw no reason to move.
+    #[cfg(test)]
+    pub(crate) fn graph_positions(&self, cx: &gpui::App) -> Vec<[f32; 2]> {
+        self.graph_view()
+            .and_then(|view| view.read(cx).frame())
+            .map(|frame| frame.nodes.iter().map(|node| node.position).collect())
+            .unwrap_or_default()
+    }
+    /// Whether the window's simulation has cooled, which is whether the beat has any
+    /// right to keep asking for frames.
+    #[cfg(test)]
+    pub(crate) fn graph_settled(&self) -> bool {
+        self.graph_sim.as_ref().is_none_or(|sim| sim.settled())
+    }
+    /// Take the layout's beat down without settling it, so a test can read the frame a
+    /// change shipped rather than whatever the next tick would have made of it.
+    #[cfg(test)]
+    pub(crate) fn stop_graph_beat(&mut self) {
+        self.graph_beat = None;
+    }
+    /// The colours the graph paints with: a note's dot, a tag's, and a ghost's. A paint
+    /// test counts the dots it expects by the colour they were drawn in, which is the
+    /// only way to tell a graph's nodes from the rest of the window's quads.
+    #[cfg(test)]
+    pub(crate) fn graph_colors(&self) -> (u32, u32, u32) {
+        (
+            self.palette.graph_node,
+            self.palette.tag,
+            self.palette.ui_dim,
+        )
+    }
     /// Close the tab on screen, as the tab bar's `×` and `:tabclose` do. The graph tab
     /// has no command line of its own — `:` is bound in the note's context — so the
     /// tests that want a tab gone ask the window rather than typing a word it cannot
