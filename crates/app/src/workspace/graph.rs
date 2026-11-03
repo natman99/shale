@@ -54,6 +54,20 @@ impl Workspace {
         })
     }
 
+    /// The graph view of the tab that is **on screen**, if that tab is the graph.
+    ///
+    /// `graph_view` searches every tab, which is right for the beat, the counts and the
+    /// filter — all of which want the graph wherever it is — and wrong for the frame. A
+    /// graph tab that is not on screen must not be drawn; until this existed the content
+    /// slot asked the question window-wide, so a graph tab sitting on the bar painted
+    /// its links over the note that was actually open.
+    pub(super) fn active_graph_view(&self) -> Option<&Entity<crate::graph::GraphView>> {
+        match &self.tabs[self.tab].content {
+            TabContent::Graph(view) => Some(view),
+            TabContent::Note { .. } => None,
+        }
+    }
+
     /// Add the window's graph tab after the one on screen, and make it the active one.
     ///
     /// Unlike [`add_tab`] there is no editor event to subscribe to: the graph changes

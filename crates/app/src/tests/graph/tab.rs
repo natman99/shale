@@ -174,6 +174,38 @@ fn opening_a_note_leaves_the_graph_tab_alone(cx: &mut TestAppContext) {
     assert_eq!(graph_tabs(&window, &mut cx), 1);
 }
 
+/// A graph tab that is not on screen must not be painted. It shares the content slot
+/// with the editor, and its canvas is transparent except for its own primitives, so a
+/// frame that asked "is there a graph anywhere in this window" rather than "is the graph
+/// the tab on screen" drew its links straight over the note the user was reading. It
+/// only showed up when the graph was zoomed in, where a link is long enough to notice.
+#[gpui::test]
+fn a_graph_tab_that_is_not_on_screen_paints_nothing(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = linked_vault(cx);
+    cx.simulate_keystrokes("space g");
+    paint(&mut cx, &window);
+    assert_eq!(
+        circles(&mut cx, &window).len(),
+        5,
+        "the graph's five nodes are painted while the graph is the tab on screen"
+    );
+
+    show(&mut cx, &window, "b.md");
+    paint(&mut cx, &window);
+    assert_eq!(
+        circles(&mut cx, &window).len(),
+        0,
+        "with the note on screen, the graph tab on the bar paints nothing at all"
+    );
+
+    // It is a tab, not a deletion: showing it again brings the picture back.
+    window
+        .update(&mut cx, |ws, _window, cx| ws.show_tab_at(1, cx))
+        .unwrap();
+    paint(&mut cx, &window);
+    assert_eq!(circles(&mut cx, &window).len(), 5);
+}
+
 /// Closing the graph tab leaves a note tab, and the window keeps its at-least-one-tab
 /// invariant. The graph has no note to write, so nothing about closing it can fail.
 #[gpui::test]

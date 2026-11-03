@@ -35,6 +35,19 @@ fn camera(cx: &mut VisualTestContext, window: &WindowHandle<Workspace>) -> (f32,
         .expect("the canvas has framed the graph")
 }
 
+/// Where the node in `slot` is painted, in window px. The way a test can ask which way
+/// the *picture* moved rather than which way the camera's numbers moved.
+fn screen_at(
+    cx: &mut VisualTestContext,
+    window: &WindowHandle<Workspace>,
+    slot: usize,
+) -> [f32; 2] {
+    window
+        .update(cx, |ws, _window, cx| ws.graph_node_screen(slot, cx))
+        .unwrap()
+        .expect("the node is on screen")
+}
+
 /// The button goes down at `at`.
 fn press(cx: &mut VisualTestContext, at: gpui::Point<gpui::Pixels>) {
     cx.simulate_mouse_down(at, gpui::MouseButton::Left, gpui::Modifiers::default());
@@ -52,6 +65,26 @@ fn pointer(cx: &mut VisualTestContext, at: gpui::Point<gpui::Pixels>, held: bool
         held.then_some(gpui::MouseButton::Left),
         gpui::Modifiers::default(),
     );
+}
+
+/// The middle button goes down at `at`. It is the pan button, so unlike the left one it
+/// does not care what is under it.
+fn press_middle(cx: &mut VisualTestContext, at: gpui::Point<gpui::Pixels>) {
+    cx.simulate_mouse_down(at, gpui::MouseButton::Middle, gpui::Modifiers::default());
+}
+
+/// The pointer moves with the middle button held.
+fn pointer_middle(cx: &mut VisualTestContext, at: gpui::Point<gpui::Pixels>) {
+    cx.simulate_mouse_move(
+        at,
+        Some(gpui::MouseButton::Middle),
+        gpui::Modifiers::default(),
+    );
+}
+
+/// The middle button comes up at `at`.
+fn release_middle(cx: &mut VisualTestContext, at: gpui::Point<gpui::Pixels>) {
+    cx.simulate_mouse_up(at, gpui::MouseButton::Middle, gpui::Modifiers::default());
 }
 
 /// The wheel, in lines. The view passes the delta through with its own sign, so a
@@ -133,6 +166,46 @@ fn dragging_the_background_moves_the_view(cx: &mut TestAppContext) {
             .iter()
             .all(|pinned| !pinned),
         "a background drag pins no node"
+    );
+}
+
+/// The middle button pans the picture from anywhere, including straight on top of a
+/// node, where the left button would grab and pin that node instead. It moves the view
+/// exactly as a background drag does — the picture follows the pointer — and a click of
+/// it opens nothing.
+#[gpui::test]
+fn the_middle_button_pans_from_anywhere(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = linked_vault(cx);
+    cx.simulate_keystrokes("space g");
+    paint(&mut cx, &window);
+
+    // Deliberately aimed at a node: the whole point of the middle button is that it
+    // does not care what is under it.
+    let (_slot, at) = node(&mut cx, &window, "a.md");
+    let (_, pan) = camera(&mut cx, &window);
+
+    press_middle(&mut cx, at);
+    let moved = gpui::point(at.x + gpui::px(40.0), at.y + gpui::px(25.0));
+    pointer_middle(&mut cx, moved);
+    release_middle(&mut cx, moved);
+
+    let (_, pan_after) = camera(&mut cx, &window);
+    assert!(
+        (pan_after[0] - pan[0] - 40.0).abs() < 0.01 && (pan_after[1] - pan[1] - 25.0).abs() < 0.01,
+        "the picture followed the pointer: {pan:?} -> {pan_after:?}"
+    );
+    assert!(
+        window
+            .update(&mut cx, |ws, _window, _cx| ws.graph_pinned())
+            .unwrap()
+            .iter()
+            .all(|pinned| !pinned),
+        "a middle drag pins no node, even though it started on one"
+    );
+    assert!(
+        graph(&window, &mut cx),
+        "and a click of the middle button opens nothing: {:?}",
+        tabs(&window, &mut cx)
     );
 }
 
@@ -249,6 +322,10 @@ fn the_graph_is_a_stop_on_the_jump_chain(cx: &mut TestAppContext) {
     let (_slot, at) = node(&mut cx, &window, "b.md");
     press(&mut cx, at);
     release(&mut cx, at, gpui::Modifiers::default());
+    // The click moved the frame to the note, and the keyboard follows one frame later.
+    // `repaint`, not `paint`: the click's tab change left the graph view out of the
+    // tree, so a keystroke pressed before the keyboard has moved goes nowhere.
+    repaint(&mut cx);
     assert!(
         !graph(&window, &mut cx)
             && tabs(&window, &mut cx)
@@ -272,6 +349,10 @@ fn the_graph_is_a_stop_on_the_jump_chain(cx: &mut TestAppContext) {
         "and the note went onto the forward half, where `ctrl-i` reads it"
     );
 
+    // The frame moved to the graph, and the keyboard follows it a frame later: without
+    // this the `ctrl-i` below is pressed against the note editor that just left the
+    // tree, and vim's own `ctrl-i` swallows it.
+    repaint(&mut cx);
     cx.simulate_keystrokes("ctrl-i");
     assert!(
         !graph(&window, &mut cx)
@@ -378,26 +459,78 @@ fn the_pointer_hovers_the_node_it_is_over(cx: &mut TestAppContext) {
     );
 }
 
-/// The arrows move the view, and their shift forms move it three times as far.
+/// The arrows move the **camera**, so the picture slides the other way: `right` takes the
+/// view right and the notes go left under it, `up` takes it up and the notes go down.
+/// One arrow is one step, shift is three. Dragging the background is the opposite, on
+/// purpose — it grabs the picture; see `dragging_the_background_moves_the_view`.
 #[gpui::test]
 fn the_arrows_move_the_view(cx: &mut TestAppContext) {
     let (_dir, window, mut cx) = linked_vault(cx);
     cx.simulate_keystrokes("space g");
     paint(&mut cx, &window);
 
+    let (slot, at) = node(&mut cx, &window, "a.md");
     let (_, pan) = camera(&mut cx, &window);
+
     cx.simulate_keystrokes("right");
     let (_, pan_one) = camera(&mut cx, &window);
     assert!(
-        (pan_one[0] - pan[0] - crate::graph::PAN_STEP).abs() < 0.01,
-        "one arrow is one step: {pan:?} -> {pan_one:?}"
+        (pan_one[0] - pan[0] + crate::graph::PAN_STEP).abs() < 0.01,
+        "one arrow is one step, and the camera goes right, not the picture: {pan:?} -> {pan_one:?}"
+    );
+    let on = screen_at(&mut cx, &window, slot);
+    assert!(
+        on[0] < at.x.as_f32(),
+        "the picture slides left as the camera goes right: {:?} -> {on:?}",
+        [at.x.as_f32(), at.y.as_f32()]
     );
 
     cx.simulate_keystrokes("shift-right");
     let (_, pan_fast) = camera(&mut cx, &window);
     assert!(
-        (pan_fast[0] - pan_one[0] - crate::graph::PAN_STEP * crate::graph::PAN_FAST).abs() < 0.01,
+        (pan_fast[0] - pan_one[0] + crate::graph::PAN_STEP * crate::graph::PAN_FAST).abs() < 0.01,
         "shift is three steps: {pan_one:?} -> {pan_fast:?}"
+    );
+
+    cx.simulate_keystrokes("up");
+    let (_, pan_up) = camera(&mut cx, &window);
+    assert!(
+        (pan_up[1] - pan_fast[1] - crate::graph::PAN_STEP).abs() < 0.01,
+        "up moves the camera up, which is +pan in a y-down world: {pan_fast:?} -> {pan_up:?}"
+    );
+    let on = screen_at(&mut cx, &window, slot);
+    assert!(
+        on[1] > at.y.as_f32(),
+        "and the picture slides down: {:?} -> {on:?}",
+        [at.x.as_f32(), at.y.as_f32()]
+    );
+}
+
+/// A click on a node hands the keyboard to the note it opened. The graph view was the
+/// focused element and it is no longer on screen, so a window that left the keyboard
+/// where it was would drop every keystroke after the click — and before this fix it kept
+/// the graph view in the tree precisely so nothing was dropped, at the price of painting
+/// it over the note.
+#[gpui::test]
+fn a_node_click_hands_the_keyboard_to_the_note(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = linked_vault(cx);
+    cx.simulate_keystrokes("space g");
+    paint(&mut cx, &window);
+
+    let (_slot, at) = node(&mut cx, &window, "b.md");
+    press(&mut cx, at);
+    release(&mut cx, at, gpui::Modifiers::default());
+    repaint(&mut cx);
+
+    assert!(
+        window
+            .update(&mut cx, |ws, window, cx| ws.editor_is_focused(window, cx))
+            .unwrap(),
+        "the note the click opened holds the keyboard"
+    );
+    assert!(
+        !graph(&window, &mut cx),
+        "and the note is the tab on screen, not the graph"
     );
 }
 

@@ -119,6 +119,20 @@ fn paint(cx: &mut VisualTestContext, window: &WindowHandle<Workspace>) {
     }
 }
 
+/// Draw frames *and* deliver the next-frame callbacks they schedule, which is what a
+/// real window does and `draw().clear()` on its own does not. The keyboard and the hover
+/// move to the tab on screen one frame after the tab does (`Workspace::focus_stale`), so
+/// a test that presses a key straight after a tab change without this is pressing it
+/// against a view that has already left the tree — the keystroke goes nowhere.
+fn repaint(cx: &mut VisualTestContext) {
+    for _ in 0..2 {
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        // Not through a window handle: the callback updates the workspace, and an
+        // update of the workspace from inside one is a double borrow.
+        cx.update(|window, cx| window.simulate_next_frame(cx));
+    }
+}
+
 /// The round things the last frame painted. A quad that is square with its corners
 /// rounded to half its width is a disc, which is how a node is drawn — and the only
 /// discs in a window that is showing the graph are the graph's. The tolerances are

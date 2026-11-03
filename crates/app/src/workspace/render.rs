@@ -444,10 +444,15 @@ impl Render for Workspace {
                                     .flex_1()
                                     .min_h_0()
                                     .when_some(self.editor().cloned(), |d, editor| d.child(editor))
-                                    // The graph tab's view takes the same slot. Only
-                                    // one of the two is ever present, because a tab is
-                                    // one or the other.
-                                    .when_some(self.graph_view().cloned(), |d, view| d.child(view)),
+                                    // The graph goes in the same slot as the editor, and
+                                    // only one of them is ever here: the slot belongs to
+                                    // the tab on screen, so a graph tab that is merely
+                                    // open paints nothing. Asking the window for "the
+                                    // graph view" instead would lay its links over the
+                                    // note the user is reading.
+                                    .when_some(self.active_graph_view().cloned(), |d, view| {
+                                        d.child(view)
+                                    }),
                             )
                             // A picker *overlays* the note rather than pushing it
                             // down: it is painted after the text, so opening one does

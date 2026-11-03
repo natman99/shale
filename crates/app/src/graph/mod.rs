@@ -94,15 +94,16 @@ pub(crate) struct GraphSummary {
     pub(crate) links: usize,
 }
 
-/// What a held left button is doing.
+/// What a held button on the canvas is doing.
 struct Drag {
     /// Where the button went down. A press that never travels past [`CLICK_SLOP`] is a
     /// click, and a click on a node opens the note it stands for.
     start: Point<Pixels>,
     /// Where the pointer was last, which is what the next move steps from.
     last: Point<Pixels>,
-    /// The node under the button, if there was one. `None` is the background, which
-    /// means the drag moves the view instead of a node.
+    /// The node under the button, if there was one. `None` moves the view instead of a
+    /// node: that is the left button over the background, and every middle-button press,
+    /// which pans wherever it lands.
     node: Option<usize>,
 }
 
@@ -305,16 +306,23 @@ impl GraphView {
         self.selected.or(self.hover)
     }
 
-    /// The button went down on the canvas: over a node it starts a drag of that node,
-    /// over the background a drag of the view.
+    /// The button went down on the canvas: over a node the left button starts a drag of
+    /// that node, over the background a drag of the view. The middle button drags the
+    /// view wherever it lands, node or not — it is the pan button, and a hand reaching
+    /// for it wants the picture to move, not a hub pinned and shoved.
     fn canvas_down(
         &mut self,
         event: &MouseDownEvent,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let node = self.node_at(event.position);
-        self.hover = node;
+        let over = self.node_at(event.position);
+        self.hover = over;
+        let node = if matches!(event.button, MouseButton::Middle) {
+            None
+        } else {
+            over
+        };
         self.drag = Some(Drag {
             start: event.position,
             last: event.position,
@@ -440,13 +448,23 @@ impl GraphView {
         cx.notify();
     }
 
-    /// The arrows: move the view. Once the user has moved it, the automatic framing is
-    /// over — that is what makes `camera` mean "the user's".
+    /// The arrows: move the **camera**, so the picture slides the other way — pressing
+    /// `right` takes the view right, which moves the notes left under it, exactly as a
+    /// scrollbar behaves when you move the thumb. The action's vector is a direction in
+    /// world space (`right` is +x), which is why the sign flips here rather than in the
+    /// binding table.
+    ///
+    /// This is deliberately the opposite of dragging the background, which grabs the
+    /// picture itself and moves it with the pointer.
+    ///
+    /// Once the user has moved the camera, the automatic framing is over — that is what
+    /// makes `camera` mean "the user's".
     fn pan(&mut self, action: &GraphPan, _window: &mut Window, cx: &mut Context<Self>) {
         let Some(mut camera) = self.camera() else {
             return;
         };
-        camera.pan_by(action.0);
+        let [dx, dy] = action.0;
+        camera.pan_by([-dx, -dy]);
         self.camera = Some(camera);
         cx.notify();
     }
@@ -690,6 +708,13 @@ impl Render for GraphView {
                     // node it was holding, or the graph is left with a body pinned to
                     // nothing.
                     .on_mouse_up_out(MouseButton::Left, cx.listener(Self::canvas_up))
+                    // The middle button pans (roadmap P3.4). It shares the canvas
+                    // handlers with the left one rather than having its own, because the
+                    // drag it starts is the background drag the left button already
+                    // makes: grab the picture, move it with the pointer.
+                    .on_mouse_down(MouseButton::Middle, cx.listener(Self::canvas_down))
+                    .on_mouse_up(MouseButton::Middle, cx.listener(Self::canvas_up))
+                    .on_mouse_up_out(MouseButton::Middle, cx.listener(Self::canvas_up))
                     .on_mouse_move(cx.listener(Self::canvas_move))
                     .on_scroll_wheel(cx.listener(Self::canvas_wheel))
                     .child(

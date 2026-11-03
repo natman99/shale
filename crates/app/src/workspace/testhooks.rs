@@ -280,6 +280,15 @@ impl Workspace {
             self.palette.ui_dim,
         )
     }
+    /// Whether the note editor on screen holds the keyboard. The graph tab has no
+    /// editor, so this answers `false` for it — which is how a test can tell "the
+    /// keyboard is on the graph view" from "the keyboard is nowhere".
+    #[cfg(test)]
+    pub(crate) fn editor_is_focused(&self, window: &mut gpui::Window, cx: &gpui::App) -> bool {
+        use gpui::Focusable as _;
+        self.editor()
+            .is_some_and(|editor| editor.read(cx).focus_handle(cx).is_focused(window))
+    }
     /// The graph tab's camera as `(zoom, pan)`, for the tests that check what a wheel,
     /// a drag or an arrow did to it. `None` while the view is still framing the whole
     /// graph itself — which is also the answer after `f`.
