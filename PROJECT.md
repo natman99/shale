@@ -4524,6 +4524,31 @@ Next steps, roughly in order:
     holding a cloned `VaultEntry` per note, so every note's `PathBuf` is copied four times, twice
     over. `vault.rs` is ours; `core/src/graph/**` is the graph agent's.
 
+    ### The resolver fix, and what it bought
+    The graph agent was not running, and the user said to go ahead. `LinkResolver` now holds its
+    entries **once** (`entries: Vec<VaultEntry>`) and every table maps to a `u32` index instead of
+    a cloned `VaultEntry`. The public shape is unchanged — `new(&[VaultEntry])`, `resolve_link`
+    and `resolve_attachment` still return `Option<&VaultEntry>` — so no caller moved, and
+    `insert_shortest`'s shortest-path-wins tie-break is untouched (the existing stem-tie test in
+    `vault::tests` covers it, and it still passes).
+
+    | graph tab open | before | after | delta |
+    | --- | --- | --- | --- |
+    | 5k vault, peak RSS | 226.0 MB | **222.9 MB** | −3.1 |
+    | 5k vault, anonymous | 67.4 MB | 64.7 MB | −2.7 |
+    | organic-5k, peak RSS | 240.6 MB | **235.6 MB** | −5.0 |
+    | organic-5k, anonymous | 82.1 MB | 78.7 MB | −3.4 |
+
+    Two alternating runs each, same binary apart from this change. It also removes about 40,000
+    `PathBuf` allocations per index pass on a 5k vault (four tables × five thousand entries × two
+    resolvers), which should make the first `:graph` open faster — **not measured**; there is no
+    index-build bench, only the paint bench.
+
+    What is left in the graph tab's 17–27 MB, still unexamined: `note_links: HashMap<PathBuf,
+    Vec<Link>>` plus `by_path` / `by_tag` / `by_ghost` in `core/src/graph/index.rs`, the sim's
+    Barnes-Hut tree, and gpui's own scene arrays for ~18,500 link paths. The paint cache itself is
+    bounded — one `Batch`, replaced on every store.
+
     ### Numbers
     Release build, demo vault, alternating runs: peak **198.4 MB**, Pss **172.2 MB**, anonymous
     **40.6 MB**. Debug build of the same: **240 MB**. Tests unchanged (no code changed): app 402,

@@ -56,54 +56,74 @@ pub fn rel_text(rel: impl AsRef<Path>) -> String {
 /// vault — build one resolver over their entry slice and resolve in O(1).
 #[derive(Debug, Clone)]
 pub struct LinkResolver {
-    /// Exact vault-relative path -> entry (`resolve_link` step 1,
+    /// The entries the tables index, held **once**.
+    ///
+    /// Each table used to hold a cloned `VaultEntry` as its value, so a resolver over N
+    /// entries kept four copies of every path plus the caller's own slice — and the graph
+    /// index builds two resolvers per pass, which is eight copies of every note's `PathBuf`
+    /// and eight heap allocations to go with them. A table value is now a `u32` index into
+    /// this vector: four bytes, no allocation.
+    entries: Vec<VaultEntry>,
+    /// Exact vault-relative path -> entry index (`resolve_link` step 1,
     /// `resolve_attachment` step 1's exact half).
-    exact: HashMap<PathBuf, VaultEntry>,
-    /// Lowercased stem -> entry, shortest path winning a tie and the
+    exact: HashMap<PathBuf, u32>,
+    /// Lowercased stem -> entry index, shortest path winning a tie and the
     /// first entry in scan order winning an exact tie — `resolve_link`
     /// step 2.
-    by_stem: HashMap<String, VaultEntry>,
-    /// Lowercased full relative path (backslashes normalized) -> entry —
+    by_stem: HashMap<String, u32>,
+    /// Lowercased full relative path (backslashes normalized) -> entry index —
     /// `resolve_attachment` step 1's case-insensitive half.
-    by_lower_path: HashMap<String, VaultEntry>,
-    /// Lowercased file name **and** lowercased stem -> entry, shortest
+    by_lower_path: HashMap<String, u32>,
+    /// Lowercased file name **and** lowercased stem -> entry index, shortest
     /// path winning a tie — `resolve_attachment` step 2. Entries whose
     /// file name is not valid UTF-8 are skipped; the old scan bailed out
     /// of the whole resolution on one, which this table does not.
-    by_name: HashMap<String, VaultEntry>,
+    by_name: HashMap<String, u32>,
 }
 
 impl LinkResolver {
     /// Build the tables over `entries` — O(entries), once.
     pub fn new(entries: &[VaultEntry]) -> Self {
+        let owned = entries.to_vec();
         let mut exact = HashMap::with_capacity(entries.len());
         let mut by_stem = HashMap::with_capacity(entries.len());
         let mut by_lower_path = HashMap::with_capacity(entries.len());
         let mut by_name = HashMap::with_capacity(entries.len());
-        for entry in entries {
-            exact.insert(entry.path.clone(), entry.clone());
+        for (index, entry) in owned.iter().enumerate() {
+            // A vault with four billion notes is not a thing this editor will see, and
+            // the index is four bytes rather than eight where it is read four times per
+            // entry.
+            let index = index as u32;
+            exact.insert(entry.path.clone(), index);
             // The key is built the way the query is (`rel_text`, then lowercased), or a
             // case-insensitive path match misses on any platform whose separator is not `/`.
             insert_shortest(
                 &mut by_lower_path,
                 rel_text(&entry.path).to_lowercase(),
-                entry,
+                index,
+                &owned,
             );
             let key = entry.stem().to_lowercase();
-            insert_shortest(&mut by_stem, key, entry);
+            insert_shortest(&mut by_stem, key, index, &owned);
             if let Some(name) = entry.path.file_name().and_then(|s| s.to_str()) {
-                insert_shortest(&mut by_name, name.to_lowercase(), entry);
+                insert_shortest(&mut by_name, name.to_lowercase(), index, &owned);
             }
             // The old scan matched file name *or* stem; both keys live in
             // this one table, shortest-path-wins.
-            insert_shortest(&mut by_name, entry.stem().to_lowercase(), entry);
+            insert_shortest(&mut by_name, entry.stem().to_lowercase(), index, &owned);
         }
         Self {
+            entries: owned,
             exact,
             by_stem,
             by_lower_path,
             by_name,
         }
+    }
+
+    /// The entry a table's index points at.
+    fn entry(&self, index: u32) -> &VaultEntry {
+        &self.entries[index as usize]
     }
 
     /// The entry a note link target refers to, with the same rules as
@@ -115,13 +135,15 @@ impl LinkResolver {
             return None;
         }
         let as_path = PathBuf::from(target);
-        if let Some(entry) = self.exact.get(&as_path) {
-            return Some(entry);
+        if let Some(&index) = self.exact.get(&as_path) {
+            return Some(self.entry(index));
         }
-        if let Some(entry) = self.exact.get(&as_path.with_extension("md")) {
-            return Some(entry);
+        if let Some(&index) = self.exact.get(&as_path.with_extension("md")) {
+            return Some(self.entry(index));
         }
-        self.by_stem.get(&target.to_lowercase())
+        self.by_stem
+            .get(&target.to_lowercase())
+            .map(|&index| self.entry(index))
     }
 
     /// The entry an embed target refers to, with the same rules as
@@ -132,24 +154,35 @@ impl LinkResolver {
         if target.is_empty() {
             return None;
         }
-        if let Some(entry) = self.exact.get(&PathBuf::from(target)) {
-            return Some(entry);
+        if let Some(&index) = self.exact.get(&PathBuf::from(target)) {
+            return Some(self.entry(index));
         }
         let lower_path = target.to_lowercase().replace('\\', "/");
-        if let Some(entry) = self.by_lower_path.get(&lower_path) {
-            return Some(entry);
+        if let Some(&index) = self.by_lower_path.get(&lower_path) {
+            return Some(self.entry(index));
         }
-        self.by_name.get(&target.to_lowercase())
+        self.by_name
+            .get(&target.to_lowercase())
+            .map(|&index| self.entry(index))
     }
 }
 
-/// Insert `entry` under `key`, keeping the shortest path; an exact tie
+/// Insert `index` under `key`, keeping the shortest path; an exact tie
 /// goes to whoever was seen first (scan order), matching the old scans.
-fn insert_shortest(map: &mut HashMap<String, VaultEntry>, key: String, entry: &VaultEntry) {
+/// The entries are passed in because the comparison is between the two
+/// candidates' paths, which live in the caller's list rather than in the
+/// map.
+fn insert_shortest(
+    map: &mut HashMap<String, u32>,
+    key: String,
+    index: u32,
+    entries: &[VaultEntry],
+) {
+    let challenger = entries[index as usize].path.components().count();
     match map.get(&key) {
-        Some(cur) if cur.path.components().count() <= entry.path.components().count() => {}
+        Some(&current) if entries[current as usize].path.components().count() <= challenger => {}
         _ => {
-            map.insert(key, entry.clone());
+            map.insert(key, index);
         }
     }
 }
