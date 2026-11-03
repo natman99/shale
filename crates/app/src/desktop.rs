@@ -29,7 +29,12 @@ pub(crate) async fn theme_name(appearance: WindowAppearance) -> Option<&'static 
         // for the first moment of the window's life. Ask the portal, and if it
         // is not there, say nothing and let the caller keep its default.
         let _ = appearance;
-        portal_mode().await.map(built_in_for)
+        let name = portal_mode().await.map(built_in_for);
+        match name {
+            Some(name) => tracing::debug!(theme = name, "the desktop asked for this palette"),
+            None => tracing::debug!("the desktop has no colour preference to give"),
+        }
+        name
     }
     #[cfg(not(target_os = "linux"))]
     {

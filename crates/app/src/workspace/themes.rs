@@ -153,6 +153,12 @@ impl Workspace {
                 ws.follow_desktop = false;
                 match theme::palette_for(ws.vault.root(), name) {
                     Ok(palette) => {
+                        // The palette changed under the person who did not ask for
+                        // a theme, so the log says who asked for it.
+                        tracing::info!(
+                            theme = name,
+                            "the desktop named the palette for a vault that named none"
+                        );
                         ws.theme_name = name.to_string();
                         ws.apply_palette(Rc::new(palette), cx);
                         ws.say(format!("theme: {name} · the desktop's"), cx);
