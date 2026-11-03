@@ -118,10 +118,10 @@ fn space_f_asks_the_ui_for_the_quick_open_picker() {
     let mut b = note_buf();
     b.goto_line(0);
     assert_eq!(b.cursor(), 0);
-    // The space motion is applied immediately, so a lone space is never
-    // left waiting for a second key.
+    // The leader is armed and nothing else happens: a lone `space` waits for its
+    // second key rather than moving the cursor under the user.
     assert_eq!(vim.handle_normal_key(Key::Char(' '), &mut b), Outcome::Stay);
-    assert_eq!(b.cursor(), 1, "space still moves right");
+    assert_eq!(b.cursor(), 0, "space moves nothing");
     assert_eq!(
         vim.handle_normal_key(Key::Char('f'), &mut b),
         Outcome::QuickOpen
@@ -145,6 +145,35 @@ fn g_f_asks_the_ui_for_the_quick_open_picker() {
     );
     // The chord is not a change, so `.` has nothing to replay.
     assert_eq!(vim.repeat_last(&mut b), Outcome::Unhandled);
+}
+
+/// `space` is the leader and not a motion: it arms the chords and leaves the cursor
+/// exactly where it was, in prose and inside a table cell alike. vim binds space to
+/// `l`, and giving that up is the point — a key that moves first makes the window
+/// jump under someone who is reaching for a binding.
+#[test]
+fn a_lone_space_moves_nothing() {
+    let mut vim = Vim::new();
+    let mut b = note_buf();
+    b.goto_line(0);
+    // `l` is the right motion, and still moves.
+    vim.handle_normal_key(Key::Char('l'), &mut b);
+    let moved = b.cursor();
+    assert!(moved > 0, "`l` moved right");
+    assert_eq!(vim.handle_normal_key(Key::Char(' '), &mut b), Outcome::Stay);
+    assert_eq!(b.cursor(), moved, "space moved nothing");
+    assert!(vim.awaiting_chord(), "and the leader is armed");
+
+    // Inside a table, `space` used to step to the next cell. `l` still does; the
+    // leader means the same thing everywhere or it means nothing.
+    let mut vim = Vim::new();
+    let mut b = table_buf();
+    b.set_cursor(2);
+    vim.handle_normal_key(Key::Char('l'), &mut b);
+    assert!(b.cursor() > 2, "`l` steps the cell");
+    b.set_cursor(2);
+    assert_eq!(vim.handle_normal_key(Key::Char(' '), &mut b), Outcome::Stay);
+    assert_eq!(b.cursor(), 2, "space stepped no cell");
 }
 
 #[test]
@@ -171,8 +200,7 @@ fn the_space_leader_asks_the_ui_for_each_view() {
         ('l', Outcome::ViewLive),
         ('p', Outcome::ViewPreview),
     ] {
-        // As with the other chords, the space motion is applied first, so a lone
-        // space is never left waiting for a second key.
+        // As with the other chords, the leader arms without moving anything first.
         assert_eq!(vim.handle_normal_key(Key::Char(' '), &mut b), Outcome::Stay);
         assert_eq!(
             vim.handle_normal_key(Key::Char(key), &mut b),

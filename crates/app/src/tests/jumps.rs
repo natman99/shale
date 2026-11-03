@@ -170,17 +170,21 @@ fn a_deleted_note_leaves_the_chain(cx: &mut TestAppContext) {
     let (_dir, window, mut cx) = two_notes(cx);
     let cx = &mut cx;
 
-    // a -> b -> a, so the chain behind the open note holds both notes. The
-    // `space` that arms the chord is vim's right motion, so it moves the cursor
-    // one byte along in `b.md` first — which is exactly the place the chain has
-    // to remember.
+    // a -> b -> a, so the chain behind the open note holds both notes. The cursor
+    // is moved deliberately with `l` first: `space` is the leader and not a motion,
+    // so it moves nothing on the way to the picker, and the position the chain has
+    // to remember is the one `l` left.
     cx.simulate_keystrokes("space f");
     cx.simulate_input("b");
     cx.simulate_keystrokes("enter");
     assert_eq!(active(&window, cx), "b.md");
+    cx.simulate_keystrokes("l");
     cx.simulate_keystrokes("space f");
     let left = cursor(&window, cx);
-    assert_eq!(left, 1, "the chord's `space` moved the cursor right");
+    assert_eq!(
+        left, 1,
+        "`l` moved the cursor right, and the chord's `space` moved nothing"
+    );
     cx.simulate_input("a");
     cx.simulate_keystrokes("enter");
     assert_eq!(active(&window, cx), "a.md");

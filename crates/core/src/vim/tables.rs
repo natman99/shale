@@ -173,7 +173,7 @@ pub(super) fn snap_cell_motion(table: &Table, loc: Located, key: Key, buf: &mut 
     if cell.start <= cursor && cursor < cell.end {
         return;
     }
-    let forward = matches!(key, Key::Char('l' | ' ' | 'w' | 'e'));
+    let forward = matches!(key, Key::Char('l' | 'w' | 'e'));
     let land_on_end = matches!(key, Key::Char('h' | 'e'));
     let Some(row) = table.rows.get(loc.row) else {
         return;

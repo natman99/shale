@@ -244,11 +244,21 @@ fn normal_mode_find_motions(cx: &mut TestAppContext) {
         .unwrap();
     assert_eq!(pos, (0, 3), "`f ` should land on the first space");
 
+    cx.simulate_keystrokes("0 2 l");
+    let pos = editor
+        .read_with(cx, |editor, _cx| editor.cursor_position())
+        .unwrap();
+    assert_eq!(pos, (0, 2), "`l` moves right, with the count");
+
     cx.simulate_keystrokes("0 2 space");
     let pos = editor
         .read_with(cx, |editor, _cx| editor.cursor_position())
         .unwrap();
-    assert_eq!(pos, (0, 2), "space should move right like `l`");
+    assert_eq!(
+        pos,
+        (0, 0),
+        "`space` is the leader rather than a motion, so it moves nothing"
+    );
 
     cx.simulate_keystrokes("0 d f r");
     let text = editor.read_with(cx, |editor, _cx| editor.text()).unwrap();

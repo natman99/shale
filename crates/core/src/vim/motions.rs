@@ -233,14 +233,16 @@ impl Vim {
             Key::Char('j') => repeat(count, || buf.move_down()),
             Key::Char('k') => repeat(count, || buf.move_up()),
             Key::Char('l') => repeat(count, || buf.move_right_stay_on_line()),
-            // Vim binds space to the same motion as `l`; as the argument of
-            // `f `/`t ` it arrives through the pending find instead. The motion
-            // also arms the leader chords (`space f` quick-open, `space s` vault
-            // search, and the note's three views).
-            Key::Char(' ') => {
-                self.after_space = true;
-                repeat(count, || buf.move_right_stay_on_line())
-            }
+            // The leader, and nothing else. `space` arms the chords (`space f`
+            // quick-open, `space s` vault search, the note's three views, `space y`
+            // the clipboard, `space d` focus mode, `space g` the graph, `space e` the
+            // tree) and moves the cursor nowhere. vim binds space to `l`, and Shale
+            // gives that up on purpose: a key that both starts a chord and acts on its
+            // own moves the window under someone who is reaching for a binding. `l` is
+            // the right motion. Space as the argument of `f `/`t ` still arrives through
+            // the pending find, and `d space` still deletes through the space, because
+            // those reach the find and operator tables rather than this one.
+            Key::Char(' ') => self.after_space = true,
             Key::Char('w') => repeat(count, || buf.word_forward()),
             Key::Char('b') => repeat(count, || buf.word_backward()),
             Key::Char('e') => repeat(count, || buf.word_end()),
@@ -351,7 +353,7 @@ impl Vim {
         if let Some(loc) = located {
             let cell = loc.cell;
             match key {
-                Key::Char('h' | 'l' | ' ' | 'w' | 'b' | 'e') => {
+                Key::Char('h' | 'l' | 'w' | 'b' | 'e') => {
                     if let Some(table) = tables.get(loc.table) {
                         snap_cell_motion(table, loc, key, buf);
                     }
