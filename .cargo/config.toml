@@ -1,0 +1,6 @@
+# The Windows cross-build (`PROJECT.md`, the unix gate). rustc's default linker
+# for `x86_64-pc-windows-gnu` is `cc`, which here is the *Linux* one, so the
+# target names the mingw cross-compiler explicitly. Without this the link step
+# fails with the host's libc.
+[target.x86_64-pc-windows-gnu]
+linker = "x86_64-w64-mingw32-gcc"
