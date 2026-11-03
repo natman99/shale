@@ -568,3 +568,54 @@ fn saving_our_own_note_does_not_look_like_an_outside_change(cx: &mut TestAppCont
         "the last word is still the save: {status}"
     );
 }
+
+/// The tree's three states are the window's state grammar (`design-language.md` §4):
+/// the open note's row and the pointer's row take their backgrounds, and the row the
+/// keyboard is on takes the focus rule. A third background would make the cursor and
+/// the open note look alike, which is the pair every vault edit depends on telling
+/// apart.
+#[gpui::test]
+fn the_tree_marks_its_keyboard_row_with_the_focus_rule(cx: &mut TestAppContext) {
+    let (_dir, window) = workspace(cx, &["Welcome.md", "notes/First.md"]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    // The sidebar has the keyboard, and its selection starts at the top row.
+    cx.simulate_keystrokes("ctrl-w h");
+    for _ in 0..3 {
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+    }
+    let want = window
+        .update(cx, |ws, _window, _cx| {
+            gpui::Hsla::from(gpui::rgb(ws.palette().ui_active_border))
+        })
+        .unwrap();
+    let ruled = window
+        .update(cx, move |_ws, window, _cx| {
+            window
+                .painted_quads()
+                .into_iter()
+                .filter(|quad| {
+                    // Every row carries a rule so none of them shift when the
+                    // keyboard moves; only the selected one is drawn in the
+                    // focus colour, and only the selected one has a width.
+                    quad.border_widths.top.as_f32() > 0.0
+                        && (quad.border_color.h - want.h).abs() < 0.001
+                        && (quad.border_color.s - want.s).abs() < 0.001
+                        && (quad.border_color.l - want.l).abs() < 0.001
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap();
+    // `painted_quads` accumulates over every frame that was drawn, so one row
+    // comes back once per frame: what is being counted is rows, not quads.
+    let mut places = ruled
+        .iter()
+        .map(|quad| (quad.bounds.origin.x.as_f32(), quad.bounds.origin.y.as_f32()))
+        .collect::<Vec<_>>();
+    places.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    places.dedup();
+    assert_eq!(
+        places.len(),
+        1,
+        "one row carries the focus rule: {places:?}"
+    );
+}

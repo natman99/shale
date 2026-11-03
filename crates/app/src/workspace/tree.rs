@@ -76,8 +76,23 @@ pub(super) fn push_node(
         // The highlight is a chip, not a band: the sidebar pads its rows, so the
         // rounded corners are visible against the sidebar's own background.
         .rounded(CHIP_RADIUS)
+        // Every row carries a rule, and only its colour changes: a border that
+        // appeared on the selected row alone would push every row below it down
+        // by two pixels as the keyboard moved. It is transparent rather than the
+        // sidebar's own colour because a row also sits over a hover or active
+        // fill, which an opaque rule would cut into.
+        //
+        // This is the window's state grammar (`design-language.md` §4): the
+        // pointer gets `ui_hover_bg`, the open note gets `ui_active_bg`, and the
+        // row the keyboard is on gets the focus rule.
+        .border_1()
+        .border_color(if is_selected {
+            gpui::rgb(state.palette.ui_active_border)
+        } else {
+            // `rgba`, not `rgb`: an alpha of zero, where `rgb` would be opaque black.
+            gpui::rgba(0x0000_0000)
+        })
         .when(is_active, |d| d.bg(gpui::rgb(state.palette.ui_active_bg)))
-        .when(is_selected, |d| d.bg(gpui::rgb(state.palette.ui_hover_bg)))
         .hover(|s| s.bg(gpui::rgb(state.palette.ui_hover_bg)))
         .child(label)
         .on_click({

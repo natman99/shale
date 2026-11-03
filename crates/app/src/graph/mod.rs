@@ -619,7 +619,7 @@ fn stat(palette: &Palette, value: impl std::fmt::Display, label: &'static str) -
 }
 
 impl Render for GraphView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let palette = Rc::clone(&self.palette);
         let frame = self.frame.clone();
         // The two closures each need their own handle on the snapshot: prepaint only
@@ -720,7 +720,15 @@ impl Render for GraphView {
             // the reason above: the filter strip is a sibling, and its field has to be
             // able to type the letters this context would otherwise swallow.
             .child({
-                let border = gpui::rgb(palette.ui_border);
+                // The canvas is what holds the graph tab's keyboard, so it is what
+                // carries the focus rule: `ui_active_border` while it has the
+                // keyboard, `ui_border` while the filter strip's field does
+                // (`design-language.md` §4).
+                let border = gpui::rgb(if self.focus_handle.is_focused(window) {
+                    palette.ui_active_border
+                } else {
+                    palette.ui_border
+                });
                 div()
                     .key_context(CONTEXT)
                     .track_focus(&self.focus_handle)

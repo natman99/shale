@@ -323,12 +323,22 @@ impl<E: FieldOwner + EntityInputHandler + 'static> Element for FieldElement<E> {
             bottom_right: px(0.),
         };
         window.paint_quad(background);
+        // The field's edge is the rule that says whether the window's keyboard is
+        // on it: `ui_active_border` while it holds the keyboard, `ui_border`
+        // otherwise (`design-language.md` §4). A field is normally the focused
+        // control, so this is mostly the accent -- but a picker whose rows hold
+        // the keyboard, or a second window, is the case where it is not.
+        let focused = self.owner.read(cx).focus().is_focused(window);
         window.paint_quad(fill(
             Bounds::from_corners(
                 point(bounds.left(), bounds.bottom() - px(1.)),
                 point(bounds.right(), bounds.bottom()),
             ),
-            rgb(palette.ui_border),
+            rgb(if focused {
+                palette.ui_active_border
+            } else {
+                palette.ui_border
+            }),
         ));
 
         let origin = point(bounds.left() + px(PAD), bounds.top() + px(PAD));

@@ -379,6 +379,11 @@ impl EntityInputHandler for GraphView {
 /// One chip in the filter strip: a word naming what is being shown, filled and legible
 /// while it is, quiet and outlined while it is not, at the radius every other control in
 /// the window uses.
+///
+/// The three states are the window's state grammar (`design-language.md` §4): a chip that
+/// is on carries `ui_active_bg`, one the pointer is over carries `ui_hover_bg`, and one
+/// that is off is drawn in `ui_disabled` -- the role for "this is here, you are not
+/// getting it", which is quieter than a label and says something a label does not.
 fn chip(palette: &Palette, label: &'static str, on: bool) -> gpui::Div {
     div()
         .flex_none()
@@ -388,7 +393,14 @@ fn chip(palette: &Palette, label: &'static str, on: bool) -> gpui::Div {
         .border_1()
         .border_color(gpui::rgb(palette.ui_border))
         .cursor(gpui::CursorStyle::PointingHand)
-        .text_color(gpui::rgb(if on { palette.ui_fg } else { palette.ui_dim }))
-        .when(on, |d| d.bg(gpui::rgb(palette.ui_field_bg)))
+        .text_color(gpui::rgb(if on {
+            palette.ui_fg
+        } else {
+            palette.ui_disabled
+        }))
+        .when(on, |d| d.bg(gpui::rgb(palette.ui_active_bg)))
+        // Only an off chip answers the pointer with a background: on one, the hover
+        // colour would be quieter than the state it is already in.
+        .when(!on, |d| d.hover(|s| s.bg(gpui::rgb(palette.ui_hover_bg))))
         .child(label)
 }
