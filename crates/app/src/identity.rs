@@ -12,6 +12,12 @@
 //! The mark is defined once, here, as bars on a 32-unit grid. The window icon
 //! rasterises them; `assets/shale.svg` is the same four rectangles in a file,
 //! and a test keeps the two from drifting apart.
+//!
+//! Only [`APP_ID`] is used on every platform; the mark itself is handed to a
+//! toolkit on Linux alone (see [`window_icon`]), so the four items behind it are
+//! allowed to look dead elsewhere rather than being compiled out: the tests that
+//! keep the raster and the `.svg` in step are the same tests on every platform,
+//! and a mark that only exists on one platform is a mark that can drift.
 
 use shale_core::theme::Palette;
 
@@ -22,10 +28,12 @@ pub(crate) const APP_ID: &str = "shale";
 
 /// The grid the mark is drawn on. `assets/shale.svg` uses the same numbers as
 /// its `viewBox`, which is what lets a test compare the two.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(crate) const MARK_GRID: u32 = 32;
 
 /// One bedding line of the mark, in grid units.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(crate) struct Bar {
     /// Left edge.
     pub(crate) x: u32,
@@ -43,6 +51,7 @@ pub(crate) struct Bar {
 /// Simple on purpose -- it has to survive at 16 px in a taskbar and at 512 px
 /// in an icon theme -- and simple enough that the wordmark rule §13 parks can
 /// reuse it rather than redraw it.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(crate) const MARK_BARS: [Bar; 4] = [
     Bar {
         x: 4,
@@ -73,6 +82,7 @@ pub(crate) const MARK_BARS: [Bar; 4] = [
 /// The mark's colour: Shale's own accent, from the palette it ships with rather
 /// than one more hex literal. One colour, because a two-colour mark at 16 px is
 /// mud.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(crate) fn mark_colour() -> (u8, u8, u8) {
     let rgb = Palette::DARK.accent;
     (

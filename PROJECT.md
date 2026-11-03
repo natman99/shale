@@ -4310,11 +4310,22 @@ Next steps, roughly in order:
     channel use `std::process` and TCP, and nothing touches `std::os`, sockets or a home-directory
     lookup. gpui's own backends are already target-gated upstream.
 
-    **Not verified by compiling**: there is no `x86_64-pc-windows-*` target installed and no
-    mingw/MSVC toolchain, and `rusqlite`'s bundled SQLite would need a Windows-targeting C
-    compiler before any of the crates could be checked there. The gating is by audit, not by a
-    green cross-compile. A Windows build would still need the console handler that raises the
-    termination flag.
+    **Cross-compiled, 2026-11-03**: the user installed the mingw toolchain and the
+    `x86_64-pc-windows-gnu` target; `.cargo/config.toml` names `x86_64-w64-mingw32-gcc` as that
+    target's linker. `cargo check` is clean for all three crates — core, mcp, app — and clean
+    with `--all-targets` for the app, so the window tests compile there too. `cargo build -p
+    shale-app --target x86_64-pc-windows-gnu` links `shale.exe`: `gpui_platform` takes
+    `gpui_windows` once the linux-only `gpui_linux` is gated out, and `rusqlite`'s `bundled`
+    SQLite compiles under mingw. The audit missed one thing: four dead-code warnings in
+    `identity.rs`, because the mark is handed to a toolkit on Linux alone. The four items behind
+    it now carry `cfg_attr(not(target_os = "linux"), allow(dead_code))` rather than being
+    compiled out — the tests that keep the raster and `shale.svg` in step are the same tests on
+    every platform.
+
+    **Not run**: Wine 11.20 Staging is installed, but `wineboot --init` stalls at `rundll32
+    setupapi,InstallHinfSection DefaultInstall` (the prefix's driver install), so no Windows test
+    has been executed and nothing about Windows *behaviour* is verified. A Windows build would
+    still need the console handler that raises the termination flag.
 
     ### Not built
     - **Live following** (reacting when the desktop flips dark↔light mid-session). The one-shot
