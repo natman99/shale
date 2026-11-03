@@ -49,10 +49,11 @@
 //! | `ui_hover_bg`              | Surface 0                             |
 //! | `ui_active_bg`             | Surface 1                             |
 //! | `ui_field_bg`              | Surface 0 (a control)                 |
-//! | `ui_tab_bg`, `popup_bg`    | Surface 0 (a surface element)         |
+//! | `ui_tab_bg`                | Surface 0 (a surface element)         |
 //! | `ui_tab_active_bg`         | Surface 1                             |
+//! | `popup_bg`                 | halfway between Base and Surface 0    |
 //! | `popup_border`             | Overlay 0                             |
-//! | `popup_hover_bg`           | Surface 0 with Text, 12%              |
+//! | `popup_hover_bg`           | Surface 0                             |
 //! | `graph_node`, `graph_node_active` | Blue, Sky (a link, and a link on hover) |
 //! | `graph_text`, `graph_ghost` | Subtext 0                             |
 //! | `graph_tag`                | Mauve (Blue is already every note node) |
@@ -69,19 +70,24 @@
 //! accent drawn *over* Base at an opacity, and a `Palette` has no alpha channel,
 //! so all three are composited onto Base once here (at the middle of the guide's
 //! 20%-30% range for selections) and stored as the flat colour the reader ends
-//! up seeing. The panel's highlighted row is the same trick with the guide's own
-//! 10%-ish "raised surface" step, because a hover row is not one of the
-//! palette's named surfaces.
+//! up seeing. The panel and its highlighted row are *not* the guide's blend
+//! trick: they use the family's own surface ramp, with the row at Surface 0 and
+//! the panel held halfway between Base and Surface 0, so the picker reads as a
+//! surface raised one step above the note it overlays and the query field (also
+//! Surface 0, because it is a control) one step above the panel. Blending Text
+//! over the panel instead made it exactly the colour of the field, so the panel
+//! read as one flat slab and every text pair on it lost contrast; a step in the
+//! ramp gives the field its edge back without moving the text at all.
 //!
 //! `heading` is Text rather than an accent because that is what the guide says
 //! for a main headline; a Shale heading is already larger and bold, so it does
 //! not need a hue to separate it from body text.
 //!
 //! A query's matched characters take Peach, the accent the flavours use for a
-//! hit. Latte's Peach (`#fe640b`) measures 2.5:1 on that flavour's highlighted
-//! row, which is not enough for a few letters among the rest of a row, so the
-//! light flavour falls back to its Mauve accent -- the same fallback the guide
-//! permits when a colour cannot carry text.
+//! hit. Latte's Peach (`#fe640b`) measures 2.3:1 on that flavour's panel and
+//! 1.9:1 on its highlighted row, which is not enough for a few letters among
+//! the rest of a row, so the light flavour falls back to its Mauve accent -- the
+//! same fallback the guide permits when a colour cannot carry text.
 
 use super::Palette;
 
@@ -141,11 +147,11 @@ pub const LATTE: Palette = Palette {
     ui_active_border: 0x7287fd,
     ui_tab_bg: 0xccd0da,
     ui_tab_active_bg: 0xbcc0cc,
-    popup_bg: 0xccd0da,
+    popup_bg: 0xdee0e8,
     popup_border: 0x9ca0b0,
     // Surface 0 `#ccd0da` with Text `#4c4f69` at 12%: the panel's own
     // background raised, rather than a surface borrowed from the chrome.
-    popup_hover_bg: 0xbdc1cc,
+    popup_hover_bg: 0xccd0da,
     graph_node: 0x1e66f5,
     graph_node_active: 0x04a5e5,
     graph_edge: 0x9ca0b0,
@@ -219,10 +225,10 @@ pub const FRAPPE: Palette = Palette {
     ui_active_border: 0xbabbf1,
     ui_tab_bg: 0x414559,
     ui_tab_active_bg: 0x51576d,
-    popup_bg: 0x414559,
+    popup_bg: 0x383c50,
     popup_border: 0x737994,
     // Surface 0 `#414559` with Text `#c6d0f5` at 12%.
-    popup_hover_bg: 0x51566c,
+    popup_hover_bg: 0x414559,
     graph_node: 0x8caaee,
     graph_node_active: 0x99d1db,
     graph_edge: 0x737994,
@@ -291,10 +297,10 @@ pub const MACCHIATO: Palette = Palette {
     ui_active_border: 0xb7bdf8,
     ui_tab_bg: 0x363a4f,
     ui_tab_active_bg: 0x494d64,
-    popup_bg: 0x363a4f,
+    popup_bg: 0x2d3044,
     popup_border: 0x6e738d,
     // Surface 0 `#363a4f` with Text `#cad3f5` at 12%.
-    popup_hover_bg: 0x484c63,
+    popup_hover_bg: 0x363a4f,
     graph_node: 0x8aadf4,
     graph_node_active: 0x91d7e3,
     graph_edge: 0x6e738d,
@@ -364,10 +370,10 @@ pub const MOCHA: Palette = Palette {
     ui_active_border: 0xb4befe,
     ui_tab_bg: 0x313244,
     ui_tab_active_bg: 0x45475a,
-    popup_bg: 0x313244,
+    popup_bg: 0x282839,
     popup_border: 0x6c7086,
     // Surface 0 `#313244` with Text `#cdd6f4` at 12%.
-    popup_hover_bg: 0x444659,
+    popup_hover_bg: 0x313244,
     graph_node: 0x89b4fa,
     graph_node_active: 0x89dceb,
     graph_edge: 0x6c7086,
