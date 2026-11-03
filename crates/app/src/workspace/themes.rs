@@ -16,6 +16,7 @@
 //!   built-in, a `catppuccin-` prefix, a `-dark` suffix and a vault theme file all
 //!   resolve the same way here as they do at startup.
 
+use std::path::PathBuf;
 use std::rc::Rc;
 
 use anyhow::Context as _;
@@ -83,10 +84,86 @@ impl Workspace {
     pub(super) fn set_theme(&mut self, name: &str, cx: &mut Context<Self>) -> anyhow::Result<()> {
         let palette = theme::palette_for(self.vault.root(), name)
             .with_context(|| format!("no theme {name:?}"))?;
+        // A named theme is an answer, and the desktop does not get to overwrite
+        // one later.
+        self.follow_desktop = false;
         self.theme_backup = None;
         self.theme_name = name.to_string();
         self.apply_palette(Rc::new(palette), cx);
         Ok(())
+    }
+
+    /// `:theme export <name>`: the palette on screen, written out as a theme
+    /// file a person can edit (§15).
+    ///
+    /// What is written is what is *drawn*, not what the config names: a theme
+    /// that arrived through a `base`, an alias or a picker preview exports as the
+    /// sixty-one colours the window is actually using, which is the starting
+    /// point the command exists for.
+    ///
+    /// Two names are refused. A built-in's name would write a file the loader
+    /// never reads, because `palette_for` answers built-ins before it looks in
+    /// the vault. An existing file would bury whatever its author had already
+    /// changed, and the command has no `--force` yet; deleting the file is the
+    /// way to re-export over it.
+    pub(super) fn export_theme(&self, name: &str) -> anyhow::Result<PathBuf> {
+        let name = name.trim();
+        anyhow::ensure!(!name.is_empty(), "theme export needs a name");
+        anyhow::ensure!(
+            name != ".." && !name.contains('/') && !name.contains('\\'),
+            "{name:?} is not a theme name"
+        );
+        anyhow::ensure!(
+            Palette::built_in(name).is_none(),
+            "{name} is a built-in theme; a file by that name would never be read"
+        );
+        let path = theme::ThemeFile::path(self.vault.root(), name);
+        anyhow::ensure!(
+            !path.exists(),
+            "{} is already a theme; delete it to export over it",
+            relative(self.vault.root(), &path).display()
+        );
+        let text = self.palette.to_theme_toml()?;
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("creating {}", parent.display()))?;
+        }
+        std::fs::write(&path, &text).with_context(|| format!("writing {}", path.display()))?;
+        Ok(relative(self.vault.root(), &path))
+    }
+
+    /// §15: a vault that names no theme opens in the palette the desktop asks
+    /// for. Started once, from `attach_window`, because the answer is not to
+    /// hand: on Linux it is a portal round trip, and holding the first frame for
+    /// it is worse than a window that starts dark and settles a moment later.
+    ///
+    /// Nothing is written to the config. Following the desktop is the absence of
+    /// a choice, not a choice, and the next launch should still be able to follow.
+    pub(super) fn follow_desktop_theme(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let appearance = window.appearance();
+        cx.spawn(async move |this, cx| {
+            let Some(name) = crate::desktop::theme_name(appearance).await else {
+                return;
+            };
+            let _ = this.update(cx, |ws, cx| {
+                // The desktop answered late, and a theme chosen since then wins.
+                if !ws.follow_desktop {
+                    return;
+                }
+                ws.follow_desktop = false;
+                match theme::palette_for(ws.vault.root(), name) {
+                    Ok(palette) => {
+                        ws.theme_name = name.to_string();
+                        ws.apply_palette(Rc::new(palette), cx);
+                        ws.say(format!("theme: {name} · the desktop's"), cx);
+                    }
+                    Err(err) => {
+                        tracing::warn!("the desktop's theme {name:?} could not be loaded: {err:#}");
+                    }
+                }
+            });
+        })
+        .detach();
     }
 
     /// Draw the window in `name`'s palette without committing to it.
@@ -115,6 +192,7 @@ impl Workspace {
     /// Clearing the backup is what stops the picker's close from putting the old
     /// palette back.
     pub(super) fn accept_theme(&mut self, name: &str, cx: &mut Context<Self>) {
+        self.follow_desktop = false;
         self.theme_backup = None;
         self.theme_name = name.to_string();
         cx.notify();
@@ -206,6 +284,13 @@ impl Workspace {
             n => format!(" · hard to read, {} findings, first: {first}", n - 1),
         }
     }
+}
+
+/// `path` with the vault root removed, for a status line that has to fit: the
+/// file is `.shale/themes/one.toml` to the person who just typed the command,
+/// not `/home/nat/vaults/notes/.shale/themes/one.toml`.
+fn relative(root: &std::path::Path, path: &std::path::Path) -> PathBuf {
+    path.strip_prefix(root).unwrap_or(path).to_path_buf()
 }
 
 /// One row of the theme picker: the name, and where the name comes from.

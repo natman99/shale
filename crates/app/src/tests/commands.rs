@@ -136,6 +136,61 @@ fn theme_names_a_palette_and_switches_to_it(cx: &mut TestAppContext) {
     );
 }
 
+/// `:theme export <name>` writes the palette that is on screen out as a theme
+/// file, so tweaking a theme starts from the colours in use (§15).
+#[gpui::test]
+fn theme_export_writes_the_palette_on_screen(cx: &mut TestAppContext) {
+    let (dir, window) = workspace(cx, &["Welcome.md"]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    type_command("theme gruvbox-dark", cx);
+    type_command("theme export on-screen", cx);
+    assert_eq!(
+        status(&window, cx),
+        "wrote .shale/themes/on-screen.toml",
+        "the bar names the file, from the vault down"
+    );
+    let text = std::fs::read_to_string(dir.path().join(".shale/themes/on-screen.toml")).unwrap();
+    assert!(text.contains("bg = \"#"), "colours are hex strings: {text}");
+    assert!(text.contains("mode = \"dark\""), "and the mode: {text}");
+
+    // Reading the file back is the point of the export: it is a theme, not a
+    // dump. Switch away first, or the switch would prove nothing.
+    type_command("theme dark", cx);
+    type_command("theme on-screen", cx);
+    assert_eq!(
+        palette(&window, cx),
+        Palette::built_in("gruvbox-dark").unwrap(),
+        "the exported file resolves to the palette it was written from"
+    );
+
+    // Three refusals, each said in the bar's voice.
+    type_command("theme export on-screen", cx);
+    assert!(
+        status(&window, cx).contains("already a theme"),
+        "an existing file is not overwritten: {}",
+        status(&window, cx)
+    );
+    type_command("theme export mocha", cx);
+    assert!(
+        status(&window, cx).contains("built-in"),
+        "a built-in's name would write a dead file: {}",
+        status(&window, cx)
+    );
+    type_command("theme export", cx);
+    assert_eq!(status(&window, cx), "theme export needs a name");
+    type_command("theme export notes/outside", cx);
+    assert!(
+        status(&window, cx).contains("not a theme name"),
+        "the file stays inside the theme folder: {}",
+        status(&window, cx)
+    );
+    assert!(
+        !dir.path().join(".shale/themes/notes").exists(),
+        "and no folder was made for it"
+    );
+}
+
 /// A vault theme that loads but paints something too faint to read is kept and
 /// reported, not refused. The palette is the user's to choose; what they are
 /// owed is knowing that part of it is invisible.

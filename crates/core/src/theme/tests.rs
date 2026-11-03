@@ -71,6 +71,113 @@ fn palette_for_resolves_built_ins_and_files() {
     assert!(palette_for(dir.path(), "gruvbox").is_err());
 }
 
+/// `base` may name another theme file, not only a built-in (§15), so a vault can
+/// layer a tweak on a tweak.
+#[test]
+fn a_theme_file_may_build_on_another_theme_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let themes = dir.path().join(THEME_DIR);
+    std::fs::create_dir_all(&themes).unwrap();
+    std::fs::write(
+        themes.join("warm.toml"),
+        "base = \"mocha\"\nbg = \"#1e1e1e\"\nfg = \"#eeeeee\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        themes.join("warmer.toml"),
+        "base = \"warm\"\nbg = \"#202020\"\nlink = \"#ff0000\"\n",
+    )
+    .unwrap();
+    let out = palette_for(dir.path(), "warmer").unwrap();
+    assert_eq!(out.bg, 0x202020, "the outer file wins");
+    assert_eq!(out.fg, 0xeeeeee, "the middle file still carries");
+    assert_eq!(out.link, 0xff0000);
+    assert_eq!(out.tag, catppuccin::MOCHA.tag, "down to the built-in");
+}
+
+/// An inheritance ring is an error that names the ring, rather than a stack
+/// overflow or a bare "circular base".
+#[test]
+fn an_inheritance_ring_names_the_ring() {
+    let dir = tempfile::tempdir().unwrap();
+    let themes = dir.path().join(THEME_DIR);
+    std::fs::create_dir_all(&themes).unwrap();
+    std::fs::write(themes.join("a.toml"), "base = \"b\"\n").unwrap();
+    std::fs::write(themes.join("b.toml"), "base = \"c\"\n").unwrap();
+    std::fs::write(themes.join("c.toml"), "base = \"a\"\n").unwrap();
+    let err = format!("{:#}", palette_for(dir.path(), "a").unwrap_err());
+    assert!(
+        err.contains("a.toml -> b.toml -> c.toml -> a.toml"),
+        "the message spells out the ring, got {err:?}"
+    );
+    // A file that inherits from itself is the one-file version of the same bug.
+    std::fs::write(themes.join("d.toml"), "base = \"d\"\n").unwrap();
+    let err = format!("{:#}", palette_for(dir.path(), "d").unwrap_err());
+    assert!(
+        err.contains("d.toml -> d.toml"),
+        "a one-file ring is named too, got {err:?}"
+    );
+}
+
+/// A palette says whether it is dark or light, which is what follow-the-system
+/// picks a built-in with. The threshold is where black and white text are
+/// equally readable, so a colour on either side of it is on the side its own
+/// text would choose.
+#[test]
+fn a_palette_is_dark_or_light_by_its_background() {
+    assert_eq!(Palette::DEFAULT.mode(), Mode::Dark);
+    assert_eq!(Palette::built_in("latte").unwrap().mode(), Mode::Light);
+    assert_eq!(Palette::built_in("light").unwrap().mode(), Mode::Light);
+    assert_eq!(
+        Palette::built_in("tokyo-night-light").unwrap().mode(),
+        Mode::Light
+    );
+    // Every built-in agrees with its own name, which is the check that the
+    // threshold is not off by a family.
+    for (name, palette) in Palette::BUILT_INS {
+        let name = *name;
+        let says_dark = name.contains("dark")
+            || ["mocha", "frappe", "macchiato", "nord", "dracula"].contains(&name);
+        let says_light = name.contains("light") || name == "latte" || name == "rose-pine-dawn";
+        if says_dark {
+            assert_eq!(palette.mode(), Mode::Dark, "{name} should read dark");
+        } else if says_light {
+            assert_eq!(palette.mode(), Mode::Light, "{name} should read light");
+        }
+    }
+    // A theme file may say otherwise, and the spelling is checked.
+    let theme = ThemeFile::from_toml("mode = \"light\"\n").unwrap();
+    assert_eq!(theme.mode, Some(Mode::Light));
+    assert!(ThemeFile::from_toml("mode = \"pink\"\n").is_err());
+}
+
+/// `:theme export` writes the palette that is on screen as a file the loader
+/// reads back, so tweaking a theme starts from real colours (§15).
+#[test]
+fn an_exported_palette_reads_back_as_itself() {
+    let palette = Palette::built_in("gruvbox-dark").unwrap();
+    let text = palette.to_theme_toml().unwrap();
+    // Colours are hex strings, not the integers `Palette` holds, or the file
+    // would not parse.
+    assert!(
+        text.contains("bg = \"#"),
+        "exported colours are hex strings: {text}"
+    );
+    assert!(!text.contains("bg = 0x"), "no bare integers: {text}");
+    let file = ThemeFile::from_toml(&text).unwrap();
+    assert_eq!(file.mode, Some(Mode::Dark));
+    // No `base`, so applying it to anything starts from the file's own colours:
+    // the export is a whole palette, not a diff.
+    let out = Palette::DARK.apply(&file);
+    assert_eq!(out, palette, "the export round-trips");
+    // And it round-trips through the vault, which is how `:theme export` is used.
+    let dir = tempfile::tempdir().unwrap();
+    let path = ThemeFile::path(dir.path(), "on-screen");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, &text).unwrap();
+    assert_eq!(palette_for(dir.path(), "on-screen").unwrap(), palette);
+}
+
 /// The built-in palettes have to be usable in their own right: a theme whose
 /// text matches its background is not a theme.
 ///

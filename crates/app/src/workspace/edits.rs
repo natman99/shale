@@ -180,6 +180,10 @@ impl Workspace {
                 Err(err) => self.say(format!("{err:#}"), cx),
             },
             ex::Ex::WordCount(folder) => self.wordcount(&folder, cx),
+            ex::Ex::ThemeExport(name) => match self.export_theme(&name) {
+                Ok(path) => self.say(format!("wrote {}", path.display()), cx),
+                Err(err) => self.say(format!("{err:#}"), cx),
+            },
             // The one tab command with an argument. Typed 1-based, like every number
             // in vim's command line.
             ex::Ex::TabMove(to) => self.move_tab(to - 1, cx),

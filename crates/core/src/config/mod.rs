@@ -276,6 +276,9 @@ autosave_after_ms = 2000
 #   One          "one-dark" "one-light"
 #   Rose Pine    "rose-pine" "rose-pine-moon" "rose-pine-dawn"
 # Picking a theme in the app rewrites this line, so the choice survives a restart.
+# Setting it to an empty name ("") names no palette at all: the window opens in the
+# dark default and follows the desktop's own dark-or-light setting instead --
+# Catppuccin Mocha for dark, Catppuccin Latte for light.
 theme = "mocha"
 # Body text size in points; headings and line heights are scaled from it.
 font_size = 14.0

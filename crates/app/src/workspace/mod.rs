@@ -70,6 +70,10 @@ pub(crate) struct Workspace {
     /// The name that palette was chosen by (`appearance.theme`, or what the theme
     /// picker or `:theme` picked since). Only the status line asks.
     theme_name: String,
+    /// Whether the desktop's dark-or-light setting still gets to choose the
+    /// palette. True only when `appearance.theme` named nothing, and cleared by
+    /// the first answer -- the desktop's or the user's (`design-language.md` §15).
+    follow_desktop: bool,
     /// The palette to go back to if the theme picker closes without a choice,
     /// because everything it previewed on the way was not an answer. `None` when
     /// no preview is in flight.
@@ -297,6 +301,10 @@ impl Workspace {
         // default palette is used. The name is kept, so the status line can
         // say what is on screen after a live switch.
         let configured = config.appearance.theme.trim().to_string();
+        // Naming nothing is not the same as naming the default: it is the vault
+        // asking the desktop instead (§15), and the flag has to be read before
+        // `configured` is moved into the palette below.
+        let follow_desktop = configured.is_empty();
         let (palette, theme_name, theme_error) = match theme::palette_for(vault.root(), &configured)
         {
             Ok(palette) => (
@@ -381,6 +389,7 @@ impl Workspace {
             config,
             palette,
             theme_name: theme_name.clone(),
+            follow_desktop,
             theme_backup: None,
             spell,
             checker_notes: Vec::new(),
@@ -498,6 +507,11 @@ impl Workspace {
             return;
         }
         self.watch_hover(window, cx);
+        // A vault that named no theme in its config follows the desktop, which is
+        // a question the window has to be up to ask (§15).
+        if self.follow_desktop {
+            self.follow_desktop_theme(window, cx);
+        }
         self._activation_events = Some(cx.observe_window_activation(window, |ws, window, cx| {
             // Losing focus is the other half of "the user stopped typing": they
             // have gone somewhere else with a note still ahead of the disk, so it is

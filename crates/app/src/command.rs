@@ -355,6 +355,17 @@ const ALL: &[Command] = &[
         action: Some(|| Box::new(ChangeTheme)),
     },
     Command {
+        id: "theme.export",
+        label: "Write the palette on screen to a theme file",
+        keys: "",
+        // The command line only: it needs a name for the new file, so there is
+        // nothing for a palette row or a key to mean.
+        ex: &["theme export"],
+        args: "<name>",
+        in_palette: false,
+        action: None,
+    },
+    Command {
         id: "checker.on",
         label: "Turn the spellchecker on",
         keys: "",

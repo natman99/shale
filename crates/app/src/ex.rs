@@ -46,6 +46,14 @@ pub(crate) enum Ex {
     ThemePicker,
     /// `theme <name>`: that palette, now.
     Theme(String),
+    /// `theme export <name>`: the palette on screen, written to
+    /// `.shale/themes/<name>.toml` as a whole file (§15).
+    ///
+    /// The word `export` is taken by this command, so a vault theme literally
+    /// named `export` is reachable by the picker and by `appearance.theme` but
+    /// not by name at the `:` line. Naming the subcommand wins over naming a
+    /// theme that one; the collision is written here so it is not a surprise.
+    ThemeExport(String),
     /// `raw`, `live` or `preview`: how the note is presented, and whether it can
     /// be edited. `:live` is the way back to Shale's default view.
     View(View),
@@ -109,6 +117,7 @@ impl Ex {
             Ex::Focus(_) | Ex::FocusScope(_) => "focus.toggle",
             Ex::Typewriter(_) => "typewriter.toggle",
             Ex::ThemePicker | Ex::Theme(_) => "theme.change",
+            Ex::ThemeExport(_) => "theme.export",
             Ex::View(View::Raw) => "view.raw",
             Ex::View(View::Live) => "view.live",
             Ex::View(View::Preview) => "view.preview",
@@ -182,10 +191,24 @@ pub(crate) fn parse(line: &str) -> Ex {
             _ => Ex::Unknown(format!("harper {rest}").trim().to_string()),
         },
         "theme" => {
+            // `export` is a subcommand, not a theme name. A vault theme actually
+            // called `export` is still a picker row and still a valid
+            // `appearance.theme`; only the `:` line gives the word to the command.
             if rest.is_empty() {
                 Ex::ThemePicker
             } else {
-                Ex::Theme(rest.to_string())
+                let (head, tail) = match rest.split_once(char::is_whitespace) {
+                    Some((head, tail)) => (head, tail.trim()),
+                    None => (rest, ""),
+                };
+                if head.eq_ignore_ascii_case("export") {
+                    // No name is not a typo for a theme called "export": it is the
+                    // command missing its argument, and `export_theme` says so in
+                    // the same voice as the rest of the bar.
+                    Ex::ThemeExport(tail.to_string())
+                } else {
+                    Ex::Theme(rest.to_string())
+                }
             }
         }
         // Both are a preference the user moves in and out of while writing, so a
@@ -306,6 +329,18 @@ mod tests {
         assert_eq!(
             parse("theme   gruvbox-dark  "),
             Ex::Theme("gruvbox-dark".into())
+        );
+        // `theme export <name>` is the subcommand (§15), and only the exact word
+        // at the head of the argument is the subcommand: a theme whose name
+        // merely starts with it is still a theme.
+        assert_eq!(parse("theme export mine"), Ex::ThemeExport("mine".into()));
+        assert_eq!(parse("THEME Export warm"), Ex::ThemeExport("warm".into()));
+        assert_eq!(parse("theme export"), Ex::ThemeExport(String::new()));
+        assert_eq!(parse("theme exporter"), Ex::Theme("exporter".into()));
+        assert_eq!(
+            parse("theme export my theme"),
+            Ex::ThemeExport("my theme".into()),
+            "the name is the rest of the line, not one word"
         );
     }
 

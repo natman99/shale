@@ -26,7 +26,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context as _};
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::mdstyle::CalloutKind;
 
@@ -49,6 +49,21 @@ pub mod tokyo_night;
 
 /// The directory under the vault root where theme files live.
 pub const THEME_DIR: &str = ".shale/themes";
+
+/// Whether a palette is a dark one or a light one.
+///
+/// A theme file may say so with `mode`; when it does not, [`Palette::mode`]
+/// infers it from the background. The point is follow-the-system
+/// (`design-language.md` §15): choosing between two built-ins without opening
+/// twenty palettes in the picker.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Mode {
+    /// Text lighter than its background.
+    Dark,
+    /// Text darker than its background.
+    Light,
+}
 
 /// Every colour the editor draws, or will draw, as 0xRRGGBB.
 ///
@@ -267,6 +282,7 @@ impl Palette {
         let mut out = *self;
         let ThemeFile {
             base: _,
+            mode: _,
             bg,
             fg,
             cursor,
@@ -417,6 +433,107 @@ impl Palette {
             CalloutKind::Other => self.accent,
         }
     }
+
+    /// Whether this palette is a dark one or a light one, read off its note
+    /// background.
+    ///
+    /// The threshold is the crossover where black text and white text are
+    /// equally readable on the colour -- solving `(L + 0.05) / 0.05 = 1.05 /
+    /// (L + 0.05)` puts it at a luminance of 0.179 -- which is the most honest
+    /// definition available, and the one that decides a mid-tone grey (a colour
+    /// that could go either way) the way its own text would. A theme file that
+    /// disagrees can say so with `mode`.
+    pub fn mode(&self) -> Mode {
+        if contrast::luminance(self.bg) > 0.179 {
+            Mode::Light
+        } else {
+            Mode::Dark
+        }
+    }
+
+    /// This palette as a theme file that names every colour: the other direction
+    /// from [`ThemeFile::apply`], so a theme author starts from what is on screen
+    /// rather than from 61 blank hex keys (`design-language.md` §15).
+    pub fn as_theme_file(&self) -> ThemeFile {
+        ThemeFile {
+            base: None,
+            mode: Some(self.mode()),
+            bg: Some(self.bg),
+            fg: Some(self.fg),
+            cursor: Some(self.cursor),
+            cursor_line_bg: Some(self.cursor_line_bg),
+            selection: Some(self.selection),
+            link: Some(self.link),
+            link_unresolved: Some(self.link_unresolved),
+            dim: Some(self.dim),
+            heading: Some(self.heading),
+            quote: Some(self.quote),
+            accent: Some(self.accent),
+            agent: Some(self.agent),
+            tag: Some(self.tag),
+            spell: Some(self.spell),
+            code_bg: Some(self.code_bg),
+            code_block_bg: Some(self.code_block_bg),
+            code_text: Some(self.code_text),
+            code_comment: Some(self.code_comment),
+            code_keyword: Some(self.code_keyword),
+            code_string: Some(self.code_string),
+            code_number: Some(self.code_number),
+            code_function: Some(self.code_function),
+            code_type: Some(self.code_type),
+            code_const: Some(self.code_const),
+            code_operator: Some(self.code_operator),
+            highlight_bg: Some(self.highlight_bg),
+            match_text: Some(self.match_text),
+            table_line: Some(self.table_line),
+            table_header_bg: Some(self.table_header_bg),
+            callout_bg: Some(self.callout_bg),
+            ui_bg: Some(self.ui_bg),
+            ui_status_bg: Some(self.ui_status_bg),
+            ui_border: Some(self.ui_border),
+            ui_hover_bg: Some(self.ui_hover_bg),
+            ui_active_bg: Some(self.ui_active_bg),
+            ui_fg: Some(self.ui_fg),
+            ui_dim: Some(self.ui_dim),
+            ui_disabled: Some(self.ui_disabled),
+            ui_field_bg: Some(self.ui_field_bg),
+            ui_active_border: Some(self.ui_active_border),
+            ui_tab_bg: Some(self.ui_tab_bg),
+            ui_tab_active_bg: Some(self.ui_tab_active_bg),
+            popup_bg: Some(self.popup_bg),
+            popup_border: Some(self.popup_border),
+            popup_hover_bg: Some(self.popup_hover_bg),
+            graph_node: Some(self.graph_node),
+            graph_node_active: Some(self.graph_node_active),
+            graph_edge: Some(self.graph_edge),
+            graph_text: Some(self.graph_text),
+            graph_ghost: Some(self.graph_ghost),
+            graph_tag: Some(self.graph_tag),
+            graph_attachment: Some(self.graph_attachment),
+            diff_add: Some(self.diff_add),
+            diff_delete: Some(self.diff_delete),
+            diff_changed: Some(self.diff_changed),
+            callout_note: Some(self.callout_note),
+            callout_teal: Some(self.callout_teal),
+            callout_question: Some(self.callout_question),
+            callout_warning: Some(self.callout_warning),
+            callout_failure: Some(self.callout_failure),
+            callout_danger: Some(self.callout_danger),
+        }
+    }
+
+    /// The palette written out as theme TOML: every colour as a `#rrggbb` key,
+    /// `mode` with it.
+    ///
+    /// What it writes reads back as the same palette, which is the point -- the
+    /// export is a starting point an author edits, not a dump.
+    pub fn to_theme_toml(&self) -> anyhow::Result<String> {
+        let mut text = toml::to_string_pretty(&self.as_theme_file())?;
+        if !text.ends_with('\n') {
+            text.push('\n');
+        }
+        Ok(text)
+    }
 }
 
 /// A theme file: `<vault>/.shale/themes/<name>.toml`.
@@ -428,190 +545,440 @@ impl Palette {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ThemeFile {
-    /// The built-in palette to start from.
+    /// The palette to start from: a built-in name or another theme file's stem.
     pub base: Option<String>,
+    /// Whether this theme is a dark one or a light one, for anything that has to
+    /// pick between them without looking at the colours -- follow-the-system
+    /// (`design-language.md` §15). Absent, [`Palette::mode`] infers it from the
+    /// background's luminance, which is what the export writes back out.
+    #[serde(default)]
+    pub mode: Option<Mode>,
     /// Note background.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub bg: Option<u32>,
     /// Ordinary note text.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub fg: Option<u32>,
     /// The normal-mode cursor block.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub cursor: Option<u32>,
     /// Background band across the cursor's line.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub cursor_line_bg: Option<u32>,
     /// Visual-mode selection.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub selection: Option<u32>,
     /// A wiki-link that names an existing note.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub link: Option<u32>,
     /// A wiki-link that does not name an existing note.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub link_unresolved: Option<u32>,
     /// Syntax punctuation and markers.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub dim: Option<u32>,
     /// Heading text.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub heading: Option<u32>,
     /// Blockquote text.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub quote: Option<u32>,
     /// List bullets, task boxes and other structural accents.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub accent: Option<u32>,
     /// The agent's colour across the presence cluster. Defaults to `accent`.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub agent: Option<u32>,
     /// A `#tag`.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub tag: Option<u32>,
     /// The checker's wavy underline.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub spell: Option<u32>,
     /// Background of an inline code span.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub code_bg: Option<u32>,
     /// Background of a fenced code block's lines.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub code_block_bg: Option<u32>,
     /// Ordinary text in a fenced code block.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub code_text: Option<u32>,
     /// A comment in a fenced code block.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub code_comment: Option<u32>,
     /// A keyword in a fenced code block.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub code_keyword: Option<u32>,
     /// A string literal in a fenced code block.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub code_string: Option<u32>,
     /// A number literal in a fenced code block.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub code_number: Option<u32>,
     /// A function name in a fenced code block.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub code_function: Option<u32>,
     /// A type name in a fenced code block.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub code_type: Option<u32>,
     /// A constant or builtin in a fenced code block.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub code_const: Option<u32>,
     /// An operator or delimiter in a fenced code block.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub code_operator: Option<u32>,
     /// Background of `==highlighted==` text.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub highlight_bg: Option<u32>,
     /// A picker's matched characters, as text colour.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub match_text: Option<u32>,
     /// Table grid lines and the thematic-break rule.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub table_line: Option<u32>,
     /// Background of a table's header row.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub table_header_bg: Option<u32>,
     /// Background of a callout's box.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub callout_bg: Option<u32>,
     /// The window and sidebar background.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub ui_bg: Option<u32>,
     /// Background of the status bar.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub ui_status_bg: Option<u32>,
     /// The rule between the sidebar and the editor.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub ui_border: Option<u32>,
     /// A file-tree row under the pointer.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub ui_hover_bg: Option<u32>,
     /// The file-tree row that names the open note.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub ui_active_bg: Option<u32>,
     /// Text on a window surface rather than in the note.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub ui_fg: Option<u32>,
     /// Quiet text on a window surface.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub ui_dim: Option<u32>,
     /// A control that is there but cannot be used.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub ui_disabled: Option<u32>,
     /// Background of a picker's or the prompt's text field.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub ui_field_bg: Option<u32>,
     /// The rule around the focused pane or field.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub ui_active_border: Option<u32>,
     /// A tab that does not hold the open note.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub ui_tab_bg: Option<u32>,
     /// The tab that holds the open note.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub ui_tab_active_bg: Option<u32>,
     /// Background of the note's popup panel.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub popup_bg: Option<u32>,
     /// The rule around that panel.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub popup_border: Option<u32>,
     /// That panel's highlighted row.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub popup_hover_bg: Option<u32>,
     /// A note's dot in the graph view.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub graph_node: Option<u32>,
     /// The graph's focused or hovered node.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub graph_node_active: Option<u32>,
     /// A graph edge.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub graph_edge: Option<u32>,
     /// A graph node's label.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub graph_text: Option<u32>,
     /// A graph node for a link to a note that does not exist.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub graph_ghost: Option<u32>,
     /// A `#tag` node in the graph view.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub graph_tag: Option<u32>,
     /// An attachment node in the graph view.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub graph_attachment: Option<u32>,
     /// A review-strip line the agent proposes to add.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub diff_add: Option<u32>,
     /// A review-strip line the agent proposes to remove.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub diff_delete: Option<u32>,
     /// A review-strip line the agent proposes to change.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub diff_changed: Option<u32>,
     /// Note callout accent.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub callout_note: Option<u32>,
     /// Abstract and example callout accent.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub callout_teal: Option<u32>,
     /// Question callout accent.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub callout_question: Option<u32>,
     /// Warning callout accent.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub callout_warning: Option<u32>,
     /// Failure callout accent.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub callout_failure: Option<u32>,
     /// Danger and bug callout accent.
-    #[serde(default, deserialize_with = "deserialize_color")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
     pub callout_danger: Option<u32>,
 }
 
@@ -674,15 +1041,38 @@ where
         .map_err(serde::de::Error::custom)
 }
 
+/// serde helper that writes a colour key back out as a `#rrggbb` string -- the
+/// counterpart of [`deserialize_color`], and what makes [`Palette::to_theme_toml`]
+/// a file the loader will read rather than a bag of integers.
+fn serialize_color<S>(value: &Option<u32>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    match value {
+        Some(rgb) => serializer.serialize_str(&format!("#{rgb:06x}")),
+        None => serializer.serialize_none(),
+    }
+}
+
 /// The palette a vault asks for.
 ///
 /// `name` (from `appearance.theme`) is a built-in -- `dark`, `light`, or one of
 /// the family palettes in [`Palette::BUILT_INS`] -- or the stem of
-/// `<vault>/.shale/themes/<name>.toml`, whose `base` says which built-in to
+/// `<vault>/.shale/themes/<name>.toml`, whose `base` says which palette to
 /// start from. An empty name is [`Palette::DEFAULT_NAME`]. An unknown name is an
 /// error, which lets the caller tell the user their theme was not found instead
 /// of quietly drawing the default.
+///
+/// `base` is resolved by the same rule as `name`, so a theme file may build on
+/// another theme file (`design-language.md` §15). The chain of files already
+/// open is what catches an inheritance ring.
 pub fn palette_for(vault_root: &Path, name: &str) -> anyhow::Result<Palette> {
+    resolve(vault_root, name, &mut Vec::new())
+}
+
+/// One step of [`palette_for`]. `chain` holds the theme-file stems already being
+/// resolved, outermost first.
+fn resolve(vault_root: &Path, name: &str, chain: &mut Vec<String>) -> anyhow::Result<Palette> {
     let name = name.trim();
     let name = if name.is_empty() {
         Palette::DEFAULT_NAME
@@ -692,6 +1082,21 @@ pub fn palette_for(vault_root: &Path, name: &str) -> anyhow::Result<Palette> {
     if let Some(palette) = Palette::built_in(name) {
         return Ok(palette);
     }
+    // A ring has to be named, not just noticed: "circular base" is a message a
+    // theme author cannot act on, and the ring is usually three files deep.
+    if let Some(at) = chain
+        .iter()
+        .position(|seen| seen.eq_ignore_ascii_case(name))
+    {
+        let ring = chain[at..]
+            .iter()
+            .map(|seen| format!("{seen}.toml"))
+            .chain(std::iter::once(format!("{name}.toml")))
+            .collect::<Vec<_>>()
+            .join(" -> ");
+        bail!("theme {name:?} inherits from itself: {ring}");
+    }
+    chain.push(name.to_string());
     let path = ThemeFile::path(vault_root, name);
     let text = std::fs::read_to_string(&path).with_context(|| {
         format!(
@@ -707,8 +1112,8 @@ pub fn palette_for(vault_root: &Path, name: &str) -> anyhow::Result<Palette> {
     let theme =
         ThemeFile::from_toml(&text).with_context(|| format!("parsing theme {}", path.display()))?;
     let base = theme.base.as_deref().unwrap_or(Palette::DEFAULT_NAME);
-    let base = Palette::built_in(base)
-        .with_context(|| format!("unknown theme base {base:?} in {}", path.display()))?;
+    let base = resolve(vault_root, base, chain)
+        .with_context(|| format!("theme base {base:?} in {}", path.display()))?;
     Ok(base.apply(&theme))
 }
 
