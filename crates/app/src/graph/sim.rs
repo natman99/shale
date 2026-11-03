@@ -32,6 +32,13 @@ const SEED: u64 = 0x5f3a_7c19_2b48_0d61;
 /// enough for the new or moved nodes to find their place.
 const REHEAT: f32 = 0.3;
 
+/// The most cells the pointer's hit-test grid is ever given along one axis, so the
+/// grid is at most about this squared buckets (a few MB). `Grid::build` allocates one
+/// bucket per cell over the layout's bounding box, so a cell sized only off the node
+/// radii turns a layout that has flown apart into a request for hundreds of gigabytes.
+/// Widening the cell past the ideal only costs hit-test precision.
+const GRID_MAX_SPAN: f32 = 512.0;
+
 /// What a sim slot stands for, copied out of the index at build time.
 struct Slot {
     /// The node's identity across an arena rebuild.
@@ -287,14 +294,10 @@ impl GraphSim {
                     .map(|path| SharedString::from(path.display().to_string())),
             })
             .collect();
-        // Cells about twice the largest node, which is what core's own note on `Grid`
-        // asks for: few enough cells that a hit test looks at a handful of nodes, large
-        // enough that no node can be missed by the 3×3 neighbourhood.
-        let biggest = self.sim.radius.iter().copied().fold(0.0, f32::max);
-        let grid = Grid::build(positions, (2.0 * biggest).max(8.0));
-        // The box the layout occupies, in one more pass over the positions the sim is
-        // already holding: the pointer's hit test needs it, because core's grid has no
-        // answer for a query outside the box it was built from.
+        // The box the layout occupies, in one pass over the positions the sim is
+        // already holding. Two things need it: the pointer's hit test, because core's
+        // grid has no answer for a query outside the box it was built from, and the
+        // cell size below.
         let bounds = positions
             .iter()
             .fold(None::<([f32; 2], [f32; 2])>, |acc, p| match acc {
@@ -307,6 +310,33 @@ impl GraphSim {
                     Some((lo, hi))
                 }
             });
+        // Cells about twice the largest node, which is what core's own note on `Grid`
+        // asks for: few enough cells that a hit test looks at a handful of nodes, large
+        // enough that no node can be missed by the 3×3 neighbourhood. But never smaller
+        // than one [`GRID_MAX_SPAN`]th of the layout, because `Grid::build` allocates a
+        // bucket per cell: a layout that has flown apart spans a billion world units, and
+        // a cell sized off the node radii alone then asks for a hundred gigabytes (the
+        // 1k fixture did exactly this — PROJECT.md thread 39). A wide cell costs hit-test
+        // precision, which is the cheaper thing to lose.
+        let biggest = self.sim.radius.iter().copied().fold(0.0, f32::max);
+        let wanted = (2.0 * biggest).max(8.0);
+        let cell = match bounds {
+            Some(([lo_x, lo_y], [hi_x, hi_y])) => {
+                let floor = (hi_x - lo_x).max(hi_y - lo_y) / GRID_MAX_SPAN;
+                if floor > wanted {
+                    // Debug, not warn: a layout that is diverging re-frames every tick,
+                    // and a log line per frame is not evidence, it is noise.
+                    tracing::debug!(
+                        span = (hi_x - lo_x).max(hi_y - lo_y),
+                        cell = floor,
+                        "the graph's layout is spread thin; widening the hit-test grid"
+                    );
+                }
+                wanted.max(floor)
+            }
+            None => wanted,
+        };
+        let grid = Grid::build(positions, cell);
         GraphFrame {
             nodes,
             edges: self.edges.clone(),

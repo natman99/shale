@@ -283,5 +283,12 @@ impl Workspace {
             })
             .collect();
         self.jumps.restore(back, forward);
+
+        // Folders come back closed unless the session says otherwise, so the note the
+        // window is standing on has to have its path opened or it would be a row that
+        // does not exist.
+        if let Some(path) = self.note() {
+            self.expand_ancestors(&path);
+        }
     }
 }

@@ -2377,6 +2377,15 @@ Largest files now (2026-10-30, after Phase 0's module splits; what the DB spine
   child module is invisible to the others, and importing it by name would collide with the
   module of the same name), with `canvas.rs` down to **206**. `editor/mod.rs` is still
   **993**, and `graph/mod.rs` at **698** has room.
+  **Big-vault fixes (2026-11-03):** the graph's hit-test grid is now bounded by the
+  layout (`GRID_MAX_SPAN`, `graph/sim.rs` 317 → **347**) — see open thread 39 for the
+  diverging simulation behind the 238 GB allocation; `graph/render.rs` 287 → **285**
+  (labels ramp by *count*, never by opacity); `workspace/mod.rs` 767 → **771** (folders
+  start closed), `workspace/tree.rs` 226 → **235** (`expand_ancestors`),
+  `workspace/session.rs` 285 → **294** (the restored note is revealed). App **375** tests
+  (three tree/picker tests re-keystroked for the new default, two added). Core could not
+  be re-run: the graph track's in-flight `core/src/graph/sim.rs` does not compile
+  (`min_deg` missing in the `Sim` initializer) as of this commit.
   **P3.4 polish + the jump chain (2026-11-02):** the graph tab's first run on a real
   window. The wheel direction, the label opacity, the header's size, the strip's
   keyboard, and a hit test that missed the nodes on the layout's edge — see open thread
@@ -3739,6 +3748,63 @@ Next steps, roughly in order:
       last held; it cannot redraw the number while nothing is drawing, because there is
       deliberately no timer behind it. **Delete the module** once the criteria are
       verified on a big vault.
+
+39. **The 1k/5k graph vaults: a diverging layout, and the allocation that followed** —
+    for the graph track (2026-11-03). Reproduced headlessly; nothing here is fixed in
+    `core/src/graph/**`, which is that track's file.
+    - **The simulation flies apart on the big fixtures.** Driving the app's own path
+      (`GraphSim::build(index, None, &visible)` then `advance(2)` in a loop, which is
+      exactly what the beat does) on `examples/graph/1k` (1088 nodes) and `5k` (5261),
+      the layout's bounding box grows about **10× per tick**:
+
+      | tick | 1k span (world units) | 5k span |
+      |---|---|---|
+      | 0 | 3.0e3 | 7.0e4 |
+      | 2 | 3.7e5 | 8.2e8 |
+      | 5 | 2.6e8 | 5.1e14 |
+      | 8 | 4.3e10 | 1.2e20 |
+      | 13 | 2.1e12 | — |
+
+      Positions stay finite, `settled()` stays false, and the span later bounces back
+      down again (1e12 → 6.7e8 → 2e10), which is why a single `advance(400)` looked sane:
+      a snapshot taken at the wrong tick shows a normal-looking layout. The 100-note
+      fixture settles fine, so it scales with node count. The app passes
+      `SimParams::default()` unchanged, and the current defaults (`repel: -200`, chosen
+      2026-11-02 for label spacing) are the most likely lever — worth a probe at 1k and
+      5k before the next spacing change.
+    - **The OOM was the hit-test grid, not the sim.** `Grid::build` allocates one
+      `Vec<u32>` bucket per cell over the positions' bounding box, so with a cell sized
+      off the node radii (≈47 world units) and a span of 1e9 the bucket count is
+      ~1.2e10 and the allocation request is ~2.9e11 bytes — the user's
+      `memory allocation of 238712440896 bytes failed`. Fixed app-side in
+      `graph/sim.rs`: the cell is never smaller than one `GRID_MAX_SPAN`th (512) of the
+      layout, so the grid is at most ~512² buckets. Measured with the same loop: RSS
+      stays at 22 MB (1k) and 26 MB (5k) with a span of 1e19, where it used to die at
+      tick 3. A `debug!` line names it when the bound kicks in.
+    - **Still open for the graph track:** the beat only stops when the sim settles, so a
+      diverging layout runs at 60 fps forever. Either a velocity clamp / force cap in
+      core's `step`, or the app refusing to keep ticking a layout whose span is growing
+      monotonically. The second is a few lines in `graph_tick`; say the word and it
+      lands, but the first is the real fix.
+    - **Repro recipe** (a scratch `#[test]` in `tests/graph/`, deleted after use): open
+      the vault with `Vault::open`, `GraphIndex::build`, `GraphSim::build`, then
+      `advance(2)` + `frame()` in a loop printing `(hi-lo).max()` per tick. Run the test
+      binary under `ulimit -v 4000000` so a runaway allocation fails fast instead of
+      swapping the machine.
+
+40. **The file tree: closed by default, and what it costs to draw** — user request
+    (2026-11-03).
+    - **Every folder used to start open** (`Workspace::new` seeded `expanded` from
+      `list_dirs`), which on a 5k-note vault is ~5k rows. `Workspace::render` calls
+      `tree::build_tree` on **every frame** and `push_node` emits a div per visible row,
+      so the debug-build crawl the user saw was thousands of laid-out rows per frame,
+      not the vault scan. Folders now start closed; the session still remembers what the
+      user opened, and `expand_ancestors` opens the path to the note the window came back
+      with so the restored note is a row that exists.
+    - **Parked follow-ups, in order of value:** cache the built tree instead of
+      rebuilding it per frame (it only changes when `entries`/`dirs` do); virtualize the
+      sidebar's rows so a fully-opened big vault costs a screenful rather than the vault;
+      and scroll the active note's row into view.
 
 ## Parked threads (agreed 2026-10-28; not being worked now)
 

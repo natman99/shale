@@ -41,6 +41,36 @@ pub(crate) fn vault_with_session(
     (dir, window)
 }
 
+/// A restored note is a row the user can actually see. Folders come back closed unless
+/// the session opened them, so the note the window is standing on has every folder on
+/// the way to it opened — otherwise "the tree remembers the note" would be a row that
+/// does not exist.
+#[gpui::test]
+fn a_restored_note_is_revealed_in_the_tree(cx: &mut TestAppContext) {
+    let session = Session {
+        open_note: Some(PathBuf::from("notes/deep/b.md")),
+        ..Session::default()
+    };
+    let (_dir, window) = vault_with_session(
+        cx,
+        &[("Welcome.md", "top\n"), ("notes/deep/b.md", "deep\n")],
+        &session,
+    );
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    let (rows, active) = state(&window, &mut cx);
+    assert_eq!(active, "notes/deep/b.md", "the note came back");
+    assert_eq!(
+        rows,
+        vec![
+            PathBuf::from("notes"),
+            PathBuf::from("notes/deep"),
+            PathBuf::from("notes/deep/b.md"),
+            PathBuf::from("Welcome.md"),
+        ],
+        "and every folder on the way to it is open"
+    );
+}
+
 /// The whole point of the feature: the window comes up on the note the user was
 /// reading, at their cursor, in their view, with their folders open and their
 /// `ctrl-o` still working back through notes from before the restart.

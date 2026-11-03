@@ -264,8 +264,12 @@ impl Workspace {
         let entries = vault.list_markdown().unwrap_or_default();
         let dirs = vault.list_dirs().unwrap_or_default();
         let signature = vault.signature().unwrap_or_default();
-        // Every folder starts open: the tree is the vault, not a browser.
-        let expanded = dirs.iter().map(|e| e.path.clone()).collect();
+        // Folders start **closed**. The tree is the vault, but a vault with a few
+        // thousand notes and every folder open is a few thousand rows laid out on every
+        // frame, and a sidebar nobody can scan is not a tree. What the user opens is
+        // remembered in the session, so this default is only what a fresh vault (or a
+        // vault where they closed everything) looks like.
+        let expanded = HashSet::new();
         let every_name = note_keys(&entries);
         // The files that are not notes, which is what `![[image.png]]` resolves
         // against. Both this and the link names live on the window rather than being

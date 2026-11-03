@@ -28,6 +28,25 @@ fn ctrl_n_asks_for_a_name_and_creates_the_note(cx: &mut TestAppContext) {
     assert_eq!(active, "Idea.md", "and the new note is the one on screen");
 }
 
+/// A fresh vault's folders start **closed**. The tree is still the vault, but a
+/// thousand-note one with every folder open is a thousand rows laid out on every frame,
+/// and a sidebar nobody can scan is not a tree. What the user opens is session state.
+#[gpui::test]
+fn a_fresh_vault_starts_with_its_folders_closed(cx: &mut TestAppContext) {
+    let (_dir, window) = workspace(
+        cx,
+        &["Welcome.md", "notes/First.md", "notes/deep/Second.md"],
+    );
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    let (rows, _) = state(&window, cx);
+    assert_eq!(
+        rows,
+        vec![PathBuf::from("notes"), PathBuf::from("Welcome.md")],
+        "the folder is a row; what is inside it is not"
+    );
+}
+
 #[gpui::test]
 fn escape_backs_out_of_the_prompt_without_touching_the_vault(cx: &mut TestAppContext) {
     let (dir, window) = workspace(cx, &["Welcome.md"]);
@@ -120,7 +139,9 @@ fn the_tree_walks_with_j_and_k(cx: &mut TestAppContext) {
     let (_dir, window) = workspace(cx, &["Welcome.md", "notes/First.md", "notes/Second.md"]);
     let cx = &mut VisualTestContext::from_window(window.into(), cx);
 
-    cx.simulate_keystrokes("ctrl-w h");
+    // `ctrl-w h` gives the sidebar the keyboard; the bare `l` after it is the tree's
+    // own expand, which the folder needs because a fresh vault starts with them closed.
+    cx.simulate_keystrokes("ctrl-w h l");
     let selected = window
         .update(cx, |ws, _window, _cx| ws.tree_selection())
         .unwrap();
@@ -155,7 +176,9 @@ fn h_closes_a_folder_and_j_steps_over_what_it_hid(cx: &mut TestAppContext) {
     let (_dir, window) = workspace(cx, &["Welcome.md", "notes/First.md"]);
     let cx = &mut VisualTestContext::from_window(window.into(), cx);
 
-    cx.simulate_keystrokes("ctrl-w h h");
+    // The folder starts closed, so the bare `l` opens it and the `h` after it is the
+    // close the test is about.
+    cx.simulate_keystrokes("ctrl-w h l h");
     let (rows, _) = state(&window, cx);
     assert_eq!(
         rows,

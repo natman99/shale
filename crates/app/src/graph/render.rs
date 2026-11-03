@@ -25,19 +25,18 @@ use super::frame::{GraphFrame, GraphNode};
 /// text is worse than a quiet graph.
 pub(crate) const LABEL_CAP: usize = 300;
 
-/// A label's opacity ramps in over this zoom range and is invisible below it:
-/// under ~0.45x the characters are smaller than the gap between two nodes, so
-/// the labels cost more than they say.
+/// A label's *budget* ramps over this zoom range and labels stop entirely below it:
+/// under ~0.45x the characters are smaller than the gap between two nodes, so the
+/// labels cost more than they say.
 const LABEL_FADE_FROM: f32 = 0.45;
 const LABEL_FADE_FULL: f32 = 0.85;
 
-/// The opacity a label never falls below while it is drawn at all. Multiplying a
-/// colour's alpha into the background is what made small labels read as black on a
-/// dark theme: at 0.3 the blend of the label colour with the canvas lands a hair off
-/// the background, and the eye reads that as a smudge rather than quiet text. So the
-/// fade says *how many* labels there are, and this floor says the ones there are can
-/// be read.
-const LABEL_ALPHA_FLOOR: f32 = 0.6;
+/// The smallest the budget gets at the zoomed-out end of the fade band, as a fraction
+/// of [`LABEL_CAP`]. The ramp is about how many nodes are worth naming at a zoom where
+/// they cannot all be read, not about fading them out: measured on mocha, `graph_text`
+/// at 0.6 alpha over the canvas lands within a hair of the **link** colour, which is why
+/// zoomed-out labels read as black smudges rather than quiet text.
+const LABEL_CAP_FLOOR: f32 = 0.25;
 
 /// A link's width in world units, so it thickens with zoom like the nodes do
 /// rather than turning into a hairline at 0.2x.
@@ -235,14 +234,15 @@ pub(crate) fn paint_graph(
     // ----- labels --------------------------------------------------------
     // `fade` is how far into the ramp this zoom is: 0 below [`LABEL_FADE_FROM`], where
     // the characters are smaller than the gap between two nodes and the labels are not
-    // worth their cost, 1 at [`LABEL_FADE_FULL`].
+    // worth their cost, 1 at [`LABEL_FADE_FULL`]. It buys **fewer labels**, never fainter
+    // ones — see [`LABEL_CAP_FLOOR`] for why the opacity version of this was wrong.
     let fade =
         ((camera.zoom - LABEL_FADE_FROM) / (LABEL_FADE_FULL - LABEL_FADE_FROM)).clamp(0.0, 1.0);
     if fade <= 0.02 {
         return;
     }
-    let alpha = LABEL_ALPHA_FLOOR + (1.0 - LABEL_ALPHA_FLOOR) * fade;
-    // Highest degree first: if only `LABEL_CAP` labels fit, they should be the
+    let cap = (LABEL_CAP as f32 * fade.max(LABEL_CAP_FLOOR)) as usize;
+    // Highest degree first: if only `cap` labels fit, they should be the
     // hubs, because those are the notes a person is most likely looking for.
     let mut visible: Vec<&GraphNode> = frame
         .nodes
@@ -250,13 +250,11 @@ pub(crate) fn paint_graph(
         .filter(|node| visible(node, lo_x, hi_x, lo_y, hi_y, CULL_MARGIN))
         .collect();
     visible.sort_by_key(|node| std::cmp::Reverse(node.degree));
-    visible.truncate(LABEL_CAP);
+    visible.truncate(cap);
 
     let label_size = px(labels.size * LABEL_SCALE);
-    let mut color: gpui::Hsla = gpui::rgb(palette.graph_text).into();
-    color.a *= alpha;
     let runs = [TextRun {
-        color,
+        color: gpui::rgb(palette.graph_text).into(),
         font: labels.font.clone(),
         ..Default::default()
     }];

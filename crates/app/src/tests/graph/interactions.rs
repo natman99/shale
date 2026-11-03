@@ -54,9 +54,10 @@ fn pointer(cx: &mut VisualTestContext, at: gpui::Point<gpui::Pixels>, held: bool
     );
 }
 
-/// The wheel, in lines: positive scrolls down, which zooms **in** — the direction the
-/// graph chose, because the zoom is anchored at the cursor and going deeper into the
-/// picture is what a downward flick asks for.
+/// The wheel, in lines. The view passes the delta through with its own sign, so a
+/// positive `lines` zooms in; on a real device a downward wheel arrives as a negative
+/// `delta.y` and zooms out. The harness synthesizes the event, so what these tests pin
+/// is the mapping from delta to zoom, not which sign a backend chooses for a gesture.
 fn wheel(cx: &mut VisualTestContext, at: gpui::Point<gpui::Pixels>, lines: f32) {
     cx.simulate_event(gpui::ScrollWheelEvent {
         position: at,
@@ -83,7 +84,7 @@ fn the_wheel_zooms_around_the_cursor(cx: &mut TestAppContext) {
     wheel(&mut cx, at, 1.0);
 
     let (zoom_after, pan_after) = camera(&mut cx, &window);
-    assert!(zoom_after > zoom, "scrolling down zooms in");
+    assert!(zoom_after > zoom, "a positive wheel delta zooms in");
     let after = shale_core::graph::geom::Camera::new(pan_after, zoom_after).to_world(cursor);
     for axis in 0..2 {
         assert!(

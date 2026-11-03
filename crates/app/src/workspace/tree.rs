@@ -104,6 +104,16 @@ pub(super) fn push_node(
 impl Workspace {
     // ----- the file tree, from the keyboard ----------------------------
 
+    /// Open every folder on the way to `path`, so the note the window came back with is
+    /// a row the user can see rather than something inside a folder nobody opened.
+    pub(super) fn expand_ancestors(&mut self, path: &Path) {
+        let mut parent = path.parent();
+        while let Some(dir) = parent.filter(|dir| !dir.as_os_str().is_empty()) {
+            self.expanded.insert(dir.to_path_buf());
+            parent = dir.parent();
+        }
+    }
+
     /// Whether `path` is one of the vault's folders.
     pub(super) fn is_dir(&self, path: &Path) -> bool {
         self.dirs.iter().any(|dir| dir.path == *path)

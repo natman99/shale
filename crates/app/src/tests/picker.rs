@@ -549,7 +549,8 @@ fn ctrl_w_moves_the_keyboard_between_panels(cx: &mut TestAppContext) {
     let (_dir, window) = workspace(cx, &["Welcome.md", "notes/First.md"]);
     let cx = &mut VisualTestContext::from_window(window.into(), cx);
 
-    cx.simulate_keystrokes("ctrl-w h j");
+    // The bare `l` opens the folder, which a fresh vault starts with closed.
+    cx.simulate_keystrokes("ctrl-w h l j");
     assert_eq!(
         window
             .update(cx, |ws, _window, _cx| ws.tree_selection())

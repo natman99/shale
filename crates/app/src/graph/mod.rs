@@ -403,11 +403,11 @@ impl GraphView {
         cx: &mut Context<Self>,
     ) {
         let notches = match event.delta {
-            // Scrolling down zooms **in**. gpui's own scrollable div adds `delta.y` to
-            // its offset, so a positive `delta.y` is "the wheel went down" on every
-            // backend; the graph reads that as going deeper into the picture, which is
-            // what the pointer is anchored at the cursor for. A pixel delta (a
-            // trackpad) is divided into notches so it stays smooth rather than jumping.
+            // The delta is passed through with its own sign, which on the real backends
+            // means a **downward** wheel zooms **out** and an upward one zooms in — the
+            // direction the user asked for, and the one gpui's own scrollable div reads
+            // the same way. A pixel delta (a trackpad) is divided into notches so it
+            // stays smooth rather than jumping.
             ScrollDelta::Lines(delta) => delta.y,
             ScrollDelta::Pixels(delta) => delta.y.as_f32() / WHEEL_PX_PER_NOTCH,
         };
