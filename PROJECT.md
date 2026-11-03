@@ -4244,6 +4244,93 @@ Next steps, roughly in order:
     along with the contrast-guard commit). The graph paint bench still runs and the cache still
     pays at every zoom.
 
+45. **§13 and §15, and the unix gate** — user request (2026-11-03). "go ahead and knock out 13
+    and 15 then. be sure to feature gate linux specific apis." Four commits: `b7fd9da` (the two
+    §11 debts: picker elevation, tab roles), `dc12e86` (unix gating), `32db0bb` (§15), `692800a`
+    (§13 window identity).
+
+    ### What landed
+    - **The picker is raised** (`b7fd9da`): `popup_bg` + `popup_border`, chosen row
+      `popup_hover_bg`. The contrast table had been judging `match_text` against `ui_bg` and
+      `ui_active_bg` *as the picker's rows*; those floors moved to the surfaces the rows are
+      actually drawn on, and `ui_dim` on `popup_bg` became a pair the audit had never measured.
+    - **The tab bar paints `ui_tab_bg` / `ui_tab_active_bg`.** An inactive tab was a bare row;
+      the roles had been reserved and unused since the palette cut them.
+    - **§15**: `base` chains through other theme files with a ring guard that names the ring;
+      `mode = "dark" | "light"` with the inference from `bg`; `:theme export <name>`; an empty
+      `appearance.theme` follows the desktop.
+    - **§13**: `app_id = "shale"` (WM_CLASS / xdg app_id), the strata mark rasterised into the
+      X11 window icon, `assets/shale.desktop` + `assets/shale.svg` + `assets/README.md`.
+
+    ### The finding worth keeping: a light Solarized had its greys swapped
+    Two new contrast floors failed only Solarized, and the light variant's failure was a bug
+    rather than a tight squeeze: its `ui_dim` was `#93a1a1` (base1), which in a **light**
+    Solarized is the family's *background* colour — the greys mirror when the variant flips —
+    while `#586e75` (base01) is its quiet-content grey. Hint text had been drawn in a background
+    colour, which is why it measured 1.5:1 on a raised chip. Fixed in the palette, not by
+    lowering the floor. The dark variant's tab chip did move (base01 at 25% → 20% over base02),
+    which is a genuine squeeze: a raised chip in a dark theme is lighter, and the quiet grey on
+    it is what pays for that.
+
+    A throwaway Python mirror of `contrast::audit` (parse the rule table out of `contrast.rs`,
+    parse the colour literals out of the family files, print every flag for all 20 palettes)
+    found both failures in one pass instead of one panic at a time. Worth keeping as a pattern;
+    it was deleted after, per the no-scratch-files rule.
+
+    ### The dependency question that cost nothing
+    §15's follow-the-system needs a portal client. `cargo tree` showed gpui's Linux backend
+    already links `ashpd` 0.13 (and `zbus`), and `image` 0.25 is there for the same reason, so
+    both new dependency lines name crates the build already carries — same versions, same
+    features as Zed asks for. No new download, no new code in the binary.
+
+    gpui's own `App::window_appearance()` looked like the free answer and is not: on Linux the
+    platform starts at `WindowAppearance::Light` and is only corrected once the portal replies,
+    so trusting it paints a light palette on a dark desktop for the first moment of the window's
+    life, and a machine with no portal stays light forever. §15 wants unreadable → dark, so
+    `desktop.rs` asks the portal itself and treats "no answer" as its own case.
+
+    ### Ruling: what "unset `appearance.theme`" means
+    `Config::default().theme` is `mocha`, and the starter config writes that line, so the key is
+    never actually absent. **An empty string is the unset marker**: `theme = ""` names no palette
+    and follows the desktop. Making the *default* follow instead would have put a D-Bus round trip
+    in every test window and changed what every existing vault opens in. Documented in the starter
+    comment. Flagged because it is a reading of §15, not a literal one.
+
+    `theme export <name>` takes the word `export` from the theme-name grammar, so a vault theme
+    literally called `export` is a picker row and a valid `appearance.theme` but not a `:` name.
+    Chosen deliberately and written in `ex.rs`; the alternative (only treat `export` as the
+    subcommand when a name follows) makes `:theme export` a mystery.
+
+    ### The unix gate, and what is still not true
+    The whole unix surface turned out to be three places: the termination signals (`libc` +
+    `signal-hook-registry`, now `[target.'cfg(unix)'.dependencies]` with `main`'s block behind
+    `#[cfg(unix)]` — the flag they raise stays, because the window's poll of it is portable), one
+    autosave test that makes a file unwritable, and `core::atomic`'s permission copy, which was
+    already gated. The watcher polls rather than using inotify, the LSP client and the live MCP
+    channel use `std::process` and TCP, and nothing touches `std::os`, sockets or a home-directory
+    lookup. gpui's own backends are already target-gated upstream.
+
+    **Not verified by compiling**: there is no `x86_64-pc-windows-*` target installed and no
+    mingw/MSVC toolchain, and `rusqlite`'s bundled SQLite would need a Windows-targeting C
+    compiler before any of the crates could be checked there. The gating is by audit, not by a
+    green cross-compile. A Windows build would still need the console handler that raises the
+    termination flag.
+
+    ### Not built
+    - **Live following** (reacting when the desktop flips dark↔light mid-session). The one-shot
+      read at startup is what §15 asks for; `observe_window_appearance` exists and fires with
+      gpui's placeholder value first, which is the same trap as above.
+    - **Cursor shape per vim mode.** Spiked: gpui exposes only the *pointer* (`CursorStyle`,
+      `Window::set_cursor_style`), no caret shapes, nothing to gate. The caret is already Shale's
+      own quad in `line/mod.rs` (1.5 px bar in insert, block elsewhere), so per-mode shapes are
+      one field (`LineElement::insert` → the mode) and two paint sites. Left unbuilt because it
+      wants a look decided rather than guessed.
+
+    ### Numbers
+    `cargo test -p shale-app` **395 passed / 4 ignored** (was 390), peak RSS **95.1 MB** (was
+    94.0 — the two new deps add no code, so this is the extra tests). Core **446** (was 442),
+    mcp **35**. Clippy still exactly the 7 pre-existing warnings; `cargo fmt --check` clean.
+
 ## Parked threads (agreed 2026-10-28; not being worked now)
 
 The user is pivoting, so these are written down rather than left in the

@@ -185,6 +185,13 @@ found, and the three things the audit turned up that are **not** fixed: the pick
 strip's elevation (§5), the unpainted `ui_tab_*` roles (§4 lists tabs; the palette cut roles for
 them and the tabs obey §4 instead), and §8's drawn marks.
 
+**Follow-up 2026-11-03:** two of those three are closed. The picker is raised now --
+`popup_bg`, `popup_border`, `popup_hover_bg` for its chosen row -- and the tab bar paints
+`ui_tab_bg` / `ui_tab_active_bg` instead of leaving the roles reserved (`b7fd9da`). Retuning
+Solarized to clear the two new floors turned into a correction: a light Solarized's `ui_dim`
+was `#93a1a1`, which in that variant is the family's *background* grey, not its quiet-content
+one. The review strip's elevation and §8's drawn marks are still open.
+
 1. **Palette roles** (§1) + built-in values + TOML fallbacks — unblocks
    P2.5a's colors; small, core-side.
 2. **Contrast guard test** (§10) — protects the roles as they land.
@@ -213,14 +220,21 @@ them and the tabs obey §4 instead), and §8's drawn marks.
 - **✅ Empty states.** Every empty surface gets exactly one line in the
   status bar's voice (`the vault holds no notes yet` is the register). No
   illustrations, no tip-splatter, no second line.
-- **✅ Linux window identity.** WM_CLASS, `.desktop` entry, and a window icon
-  — a simple strata mark (stacked bedding lines) drawn once, reused by the
-  wordmark rule below. (⏳)
-- **✅ Cursor shape per vim mode** — spike what gpui exposes (block/line/
-  underline); half mode-legibility, half identity. (⏳ spike)
-- **✅ Command-name grammar** — ruled before the registry grows: bare nouns
-  for views (`:graph`), verbs for actions, dotted ids in the registry
-  (`note.save`, `theme.change`). New commands follow it at P2.7/P6.3.
+- **✅ Linux window identity** — **landed 2026-11-03** (`692800a`). `app_id = "shale"` on the
+  window: `WM_CLASS` on X11, xdg `app_id` on Wayland, and `assets/shale.desktop`'s
+  `StartupWMClass` matches it so the desktop can find the entry. The strata mark (four bedding
+  lines of uneven thickness and inset) is defined twice and checked once: `identity.rs`
+  rasterises it for the X11 window icon, `assets/shale.svg` is the same four rects, and a test
+  compares them. Installing the entry stays a packaging step (`assets/README.md`); the app does
+  not write into `~/.local/share`.
+- **✅ Cursor shape per vim mode** — **spiked 2026-11-03**. gpui exposes only the *pointer*
+  (`CursorStyle`, `Window::set_cursor_style(style, hitbox)`) — arrow/beam/hand/resize, no caret
+  shapes, and nothing to gate. The caret is already Shale's own painted quad
+  (`line/mod.rs`: a 1.5 px bar in insert, a block elsewhere), so per-mode shapes are entirely
+  ours: swap `LineElement::insert: bool` for the mode and paint an underline band for visual.
+  One field, two paint sites, no upstream work. Not built — it is mode-legibility, not identity,
+  and it wants a look decided rather than guessed.
+- **✅ Command-name grammar** — ruled before the registry grows: bare nouns for views (`:graph`), verbs for actions, dotted ids in the registry (`note.save`, `theme.change`). New commands follow it at P2.7/P6.3. `theme.export <name>` (`:theme export <name>`) is the first one built to the rule.
 - **🔭 Strata-named palettes** (`shale`, `slate`, `silt`…) — the idea where
   the name finally pays rent; flavor, not scheduled. Door open: §1's additive
   roles make a new built-in family cheap.
@@ -238,26 +252,26 @@ The spine is kept as-is: data palette, `<vault>/.shale/themes/<name>.toml`
 partial overrides, `deny_unknown_fields` loud validation, picker preview that
 never writes config.
 
-- **✅ Deeper inheritance.** `base` may name another user theme, not just a
-  built-in — resolved through the same path as `appearance.theme`, with a
-  cycle guard that errors naming the cycle. (⏳)
-- **✅ `mode` metadata + follow-the-system.** Theme files may declare
-  `mode = "dark" | "light"`; absent, it's inferred from `bg` luminance.
-  Unset `appearance.theme` follows the **system** theme: XDG Desktop Portal
-  (`org.freedesktop.portal.Settings`, `org.freedesktop.appearance` →
-  `color-scheme`) on Linux/Wayland, the `AppsUseLightTheme` registry value on
-  Windows; **unreadable → dark**. The auto mapping: dark → `mocha` (today's
-  default), light → `latte`. An explicit theme name never follows anything.
-  (⏳) *(the auto mapping pair is the doc author's extension — veto it and
-  pick other defaults)*
-- **✅ Role vocabulary grows with §1.** The new roles (`diff_*`, `agent`,
-  `ui_disabled`, `graph_ghost/tag/attachment`) land as `Option` fields in
-  `ThemeFile` in the same commit as the Palette roles — 53 → 61 overridable
-  keys, same optional-with-fallback rule.
-- **✅ `theme export`.** Dump the *resolved* palette to a TOML file so
-  tweaking a theme starts from what's on screen, not from 53 blank hexes.
-  Command grammar per §13: `theme.export <name>` (registry id), `:theme
-  export <name>` at the `:` line. (⏳)
+- **✅ Deeper inheritance** — **landed 2026-11-03** (`32db0bb`). `base` may name another user
+  theme, resolved by the same rule as `appearance.theme`; the chain of files already open catches
+  a ring and the error spells it out (`a.toml -> b.toml -> c.toml -> a.toml`).
+- **✅ `mode` metadata + follow-the-system** — **landed 2026-11-03**. Theme files may say
+  `mode = "dark" | "light"`; absent, `Palette::mode()` reads it off the note background at the
+  crossover where black and white text are equally readable (luminance 0.179). An **empty**
+  `appearance.theme` (`theme = ""`) names no palette and follows the desktop: the XDG Desktop
+  Portal's `color-scheme` on Linux, gpui's own reading of the platform setting elsewhere, dark
+  when neither answers. The window opens dark and settles a moment later rather than holding the
+  first frame for a D-Bus round trip, and choosing a theme by hand stops the following. Live
+  following (reacting when the desktop changes mid-session) is not built. *(The auto pair —
+  dark → `mocha`, light → `latte` — is the doc author's extension, in one function:
+  `desktop::built_in_for`.)*
+- **✅ Role vocabulary grows with §1.** The new roles (`diff_*`, `agent`, `ui_disabled`, `graph_ghost/tag/attachment`) land as `Option` fields in `ThemeFile` in the same commit as the Palette roles — 53 → 61 overridable keys, same optional-with-fallback rule.
+- **✅ `theme export`** — **landed 2026-11-03**. `:theme export <name>` writes the palette *on
+  screen* — not the name in the config — as 61 `#rrggbb` keys plus `mode`, and the file reads back
+  as the same palette. A built-in's name is refused (the loader answers built-ins first, so the
+  file would be dead) and an existing file is refused (burying an author's edits is the one thing
+  an export must not do). `export` belongs to the command, so a vault theme literally named
+  `export` is a picker row and a valid `appearance.theme` but not a `:` name.
 - **✅ Layering policy (written rule, no code):** **theme = color;
   appearance = fonts/size; geometry (spacing, radius, motion) is not
   themeable.** Fonts stay in `config.toml` because they are machine-dependent
