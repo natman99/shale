@@ -48,6 +48,14 @@ pub(crate) struct GraphFrame {
     /// use it, and it is rebuilt per frame rather than per question. Set by the sim,
     /// which is the only thing that can build a frame's nodes.
     pub(super) grid: Grid,
+    /// The box the layout occupies in world space, as `(lo, hi)`, or `None` when there
+    /// is no layout.
+    ///
+    /// The hit test keeps it because [`Grid`] only knows the box it was built from: a
+    /// query outside it is answered "nothing", and the pointer is outside it constantly
+    /// — the nodes on the layout's own edge are on the box's edge, and the screen→world
+    /// round trip lands a hair past it. See [`GraphFrame::node_at`].
+    pub(super) bounds: Option<([f32; 2], [f32; 2])>,
 }
 
 impl GraphFrame {
@@ -59,6 +67,7 @@ impl GraphFrame {
             nodes: Vec::new(),
             edges: Vec::new(),
             grid: Grid::default(),
+            bounds: None,
         }
     }
 
@@ -79,9 +88,24 @@ impl GraphFrame {
             .map(|node| node.radius)
             .fold(0.0, f32::max);
         let positions = self.positions();
-        self.grid
+        let hit = self
+            .grid
             .nearest(&positions, world, biggest + slop, None)
-            .map(|slot| slot as usize)
+            .or_else(|| {
+                // Nothing in the grid's neighbourhood. If the query is outside the box
+                // the grid was built from, ask again from the nearest point inside it:
+                // a pointer beside an edge node is a pointer on that node, and the
+                // round trip from screen px puts it just past the box every time the
+                // graph is framed to fit. The distance check below is still against the
+                // pointer's real position, so this cannot make a far click land.
+                let (lo, hi) = self.bounds?;
+                let clamped = [world[0].clamp(lo[0], hi[0]), world[1].clamp(lo[1], hi[1])];
+                if clamped == world {
+                    return None;
+                }
+                self.grid.nearest(&positions, clamped, biggest + slop, None)
+            });
+        hit.map(|slot| slot as usize)
             .filter(|&slot| match self.nodes.get(slot) {
                 Some(node) => distance(node.position, world) <= node.radius + slop,
                 None => false,

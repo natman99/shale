@@ -16,8 +16,8 @@ use std::ops::Range;
 use std::rc::Rc;
 
 use gpui::{
-    div, prelude::*, px, Bounds, Context, EntityInputHandler, FocusHandle, Pixels, Point,
-    SharedString, UTF16Selection, Window,
+    div, prelude::*, px, Bounds, Context, EntityInputHandler, FocusHandle, MouseButton, Pixels,
+    Point, SharedString, UTF16Selection, Window,
 };
 use shale_core::graph::filter::GraphFilter;
 use shale_core::theme::Palette;
@@ -188,6 +188,17 @@ impl GraphView {
             .items_center()
             .gap_2()
             .text_color(gpui::rgb(palette.ui_fg))
+            // A click anywhere in the strip is a click on the strip's keyboard. The
+            // window already aims the keyboard at the field when the frame moves (see
+            // [`GraphView::focus_target`]), but a press that lands on the strip's
+            // background — between the chips, or in the gap beside the field — has to
+            // take the keyboard too, or the field looks ready and hears nothing.
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _event, window, cx| {
+                    this.panel_focus.focus(window, cx);
+                }),
+            )
             .on_action(cx.listener(|this, _: &FieldBackspace, _window, cx| {
                 this.filter_field.backspace();
                 this.sync_search(cx);

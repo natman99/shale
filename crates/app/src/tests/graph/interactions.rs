@@ -54,7 +54,9 @@ fn pointer(cx: &mut VisualTestContext, at: gpui::Point<gpui::Pixels>, held: bool
     );
 }
 
-/// The wheel, in lines: positive scrolls down, which zooms out.
+/// The wheel, in lines: positive scrolls down, which zooms **in** — the direction the
+/// graph chose, because the zoom is anchored at the cursor and going deeper into the
+/// picture is what a downward flick asks for.
 fn wheel(cx: &mut VisualTestContext, at: gpui::Point<gpui::Pixels>, lines: f32) {
     cx.simulate_event(gpui::ScrollWheelEvent {
         position: at,
@@ -78,10 +80,10 @@ fn the_wheel_zooms_around_the_cursor(cx: &mut TestAppContext) {
     let cursor = [at.x.as_f32(), at.y.as_f32()];
     let before = shale_core::graph::geom::Camera::new(pan, zoom).to_world(cursor);
 
-    wheel(&mut cx, at, -1.0);
+    wheel(&mut cx, at, 1.0);
 
     let (zoom_after, pan_after) = camera(&mut cx, &window);
-    assert!(zoom_after > zoom, "scrolling up zooms in");
+    assert!(zoom_after > zoom, "scrolling down zooms in");
     let after = shale_core::graph::geom::Camera::new(pan_after, zoom_after).to_world(cursor);
     for axis in 0..2 {
         assert!(
@@ -234,6 +236,40 @@ fn clicking_a_node_opens_its_note(cx: &mut TestAppContext) {
     );
 }
 
+/// Every node is clickable exactly where it is drawn, including the ones on the
+/// layout's own edge. Those are the interesting ones: framing the graph to fit puts the
+/// extreme nodes at the bounds of the box the pointer's grid was built over, and the
+/// screen→world round trip lands a hair outside it, which is how a node on the edge
+/// ended up unhittable.
+#[gpui::test]
+fn every_node_is_hit_where_it_is_drawn(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = linked_vault(cx);
+    cx.simulate_keystrokes("space g");
+    paint(&mut cx, &window);
+
+    for slot in 0..positions(&mut cx, &window).len() {
+        let at = window
+            .update(&mut cx, |ws, _window, cx| ws.graph_node_screen(slot, cx))
+            .unwrap()
+            .expect("the node is on screen");
+        pointer(
+            &mut cx,
+            gpui::point(gpui::px(at[0]), gpui::px(at[1])),
+            false,
+        );
+        assert_eq!(
+            window
+                .update(&mut cx, |ws, _window, cx| ws.graph_hover(cx))
+                .unwrap(),
+            Some(slot),
+            "the pointer is on the dot that stands for {:?}",
+            window
+                .update(&mut cx, |ws, _window, cx| ws.graph_paths(cx))
+                .unwrap()[slot]
+        );
+    }
+}
+
 /// The pointer's hover is the graph's "which one am I pointing at", and it lets go when
 /// the pointer moves off the dot.
 #[gpui::test]
@@ -380,8 +416,8 @@ fn f_frames_the_whole_graph_again(cx: &mut TestAppContext) {
         gpui::px(canvas[0] + canvas[2] / 2.0),
         gpui::px(canvas[1] + canvas[3] / 2.0),
     );
-    wheel(&mut cx, middle, -1.0);
-    wheel(&mut cx, middle, -1.0);
+    wheel(&mut cx, middle, 1.0);
+    wheel(&mut cx, middle, 1.0);
     let (zoomed, _) = camera(&mut cx, &window);
     assert!(zoomed > zoom, "the wheel zoomed in");
 

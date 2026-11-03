@@ -292,10 +292,26 @@ impl GraphSim {
         // enough that no node can be missed by the 3×3 neighbourhood.
         let biggest = self.sim.radius.iter().copied().fold(0.0, f32::max);
         let grid = Grid::build(positions, (2.0 * biggest).max(8.0));
+        // The box the layout occupies, in one more pass over the positions the sim is
+        // already holding: the pointer's hit test needs it, because core's grid has no
+        // answer for a query outside the box it was built from.
+        let bounds = positions
+            .iter()
+            .fold(None::<([f32; 2], [f32; 2])>, |acc, p| match acc {
+                None => Some(([p[0], p[1]], [p[0], p[1]])),
+                Some((mut lo, mut hi)) => {
+                    lo[0] = lo[0].min(p[0]);
+                    lo[1] = lo[1].min(p[1]);
+                    hi[0] = hi[0].max(p[0]);
+                    hi[1] = hi[1].max(p[1]);
+                    Some((lo, hi))
+                }
+            });
         GraphFrame {
             nodes,
             edges: self.edges.clone(),
             grid,
+            bounds,
         }
     }
 }

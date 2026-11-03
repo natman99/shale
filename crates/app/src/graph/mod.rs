@@ -13,6 +13,7 @@
 //! the fields it draws from are here, because the strip and the canvas are two halves
 //! of one tab.
 
+mod bench;
 mod frame;
 mod panel;
 mod render;
@@ -20,6 +21,7 @@ mod sim;
 
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::time::Instant;
 
 use gpui::{
     canvas, div, prelude::*, App, Bounds, Context, FocusHandle, Focusable, IntoElement,
@@ -139,6 +141,9 @@ pub(crate) struct GraphView {
     /// is: the keyboard's zoom needs the middle of a space the view only learns about
     /// during a frame.
     canvas: Rc<RefCell<Option<Bounds<Pixels>>>>,
+    /// The temporary frame counter: how often the canvas is painted and what each paint
+    /// costs. See [`bench`] for why it exists and why it is meant to be deleted.
+    bench: Rc<RefCell<bench::Bench>>,
     /// The node the pointer is over, as an index into the frame's nodes. Its ring and
     /// the brighter colour of its links are the graph's answer to "which one am I
     /// pointing at", and `enter` opens it when the keyboard has not chosen another.
@@ -186,6 +191,7 @@ impl GraphView {
             camera: None,
             pending_fit: Rc::default(),
             canvas: Rc::default(),
+            bench: Rc::new(RefCell::new(bench::Bench::new())),
             hover: None,
             selected: None,
             drag: None,
@@ -397,11 +403,13 @@ impl GraphView {
         cx: &mut Context<Self>,
     ) {
         let notches = match event.delta {
-            // Scrolling down zooms out, the way scrolling down moves a page's content
-            // down; a pixel delta (a trackpad) is divided into notches so it stays
-            // smooth rather than jumping.
-            ScrollDelta::Lines(delta) => -delta.y,
-            ScrollDelta::Pixels(delta) => -delta.y.as_f32() / WHEEL_PX_PER_NOTCH,
+            // Scrolling down zooms **in**. gpui's own scrollable div adds `delta.y` to
+            // its offset, so a positive `delta.y` is "the wheel went down" on every
+            // backend; the graph reads that as going deeper into the picture, which is
+            // what the pointer is anchored at the cursor for. A pixel delta (a
+            // trackpad) is divided into notches so it stays smooth rather than jumping.
+            ScrollDelta::Lines(delta) => delta.y,
+            ScrollDelta::Pixels(delta) => delta.y.as_f32() / WHEEL_PX_PER_NOTCH,
         };
         if notches == 0.0 {
             return;
@@ -503,6 +511,22 @@ impl GraphView {
         });
     }
 
+    /// Where the keyboard should go when the window hands this tab its focus: the
+    /// filter strip's field while the strip is open, the graph itself otherwise.
+    ///
+    /// Every "give the keyboard back to wherever the user was working" path asks the
+    /// window for this. A graph tab with its strip open has two keyboards, and the one
+    /// the user is looking at is the field — so a tab change made with the mouse, or a
+    /// popup closing, has to land on the field or the strip is left looking ready and
+    /// deaf.
+    pub(crate) fn focus_target(&self) -> FocusHandle {
+        if self.panel {
+            self.panel_focus.clone()
+        } else {
+            self.focus_handle.clone()
+        }
+    }
+
     /// What the panel is showing. Only the tests ask: the window is the one that
     /// pushes the counts in.
     #[cfg(test)]
@@ -544,7 +568,7 @@ impl Focusable for GraphView {
 
 /// One count in the summary row: the number in the node colour, its label in the
 /// chrome's quiet colour, so the row reads as data with captions rather than prose.
-fn stat(palette: &Palette, value: usize, label: &'static str) -> gpui::Div {
+fn stat(palette: &Palette, value: impl std::fmt::Display, label: &'static str) -> gpui::Div {
     div()
         .flex()
         .items_center()
@@ -567,6 +591,7 @@ impl Render for GraphView {
         let camera = self.camera;
         let pending_fit = Rc::clone(&self.pending_fit);
         let canvas_bounds = Rc::clone(&self.canvas);
+        let bench = Rc::clone(&self.bench);
         let look = render::Look {
             palette: Rc::clone(&self.palette),
             hover: self.chosen(),
@@ -576,6 +601,13 @@ impl Render for GraphView {
             },
         };
 
+        // The benchmark readout: the rate and cost of the last full second the canvas
+        // was drawn. Temporary, and only in the way a tape measure is temporary — the
+        // exit criteria for this milestone are a frame rate, and there is no profiler
+        // out here. See `bench.rs`.
+        let fps = self.bench.borrow_mut().fps();
+        let paint_ms = self.bench.borrow_mut().paint_ms();
+
         // The summary, or the reason there is not one. A graph that has been built but
         // is empty says "0 notes", which is a different fact from "nothing has been
         // built", and the user should be able to tell them apart.
@@ -583,14 +615,23 @@ impl Render for GraphView {
             None => div()
                 .text_color(gpui::rgb(palette.ui_dim))
                 .child("The graph has not been built yet."),
-            Some(counts) => div()
-                .flex()
-                .flex_wrap()
-                .gap_4()
-                .child(stat(&palette, counts.notes, "notes"))
-                .child(stat(&palette, counts.links, "links"))
-                .child(stat(&palette, counts.tags, "tags"))
-                .child(stat(&palette, counts.ghosts, "missing")),
+            Some(counts) => {
+                let mut row = div()
+                    .flex()
+                    .flex_wrap()
+                    .gap_4()
+                    .child(stat(&palette, counts.notes, "notes"))
+                    .child(stat(&palette, counts.links, "links"))
+                    .child(stat(&palette, counts.tags, "tags"))
+                    .child(stat(&palette, counts.ghosts, "missing"));
+                if let Some(fps) = fps {
+                    row = row.child(stat(&palette, format!("{fps:.0}"), "fps"));
+                }
+                if let Some(paint_ms) = paint_ms {
+                    row = row.child(stat(&palette, format!("{paint_ms:.2}"), "ms paint"));
+                }
+                row
+            }
         };
         // The strip is built before the row below, because the field it holds needs this
         // entity to be registered with the input handler during this frame's paint.
@@ -616,6 +657,7 @@ impl Render for GraphView {
             .child(
                 div()
                     .flex_none()
+                    .text_lg()
                     .font_weight(gpui::FontWeight::BOLD)
                     // The label is drawn in the colour the graph's own text will use,
                     // so the one thing on screen that is already the graph is painted
@@ -685,9 +727,14 @@ impl Render for GraphView {
                                 fitted
                             },
                             move |bounds, camera, window, cx| {
+                                // Timed, not sampled: the number the strip shows is the
+                                // cost of the paints themselves, not of the frame around
+                                // them.
+                                let started = Instant::now();
                                 if let Some(frame) = &painted {
                                     render::paint_graph(bounds, camera, frame, &look, window, cx);
                                 }
+                                bench.borrow_mut().time(started);
                             },
                         )
                         .size_full()

@@ -346,7 +346,9 @@ impl Workspace {
     pub(super) fn active_focus(&self, cx: &mut Context<Self>) -> gpui::FocusHandle {
         match &self.tabs[self.tab].content {
             TabContent::Note { editor, .. } => editor.read(cx).focus_handle(cx),
-            TabContent::Graph(view) => view.read(cx).focus_handle(cx),
+            // The graph's strip has its own keyboard while it is open, and the view is
+            // the one that knows which of its two handles the user is working in.
+            TabContent::Graph(view) => view.read(cx).focus_target(),
         }
     }
 

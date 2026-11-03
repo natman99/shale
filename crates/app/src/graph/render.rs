@@ -31,6 +31,14 @@ pub(crate) const LABEL_CAP: usize = 300;
 const LABEL_FADE_FROM: f32 = 0.45;
 const LABEL_FADE_FULL: f32 = 0.85;
 
+/// The opacity a label never falls below while it is drawn at all. Multiplying a
+/// colour's alpha into the background is what made small labels read as black on a
+/// dark theme: at 0.3 the blend of the label colour with the canvas lands a hair off
+/// the background, and the eye reads that as a smudge rather than quiet text. So the
+/// fade says *how many* labels there are, and this floor says the ones there are can
+/// be read.
+const LABEL_ALPHA_FLOOR: f32 = 0.6;
+
 /// A link's width in world units, so it thickens with zoom like the nodes do
 /// rather than turning into a hairline at 0.2x.
 const LINK_WIDTH: f32 = 1.0;
@@ -225,11 +233,15 @@ pub(crate) fn paint_graph(
     }
 
     // ----- labels --------------------------------------------------------
-    let alpha =
+    // `fade` is how far into the ramp this zoom is: 0 below [`LABEL_FADE_FROM`], where
+    // the characters are smaller than the gap between two nodes and the labels are not
+    // worth their cost, 1 at [`LABEL_FADE_FULL`].
+    let fade =
         ((camera.zoom - LABEL_FADE_FROM) / (LABEL_FADE_FULL - LABEL_FADE_FROM)).clamp(0.0, 1.0);
-    if alpha <= 0.02 {
+    if fade <= 0.02 {
         return;
     }
+    let alpha = LABEL_ALPHA_FLOOR + (1.0 - LABEL_ALPHA_FLOOR) * fade;
     // Highest degree first: if only `LABEL_CAP` labels fit, they should be the
     // hubs, because those are the notes a person is most likely looking for.
     let mut visible: Vec<&GraphNode> = frame
