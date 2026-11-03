@@ -321,3 +321,21 @@ measured.
   the table skips such entries instead. Core 441 tests green; app
   compiles unchanged (the app half — backgrounding the scan — landed
   separately in thread 41).
+- 2026-11-03 (design language): ruled the visual-design round and wrote it to
+  a **new** root file, `design-language.md` (not brainstorm/roadmap — the app
+  agent was mid-flight; §12 lists the hooks owed there). Ruled whole: additive
+  `Palette` roles (`diff_add/delete/changed`, `agent`, `ui_disabled`,
+  `graph_ghost/tag/attachment`) optional in TOML with computed fallbacks —
+  P2.5a renders against `diff_*`, so that's the one that bites first;
+  `SPACE_1..4` beside `CHIP_RADIUS`; one hover/selected/focused state grammar
+  for every surface; elevation = border + bg-shift + dim, no shadows (gpui
+  honesty); shared chrome type constants; motion tokens + a
+  chrome-doesn't-animate-except-toasts contract (graph M5a untouched); glyph
+  policy = formalize the unicode set already in use (`▸ ▾ ● ×`) in `style.rs`,
+  drawn marks allowed **only** for callout types / graph node kinds / agent
+  presence (the color-only-information accessibility fix), buffer content
+  never icon-ified (Raw-mode posture, permanent); microcopy inherits the
+  status bar's voice; contrast guard test over all palettes. Density/scale
+  parked. Inventory that grounded it: chrome already carries `▾▸` (tree),
+  `●` (dirty), `×` (tab close) informally; callout types and graph node kinds
+  are color-only today.
