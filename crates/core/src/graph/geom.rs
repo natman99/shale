@@ -64,6 +64,15 @@ impl Camera {
     /// Fit `positions` into `bounds` ([x, y, w, h] screen px) with `margin`
     /// px of breathing room: the initial camera and the `f`/fit key. A
     /// single point or empty set keeps the current zoom and centers.
+    ///
+    /// The frame is the **90th percentile** of the layout, not the full
+    /// bounding box: a force layout always has a few satellites (ghosts,
+    /// isolated notes) that fly far out, and fitting the full box lets
+    /// those outliers shrink the whole graph until the dense core is an
+    /// unreadable knot. Percentile framing keeps ~90% of the nodes on
+    /// screen at a zoom where the core is legible; the rest are one
+    /// wheel-notch or pan away. Below 16 positions the full box is used
+    /// (a percentile of a tiny set is just the max).
     pub fn fit(positions: &[[f32; 2]], bounds: [f32; 4], margin: f32) -> Self {
         if positions.is_empty() {
             return Camera::new(
@@ -77,6 +86,26 @@ impl Camera {
             lo[1] = lo[1].min(p[1]);
             hi[0] = hi[0].max(p[0]);
             hi[1] = hi[1].max(p[1]);
+        }
+        if positions.len() >= 16 {
+            // Per-axis 90th percentile of the distance from the center of
+            // the box (per-axis, so a long thin chain keeps its shape
+            // instead of being framed by a square).
+            let mid = [(lo[0] + hi[0]) / 2.0, (lo[1] + hi[1]) / 2.0];
+            let mut spread: [Vec<f32>; 2] = [Vec::new(), Vec::new()];
+            for p in positions {
+                spread[0].push((p[0] - mid[0]).abs());
+                spread[1].push((p[1] - mid[1]).abs());
+            }
+            let pct = |v: &mut Vec<f32>| {
+                v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                let i = ((v.len() as f32 * 0.9) as usize).min(v.len() - 1);
+                v[i]
+            };
+            let rx = pct(&mut spread[0]).max(0.5);
+            let ry = pct(&mut spread[1]).max(0.5);
+            lo = [mid[0] - rx, mid[1] - ry];
+            hi = [mid[0] + rx, mid[1] + ry];
         }
         let w = (hi[0] - lo[0]).max(1.0);
         let h = (hi[1] - lo[1]).max(1.0);

@@ -48,6 +48,12 @@ pub struct SimParams {
     /// Radius-based overlap push, so big nodes stay readable (d3's
     /// `forceCollide`).
     pub collide: bool,
+    /// Extra contact distance the collide force adds on top of the two
+    /// radii. The `+2` floor only keeps circles apart; labels are much
+    /// wider than nodes, so a bigger pad is what actually buys text room.
+    /// Short-range by construction, it raises local spacing without
+    /// inflating the global extent (which the fit camera normalizes away).
+    pub collide_pad: f32,
     /// Per-tick decay toward zero (d3's `alphaDecay`, default 0.0228).
     pub alpha_decay: f32,
     /// Below this alpha the sim is settled and the caller may stop ticking.
@@ -68,6 +74,7 @@ impl Default for SimParams {
             link_distance: 34.0,
             center: 0.02,
             collide: true,
+            collide_pad: 2.0,
             alpha_decay: 0.0228,
             alpha_min: 0.001,
         }
@@ -93,6 +100,8 @@ pub struct Sim<const D: usize> {
     pub params: SimParams,
     /// Edge endpoints as index pairs, flattened for cache-friendly stepping.
     edges: Vec<[u32; 2]>,
+    /// Per-edge `min(deg_a, deg_b)` (1.0 floor), precomputed like `bias`.
+    min_deg: Vec<f32>,
     /// Per-edge spring bias (`deg_a / (deg_a + deg_b)`), precomputed: the
     /// degrees never change after construction, so recomputing it per tick
     /// is two loads, a max, and a division of pure waste.
@@ -141,6 +150,14 @@ impl<const D: usize> Sim<D> {
                 da / (da + db)
             })
             .collect();
+        let min_deg: Vec<f32> = edges
+            .iter()
+            .map(|&[a, b]| {
+                degree[a as usize]
+                    .min(degree[b as usize])
+                    .max(1) as f32
+            })
+            .collect();
 
         // d3-force's initial placement: a phyllotaxis spiral, golden angle
         // (π·(3−√5); spelled as a literal because const math has no sqrt).
@@ -181,6 +198,7 @@ impl<const D: usize> Sim<D> {
             params,
             edges: edges.to_vec(),
             bias,
+            min_deg,
             max_radius,
             grid_heads: Vec::new(),
             grid_next: Vec::new(),
@@ -245,7 +263,14 @@ impl<const D: usize> Sim<D> {
     }
 
     /// Link springs: pull both ends toward the rest length, weighted by
-    /// the *other* end's degree share so a hub moves less than its leaf.
+    /// the *other* end's degree share so a hub moves less than its leaf,
+    /// and divided by `min(deg_a, deg_b)` — d3's actual law, the one
+    /// `link_strength`'s doc promises: a hub's many links each get weak,
+    /// so the hub's neighborhood stays loose, while a leaf's single link
+    /// stays strong. Measured 2026-11-02 (probe history, PROGRESS.md):
+    /// the core's nearest-neighbor spacing goes 26→44 world units at
+    /// n=2000 — the knot in the middle of every big vault's graph is the
+    /// uniform-strength spring pile-up, not the repulsion.
     fn apply_links(&mut self, alpha: f32) {
         let dist = self.params.link_distance;
         let strength = self.params.link_strength;
@@ -267,7 +292,8 @@ impl<const D: usize> Sim<D> {
             // bias is static per edge (degrees never change after
             // construction) — precomputed in `bias`, not per tick.
             let bias = self.bias[e];
-            let k = (len - dist) / len * alpha * strength;
+            let mut k = (len - dist) / len * alpha * strength;
+            k /= self.min_deg[e];
             let pin_a = self.pinned[a];
             let pin_b = self.pinned[b];
             if !pin_b {
@@ -372,8 +398,10 @@ impl<const D: usize> Sim<D> {
         let n = self.pos.len();
 
         // Contact distance bound: static after construction (radii never
-        // change), precomputed in `max_radius`.
-        let cell = 2.0 * self.max_radius + 2.0;
+        // change), precomputed in `max_radius`. The collide pad is part of
+        // the contact distance, so it is part of the cell size too.
+        let pad = self.params.collide_pad;
+        let cell = 2.0 * self.max_radius + pad;
 
         let mut min = [f32::MAX; D];
         let mut max = [f32::MIN; D];
@@ -473,7 +501,7 @@ impl<const D: usize> Sim<D> {
                             delta[d] = pj[d] - pi[d];
                             d2 += delta[d] * delta[d];
                         }
-                        let want = ri + self.radius[j] + 2.0;
+                        let want = ri + self.radius[j] + pad;
                         if d2 < want * want && d2 >= 0.0001 {
                             let d = d2.sqrt();
                             let push = (want - d) / d * 0.5 * alpha;
@@ -508,7 +536,7 @@ impl<const D: usize> Sim<D> {
                     delta[d] = pj[d] - pi[d];
                     d2 += delta[d] * delta[d];
                 }
-                let want = self.radius[i] + self.radius[j] + 2.0;
+                let want = self.radius[i] + self.radius[j] + self.params.collide_pad;
                 if d2 >= want * want || d2 < 0.0001 {
                     continue;
                 }
@@ -529,7 +557,18 @@ impl<const D: usize> Sim<D> {
 
     /// Integrate with d3's 0.6 velocity damping, and sanitize: a NaN from
     /// any source must not poison the whole layout.
+    ///
+    /// The speed clamp is a guard rail, not physics: with the degree-divided
+    /// spring law (see `apply_links`) no healthy layout ever reaches it
+    /// (measured max |vel| during a 5k settle: ~850), but any future
+    /// parameter or force that pushes a node's effective spring stiffness
+    /// past the explicit-Euler stability bound would otherwise blow up
+    /// *exponentially* — the thread-39 OOM, where the layout's span grew
+    /// ~10x/tick until the app's hit-test grid asked for 238 GB. Clamped,
+    /// a runaway can only grow linearly, which the app-side grid bound
+    /// already survives.
     fn integrate(&mut self) {
+        const MAX_SPEED: f32 = 2000.0;
         for i in 0..self.pos.len() {
             if self.pinned[i] {
                 self.vel[i] = [0.0; D];
@@ -537,6 +576,15 @@ impl<const D: usize> Sim<D> {
             }
             for d in 0..D {
                 self.vel[i][d] *= 0.6;
+            }
+            let sp2: f32 = self.vel[i].iter().map(|v| v * v).sum();
+            if sp2 > MAX_SPEED * MAX_SPEED {
+                let s = MAX_SPEED / sp2.sqrt();
+                for d in 0..D {
+                    self.vel[i][d] *= s;
+                }
+            }
+            for d in 0..D {
                 self.pos[i][d] += self.vel[i][d];
             }
             if !self.pos[i].iter().all(|v| v.is_finite()) {
@@ -866,6 +914,52 @@ fn pa_edges(n: usize) -> Vec<[u32; 2]> {
         }
     }
     edges
+}
+
+/// Regression (PROJECT.md thread 39): hub-heavy vault graphs used to
+/// diverge — the uniform-strength spring law stacked effective stiffness
+/// past the integrator's stability bound (measured k_eff up to 21.8 on
+/// the 5k fixture, against the ~5.3 bound at damping 0.6), and the layout
+/// oscillated into exponential blow-up (~10x span per tick), which the
+/// app's hit-test grid turned into a 238 GB allocation. The
+/// degree-divided spring law caps per-node stiffness near `strength`;
+/// this test keeps the 1k fixture settled and bounded.
+#[test]
+fn the_1k_fixture_settles_and_stays_bounded() -> anyhow::Result<()> {
+    use crate::graph::GraphIndex;
+    use crate::vault::Vault;
+    use petgraph::visit::EdgeRef;
+    let root =
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/graph/1k");
+    let vault = Vault::open(&root)?;
+    let index = GraphIndex::build(&vault, &vault.list_markdown()?, &vault.list_attachments()?)?;
+    let g = index.graph();
+    let n = g.node_count();
+    let edges: Vec<[u32; 2]> = g
+        .edge_references()
+        .map(|e| [e.source().index() as u32, e.target().index() as u32])
+        .collect();
+    let mut sim = Sim::<2>::new(n, &edges, SimParams::default(), 0x5f3a_7c19_2b48_0d61);
+    let mut max_span = 0.0f32;
+    let mut ticks = 0;
+    while sim.step() && ticks < 1000 {
+        ticks += 1;
+        let mut lo = [f32::MAX, f32::MAX];
+        let mut hi = [f32::MIN, f32::MIN];
+        for p in sim.positions() {
+            for k in 0..2 {
+                lo[k] = lo[k].min(p[k]);
+                hi[k] = hi[k].max(p[k]);
+            }
+        }
+        max_span = max_span.max((hi[0] - lo[0]).max(hi[1] - lo[1]));
+    }
+    assert!(sim.is_settled(), "the 1k fixture must settle (ticks={ticks})");
+    assert!(
+        max_span < 5.0e4,
+        "the layout must stay bounded, max span {max_span:.3e}"
+    );
+    Ok(())
 }
 
 /// Per-force breakdown of one hot tick: where the tick time actually

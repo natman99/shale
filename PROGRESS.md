@@ -275,3 +275,26 @@ measured.
   `SimParams::default()` verbatim (`crates/app/src/graph/sim.rs`), so
   the core default is the single lever — a Forces panel (settings)
   would expose these four numbers 1:1.
+- 2026-11-03 (thread 39, the OOM): **the diverging layout was the spring
+  law, not the repulsion** — it predates the -200 change (A/B: uniform
+  springs diverge at BOTH -90 and -200; degree-divided settles at both).
+  Diagnosis (measured on the 5k fixture): per-node effective spring
+  stiffness `k_eff = sum strength*bias-share over edges` reaches **21.8**
+  (tag hubs, maxdeg 468) against the explicit-Euler stability bound
+  **k < 2(1+d)/d = 5.33** at damping 0.6 — above it the integrator's
+  eigenvalue goes negative with |lambda| ~ k*d, i.e. oscillating growth
+  ~12x/tick (matches the span bouncing 1e12 -> 6.7e8 -> 2e10). 3644/5261
+  nodes were over the bound; the 100-fixture has no hub big enough, which
+  is why it always looked fine. Fix: `apply_links` now divides each
+  spring by `min(deg_a, deg_b)` — d3's actual law, the one
+  `link_strength`'s doc comment already promised; it caps k_eff near
+  `strength` for any graph shape. Guard rail: `integrate` clamps |vel| to
+  2000/tick (healthy 5k settle peaks ~850, so it never binds; it turns
+  any future exponential blow-up into linear growth the app's grid bound
+  survives). Regression test `the_1k_fixture_settles_and_stays_bounded`
+  (non-ignored, 3.7s for the whole graph suite). Also landed with it:
+  `collide_pad` param (default 2.0 = old behavior) and `Camera::fit`
+  framing the 90th percentile instead of the full bbox — outliers were
+  shrinking the core to an unreadable knot (the user's spread complaint;
+  probe showed force tuning alone can't help under a fit camera:
+  nn/rms is ~constant across repel/pad/link_distance variants).
