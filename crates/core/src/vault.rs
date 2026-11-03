@@ -717,16 +717,27 @@ mod tests {
 
         // Stem tie: shortest path wins; among equal lengths, the first
         // in scan order wins.
-        assert_eq!(r.resolve_link("idea").unwrap().path, PathBuf::from("a/Idea.md"));
+        assert_eq!(
+            r.resolve_link("idea").unwrap().path,
+            PathBuf::from("a/Idea.md")
+        );
         // Bare path gets `.md` appended (resolve_link step 1's half).
-        assert_eq!(r.resolve_link("z/b/c/Idea").unwrap().path, PathBuf::from("z/b/c/Idea.md"));
+        assert_eq!(
+            r.resolve_link("z/b/c/Idea").unwrap().path,
+            PathBuf::from("z/b/c/Idea.md")
+        );
         // Empty and whitespace targets resolve to nothing.
         assert!(r.resolve_link("  ").is_none());
         assert!(r.resolve_attachment("").is_none());
 
         // Attachments: exact path, case-insensitive path, file name, and
         // bare stem all reach the same entry.
-        for target in ["img/Diagram.PNG", "IMG/diagram.png", "Diagram.PNG", "diagram"] {
+        for target in [
+            "img/Diagram.PNG",
+            "IMG/diagram.png",
+            "Diagram.PNG",
+            "diagram",
+        ] {
             assert_eq!(
                 r.resolve_attachment(target).unwrap().path,
                 PathBuf::from("img/Diagram.PNG"),
