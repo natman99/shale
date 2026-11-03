@@ -1,4 +1,4 @@
-//! The graph tab (roadmap P3.4, `graph-view-plan.md` M1b Tasks 5–6).
+//! The graph tab (roadmap P3.4, `graph-view-plan.md` M1b Tasks 5–7).
 //!
 //! **A view, not a graph.** The window owns the one [`shale_core::graph::GraphIndex`]
 //! and the one force simulation ([`GraphSim`]); this entity is what the user is
@@ -7,10 +7,9 @@
 //! M5j's minimap and a local-graph view appear later without a second simulation of
 //! the same vault.
 //!
-//! What is here is the *tab kind* made real: a focusable panel with its own key
-//! context, so the graph can take the keyboard without borrowing vim's normal-mode
-//! keys, and hand it back on `escape`. The interactions (Task 7) and the filter
-//! panel (Task 8) come next.
+//! What is here is the tab made real: a focusable panel with its own key context, the
+//! pointer's three jobs (hover, drag, click), and the keyboard's (pan, zoom, pick a
+//! node, open it). The filter panel is Task 8.
 
 mod frame;
 mod render;
@@ -20,11 +19,15 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use gpui::{
-    canvas, div, prelude::*, App, Context, FocusHandle, Focusable, IntoElement, Render,
-    SharedString, Window,
+    canvas, div, prelude::*, App, Bounds, Context, FocusHandle, Focusable, IntoElement,
+    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, ScrollDelta,
+    ScrollWheelEvent, SharedString, WeakEntity, Window,
 };
-use shale_core::graph::geom::Camera;
+use shale_core::graph::geom::{Camera, MIN_ZOOM, ZOOM_STEP};
 use shale_core::theme::Palette;
+
+use crate::acts::{GraphFit, GraphOpen, GraphPan, GraphSelect, GraphZoom};
+use crate::workspace::Workspace;
 
 pub(crate) use frame::GraphFrame;
 pub(crate) use sim::GraphSim;
@@ -32,13 +35,39 @@ pub(crate) use sim::GraphSim;
 /// The key context the graph's bindings live in. It is a context of its own for the
 /// same reason the picker and the prompt are: gpui enables a context's bindings
 /// whenever it is in the focused element's stack, so the graph's keys cannot collide
-/// with vim normal mode — and every key the graph wants (`hjkl`, `f`, `Enter`) is
+/// with vim's normal mode — and every key the graph wants (`hjkl`, `f`, `Enter`) is
 /// already spoken for in the note.
 pub(crate) const CONTEXT: &str = "graph";
 
-/// How much empty canvas [`Camera::fit`] keeps around the whole graph when it
-/// frames it for the first time.
+/// How much empty canvas [`Camera::fit`] keeps around the whole graph when it frames
+/// it for the first time, or again after `f`.
 const FIT_MARGIN: f32 = 24.0;
+
+/// How far an arrow key moves the view, in screen px. Shift triples it, which is what
+/// the spec's "`Shift` = 3× speed" asks for.
+pub(crate) const PAN_STEP: f32 = 60.0;
+
+/// The fast pan, on `shift-<arrow>`: enough to cross a settled 2k-node layout in a
+/// handful of presses without losing the fine control of the plain one.
+pub(crate) const PAN_FAST: f32 = 3.0;
+
+/// How much of a node's own radius is added to a hit test, in **screen** px. A hub is
+/// 20 px across at 1× and 1 px across at 0.05×; without slop the small ones could not
+/// be clicked at all when the whole vault is in view.
+const HIT_SLOP_PX: f32 = 3.0;
+
+/// How far the pointer may travel between the button going down and coming back up and
+/// still count as a click rather than a drag.
+const CLICK_SLOP: f32 = 3.0;
+
+/// How many px of a pixel-mode wheel equal one notch, so a trackpad's smooth scrolling
+/// zooms smoothly and a wheel's notch is about one step.
+const WHEEL_PX_PER_NOTCH: f32 = 50.0;
+
+/// The most one wheel event may zoom, in notches. A flung trackpad can report hundreds
+/// of px in a single event, and a graph that jumped ten zoom levels from one flick is
+/// unusable.
+const WHEEL_NOTCH_CLAMP: f32 = 2.0;
 
 /// What the window tells the view about the graph it is a view over.
 ///
@@ -57,6 +86,18 @@ pub(crate) struct GraphSummary {
     pub(crate) links: usize,
 }
 
+/// What a held left button is doing.
+struct Drag {
+    /// Where the button went down. A press that never travels past [`CLICK_SLOP`] is a
+    /// click, and a click on a node opens the note it stands for.
+    start: Point<Pixels>,
+    /// Where the pointer was last, which is what the next move steps from.
+    last: Point<Pixels>,
+    /// The node under the button, if there was one. `None` is the background, which
+    /// means the drag moves the view instead of a node.
+    node: Option<usize>,
+}
+
 /// The graph tab: a camera over the window's graph.
 pub(crate) struct GraphView {
     /// The view's own keyboard, so the `graph` context can be the active one and
@@ -65,8 +106,8 @@ pub(crate) struct GraphView {
     /// The colours the panel is drawn with, from the window. Shared with every other
     /// surface so a theme change is one assignment rather than a rebuild.
     palette: Rc<Palette>,
-    /// The face the labels are drawn in — the same one every other panel types in,
-    /// so a node's label looks like the note title it names.
+    /// The face the labels are drawn in — the same one every other panel types in, so
+    /// a node's label looks like the note title it names.
     font: SharedString,
     /// Its size, in px. Labels are drawn a little smaller than the note's text.
     font_size: f32,
@@ -75,10 +116,10 @@ pub(crate) struct GraphView {
     summary: Option<GraphSummary>,
     /// What to paint: the window's simulation snapshot, shipped whenever it moves.
     frame: Option<Rc<GraphFrame>>,
-    /// Where the **user** put the view — by a session restore now, by a drag or a
-    /// wheel later. `None` means "keep framing the whole graph", and that is the right
-    /// default rather than a lazy one: the layout is still moving while it settles, and
-    /// a camera fitted to the first frame leaves the settled graph hanging off the edge
+    /// Where the **user** put the view — by a session restore, by a drag or a wheel.
+    /// `None` means "keep framing the whole graph", and that is the right default
+    /// rather than a lazy one: the layout is still moving while it settles, and a
+    /// camera fitted to the first frame leaves the settled graph hanging off the edge
     /// of the screen.
     camera: Option<Camera>,
     /// The last camera the canvas fitted, remembered so the session file can record
@@ -88,10 +129,29 @@ pub(crate) struct GraphView {
     /// being painted, and the first frame is the only one that does not already know
     /// the canvas's bounds.
     pending_fit: Rc<RefCell<Option<Camera>>>,
+    /// The canvas's bounds, recorded while prepainting, for the same reason the fit
+    /// is: the keyboard's zoom needs the middle of a space the view only learns about
+    /// during a frame.
+    canvas: Rc<RefCell<Option<Bounds<Pixels>>>>,
+    /// The node the pointer is over, as an index into the frame's nodes. Its ring and
+    /// the brighter colour of its links are the graph's answer to "which one am I
+    /// pointing at", and `enter` opens it when the keyboard has not chosen another.
+    hover: Option<usize>,
+    /// The node the keyboard has chosen with `h`/`j`/`k`/`l`. Separate from the
+    /// pointer's because gpui suppresses hover while the keyboard is what the user is
+    /// using, and a keyboard user still needs something to open.
+    selected: Option<usize>,
+    /// What a held left button is doing, if anything.
+    drag: Option<Drag>,
+    /// The window, because the simulation and the notes are its, not the view's: a
+    /// node drag and a click both go through it. Weak — the window owns this view, and
+    /// a strong handle back would be a cycle.
+    workspace: WeakEntity<Workspace>,
 }
 
 impl GraphView {
     pub(crate) fn new(
+        workspace: WeakEntity<Workspace>,
         palette: Rc<Palette>,
         font: SharedString,
         font_size: f32,
@@ -106,6 +166,11 @@ impl GraphView {
             frame: None,
             camera: None,
             pending_fit: Rc::default(),
+            canvas: Rc::default(),
+            hover: None,
+            selected: None,
+            drag: None,
+            workspace,
         }
     }
 
@@ -133,7 +198,21 @@ impl GraphView {
 
     /// The picture to paint. Shipped whenever the sim ticks or the graph changes
     /// underneath it; the view never reaches into the sim.
+    ///
+    /// A frame with a different number of nodes is a different graph — the index
+    /// rebuilds its arena on a structural change, and the slot order that comes back
+    /// is not the one that went in — so the pointer's and the keyboard's node are
+    /// dropped rather than left pointing at whatever now occupies their index.
     pub(crate) fn set_frame(&mut self, frame: Rc<GraphFrame>, cx: &mut Context<Self>) {
+        let same_size = self
+            .frame
+            .as_ref()
+            .is_some_and(|previous| previous.nodes.len() == frame.nodes.len());
+        if !same_size {
+            self.hover = None;
+            self.selected = None;
+            self.drag = None;
+        }
         self.frame = Some(frame);
         cx.notify();
     }
@@ -144,7 +223,7 @@ impl GraphView {
         self.camera.or(self.pending_fit.borrow().and_then(|fit| {
             // A fit made against a canvas that had no size yet is not a view worth
             // remembering; the next frame fits again.
-            (fit.zoom > shale_core::graph::geom::MIN_ZOOM).then_some(fit)
+            (fit.zoom > MIN_ZOOM).then_some(fit)
         }))
     }
 
@@ -152,6 +231,245 @@ impl GraphView {
     /// being restored, before anything has been painted.
     pub(crate) fn set_camera(&mut self, camera: Option<Camera>) {
         self.camera = camera;
+    }
+
+    /// The middle of the canvas in window-absolute px, which is the space the camera
+    /// was fitted against. `None` before the first frame has been laid out.
+    fn canvas_center(&self) -> Option<[f32; 2]> {
+        let bounds = (*self.canvas.borrow())?;
+        Some([
+            (bounds.origin.x + bounds.size.width / 2.0).as_f32(),
+            (bounds.origin.y + bounds.size.height / 2.0).as_f32(),
+        ])
+    }
+
+    /// The camera this frame is being painted with, and the world point a window px
+    /// lands on with it. `None` until there is a camera to ask.
+    fn world_at(&self, screen: Point<Pixels>) -> Option<([f32; 2], Camera)> {
+        let camera = self.camera()?;
+        Some((
+            camera.to_world([screen.x.as_f32(), screen.y.as_f32()]),
+            camera,
+        ))
+    }
+
+    /// The node under the pointer, generous by [`HIT_SLOP_PX`] screen px so a small dot
+    /// is still hittable when the whole vault is in view.
+    fn node_at(&self, screen: Point<Pixels>) -> Option<usize> {
+        let frame = self.frame.as_ref()?;
+        let (world, camera) = self.world_at(screen)?;
+        frame.node_at(world, HIT_SLOP_PX / camera.zoom)
+    }
+
+    /// The node the pointer's press should act on, and the keyboard's answer to the
+    /// same question: the keyboard's choice wins, because a user who has moved a
+    /// selection with `hjkl` means it.
+    fn chosen(&self) -> Option<usize> {
+        self.selected.or(self.hover)
+    }
+
+    /// The button went down on the canvas: over a node it starts a drag of that node,
+    /// over the background a drag of the view.
+    fn canvas_down(
+        &mut self,
+        event: &MouseDownEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let node = self.node_at(event.position);
+        self.hover = node;
+        self.drag = Some(Drag {
+            start: event.position,
+            last: event.position,
+            node,
+        });
+        if let Some(slot) = node {
+            // The node is pinned where it already is before the pointer moves it, so
+            // the forces stop fighting the drag from the first tick.
+            if let Some(position) = self.frame.as_ref().and_then(|f| f.node_position(slot)) {
+                let _ = self.workspace.update(cx, |ws, cx| {
+                    ws.graph_drag_node(slot, position, cx);
+                });
+            }
+        }
+        cx.notify();
+    }
+
+    /// The pointer moved. With the button down that is a drag — a node follows the
+    /// pointer, the background moves the view under it — and without it, hover.
+    fn canvas_move(
+        &mut self,
+        event: &MouseMoveEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(drag) = self.drag.as_mut() {
+            let step = [
+                (event.position.x - drag.last.x).as_f32(),
+                (event.position.y - drag.last.y).as_f32(),
+            ];
+            drag.last = event.position;
+            match drag.node {
+                Some(slot) => {
+                    if let Some((world, _)) = self.world_at(event.position) {
+                        let _ = self.workspace.update(cx, |ws, cx| {
+                            ws.graph_drag_node(slot, world, cx);
+                        });
+                    }
+                }
+                None => {
+                    if let Some(mut camera) = self.camera() {
+                        camera.pan_by(step);
+                        self.camera = Some(camera);
+                    }
+                }
+            }
+            cx.notify();
+            return;
+        }
+        let over = self.node_at(event.position);
+        if over != self.hover {
+            self.hover = over;
+            cx.notify();
+        }
+    }
+
+    /// The button came back up, inside the canvas or outside it. A press that never
+    /// moved and landed on a node is a click, and a click opens that note.
+    fn canvas_up(&mut self, event: &MouseUpEvent, _window: &mut Window, cx: &mut Context<Self>) {
+        let Some(drag) = self.drag.take() else {
+            return;
+        };
+        let Some(node) = drag.node else {
+            cx.notify();
+            return;
+        };
+        // Shift means "leave it where I put it": the node stays pinned against the
+        // forces, which is how the user arranges a graph by hand.
+        let _ = self.workspace.update(cx, |ws, cx| {
+            ws.graph_release_node(node, event.modifiers.shift, cx);
+        });
+        let travelled = (event.position.x - drag.start.x).as_f32().abs()
+            + (event.position.y - drag.start.y).as_f32().abs();
+        if travelled <= CLICK_SLOP {
+            self.open_node(node, cx);
+        }
+        cx.notify();
+    }
+
+    /// The wheel: zoom anchored at the cursor, which is the one zoom that does not make
+    /// the thing being looked for leave the screen.
+    fn canvas_wheel(
+        &mut self,
+        event: &ScrollWheelEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let notches = match event.delta {
+            // Scrolling down zooms out, the way scrolling down moves a page's content
+            // down; a pixel delta (a trackpad) is divided into notches so it stays
+            // smooth rather than jumping.
+            ScrollDelta::Lines(delta) => -delta.y,
+            ScrollDelta::Pixels(delta) => -delta.y.as_f32() / WHEEL_PX_PER_NOTCH,
+        };
+        if notches == 0.0 {
+            return;
+        }
+        let Some(mut camera) = self.camera() else {
+            return;
+        };
+        let factor = ZOOM_STEP.powf(notches.clamp(-WHEEL_NOTCH_CLAMP, WHEEL_NOTCH_CLAMP));
+        camera.zoom_at(
+            [event.position.x.as_f32(), event.position.y.as_f32()],
+            factor,
+        );
+        self.camera = Some(camera);
+        cx.notify();
+    }
+
+    /// `+` and `-`: the same zoom as the wheel, anchored at the middle of the canvas
+    /// because the keyboard has no cursor to anchor it at.
+    fn zoom(&mut self, action: &GraphZoom, _window: &mut Window, cx: &mut Context<Self>) {
+        let Some(center) = self.canvas_center() else {
+            return;
+        };
+        let Some(mut camera) = self.camera() else {
+            return;
+        };
+        camera.zoom_at(center, action.0);
+        self.camera = Some(camera);
+        cx.notify();
+    }
+
+    /// The arrows: move the view. Once the user has moved it, the automatic framing is
+    /// over — that is what makes `camera` mean "the user's".
+    fn pan(&mut self, action: &GraphPan, _window: &mut Window, cx: &mut Context<Self>) {
+        let Some(mut camera) = self.camera() else {
+            return;
+        };
+        camera.pan_by(action.0);
+        self.camera = Some(camera);
+        cx.notify();
+    }
+
+    /// `h`/`j`/`k`/`l`: move the keyboard's node selection. With nothing chosen yet,
+    /// the node nearest the middle of the screen is the one to start from, which is
+    /// what a user looking at the graph would call "the one in front of me".
+    fn select(&mut self, action: &GraphSelect, _window: &mut Window, cx: &mut Context<Self>) {
+        let Some(frame) = self.frame.as_ref().cloned() else {
+            return;
+        };
+        let from = match self.chosen() {
+            Some(slot) => slot,
+            None => {
+                let Some(center) = self.canvas_center() else {
+                    return;
+                };
+                let Some(camera) = self.camera() else {
+                    return;
+                };
+                match frame.nearest(camera.to_world(center)) {
+                    Some(slot) => slot,
+                    None => return,
+                }
+            }
+        };
+        // Nothing in that direction is not a reason to lose the selection: the user
+        // keeps the node they had and can try the other way. This is also what makes
+        // the first press of any direction choose something.
+        let next = frame.node_toward(from, action.0).unwrap_or(from);
+        if Some(next) != self.selected {
+            self.selected = Some(next);
+            cx.notify();
+        }
+    }
+
+    /// `f`: frame the whole graph again, which is what clearing the user's camera
+    /// means — while there is none, every frame re-fits.
+    fn fit(&mut self, _: &GraphFit, _window: &mut Window, cx: &mut Context<Self>) {
+        self.camera = None;
+        cx.notify();
+    }
+
+    /// `enter`: open the chosen node's note. A ghost or a tag has no note to open, and
+    /// quietly doing nothing is better than a bar message on every press; making a note
+    /// from a ghost is the same open thread as making one from an unresolved link in
+    /// prose.
+    fn open(&mut self, _: &GraphOpen, _window: &mut Window, cx: &mut Context<Self>) {
+        let Some(node) = self.chosen() else {
+            return;
+        };
+        self.open_node(node, cx);
+    }
+
+    /// The one door from a node to a note.
+    fn open_node(&mut self, slot: usize, cx: &mut Context<Self>) {
+        let Some(path) = self.frame.as_ref().and_then(|frame| frame.node_path(slot)) else {
+            return;
+        };
+        let _ = self.workspace.update(cx, |ws, cx| {
+            ws.graph_open_note(&path, cx);
+        });
     }
 
     /// What the panel is showing. Only the tests ask: the window is the one that
@@ -165,6 +483,25 @@ impl GraphView {
     #[cfg(test)]
     pub(crate) fn frame(&self) -> Option<&GraphFrame> {
         self.frame.as_deref()
+    }
+
+    /// The node the pointer is over, for the tests that aim it.
+    #[cfg(test)]
+    pub(crate) fn hover(&self) -> Option<usize> {
+        self.hover
+    }
+
+    /// The node the keyboard has chosen, for the tests that move it.
+    #[cfg(test)]
+    pub(crate) fn selected(&self) -> Option<usize> {
+        self.selected
+    }
+
+    /// The canvas's bounds as the last frame laid them out, for the tests that put the
+    /// pointer in the middle of the graph.
+    #[cfg(test)]
+    pub(crate) fn canvas(&self) -> Option<Bounds<Pixels>> {
+        *self.canvas.borrow()
     }
 }
 
@@ -190,7 +527,7 @@ fn stat(palette: &Palette, value: usize, label: &'static str) -> gpui::Div {
 }
 
 impl Render for GraphView {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let palette = Rc::clone(&self.palette);
         let frame = self.frame.clone();
         // The two closures each need their own handle on the snapshot: prepaint only
@@ -198,9 +535,14 @@ impl Render for GraphView {
         let painted = frame.clone();
         let camera = self.camera;
         let pending_fit = Rc::clone(&self.pending_fit);
-        let labels = render::Labels {
-            font: gpui::font(self.font.clone()),
-            size: self.font_size,
+        let canvas_bounds = Rc::clone(&self.canvas);
+        let look = render::Look {
+            palette: Rc::clone(&self.palette),
+            hover: self.chosen(),
+            labels: render::Labels {
+                font: gpui::font(self.font.clone()),
+                size: self.font_size,
+            },
         };
 
         // The summary, or the reason there is not one. A graph that has been built but
@@ -222,6 +564,13 @@ impl Render for GraphView {
         div()
             .key_context(CONTEXT)
             .track_focus(&self.focus_handle)
+            // The graph's own keys, which are live only while the graph has the
+            // keyboard — which is what the `graph` context is for.
+            .on_action(cx.listener(Self::zoom))
+            .on_action(cx.listener(Self::pan))
+            .on_action(cx.listener(Self::select))
+            .on_action(cx.listener(Self::open))
+            .on_action(cx.listener(Self::fit))
             .size_full()
             .flex()
             .flex_col()
@@ -240,56 +589,70 @@ impl Render for GraphView {
             .child(body)
             // The canvas: the graph itself, drawn with the paint API rather than laid
             // out as divs. The wrapper occludes, so a picker or popup over the graph
-            // cannot be hovered through, and the canvas carries the border that makes
-            // the frame visible even in an empty vault.
+            // cannot be hovered through, and it is the wrapper that holds the pointer:
+            // the canvas element paints and takes no events. The canvas carries the
+            // border that makes the frame visible even in an empty vault.
             //
             // Read before the closures below, which take the palette with them.
             .child({
                 let border = gpui::rgb(palette.ui_border);
-                div().flex_1().min_h_0().occlude().child(
-                    canvas(
-                        move |bounds, _window, _cx| {
-                            // The camera for this frame: the user's, or a first
-                            // look that fits the whole graph into what there is to
-                            // draw it in.
-                            let fitted = match camera {
-                                Some(camera) => camera,
-                                None => {
-                                    let positions: Vec<[f32; 2]> = frame
-                                        .as_ref()
-                                        .map(|frame| {
-                                            frame.nodes.iter().map(|node| node.position).collect()
-                                        })
-                                        .unwrap_or_default();
-                                    let camera = Camera::fit(
-                                        &positions,
-                                        [
-                                            bounds.origin.x.as_f32(),
-                                            bounds.origin.y.as_f32(),
-                                            bounds.size.width.as_f32(),
-                                            bounds.size.height.as_f32(),
-                                        ],
-                                        FIT_MARGIN,
-                                    );
-                                    *pending_fit.borrow_mut() = Some(camera);
-                                    camera
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .occlude()
+                    .on_mouse_down(MouseButton::Left, cx.listener(Self::canvas_down))
+                    .on_mouse_up(MouseButton::Left, cx.listener(Self::canvas_up))
+                    // A button released outside the canvas still has to let go of the
+                    // node it was holding, or the graph is left with a body pinned to
+                    // nothing.
+                    .on_mouse_up_out(MouseButton::Left, cx.listener(Self::canvas_up))
+                    .on_mouse_move(cx.listener(Self::canvas_move))
+                    .on_scroll_wheel(cx.listener(Self::canvas_wheel))
+                    .child(
+                        canvas(
+                            move |bounds, _window, _cx| {
+                                // Where the canvas is, for the keyboard's zoom and for
+                                // the tests that aim the pointer at a node.
+                                *canvas_bounds.borrow_mut() = Some(bounds);
+                                // The camera for this frame: the user's, or a first
+                                // look that fits the whole graph into what there is to
+                                // draw it in.
+                                let fitted = match camera {
+                                    Some(camera) => camera,
+                                    None => {
+                                        let positions: Vec<[f32; 2]> = frame
+                                            .as_ref()
+                                            .map(|frame| {
+                                                frame.nodes.iter().map(|n| n.position).collect()
+                                            })
+                                            .unwrap_or_default();
+                                        let camera = Camera::fit(
+                                            &positions,
+                                            [
+                                                bounds.origin.x.as_f32(),
+                                                bounds.origin.y.as_f32(),
+                                                bounds.size.width.as_f32(),
+                                                bounds.size.height.as_f32(),
+                                            ],
+                                            FIT_MARGIN,
+                                        );
+                                        *pending_fit.borrow_mut() = Some(camera);
+                                        camera
+                                    }
+                                };
+                                fitted
+                            },
+                            move |bounds, camera, window, cx| {
+                                if let Some(frame) = &painted {
+                                    render::paint_graph(bounds, camera, frame, &look, window, cx);
                                 }
-                            };
-                            fitted
-                        },
-                        move |bounds, camera, window, cx| {
-                            if let Some(frame) = &painted {
-                                render::paint_graph(
-                                    bounds, camera, frame, &palette, &labels, window, cx,
-                                );
-                            }
-                        },
+                            },
+                        )
+                        .size_full()
+                        .border_1()
+                        .border_color(border)
+                        .rounded(crate::style::CHIP_RADIUS),
                     )
-                    .size_full()
-                    .border_1()
-                    .border_color(border)
-                    .rounded(crate::style::CHIP_RADIUS),
-                )
             })
     }
 }

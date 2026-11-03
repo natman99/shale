@@ -13,6 +13,7 @@ mod bar;
 mod checker;
 mod edits;
 mod exit;
+mod graph;
 mod index;
 mod jumps;
 mod keys;

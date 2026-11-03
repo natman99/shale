@@ -16,6 +16,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use gpui::SharedString;
+use shale_core::graph::geom::Grid;
 use shale_core::graph::index::{GraphIndex, NodeMeta};
 use shale_core::graph::sim::{Sim, SimParams};
 use shale_core::graph::NodeKind;
@@ -201,13 +202,58 @@ impl GraphSim {
         self.sim.is_settled()
     }
 
-    /// Warm the sim again — a filter change or a node drag (Task 7) will want this.
-    #[allow(dead_code)]
+    /// Move a body to `world` and hold it there: the node drag.
+    ///
+    /// Pinning is what makes a drag behave — an unpinned node is fought by every force
+    /// in the layout, so the pointer and the springs would both move it and the graph
+    /// would squirm under the cursor. The heat is gentle on purpose: the dragged node
+    /// goes where it is told, and its neighbours have time to follow rather than the
+    /// whole graph throwing itself apart.
+    pub(crate) fn drag_node(&mut self, slot: usize, world: [f32; 2]) {
+        if slot >= self.slots.len() {
+            return;
+        }
+        self.sim.pos[slot] = world;
+        self.sim.vel[slot] = [0.0; 2];
+        self.sim.pinned[slot] = true;
+        self.reheat(REHEAT);
+    }
+
+    /// Let go of a dragged body. `pinned` — a shift-drag — leaves it where the user put
+    /// it, which is how a graph gets arranged by hand; otherwise the forces take it
+    /// back, and the layout re-heats so it can.
+    pub(crate) fn release_node(&mut self, slot: usize, pinned: bool) {
+        if slot >= self.slots.len() {
+            return;
+        }
+        self.sim.pinned[slot] = pinned;
+        if !pinned {
+            self.reheat(REHEAT);
+        }
+    }
+
+    /// Which bodies are held against the forces, for the tests that check a drag
+    /// pinned a node and that letting go un-pinned it.
+    #[cfg(test)]
+    pub(crate) fn pinned(&self) -> &[bool] {
+        &self.sim.pinned
+    }
+
+    /// The bodies' world positions, for the tests that ask the simulation directly
+    /// rather than through the frame the tab is painting — a drag moves the sim, and
+    /// the frame follows on the next tick.
+    #[cfg(test)]
+    pub(crate) fn positions(&self) -> Vec<[f32; 2]> {
+        self.sim.positions().to_vec()
+    }
+
+    /// Warm the sim again — a filter change (Task 8) or a node drag will want this.
     pub(crate) fn reheat(&mut self, alpha: f32) {
         self.sim.reheat(alpha);
     }
 
-    /// The picture for the tab: positions, radii, kinds, labels, edges.
+    /// The picture for the tab: positions, radii, kinds, labels, edges, and the grid
+    /// built over them for the pointer's questions.
     pub(crate) fn frame(&self) -> GraphFrame {
         let positions = self.sim.positions();
         let nodes = self
@@ -226,9 +272,15 @@ impl GraphSim {
                     .map(|path| SharedString::from(path.display().to_string())),
             })
             .collect();
+        // Cells about twice the largest node, which is what core's own note on `Grid`
+        // asks for: few enough cells that a hit test looks at a handful of nodes, large
+        // enough that no node can be missed by the 3×3 neighbourhood.
+        let biggest = self.sim.radius.iter().copied().fold(0.0, f32::max);
+        let grid = Grid::build(positions, (2.0 * biggest).max(8.0));
         GraphFrame {
             nodes,
             edges: self.edges.clone(),
+            grid,
         }
     }
 }

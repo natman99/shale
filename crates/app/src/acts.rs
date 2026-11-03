@@ -207,8 +207,32 @@ actions!(
         // means "show the graph": a second press moves the frame to the tab that
         // already holds it rather than opening another (roadmap P3.4).
         OpenGraph,
+        // The graph tab's keyboard (`graph` context, roadmap P3.4 Task 7). `enter` and
+        // `f` are plain names; the camera and selection keys below carry their step,
+        // because the direction is decided in the keymap and one action per direction
+        // would be eight names for two gestures.
+        GraphOpen,
+        GraphFit,
     ]
 );
+
+/// A zoom step for the graph's camera: the factor to scale by, so `+` is
+/// [`shale_core::graph::geom::ZOOM_STEP`] and `-` its reciprocal.
+#[derive(Clone, PartialEq, gpui::Action)]
+#[action(namespace = shale, no_json)]
+pub(crate) struct GraphZoom(pub f32);
+
+/// A pan of the graph's camera, in screen px. `shift-<arrow>` is the same action with
+/// a longer step, which is why the step is a field rather than eight actions.
+#[derive(Clone, PartialEq, gpui::Action)]
+#[action(namespace = shale, no_json)]
+pub(crate) struct GraphPan(pub [f32; 2]);
+
+/// Moving the graph's keyboard selection (`h`/`j`/`k`/`l`), as a direction the core
+/// cone search points along.
+#[derive(Clone, PartialEq, gpui::Action)]
+#[action(namespace = shale, no_json)]
+pub(crate) struct GraphSelect(pub [f32; 2]);
 
 /// Choosing a row of the popup by its number. It carries the row, so it is a
 /// struct rather than a name in the list above; the popup turns it back into

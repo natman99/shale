@@ -484,28 +484,35 @@ Workspace layout:
   most-recently-used note tab is where a note goes when the graph is on screen),
   `notes.rs` (opening a note into a tab and writing it back: the find-or-open rule,
   the jump record, the save, and the per-tab autosave countdown),
+  `graph.rs` (the window's half of the graph: building the index and keeping it current,
+  the one simulation and its beat, and the doors the graph view calls back through when
+  the pointer drags a node or clicks one),
   `render.rs` the frame, `testhooks.rs` the accessors only the tests call),
   `tree.rs` (turning the vault's entries
   into rows), `views.rs` (the three views, focus mode and typewriter scroll),
   `graph/` (roadmap P3.4: `mod.rs` the `GraphView` entity — a focus handle with a
-  `graph` keymap context, the palette it paints with, the counts row, and the camera
-  that is either the user's or a fresh fit of the whole graph; `frame.rs` the owned
-  snapshot the window ships to the tab; `sim.rs` the window's one force simulation
-  and the identity-keyed slot map that carries a layout across an arena rebuild;
-  `render.rs` the raw paint pass — links, node discs, labels — the only place in
-  Shale that draws with the paint API instead of laying out divs) and
+  `graph` keymap context, the counts row, the camera, and the pointer's three jobs
+  (hover, drag, click) and the keyboard's (zoom, pan, pick, open); `frame.rs` the owned
+  snapshot the window ships to the tab, with the spatial grid built over it; `sim.rs`
+  the window's one force simulation and the identity-keyed slot map that carries a
+  layout across an arena rebuild; `render.rs` the raw paint pass — links, the chosen
+  node's links, node discs and their ring, labels — the only place in Shale that draws
+  with the paint API instead of laying out divs) and
   its headless tests in `tests/` (`keys.rs`, `motions.rs`,
   `blocks.rs`, `paint.rs`, `tree.rs`, `picker.rs`, `commands.rs`, `search.rs`,
   `autosave.rs`, `exit.rs`, `session.rs`, `spell.rs`, `focus.rs`, `tabs.rs` (the
   bar itself: `ctrl-t`, `g t`/`g T`, `:tab*`, a tab keeping its own cursor and undo
   history, opening an open note finding its tab, and what a quit and a blur owe a
-  note that is not on screen), `graph.rs` (the graph tab: `space g` opening it, one
-  tab per window, `escape` going back to the note, the bar reporting no note state
-  over it, a note opening without converting it, closing it leaving a place to write,
-  the counts row, the index following the vault, and a session reopening the tab;
-  and the canvas: one dot per node, the layout settling and then the beat stopping,
-  a prose edit that changes no links moving nothing, a new link carrying the old
-  positions, and where the camera goes in and out of the session file),
+  note that is not on screen), `graph/` (the graph tab in three files — `tab.rs`: `space
+  g` opening it, one tab per window, `escape` going back to the note, the bar reporting
+  no note state over it, a note opening without converting it, closing it leaving a
+  place to write, the counts row, the index following the vault, and a session
+  reopening the tab; `canvas.rs`: one dot per node, the layout settling and then the
+  beat stopping, a prose edit that changes no links moving nothing, a new link carrying
+  the old positions, and where the camera goes in and out of the session file;
+  `interactions.rs`: the wheel zooming around the cursor, a background drag panning, a
+  node drag pinning and letting go, a shift-drag leaving a node pinned, a click and
+  `enter` opening a note, the arrows and `hjkl`, and `f` framing the graph again),
   `live.rs` (the
   channel turned on: the lock it leaves, what the port answers about the note, and
   the beat that keeps it current), `review.rs` (the queue discovered at startup, the
@@ -2322,6 +2329,18 @@ Largest files now (2026-10-30, after Phase 0's module splits; what the DB spine
   `autosave_all`) moved to `workspace/notes.rs` **262**, leaving `mod.rs` at **760**
   with room for the graph's remaining tasks. `tabs.rs` at **933** is the next one to
   watch, and `editor/mod.rs` is still the other at **993**.
+  **P3.4 Task 7 (2026-11-02):** `graph/mod.rs` 295 → **658** (the pointer, the keyboard
+  and the camera they move), `graph/frame.rs` 55 → **133** (the grid and the hit tests),
+  `graph/render.rs` 196 → **275**, `graph/sim.rs` 234 → **286**.
+  `workspace/tabs.rs` was going over the rule again at 933 with the interaction doors
+  landing on it, so the window's whole graph half (`graph_view`, `add_graph_tab`,
+  `graph_summary`, `refresh_graph`, `pump_graph`, `graph_tick`, `settle_graph`,
+  `graph_changes`, `graph_note_saved`, `graph_note_removed`, `open_graph`, `show_graph`,
+  and the beat's constants) moved to `workspace/graph.rs` **345**, leaving `tabs.rs` at
+  **658**. `tests/graph.rs` went over at **1142** and became `tests/graph/` — `mod.rs`
+  **137** (the shared fixtures), `tab.rs` **349**, `canvas.rs` **241**, `interactions.rs`
+  **429**. `workspace/testhooks.rs` is at **419** and `graph/mod.rs` at **658** are the
+  two to watch next; `editor/mod.rs` is still **993**.
 
 System dependency (Linux): `libxkbcommon-x11-devel` (plus fontconfig, freetype,
 x11, xcb, wayland dev packages) and a working Vulkan driver (the Linux renderer
@@ -3497,12 +3516,74 @@ Next steps, roughly in order:
       `Tab.camera`), which follows the rule that a view the user did not choose to
       persist is not a setting. `Tab` and `TabState` lost `Eq` on the way, because a
       camera carries `f32`.
-    - **Deferred on purpose:** the interactions (Task 7 — wheel zoom anchored at the
-      cursor, background pan, node drag-and-pin, click to open, hover), which is what
-      `GraphNode.path` exists for and why it is `#[allow(dead_code)]` until then; the
-      filter panel and colour-by-tag via `hues::TagHues` (Task 8, with the filter
-      going into the session file too); the `graph` keymap's own keys (`+`/`-`, `f`,
-      `Enter`); and the sim running on a thread rather than on the beat.
+    - **Deferred on purpose (and where they landed):** the interactions — wheel zoom
+      anchored at the cursor, background pan, node drag-and-pin, click to open, hover —
+      arrived in Task 7, which is what `GraphNode.path` was waiting for; the filter panel
+      and colour-by-tag via `hues::TagHues` (Task 8, with the filter going into the
+      session file too); the `graph` keymap's own keys (`+`/`-`, `f`, `Enter`) also came
+      with Task 7; the sim running on a thread rather than on the beat is still deferred.
+
+36. **The graph takes the pointer: what a view may call back into** — P3.4 Task 7
+    (2026-11-02).
+    - **The view holds a `WeakEntity<Workspace>`, and the doors it calls must never
+      touch the view.** The simulation and the notes are the window's, so a node drag
+      and a click have to reach them from the view's own mouse handlers. Those handlers
+      run with the `GraphView` entity already borrowed, so a window-side method that
+      called `view.update(…)` would be a second borrow of the entity that is calling and
+      gpui would stop. `graph_drag_node` / `graph_release_node` / `graph_open_note` are
+      therefore written to mutate the sim and the tabs only; the frame gets its new
+      picture from the beat on the next tick, which a drag keeps hot. Opening a note is
+      safe for the same reason — `open_note` moves the frame to a note tab and never
+      touches the graph view.
+    - **Hover and the keyboard's choice are two fields, not one.** `hover` is the
+      pointer's and `selected` is `h`/`j`/`k`/`l`'s, and `enter` takes the keyboard's
+      when it has one. They cannot share a field because gpui reports nothing as hovered
+      while the last input was the keyboard (`Hitbox::is_hovered`), so a keyboard user
+      would have nothing to open. `f`/`+`/`-`/arrows/`hjkl`/`enter` are bound only in
+      the `graph` context, which is the whole reason that context exists.
+    - **A node drag pins, and shift means stay pinned.** An unpinned node is fought by
+      every force in the layout, so an unpinned drag is the pointer and the springs
+      both moving the same body. `drag_node` zeroes the velocity, pins, and re-heats to
+      0.3 so neighbours follow rather than the graph throwing itself apart; release
+      unpins unless shift was held, which is how a graph gets arranged by hand.
+    - **The frame carries its own `Grid`.** The pointer asks "which node is this?" on
+      every move, and scanning a few thousand nodes to answer one is the cost that only
+      shows up on a big vault; core's own note on `Grid` says rebuild it per painted
+      frame, so `GraphSim::frame` builds it with the nodes it indexes (cells ≈ 2× the
+      largest radius). The hit bound is the largest node's radius plus 3 px of slop in
+      world units, and the candidate is then checked against **its own** radius, so the
+      slop makes small dots clickable without letting a click land on a node the pointer
+      is nowhere near.
+    - **A frame with a different node count drops the selection.** The index renumbers
+      its arena on a structural change and the slot order that comes back is not the one
+      that went in, so keeping an index-based hover across that would silently point at
+      a different note. Same count means the same graph (Task 6's identity rule), so the
+      selection survives that.
+    - **gpui's mouse surface, as this revision actually has it:** `on_scroll_wheel` (not
+      `on_mouse_wheel`), `on_mouse_up_out` for a button released outside the canvas —
+      without it a node is left pinned to nothing — and `track_mouse` is not needed for
+      move handlers. In tests, `VisualTestContext`'s mouse methods take **no window
+      handle** (the 4-argument versions belong to `VisualTestAppContext`), and
+      `simulate_event` takes a bare `ScrollWheelEvent`. Wheel sign: a positive `y` delta
+      is scrolling down, so zooming in is the negative one — pinned by the test that
+      checks the world point under the cursor does not move.
+    - **A repeating timer needs the test `Clock`, not `run_until_parked`.** The beat
+      re-arms its 16 ms timer, and `run_until_parked` alone left the layout unsettled;
+      `Clock(cx.executor()).pause(cx, Duration::from_secs(10))` advances the fake clock
+      and runs the loop to rest. That is also what let the idling rule be tested end to
+      end: `the_beat_runs_the_layout_to_rest_and_stops` asserts the beat is running when
+      the tab opens and gone once the sim has cooled.
+    - **A cone search with nothing in it keeps the selection.** `Grid::in_cone` returns
+      `None` when no node is within ±30° of the direction, and dropping the selection
+      then reads as the key doing nothing; `select` falls back to the node it had, which
+      also makes the first press of any direction choose the node nearest the middle of
+      the canvas.
+    - **Deferred on purpose:** the right-click menu (one popup slot, and the checker
+      owns it), creating a note by clicking a ghost (the same open thread as an
+      unresolved link in prose), Obsidian-style dimming of everything *except* the
+      hovered node's links — that needs a colour per link, and one path per colour is
+      the deal this renderer made — and the filter panel (Task 8), which will make the
+      hit test pass its visibility mask to the grid.
 
 ## Parked threads (agreed 2026-10-28; not being worked now)
 

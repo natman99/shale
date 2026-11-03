@@ -310,6 +310,27 @@ which is the same ruling that put the camera in the session.
 
 Wheel zoom anchored at cursor (`world = (screen - pan)/zoom`, adjust pan to keep the point under the cursor fixed); left-drag on background = pan; left-drag on node = pin+drag (node's position follows, sim re-heats, release unpins unless Shift-pinned); click = open note in a file tab; hover = set hover index (spatial grid hit-test), `cx.notify()`; right-click = context menu via existing popup machinery (`workspace/popups.rs`). Keyboard context `graph`: `+`/`-`/arrows/Shift/`Enter`/`Escape` per spec. **Verify:** headless tests for zoom-anchor math and hit-test; manual eyeball on niri (ask the user — no screenshot tool).
 
+**Landed 2026-11-02, with four deliberate departures.** (1) **No right-click menu.**
+Shale has one popup slot and the checker owns it; the menu waits until there is a second
+surface to put it on. (2) **The view calls back through a `WeakEntity<Workspace>`**
+rather than owning anything: `graph_drag_node` / `graph_release_node` / `graph_open_note`
+are window-side doors written so they never touch the view, because the view's own mouse
+handler is holding the borrow and a second one would stop gpui. (3) **Hover and the
+keyboard's selection are separate fields** — gpui reports nothing hovered while the last
+input was the keyboard, so `enter` takes `selected.or(hover)` and `hjkl` (via core's
+`in_cone`) gives the keyboard a node of its own; a cone with nothing in it keeps the
+selection rather than losing it. (4) **The frame carries its `Grid`**, built with the
+nodes it indexes, and the hit bound is the largest radius plus 3 px of world slop with
+the candidate re-checked against its own radius. The hovered node's links are drawn in a
+second path in `graph_node_active` and the node gets a ring; the spec's Obsidian-style
+dimming of *everything else* is deferred, because dimming needs a colour per link and
+this renderer draws one path per colour. The wheel's zoom is clamped to two notches per
+event, or a flung trackpad jumps ten levels. Verified headlessly (11 tests: the world
+point under the cursor does not move, a background drag pans by exactly the pointer's
+travel, a node drag pins and moves, shift stays pinned, click and `enter` open, `hjkl`
+chooses, arrows and shift-arrows step, `f` re-frames, and the beat stops itself once the
+layout rests); the niri eyeball is still owed to the user.
+
 ### Task 8: Filter panel
 
 Small popover (reuse popup styling) with the four v1 toggles + a fuzzy search line (reuse `picker.rs` input). Changes flip the bitmask and re-heat. Persist filter state in **`session.json`** beside the camera (see Task 6's landed note — not `[graph]` in the config). **Verify:** toggling orphans off removes degree-0 quads (headless quad count).

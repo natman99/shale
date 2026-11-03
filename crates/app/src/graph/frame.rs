@@ -5,8 +5,14 @@
 //! same positions, not its own physics), and what a view gets is a snapshot it can
 //! paint at its leisure. That is also what makes the headless tests honest: they
 //! build a frame by stepping the sim synchronously and then draw it.
+//!
+//! The snapshot carries its own [`Grid`] because the pointer's questions — "which
+//! node is this click on?", "which node is north-west of this one?" — are asked on
+//! every mouse move, and scanning a few thousand nodes to answer one is the kind of
+//! cost that only shows up on a big vault.
 
 use gpui::SharedString;
+use shale_core::graph::geom::Grid;
 use shale_core::graph::NodeKind;
 
 /// One node as the tab sees it.
@@ -17,16 +23,14 @@ pub(crate) struct GraphNode {
     pub(crate) radius: f32,
     /// Note, attachment, ghost or tag — what decides the fill.
     pub(crate) kind: NodeKind,
-    /// How many links hang off it. Decides who gets a label when they cannot
-    /// all have one, and will decide what a hover panel says.
+    /// How many links hang off it. Decides who gets a label when they cannot all
+    /// have one, and what a hover ring is drawn around.
     pub(crate) degree: u32,
     /// The note stem, the tag name without `#`, or a ghost's raw target.
     pub(crate) label: SharedString,
-    /// What the node stands for, for the click path (Task 7): a note's
-    /// vault-relative path, and `None` for a tag or a ghost.
-    ///
-    /// Not read yet: painting does not need it, and Task 7's click-to-open will.
-    #[allow(dead_code)]
+    /// What the node stands for: a note's or attachment's vault-relative path, and
+    /// `None` for a tag or a ghost — which is what a click uses to know there is
+    /// nothing to open.
     pub(crate) path: Option<SharedString>,
 }
 
@@ -37,19 +41,93 @@ pub(crate) struct GraphNode {
 pub(crate) struct GraphFrame {
     /// The nodes, in sim slot order.
     pub(crate) nodes: Vec<GraphNode>,
-    /// Edges as slot pairs into `nodes`. A→B and B→A is one edge already,
-    /// because the index never holds parallel edges.
+    /// Edges as slot pairs into `nodes`. A→B and B→A is one edge already, because
+    /// the index never holds parallel edges.
     pub(crate) edges: Vec<[u32; 2]>,
+    /// The spatial index over `nodes`, built with them. Only the pointer's questions
+    /// use it, and it is rebuilt per frame rather than per question. Set by the sim,
+    /// which is the only thing that can build a frame's nodes.
+    pub(super) grid: Grid,
 }
 
 impl GraphFrame {
-    /// An empty frame: a vault with nothing in it, or a graph that failed to
-    /// build. Painting it draws the canvas with nothing in it, which is a
-    /// different fact from "no canvas at all".
+    /// An empty frame: a vault with nothing in it, or a graph that failed to build.
+    /// Painting it draws the canvas with nothing in it, which is a different fact from
+    /// "no canvas at all".
     pub(crate) fn empty() -> Self {
         Self {
             nodes: Vec::new(),
             edges: Vec::new(),
+            grid: Grid::default(),
         }
     }
+
+    /// The world positions in slot order, which is the shape both the camera and
+    /// [`Grid`] want.
+    pub(crate) fn positions(&self) -> Vec<[f32; 2]> {
+        self.nodes.iter().map(|node| node.position).collect()
+    }
+
+    /// The node under `world`, or `None`. `slop` world units are added to the hit
+    /// bound so a dot that is a few px across on screen is still clickable; the
+    /// candidate the grid returns is then checked against its own radius, so the slop
+    /// never makes a click land on a node the pointer is not near.
+    pub(crate) fn node_at(&self, world: [f32; 2], slop: f32) -> Option<usize> {
+        let biggest = self
+            .nodes
+            .iter()
+            .map(|node| node.radius)
+            .fold(0.0, f32::max);
+        let positions = self.positions();
+        self.grid
+            .nearest(&positions, world, biggest + slop, None)
+            .map(|slot| slot as usize)
+            .filter(|&slot| match self.nodes.get(slot) {
+                Some(node) => distance(node.position, world) <= node.radius + slop,
+                None => false,
+            })
+    }
+
+    /// The node nearest `world`, however far it is. The keyboard's way to get a first
+    /// selection when the pointer has never been over the canvas.
+    pub(crate) fn nearest(&self, world: [f32; 2]) -> Option<usize> {
+        self.nodes
+            .iter()
+            .enumerate()
+            .min_by(|(_, a), (_, b)| {
+                distance(a.position, world).total_cmp(&distance(b.position, world))
+            })
+            .map(|(slot, _)| slot)
+    }
+
+    /// `h`/`j`/`k`/`l`: the node nearest the ray from `from` in direction `dir`, within
+    /// the core's ±30° cone. `None` when there is nothing that way, which leaves the
+    /// selection where it is rather than throwing it across the graph. This is a scan
+    /// rather than a grid lookup — core's `in_cone` is one — and it only runs on a
+    /// keypress, so the scan is the honest choice.
+    pub(crate) fn node_toward(&self, from: usize, dir: [f32; 2]) -> Option<usize> {
+        if from >= self.nodes.len() {
+            return None;
+        }
+        self.grid
+            .in_cone(&self.positions(), from as u32, dir, None)
+            .map(|slot| slot as usize)
+    }
+
+    /// Where a node is, by slot. `None` once the slot is gone, which is what a frame
+    /// that arrived under a held pointer means.
+    pub(crate) fn node_position(&self, slot: usize) -> Option<[f32; 2]> {
+        self.nodes.get(slot).map(|node| node.position)
+    }
+
+    /// What a node stands for, by slot: `None` for a tag or a ghost, which have no
+    /// note to open.
+    pub(crate) fn node_path(&self, slot: usize) -> Option<SharedString> {
+        self.nodes.get(slot)?.path.clone()
+    }
+}
+
+/// Straight-line distance in world units.
+fn distance(a: [f32; 2], b: [f32; 2]) -> f32 {
+    ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2)).sqrt()
 }

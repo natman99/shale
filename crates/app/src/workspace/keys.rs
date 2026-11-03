@@ -1,6 +1,7 @@
 //! The keymap: which keystroke means which action, and in which context.
 
 use gpui::KeyBinding;
+use shale_core::graph::geom::ZOOM_STEP;
 
 use crate::acts::*;
 use crate::popup;
@@ -274,6 +275,49 @@ pub(crate) fn keybindings() -> Vec<KeyBinding> {
     // screen that means moving the frame back to the note tab the user was last on.
     bind!(crate::graph::CONTEXT, [
         "escape" => FocusEditor,
+        // `enter` opens the chosen node's note, and `f` frames the whole graph again.
+        "enter" => GraphOpen,
+        "f" => GraphFit,
     ]);
+    // The camera and selection keys carry their step, so they are pushed one by one as
+    // the popup's row numbers are. `+` and `-` are literal keys — shift+`=` reaches us
+    // as `+`, the same way `$` does in the note.
+    let graph = crate::graph::CONTEXT;
+    for (key, factor) in [("+", ZOOM_STEP), ("-", 1.0 / ZOOM_STEP)] {
+        keys.push(KeyBinding::new(key, GraphZoom(factor), Some(graph)));
+    }
+    // The arrows move the view, and their shift forms move it three times as far, which
+    // is the spec's "`Shift` = 3× speed".
+    for (key, dx, dy) in [
+        ("left", -1.0, 0.0),
+        ("right", 1.0, 0.0),
+        ("up", 0.0, -1.0),
+        ("down", 0.0, 1.0),
+    ] {
+        keys.push(KeyBinding::new(
+            key,
+            GraphPan([dx * crate::graph::PAN_STEP, dy * crate::graph::PAN_STEP]),
+            Some(graph),
+        ));
+        keys.push(KeyBinding::new(
+            &format!("shift-{key}"),
+            GraphPan([
+                dx * crate::graph::PAN_STEP * crate::graph::PAN_FAST,
+                dy * crate::graph::PAN_STEP * crate::graph::PAN_FAST,
+            ]),
+            Some(graph),
+        ));
+    }
+    // `hjkl` picks the node instead of moving the view: the arrows are the camera, these
+    // are the thing `enter` opens. They are free here for the reason the whole context
+    // exists — in the note they are motions.
+    for (key, dx, dy) in [
+        ("h", -1.0, 0.0),
+        ("l", 1.0, 0.0),
+        ("k", 0.0, -1.0),
+        ("j", 0.0, 1.0),
+    ] {
+        keys.push(KeyBinding::new(key, GraphSelect([dx, dy]), Some(graph)));
+    }
     keys
 }

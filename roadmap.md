@@ -737,7 +737,11 @@ into the Phase 3 addendum. **P2.5a landed 2026-11-01, so Phase 2 is closed**
   force simulation whose layout survives an arena rebuild (positions carried by node
   identity), the camera frames the whole graph until the user takes it over, one
   self-stopping beat drives the layout, and nodes, links and labels are painted with
-  the raw paint API. Tasks 7–8 (interactions, filter panel) remain.
+  the raw paint API. **Task 7 landed the same day**: the tab takes the pointer (hover,
+  background pan, node drag with pin-on-shift, click to open) and the keyboard (`+`/`-`,
+  arrows and shift-arrows, `hjkl` to pick a node, `enter` to open it, `f` to frame it
+  again), with the hit test on a grid the frame carries. Task 8 (the filter panel)
+  remains.
 - **P3.5 Graph M2–M5** in the plan's order: local graph + projected 3D →
   constellations + static mode → heatmap/groups/arrows → signature features
   (thread, pulses+glow, MST star-lines, nebulae, hjkl + f-jump, illumination,

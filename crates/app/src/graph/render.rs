@@ -11,6 +11,8 @@
 //! because it was fitted against the canvas's absolute bounds. The paint calls
 //! take the same space, so there is no offset to remember.
 
+use std::rc::Rc;
+
 use gpui::{point, px, size, App, Bounds, Font, PathBuilder, Pixels, TextAlign, TextRun, Window};
 use shale_core::graph::geom::Camera;
 use shale_core::graph::NodeKind;
@@ -54,19 +56,40 @@ pub(crate) struct Labels {
 /// How much smaller a label is than the note's text, so the dots stay the subject.
 const LABEL_SCALE: f32 = 0.8;
 
-/// Paint one graph frame into `bounds`, using `camera` for this frame.
+/// How much bigger than a node its hover ring is, in screen px. Two is enough to
+/// read as a ring at any zoom and small enough not to swallow a hub.
+const RING_PX: f32 = 2.0;
+
+/// Everything about *how* a frame is painted, as opposed to what is in it: the
+/// colours, the face the labels use, and which node (if any) the pointer or the
+/// keyboard has chosen. Bundled because they always travel together, and a seventh
+/// argument to a paint function is a call site nobody can read.
+pub(crate) struct Look {
+    /// The palette the graph is drawn with, from the window, so a theme change is one
+    /// assignment rather than a rebuild.
+    pub(crate) palette: Rc<Palette>,
+    /// The chosen node, as an index into the frame: ringed, with its links drawn in
+    /// the active colour. `None` is an ordinary frame.
+    pub(crate) hover: Option<usize>,
+    /// The labels' face and size.
+    pub(crate) labels: Labels,
+}
+
+/// Paint one graph frame into `bounds`, using `camera` for this frame and `look` for
+/// its colours, labels and chosen node.
 ///
-/// Called from the canvas element's paint closure, so it borrows nothing that
-/// outlives the frame: the caller hands over an owned snapshot and a camera.
+/// Called from the canvas element's paint phase, so it borrows nothing that outlives
+/// the frame: the caller hands over an owned snapshot, a camera, and the look.
 pub(crate) fn paint_graph(
     bounds: Bounds<Pixels>,
     camera: Camera,
     frame: &GraphFrame,
-    palette: &Palette,
-    labels: &Labels,
+    look: &Look,
     window: &mut Window,
     cx: &mut App,
 ) {
+    let palette = look.palette.as_ref();
+    let labels = &look.labels;
     // The world rectangle the canvas can see. Everything else is skipped.
     let lo = camera.to_world([bounds.origin.x.as_f32(), bounds.origin.y.as_f32()]);
     let hi = camera.to_world([
@@ -106,6 +129,41 @@ pub(crate) fn paint_graph(
         }
     }
 
+    // ----- the chosen node's links ---------------------------------------
+    // A second path, in the active colour, for the links that hang off the node the
+    // pointer is over: the graph's answer to "what connects to this?" without making
+    // the user trace lines by hand. Dimming everything else instead would need a
+    // colour per link, and one path per colour is the deal this renderer made.
+    if let Some(slot) = look.hover {
+        let mut path = PathBuilder::stroke(px((LINK_WIDTH * camera.zoom).max(LINK_MIN_PX)));
+        let mut drew = false;
+        for &[a, b] in &frame.edges {
+            if a as usize != slot && b as usize != slot {
+                continue;
+            }
+            let (Some(from), Some(to)) = (frame.nodes.get(a as usize), frame.nodes.get(b as usize))
+            else {
+                continue;
+            };
+            let [ax, ay] = from.position;
+            let [bx, by] = to.position;
+            if ax.max(bx) < lo_x || ax.min(bx) > hi_x || ay.max(by) < lo_y || ay.min(by) > hi_y {
+                continue;
+            }
+            let a = camera.to_screen([ax, ay]);
+            let b = camera.to_screen([bx, by]);
+            path.move_to(point(px(a[0]), px(a[1])));
+            path.line_to(point(px(b[0]), px(b[1])));
+            drew = true;
+        }
+        if drew {
+            match path.build() {
+                Ok(built) => window.paint_path(built, gpui::rgb(palette.graph_node_active)),
+                Err(err) => tracing::warn!("the hovered links could not be built: {err:#}"),
+            }
+        }
+    }
+
     // ----- nodes ---------------------------------------------------------
     // Grouped by fill so the paint calls come in runs. Notes and attachments
     // share a colour; a ghost is deliberately dimmer, because it is a hole in the
@@ -113,6 +171,27 @@ pub(crate) fn paint_graph(
     // which is what makes the graph and the note agree about what a tag is.
     // (Colouring *notes* by their tags is the colour-by-tag option, and it comes
     // with the filter panel; the hues for it are already in core.)
+    //
+    // The chosen node gets a ring: a disc a little larger than its own, painted first
+    // so the node's fill covers the middle of it.
+    if let Some(slot) = look.hover {
+        if let Some(node) = frame.nodes.get(slot) {
+            if visible(node, lo_x, hi_x, lo_y, hi_y, CULL_MARGIN) {
+                let center = camera.to_screen(node.position);
+                let r = node.radius * camera.zoom + RING_PX;
+                window.paint_quad(
+                    gpui::fill(
+                        Bounds {
+                            origin: point(px(center[0] - r), px(center[1] - r)),
+                            size: size(px(2.0 * r), px(2.0 * r)),
+                        },
+                        gpui::rgb(palette.graph_node_active),
+                    )
+                    .corner_radii(px(r)),
+                );
+            }
+        }
+    }
     for kind in [
         NodeKind::Note,
         NodeKind::Attachment,

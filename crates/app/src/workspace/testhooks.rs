@@ -256,6 +256,88 @@ impl Workspace {
             self.palette.ui_dim,
         )
     }
+    /// The graph tab's camera as `(zoom, pan)`, for the tests that check what a wheel,
+    /// a drag or an arrow did to it. `None` while the view is still framing the whole
+    /// graph itself — which is also the answer after `f`.
+    #[cfg(test)]
+    pub(crate) fn graph_camera(&self, cx: &gpui::App) -> Option<(f32, [f32; 2])> {
+        let view = self.graph_view()?;
+        view.read(cx)
+            .camera()
+            .map(|camera| (camera.zoom, [camera.pan[0], camera.pan[1]]))
+    }
+    /// Where a node is on screen, in window px: the way a test aims the pointer at a dot
+    /// without working the camera out for itself.
+    #[cfg(test)]
+    pub(crate) fn graph_node_screen(&self, slot: usize, cx: &gpui::App) -> Option<[f32; 2]> {
+        let view = self.graph_view()?;
+        let view = view.read(cx);
+        let camera = view.camera()?;
+        let position = view.frame()?.node_position(slot)?;
+        Some(camera.to_screen(position))
+    }
+    /// The canvas's bounds, for the tests that click in the middle of the graph.
+    #[cfg(test)]
+    pub(crate) fn graph_canvas(&self, cx: &gpui::App) -> Option<[f32; 4]> {
+        let bounds = self.graph_view()?.read(cx).canvas()?;
+        Some([
+            bounds.origin.x.as_f32(),
+            bounds.origin.y.as_f32(),
+            bounds.size.width.as_f32(),
+            bounds.size.height.as_f32(),
+        ])
+    }
+    /// Which bodies the simulation is holding against the forces: a drag pins, letting
+    /// go unpins, and a shift-drag does not.
+    #[cfg(test)]
+    pub(crate) fn graph_pinned(&self) -> Vec<bool> {
+        self.graph_sim
+            .as_ref()
+            .map(|sim| sim.pinned().to_vec())
+            .unwrap_or_default()
+    }
+    /// The simulation's positions, straight off the window rather than from the frame
+    /// the tab is painting: a drag moves the sim, and the frame follows on the next
+    /// tick, so a test that wants to know what the pointer did asks the sim.
+    #[cfg(test)]
+    pub(crate) fn graph_sim_positions(&self) -> Vec<[f32; 2]> {
+        self.graph_sim
+            .as_ref()
+            .map(|sim| sim.positions())
+            .unwrap_or_default()
+    }
+    /// Whether the layout's beat is running — which it is not, once the sim has come
+    /// to rest, and must not be.
+    #[cfg(test)]
+    pub(crate) fn graph_beat_running(&self) -> bool {
+        self.graph_beat.is_some()
+    }
+    /// The node the pointer is over, and the one the keyboard has chosen.
+    #[cfg(test)]
+    pub(crate) fn graph_hover(&self, cx: &gpui::App) -> Option<usize> {
+        self.graph_view()?.read(cx).hover()
+    }
+    /// What the graph tab's nodes stand for, in slot order: the way a test finds the
+    /// slot of a note it means to click, since the index renumbers its nodes on every
+    /// rebuild.
+    #[cfg(test)]
+    pub(crate) fn graph_paths(&self, cx: &gpui::App) -> Vec<Option<String>> {
+        let Some(view) = self.graph_view() else {
+            return Vec::new();
+        };
+        let Some(frame) = view.read(cx).frame() else {
+            return Vec::new();
+        };
+        frame
+            .nodes
+            .iter()
+            .map(|node| node.path.as_ref().map(|path| path.to_string()))
+            .collect()
+    }
+    #[cfg(test)]
+    pub(crate) fn graph_selected(&self, cx: &gpui::App) -> Option<usize> {
+        self.graph_view()?.read(cx).selected()
+    }
     /// Close the tab on screen, as the tab bar's `×` and `:tabclose` do. The graph tab
     /// has no command line of its own — `:` is bound in the note's context — so the
     /// tests that want a tab gone ask the window rather than typing a word it cannot
