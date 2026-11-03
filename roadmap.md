@@ -3,7 +3,9 @@
 > **For Hermes:** implement phase by phase; each phase's exit criteria must pass
 > before the next starts. Within a phase, tasks are independent unless marked
 > "→" (sequential). Feature designs live in `brainstorm.md`; the graph's
-> implementation detail lives in `graph-view-plan.md`.
+> implementation detail lives in `graph-view-plan.md`; the visual grammar every
+> surface must obey lives in `design-language.md` (and when a surface and that
+> file disagree, the surface is the bug).
 
 **Goal:** order every agreed feature so nothing is built on a foundation that
 doesn't exist yet, and so the biggest unlock (the DB) lands once and feeds many
@@ -646,6 +648,11 @@ already wrote.)
     context, strip-only fallback when ambiguous — strip authoritative,
     inline opportunistic. Full shape in brainstorm.md (agent presence
     cluster).
+    - **Its colours already exist.** `Palette::diff_add` / `diff_delete` /
+      `diff_changed` landed with the design-language sweep (2026-11-03,
+      `design-language.md` §1, all 20 built-ins valued), so this task paints
+      against named roles instead of inventing a green and a red at the call
+      site. Same for `agent`, the one hue for the whole presence cluster.
 - **Route 3 ruling (2026-11-01):** P2.5a is the last Phase 2 item to build;
   P2.6/P2.7/P2.8 below are **deferred to the Phase 3 addendum** — none of
   them gates anything, and P3.1 Tabs unblocks the graph track, which gates
@@ -889,7 +896,13 @@ and the DB; "notes the agent modified this week" returns the right set.
 - **P6.8 Lua tier** — only if TOML macros demonstrably hit a wall.
 - **P6.9 A rounding pass over the custom-painted surfaces** (polish; the chrome
   half landed 2026-11-02 as `crates/app/src/style.rs::CHIP_RADIUS`, one radius the
-  whole window reads). Everything gpui draws from a `Style` already takes it: a tab,
+  whole window reads). **Mostly done 2026-11-03** as step 4 of the design-language
+  sweep (`design-language.md` §11.4, `413dda6`): the checker's panel was the miss —
+  it used the raised triple's colours and none of its shape — and its rows and the
+  review strip's are chips now. What is left is the note's block backgrounds, which
+  need the layout pass to say which row of a fenced block is first and last; the
+  decision for every surface, rounded and deliberately square, is written in
+  `style.rs`. Everything gpui draws from a `Style` already takes it: a tab,
   a file-tree row, a picker row, the picker's panel, and the text field's box (top
   corners only — the underline *is* the field's edge, and rounding the bottom would
   leave it floating). What is left is painted by Shale's own renderer, so it needs a

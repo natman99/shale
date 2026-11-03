@@ -11,7 +11,7 @@ Shale is an obsidian-style markdown editor with extra developer focused features
 - [x] Spellcheck and grammar checking using HarperLS. Support for custom language servers.
 - [ ] Near-perfect compatibility with Obsidian vaults
 - [x] Image support in notes using Obsidian style
-- [x] Theming support and support for custom themes. Include light and dark themes. The visual grammar built on top of them (roles, spacing, state, elevation, motion, glyphs, microcopy) is ruled and written in `design-language.md` (graph track, 2026-11-03; its §12 lists the roadmap hooks still owed).
+- [x] Theming support and support for custom themes. Include light and dark themes. The visual grammar built on top of them (roles, spacing, state, elevation, motion, glyphs, microcopy) is ruled and written in `design-language.md` (graph track, 2026-11-03; its §16 lists the roadmap hooks, which landed 2026-11-03 — thread 44).
 - [ ] Graph view (planned: graph-view-plan.md + roadmap P3)
 - [ ] Pdf export notes
 - [ ] Tabs
@@ -4174,6 +4174,75 @@ Next steps, roughly in order:
     - `render.rs` is 920 lines and `paint_bench.rs` 933. Both are one addition away from the
       1000-line refactor line in `AGENTS.md`; the bench's ceiling-probe section and the
       renderer's node/label phases are the natural halves to split off when either crosses it.
+
+44. **The design-language sweep: six steps over the whole app** — user request (2026-11-03).
+    "Hit the whole app. Be careful and methodical." `design-language.md` §11's sweep, run in
+    its own order. Six commits; every step landed green, and the app's test count went 388 →
+    390 with core 441 → 442.
+
+    ### What landed
+    1. **Palette roles** (`96a6224`). `agent`, `ui_disabled`, `graph_ghost`, `graph_tag`,
+       `graph_attachment`, `diff_add/delete/changed` — 53 → 61 overridable keys, named in all
+       20 built-ins, optional in TOML.
+    2. **The contrast guard** (`6958252`). `theme::contrast::audit` holds the rules; the
+       built-in test asserts it comes back empty and the app runs it when a palette is
+       committed, putting the first finding on the status bar. Warns, never rejects.
+    3. **State grammar** (`a1b744e`). See the drift list below.
+    4. **Spacing and rounding** (`413dda6`). `SPACE_1..4`, and the checker's panel was the one
+       surface using the raised triple's colours and none of its shape.
+    5. **Motion tokens** and 6. **the glyph set** (`4432a76`), plus §6's chrome text sizes
+       (`9260c4d`).
+
+    ### The finding worth keeping: four families colour a tag like a note node
+    `graph_tag` cannot be `tag` in the four Catppuccin flavours, nord, solarized-light or
+    rose-pine: each paints a `#tag` in prose with the hue every note node already carries, so
+    the graph's tag nodes were invisible. The audit now asserts the graph's four node kinds are
+    four colours, which is the kind of rule a palette test can hold and a reviewer cannot spot.
+
+    ### Where the doc and the code disagree, and which one moved
+    - **§1's "computed fallback" was not built.** §1 says a new role falls back to a relative
+      (`agent` to `accent`, `diff_add` to `callout_note`); the code names every role in every
+      built-in and lets a user theme inherit from its `base`. A theme that overrides `accent`
+      without `agent` therefore keeps the base's `agent`. Chosen deliberately: a derivation
+      chain makes `theme export` ambiguous and makes the audit judge colours nobody picked.
+      §1 now says this.
+    - **§4's hover role is for chrome, not for a raised panel.** A popup row keeps
+      `popup_hover_bg`, because §5's raised triple is `popup_bg` + `popup_border` + its own
+      dim step, and §4 and §5 otherwise contradict each other. Written into §4.
+
+    ### Drift the audit found, in order of how wrong it was
+    - The file tree's **keyboard cursor borrowed the hover background**, so the row a vault edit
+      would act on looked like the row the pointer was over. It carries `ui_active_border`
+      now — every row carries a rule, transparent unless selected, or `j` would push the rows
+      below down 2 px.
+    - **`ui_active_border` was painted by nothing at all.** It is the focused field's edge and
+      the graph canvas's rule now.
+    - The graph's filter chips drew an off chip in `ui_dim` (a label's role) and an on chip in
+      `ui_field_bg` (a text field's role) — the two roles made for those states went unused.
+    - The tab bar left 6 px between tabs where it already leaves 4 px above and below.
+
+    ### Still owed, and why they were not done
+    - **§5 elevation, picker**: the picker's panel is `ui_bg` + `ui_border`, not the raised
+      triple. Not a one-line fix — the contrast table judges `match_text` against `ui_bg` and
+      `ui_active_bg` *as the picker's rows*, so moving the panel means moving those floors.
+      Needs a ruling, not a sweep. The review strip is the same question (it is docked chrome
+      today, and §5 lists it as raised).
+    - **`ui_tab_bg` / `ui_tab_active_bg` are still unpainted.** Tabs obey §4 (`ui_active_bg`
+      for the open one), so the tab roles stay reserved. §4 lists tabs; the palette cut roles
+      for them. Unresolved.
+    - **Rounding a fenced block or callout needs block boundaries.** Each row is its own quad,
+      so rounding every row is a stack of pills and rounding only the block's ends needs the
+      layout pass to say which row is first — it does not. Written into `style.rs` as decided
+      rather than pending.
+    - **§8's drawn glyphs** (callout marks, graph node kinds, agent presence) stay owed as each
+      surface needs them; §11 puts the set before the marks, and the set has landed.
+
+    ### Numbers
+    `cargo test -p shale-app` 390 passed / 4 ignored, peak RSS **94.0 MB**. Core 442, 18.1 MB;
+    mcp 35. Clippy still exactly the 7 pre-existing warnings; `cargo fmt --check` is clean for
+    the first time in this thread (the formatter's outstanding diff in `workspace/mod.rs` rode
+    along with the contrast-guard commit). The graph paint bench still runs and the cache still
+    pays at every zoom.
 
 ## Parked threads (agreed 2026-10-28; not being worked now)
 

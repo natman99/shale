@@ -11,8 +11,8 @@ Status legend: ✅ ruled · ❄️ parked · ⏳ implementation owed.
 
 > Writeback note: these rounds were ruled while the app-track agent was
 > mid-flight, so they live only here for now. The brainstorm.md/roadmap.md
-> hooks (P6.9 fold-in, the new palette roles feeding P2.5a, the glyph policy)
-> are listed in §16 and owed once those files are free to touch.
+> hooks (P6.9 fold-in, the new palette roles feeding P2.5b, the glyph policy)
+> landed 2026-11-03 — see §16. The §11 sweep itself landed the same day.
 
 ## 1. Color — the Palette is the only source
 
@@ -21,39 +21,58 @@ Already true, kept: every paint site reads a named role from
 `.shale/themes/*.toml` overrides). No surface hardcodes a color; a new role is
 added to the Palette, never inlined at the paint site.
 
-**✅ New roles (⏳, and the one that bites first):**
+**✅ New roles (landed 2026-11-03, `96a6224`):**
 
 | Role | Carries |
 |---|---|
-| `diff_add` / `diff_delete` / `diff_changed` | the review strip's proposed hunks (P2.5a renders against these — land before it) |
+| `diff_add` / `diff_delete` / `diff_changed` | the review strip's proposed hunks, and P2.5b's inline tints (they land before both) |
 | `agent` | "the agent is / has been here": review badges, edit provenance, graph node rings — one color for the whole presence cluster |
 | `ui_disabled` | unavailable controls: dimmed keybinds, inactive chips |
 | `graph_ghost` / `graph_tag` / `graph_attachment` | node kinds named, not derived from neighbors' colors |
 
-**✅ Rule: roles are additive.** A new role is *optional* in TOML themes with a
-computed fallback (e.g. `diff_add` falls back to `callout_note`, `agent` to
-`accent`), so the 20 built-ins and every user theme keep loading untouched.
-Built-ins gain explicit values for the new roles in the same pass.
+**✅ Rule: roles are additive.** A new role is *optional* in TOML themes, so the 20 built-ins
+and every user theme keep loading untouched, and **the built-ins name them explicitly in the
+same pass**.
+
+**Amended as built (2026-11-03).** The first draft said a new role gets a *computed* fallback
+(`agent` → `accent`, `diff_add` → `callout_note`). What landed instead names every role in
+every built-in and lets a user theme inherit from its `base`: a theme that names none of the
+new roles gets sensible values for free, which is the whole point of the rule. A derivation
+chain was rejected because it makes `theme export` ambiguous (which `agent` do you write out —
+the inherited one or the derived one?) and makes the §10 audit judge colours nobody chose. The
+one case that differs: a theme that overrides `accent` but not `agent` keeps the base's
+`agent`. Naming `agent` is the way to opt in.
 
 ## 2. Spacing — one scale, in `style.rs`
 
-**✅ (⏳)** `SPACE_1..4 = 4 / 8 / 12 / 16` px, siblings of `CHIP_RADIUS` in
-`crates/app/src/style.rs`. Chrome divs use them via gpui padding/margin;
-custom-painted surfaces take them as arguments to `paint_quad` the way
-`CHIP_RADIUS` is already passed. A surface that needs a gap picks the nearest
-step; an off-scale number in a diff is a review comment.
+**✅ (landed 2026-11-03, `413dda6`)** `SPACE_1..4 = 4 / 8 / 12 / 16` px, siblings of
+`CHIP_RADIUS` in `crates/app/src/style.rs`. Chrome divs use them via gpui padding/margin;
+custom-painted surfaces take them as arguments to `paint_quad` the way `CHIP_RADIUS` is
+already passed. A surface that needs a gap picks the nearest step; an off-scale number in a
+diff is a review comment. They are gpui's own quarter-rems (`p_1` is `SPACE_1`), so a div
+written with a helper already obeys the scale — the names are for the constants, and for
+saying which step a surface means. Two constants that were off the scale came onto it.
 
 ## 3. Shape — one radius
 
 Already true: `CHIP_RADIUS = 6px` is the single rounding decision for
-gpui-styled chrome. **✅ (⏳)** the custom-painted surfaces (line-element
-backgrounds, table grid, review badges, fold markers) take the same radius —
-this is roadmap **P6.9**, folded into this doc's first sweep (§11) rather than
-a standalone pass.
+gpui-styled chrome. **✅ (landed 2026-11-03, `413dda6`)** the custom-painted surfaces take the
+same radius — this is roadmap **P6.9**, folded into this doc's first sweep (§11) rather than a
+standalone pass.
+
+P6.9 is **one module deciding each surface**, not one radius everywhere. The checker's panel
+was the miss: it used the raised triple's colours and none of its shape, so it sat square next
+to a rounded picker; its rows, and the review strip's, are chips like a file-tree row and a
+picker row. Deliberately square, and written down in `style.rs` so it is not re-litigated: the
+caret and the selection (a vim block cursor sits on a cell), a 1px rule or the 2px callout bar
+(a 6px radius is bigger than the thing it would round), and the note's full-width bands — a
+fenced block is one quad per row, so rounding each row is a stack of pills, and rounding the
+block's ends needs the layout pass to say which row of the block is first, which it does not
+say today.
 
 ## 4. State grammar — three states, three roles, everywhere
 
-**✅ (⏳ sweep)** Every interactive row/pane obeys exactly:
+**✅ (sweep landed 2026-11-03, `a1b744e`)** Every interactive row/pane obeys exactly:
 
 | State | Role |
 |---|---|
@@ -64,6 +83,17 @@ a standalone pass.
 Applies to: file tree, picker rows, tabs, status chips, graph nodes
 (background→node tint equivalents), the review strip's rows, future `.shq`
 tables. A surface inventing its own hover color is the drift this table kills.
+
+**Resolved against §5:** a *raised* panel's row takes `popup_hover_bg`, not `ui_hover_bg`.
+§5's raised triple is `popup_bg` + `popup_border` + its own dim step, and a panel over the
+note is judged against the panel, not the window. §4's `ui_hover_bg` is for rows on chrome.
+
+What the sweep changed: the file tree's keyboard cursor was borrowing the **hover background**,
+so the row a vault edit would act on looked like the row the pointer was over — it carries the
+focus rule now, on every row (transparent unless selected), because a border that appeared on
+one row pushes every row below it down. `ui_active_border` was painted by nothing at all; it is
+the focused field's edge and the graph canvas's rule. The graph's filter chips were drawing an
+off chip in `ui_dim` (a label's role) and an on chip in `ui_field_bg` (a field's role).
 
 ## 5. Elevation — border + bg-shift + dim, no shadows
 
@@ -78,37 +108,48 @@ exactly three tools, in this combination:
 Every floating thing uses the raised triple identically. No new elevation
 level without amending this section.
 
+**⏳ Two surfaces do not obey it yet, and neither is a one-line fix.** The picker's panel is
+`ui_bg` + `ui_border`; the review strip is `ui_status_bg` with no border. Both are listed above
+as raised. Moving the picker means moving the §10 floors too, because the contrast table judges
+`match_text` against `ui_bg` and `ui_active_bg` *as the picker's rows* — so this needs a ruling
+about whether the picker is raised or chrome, not a sweep.
+
 ## 6. Type — the note's scale exists; the chrome's is now shared
 
 Already true: editor base size + proportional heading scale + one `LINE_RATIO`;
-mono-family resolution with real bold/italic faces. **✅** chrome text sizes
-(the status bar's `text_xs`, picker rows, tab labels) join `style.rs` as named
-constants — the values in use today become the set; no per-surface sizes.
-Mode words (`NORMAL/INSERT/…`) stay text: vim users read the word, and color
+mono-family resolution with real bold/italic faces. **✅ (landed 2026-11-03, `9260c4d`)** chrome
+text sizes (the status bar's `text_xs`, picker rows, tab labels) join `style.rs` as named
+constants — the values in use today become the set; no per-surface sizes. They are gpui's
+`text_xs`/`text_sm`/`text_lg` spelled as rems, so the values did not move and one module now
+holds them. Mode words (`NORMAL/INSERT/…`) stay text: vim users read the word, and color
 already carries it.
 
 ## 7. Motion — tokens, and a contract
 
-**✅ (⏳)** durations and easings as constants in `style.rs` (one fast ~120ms,
-one slow ~240ms to start). Contract: **chrome does not animate except toasts**
-— no fades on tab switches, no sliding panels. The graph keeps its own ruled
-idle/animation contract (M5a, PROJECT.md); this doc does not touch it. A new
-animation needs a token from this file and a reason.
+**✅ (landed 2026-11-03, `4432a76`)** durations and easings as constants in `style.rs` (one fast
+~120ms, one slow ~240ms to start). Contract: **chrome does not animate except toasts** — no
+fades on tab switches, no sliding panels. The graph keeps its own ruled idle/animation contract
+(M5a, PROJECT.md); this doc does not touch it. A new animation needs a token from this file and
+a reason.
+
+The audit found nothing to remove: no chrome surface animates at all today. The tokens exist
+for the exception, and they are `#[allow(dead_code)]` until a toast uses one.
 
 ## 8. Glyphs and icons — ruled policy
 
 **✅** Shale is a text-first app and stays one, with one named exception class.
 
-- **Formalized unicode set (⏳)** — the marks already in use move into a named
-  set in `style.rs` so they stop being per-site characters: `▸`/`▾` (tree
-  disclosure), `●` (dirty, drawn in `accent`), `×` (close). New chrome marks
-  come from this set or propose an addition.
-- **Drawn-glyph exception class (⏳)** — custom-painted surfaces may draw
-  simple vector marks where unicode is weak or color-only information needs a
-  second channel: **callout types** (a mark on the left bar), **graph node
-  kinds** (shape/glyph per kind so ghost/tag/attachment read without color),
-  and the **agent presence mark** (one glyph carrying `agent` color across
-  review badges, provenance, and graph rings).
+- **Formalized unicode set (landed 2026-11-03, `4432a76`)** — the marks already in use move into
+  a named set in `style.rs` so they stop being per-site characters: `▸`/`▾` (tree disclosure),
+  `●` (dirty, drawn in `accent`), `×` (close). New chrome marks come from this set or propose
+  an addition.
+- **Drawn-glyph exception class (⏳)** — custom-painted surfaces may draw simple vector marks
+  where unicode is weak or color-only information needs a second channel: **callout types** (a
+  mark on the left bar), **graph node kinds** (shape/glyph per kind so ghost/tag/attachment read
+  without color), and the **agent presence mark** (one glyph carrying `agent` color across
+  review badges, provenance, and graph rings). The set landed; these stay owed, and §11 puts the
+  set first so each mark arrives with the surface that needs it. The graph's four node kinds are
+  at least four *colours* now, which `contrast::audit` enforces.
 - **Permanent exclusion** — buffer content is never icon-ified: task boxes,
   heading markers, list bullets, table pipes, link brackets stay visible text.
   That is the Raw-mode posture, not an oversight; iconing them means WYSIWYG,
@@ -126,12 +167,23 @@ same register. Keymap legends (`j/k hop · y accept · …`) render as boxed
 
 **✅** Any meaning carried by color alone must gain a mark or shape: node kinds
 and callout types via §8's drawn glyphs; dirty state already pairs `●` +
-`accent`. **✅ (⏳)** a **contrast guard test** asserts minimum contrast per
-role-pair across all built-in palettes (e.g. `match_text` legible on both
-`ui_bg` and `ui_active_bg`); it runs against user TOML themes at load and
-warns rather than rejects.
+`accent`. **✅ (landed 2026-11-03, `6958252`)** a **contrast guard** asserts minimum contrast
+per role-pair across all built-in palettes (e.g. `match_text` legible on both `ui_bg` and
+`ui_active_bg`); it runs against user TOML themes at load and warns rather than rejects.
+
+It is one table in `shale_core::theme::contrast`, used twice: the built-in test asserts `audit()`
+comes back empty, and the app calls it when a palette is committed (startup, `:theme`, the
+picker's enter) and puts the first finding on the status bar. Three kinds of finding, not one: a
+colour too faint for its surface, two roles a reader must tell apart given one colour (the
+graph's node kinds), and a disabled control reading louder than a label.
 
 ## 11. Implementation sweep, in order (⏳)
+
+**Status 2026-11-03: steps 1–6 landed** (`96a6224`, `6958252`, `a1b744e`, `413dda6`,
+`4432a76`, plus §6's type constants in `9260c4d`). PROJECT.md thread 44 records what each step
+found, and the three things the audit turned up that are **not** fixed: the picker and review
+strip's elevation (§5), the unpainted `ui_tab_*` roles (§4 lists tabs; the palette cut roles for
+them and the tabs obey §4 instead), and §8's drawn marks.
 
 1. **Palette roles** (§1) + built-in values + TOML fallbacks — unblocks
    P2.5a's colors; small, core-side.
@@ -226,7 +278,8 @@ never writes config.
   across custom painters, no demand yet. Door open: `style.rs` constants make
   it a multiplier someday.
 - **Hooks owed when brainstorm.md/roadmap.md are free to touch** (other agent
-  in flight at ruling time): roadmap P6.9 gets a pointer to §11.4; the §1
-  palette roles get a line under P2.5a's dependencies; the brainstorm
-  agent-presence cluster cites §8's `agent` role + mark; this file gets listed
-  beside `graph-view-plan.md` in the roadmap's plan-file index.
+  in flight at ruling time) — **landed 2026-11-03**: roadmap P6.9 points at §11.4 and is
+  marked done for everything it can be; the §1 palette roles are a dependency line under P2.5a;
+  this file is listed beside `graph-view-plan.md` in the roadmap's plan-file index. The
+  brainstorm agent-presence cluster still owes its citation of §8's `agent` role and mark —
+  that file is the other track's, and was left alone.
