@@ -339,3 +339,19 @@ measured.
   parked. Inventory that grounded it: chrome already carries `▾▸` (tree),
   `●` (dirty), `×` (tab close) informally; callout types and graph node kinds
   are color-only today.
+
+## Canvas plan ruled into a file (2026-11-03)
+
+`canvas-plan.md` (repo root, new): the Canvas reopen — the parity audit had
+listed it as a deliberate out. Concept: a canvas is a second projection of
+the vault (same node model as the graph, pinned layout), `.canvas` jsoncanvas
+files are plain editable buffers, nodes are live views of buffers (never
+copies), edges split into vault-backed typed links vs local decoration, and
+the agent layer speaks topology only (semantic verbs, quadtree occupancy,
+auto-relax that moves only agent nodes) — geometry is the sim's. 17-item
+edge-case ledger (rename propagation MUST parse `.canvas`; broken JSON keeps
+last-good render + bar warning; unknown keys preserved for Obsidian
+interop). Milestones C1 (viewer + interop, Phase 3 addendum candidate) /
+C2 (editing) / C3 (typed edges, query nodes, MCP tools). Six open rulings
+recommended in §11; hooks owed to brainstorm/roadmap in §12 while those
+files stay busy.
