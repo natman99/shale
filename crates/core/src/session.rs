@@ -25,12 +25,18 @@ pub fn session_path(vault_root: &Path) -> PathBuf {
     vault_root.join(STATE_DIR).join("session.json")
 }
 
-/// One stop on the jump chain: a note and where the cursor was left in it.
+/// One stop on the jump chain: a note and where the cursor was left in it, or the
+/// graph tab.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Jump {
-    /// Vault-relative path of the note.
-    pub path: PathBuf,
-    /// The cursor there, as a byte offset into the note.
+    /// Vault-relative path of the note. `None` is the graph tab, which is a place in
+    /// the window rather than a file (roadmap P3.4). Optional, and defaulted, so a
+    /// session file written before a graph could be a stop on the chain reads exactly
+    /// as it did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<PathBuf>,
+    /// The cursor there, as a byte offset into the note. `0` for the graph tab, which
+    /// has no cursor to put back — its camera comes from the tab's own seat.
     pub cursor: usize,
 }
 
@@ -201,7 +207,7 @@ mod tests {
             focus_scope: Some("section".into()),
             typewriter: Some(true),
             jumps_back: vec![Jump {
-                path: PathBuf::from("Welcome.md"),
+                path: Some(PathBuf::from("Welcome.md")),
                 cursor: 7,
             }],
             jumps_forward: vec![],

@@ -236,6 +236,74 @@ fn clicking_a_node_opens_its_note(cx: &mut TestAppContext) {
     );
 }
 
+/// The graph is a stop on the jump chain: a click on a node opens a note, and
+/// `ctrl-o` comes back to the graph instead of reporting "no older jump". `ctrl-i`
+/// then walks forward to the note again, along the same path.
+#[gpui::test]
+fn the_graph_is_a_stop_on_the_jump_chain(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = linked_vault(cx);
+    cx.simulate_keystrokes("space g");
+    paint(&mut cx, &window);
+
+    let (_slot, at) = node(&mut cx, &window, "b.md");
+    press(&mut cx, at);
+    release(&mut cx, at, gpui::Modifiers::default());
+    assert!(
+        !graph(&window, &mut cx)
+            && tabs(&window, &mut cx)
+                .iter()
+                .any(|(label, _)| label == "b.md"),
+        "the click opened the note: {:?}",
+        tabs(&window, &mut cx)
+    );
+
+    cx.simulate_keystrokes("ctrl-o");
+    assert!(
+        graph(&window, &mut cx),
+        "`ctrl-o` came back to the graph: {:?}",
+        tabs(&window, &mut cx)
+    );
+    assert_eq!(
+        window
+            .update(&mut cx, |ws, _window, _cx| ws.jump_lens())
+            .unwrap(),
+        (0, 1),
+        "and the note went onto the forward half, where `ctrl-i` reads it"
+    );
+
+    cx.simulate_keystrokes("ctrl-i");
+    assert!(
+        !graph(&window, &mut cx)
+            && tabs(&window, &mut cx)
+                .iter()
+                .any(|(label, _)| label == "b.md"),
+        "`ctrl-i` walked forward to the note again: {:?}",
+        tabs(&window, &mut cx)
+    );
+}
+
+/// The chain the session file writes keeps the graph stop, so a restart does not
+/// quietly lose the way back to the graph.
+#[gpui::test]
+fn a_session_keeps_the_graph_stop(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = linked_vault(cx);
+    cx.simulate_keystrokes("space g");
+    paint(&mut cx, &window);
+
+    let (_slot, at) = node(&mut cx, &window, "b.md");
+    press(&mut cx, at);
+    release(&mut cx, at, gpui::Modifiers::default());
+
+    let chain = window
+        .update(&mut cx, |ws, _window, cx| ws.session_snapshot(cx))
+        .unwrap()
+        .jumps_back;
+    assert!(
+        chain.iter().any(|jump| jump.path.is_none()),
+        "the graph is on the chain the session writes: {chain:?}"
+    );
+}
+
 /// Every node is clickable exactly where it is drawn, including the ones on the
 /// layout's own edge. Those are the interesting ones: framing the graph to fit puts the
 /// extreme nodes at the bounds of the box the pointer's grid was built over, and the

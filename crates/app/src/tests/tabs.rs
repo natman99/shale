@@ -418,7 +418,7 @@ fn a_session_tab_whose_note_is_gone_is_dropped(cx: &mut TestAppContext) {
         focus_scope: None,
         typewriter: None,
         jumps_back: vec![Jump {
-            path: PathBuf::from("a.md"),
+            path: Some(PathBuf::from("a.md")),
             cursor: 0,
         }],
         jumps_forward: vec![],

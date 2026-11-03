@@ -56,7 +56,7 @@ fn a_session_reopens_the_vault_where_the_user_left_it(cx: &mut TestAppContext) {
         focus_scope: Some("section".into()),
         typewriter: Some(true),
         jumps_back: vec![Jump {
-            path: PathBuf::from("a.md"),
+            path: Some(PathBuf::from("a.md")),
             cursor: 6,
         }],
         jumps_forward: vec![],

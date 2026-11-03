@@ -51,6 +51,17 @@ fn overlay_word(picker: bool, prompt: bool, popup: bool) -> &'static str {
     }
 }
 
+/// A stop on the jump chain, named the way the live API names places: the note's
+/// vault-relative path, or `"graph"` for the graph tab — the same word `live_note`
+/// reports for `view`, so an agent can tell that a `ctrl-o` will move the window to a
+/// view of the whole vault rather than to a file.
+fn jump_word(path: Option<std::path::PathBuf>) -> String {
+    match path {
+        Some(path) => path.display().to_string(),
+        None => "graph".to_string(),
+    }
+}
+
 impl Workspace {
     /// Start the live channel: publish once, bind the port, and keep publishing.
     ///
@@ -140,13 +151,10 @@ impl Workspace {
             col,
             byte,
             selection,
-            back: back
-                .into_iter()
-                .map(|jump| jump.path.display().to_string())
-                .collect(),
+            back: back.into_iter().map(|jump| jump_word(jump.path)).collect(),
             forward: forward
                 .into_iter()
-                .map(|jump| jump.path.display().to_string())
+                .map(|jump| jump_word(jump.path))
                 .collect(),
             overlay: overlay_word(
                 self.picker.is_some(),
