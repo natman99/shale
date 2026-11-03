@@ -1,8 +1,8 @@
 # Canvas Plan (ruled 2026-11-03; Phase 5/6 addendum, C1–C3)
 
 Reopens the parity-audit "deliberate out" for Canvas (brainstorm.md, Obsidian
-parity audit section) — this file IS the reopen ruling; the audit line gets a
-pointer when brainstorm.md is free to touch (hooks owed, §10).
+parity audit section) — this file IS the reopen ruling; the audit line was
+flipped and the hooks landed the same day (§12).
 
 ## The concept, one line
 
@@ -229,30 +229,25 @@ smart-groups, block cards, MCP canvas tools + auto-relax + review-strip
 integration, `:canvas from-query`, canvas-as-selection graph filter, PNG/PDF
 export, templates, GM board gallery.
 
-## 11. Open questions — rulings needed
+## 11. Open questions — ALL RULED ✅ 2026-11-03 (one round, all six accepted)
 
-- **Q1 Two edge kinds as specced (§4)?** Recommended yes — it is the whole
+- **Q1 Two edge kinds as specced (§4)?** ✅ RESOLVED — yes; it is the whole
   differentiator and the only way local decoration and vault semantics can
   coexist.
-- **Q2 `.canvas` as a plain editable buffer (§1)?** Recommended yes — it is
-  the modes-over-hidden-state principle; the alternative (opaque structured
+- **Q2 `.canvas` as a plain editable buffer (§1)?** ✅ RESOLVED — yes; the
+  modes-over-hidden-state principle; the alternative (opaque structured
   entity) breaks outline, vim, and time-machine-for-free.
 - **Q3 Canvas files as vault citizens (backlinks badge, rename parses them,
-  §3)?** Recommended yes, hard.
-- **Q4 Auto-relax moves only agent nodes (§6)?** Recommended yes.
-- **Q5 Accepting a ghost node creates the note (§3)?** Recommended yes
+  §3)?** ✅ RESOLVED — yes, hard.
+- **Q4 Auto-relax moves only agent nodes (§6)?** ✅ RESOLVED — yes.
+- **Q5 Accepting a ghost node creates the note (§3)?** ✅ RESOLVED — yes
   (consistent with ghost links).
-- **Q6 Phase placement:** C1 after tabs (P3.1) as early as Phase 3 addendum;
-  C2 Phase 5; C3 with its dependencies (typed edges, `.shq`, block anchors).
-  Recommended: schedule C1 in the Phase 3 addendum list next to P2.6–P2.8 so
-  the demo lands while motivation is hot.
+- **Q6 Phase placement:** ✅ RESOLVED — C1 in the Phase 3 addendum (roadmap
+  line, next to P2.6–P2.8), C2 = P5.6, C3 = P6.10.
 
-## 12. Hooks owed (when brainstorm/roadmap are free to touch)
+## 12. Hooks — DONE (2026-11-03, same round as the rulings)
 
-- Flip the parity-audit "deliberate out: Canvas" line to a pointer:
-  "reopened 2026-11-03 — see canvas-plan.md".
-- Roadmap: add C1 to the Phase 3 addendum list; C2/C3 as Phase 5/6 items
-  with dependency notes (tabs, typed edges, `.shq`, block anchors).
-- brainstorm.md: the standing rulings list at the top of this file becomes a
-  dated canvas section; cite the parent scope guards (no webview, GM-side
-  only) rather than restating them.
+- brainstorm.md: parity-audit "deliberate out: Canvas" struck and marked
+  reopened; dated "Canvas ✅" section added before "Explicitly out".
+- roadmap.md: C1 in the Phase 3 addendum paragraph; P5.6 (C2) and P6.10
+  (C3) added as items.

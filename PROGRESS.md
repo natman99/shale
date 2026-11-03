@@ -355,3 +355,10 @@ interop). Milestones C1 (viewer + interop, Phase 3 addendum candidate) /
 C2 (editing) / C3 (typed edges, query nodes, MCP tools). Six open rulings
 recommended in §11; hooks owed to brainstorm/roadmap in §12 while those
 files stay busy.
+
+Canvas rulings landed (same day as the plan): all six open questions ruled
+✅ (two edge kinds, `.canvas` as plain buffer, vault-citizen indexing +
+rename parses `.canvas`, relax-moves-only-agent-nodes, ghost-accept-creates-
+note, phase placement C1→Phase 3 addendum / C2=P5.6 / C3=P6.10). Hooks
+closed: brainstorm audit line flipped + dated Canvas section, roadmap items
+added. canvas-plan.md §11/§12 now read as ruled.

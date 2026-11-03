@@ -550,7 +550,8 @@ Swept Obsidian's built-ins + core plugins + top community plugins against this
 document. Everything not listed here is either already covered (quick switcher,
 palette, bookmarks, hover preview, rename propagation, word count, file
 recovery→time machine, Bases/Dataview→`.shq`) or a deliberate out (sync,
-mobile, Canvas, slide mode, themes). The gaps, with rulings:
+mobile, ~~Canvas~~ **reopened 2026-11-03 — see the Canvas section below and
+`canvas-plan.md`**, slide mode, themes). The gaps, with rulings:
 
 ### Properties: frontmatter as data ✅ (P1 schema decision — do it in the DB spine)
 - The DB indexes YAML frontmatter: `note_props(note, key, value)` updated on
@@ -909,6 +910,49 @@ build; the rest is configuration of things that already exist.
   graph (NPC↔faction↔location) is just the existing graph + tag coloring.
 
 ---
+
+## Canvas ✅ (reopened 2026-11-03; full plan in `canvas-plan.md`)
+
+The parity audit's "deliberate out" was reversed under competitive pressure
+(ZenNotes ships a canvas; Obsidian's jsoncanvas is an open format). The
+reopen ruling and all six open questions were ruled ✅ in one round. The
+concept: a canvas is a **second projection of the vault** — same node model
+as the graph, pinned layout, live buffer-backed content, typed edges that
+write real vault facts. Binding rulings:
+
+- **Two edge kinds**: vault edges backed by real frontmatter typed links
+  (delete either side → the other ghosts; they live in graph/DB because the
+  link exists, not because it's drawn) vs local decoration edges (never
+  enter graph/DB).
+- **`.canvas` is a plain editable buffer** — vim-editable JSON; the 2D view
+  and the outline view (`:canvas outline`) are projections of it; buffer
+  undo, time machine, and conflict policy all fall out for free. Broken
+  JSON: last-good render + bar warning (broken-theme posture). Unknown keys
+  preserved (Obsidian interop; adopt the jsoncanvas spec).
+- **Canvas files are vault citizens**: links out of `.canvas` are indexed
+  (backlinks get a `canvas` badge), and **rename propagation must parse
+  `.canvas` files** — C1 day one, non-negotiable.
+- **A node is a view, never a copy**: note nodes render from the live
+  buffer; the inline editor attaches to the real buffer (shared cursor,
+  undo, dirty dot).
+- **Topology in, geometry out**: MCP canvas tools are semantic verbs
+  (`add_node(near:)`, `stack_below`, `group`, `link(a,b,type)`), quadtree
+  occupancy makes overlap unrepresentable, auto-relax (collision-only sim
+  ticks) moves **only agent-added nodes** — user-pinned never move. Agents
+  never emit coordinates. Accepted batches are one undo unit through the
+  P2.5 review strip.
+- **Ghost node accept creates the note** (consistent with ghost links).
+- Scope guards (confirmed): no freehand pen/sketching, no webview/
+  Excalidraw, no stored coordinates for pure graph views, no agent
+  coordinate access ever. GM-side board posture unchanged.
+- Free rides flagged: `:canvas from-query` (GM board without any agent —
+  the agent is the natural-language wrapper around this command), canvas-
+  as-saved-selection graph filter, PNG/PDF export, board template gallery.
+
+Milestones: **C1** viewer + jsoncanvas interop + link indexing/rename
+(→ Phase 3 addendum, after tabs + graph milestones — mostly graph-renderer
+reuse), **C2** editing (Phase 5), **C3** typed edges + query nodes + MCP
+tools (Phase 6, rides `.shq` + typed edges + block anchors).
 
 ## Explicitly out
 - Sync, mobile, plugins (see "MCP is the plugin system"), live web apps in notes

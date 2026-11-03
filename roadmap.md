@@ -807,7 +807,12 @@ tab are through. Rationale: none of the three gates any later item — P2.6 is
 a standalone socket, P2.7 composes off the shipped registry + DB, and P2.8
 rides P1.2's event spans (its tab-badge half *needs* P3.1 anyway). Suggested
 slots: P2.8 right after P3.1 (badges want tabs), P2.6/P2.7 as quick wins
-around the graph milestones.
+around the graph milestones. **Canvas C1** (ruled ✅ 2026-11-03, full plan in
+`canvas-plan.md`) joins this addendum: viewer + jsoncanvas read/write +
+note/image/group nodes + `.canvas` link indexing and rename propagation —
+mostly graph-renderer reuse, but it needs P3.1 tabs and should follow the
+graph milestones so the reuse is real. C2 (editing) is P5.6; C3 (typed
+edges, query nodes, MCP canvas tools) is P6.10.
 
 ---
 
@@ -862,6 +867,11 @@ and the DB; "notes the agent modified this week" returns the right set.
   full alpha, positions locked; P4 diff renderer aligns blocks, same visual
   grammar as the review overlay). Read-only while scrubbing; restore stays
   the time machine's separate verb. Each scrub step paints once.
+- **P5.6 Canvas C2 — canvas editing** (canvas-plan.md ✅ 2026-11-03): edge
+  authoring (ports, arrows, labels), inline editor overlay attached to the
+  real buffer, snapping + grid, marquee select, align/distribute,
+  `:canvas tidy` (+ rectangular collide in the sim), outline view,
+  drag-from-file-tree. Where the canvas time goes.
 
 ---
 
@@ -912,6 +922,13 @@ and the DB; "notes the agent modified this week" returns the right set.
   wavy underline, the popup panel, the review strip and its badges, the status bar's
   badges, and the caret. **Not one radius for all of them** — a 2px underline does
   not want 6px — but one module deciding each.
+- **P6.10 Canvas C3 — the differentiators** (canvas-plan.md ✅ 2026-11-03):
+  vault-backed typed edges (two-edge-kind rule), query nodes + smart-groups,
+  block-level cards, MCP canvas tools (semantic verbs, quadtree occupancy,
+  auto-relax moving only agent nodes) through the P2.5 review strip,
+  `:canvas from-query`, canvas-as-saved-selection graph filter, PNG/PDF
+  export, GM board template gallery. Depends on P4.3 `.shq`, typed edges,
+  and block anchors.
 
 ---
 
