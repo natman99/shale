@@ -195,7 +195,13 @@ pub(crate) fn keybindings() -> Vec<KeyBinding> {
         "left" => TreeCollapse,
         "right" => TreeExpand,
         "enter" => TreeOpen,
-        "space" => TreeOpen,
+        // `space e` puts the tree away from anywhere, including from inside it, which
+        // is how nvim-tree's and NERDTree's `<leader>e` work. gpui holds a keystroke
+        // pending whenever a longer binding shares its prefix, so a `space` bound to
+        // something else here would sit for the pending timeout before it fired: a
+        // lone `space` would feel like a key that had not worked. `enter` opens a row,
+        // and the leader is left whole for the toggle.
+        "space e" => TreeToggle,
         "escape" => FocusEditor,
         "n" => NewNote,
         "shift-n" => NewFolder,

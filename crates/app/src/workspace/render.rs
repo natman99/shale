@@ -354,6 +354,10 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::show_preview))
             .on_action(cx.listener(Self::toggle_focus))
             .on_action(cx.listener(Self::toggle_typewriter))
+            // The sidebar is handled on the window for the same reason the graph is:
+            // `space e` starts in the note, and the palette and the command line reach
+            // it too.
+            .on_action(cx.listener(Self::toggle_tree))
             .on_action(cx.listener(Self::command_palette))
             .on_action(cx.listener(Self::command_line))
             .on_action(cx.listener(Self::change_theme))
@@ -410,72 +414,78 @@ impl Render for Workspace {
                     .flex_1()
                     .min_h_0()
                     .flex()
-                    .child(
-                        div()
-                            .flex_none()
-                            .w(px(260.))
-                            .h_full()
-                            .flex()
-                            .flex_col()
-                            .border_r_1()
-                            .border_color(gpui::rgb(self.palette.ui_border))
-                            .child(
-                                div()
-                                    .p_2()
-                                    .pb_1()
-                                    .font_weight(gpui::FontWeight::BOLD)
-                                    .child(
-                                        self.vault
-                                            .root()
-                                            .file_name()
-                                            .unwrap_or_default()
-                                            .to_string_lossy()
-                                            .to_string(),
-                                    ),
-                            )
-                            // The prompt is a sibling of the tree, not a child of
-                            // it: gpui enables a context's bindings whenever that
-                            // context is in the focused element's stack, so a prompt
-                            // *inside* the tree would still take the tree's `j`/`k`.
-                            .when_some(prompt, |d, prompt| {
-                                d.child(div().px_2().pb_2().child(prompt))
-                            })
-                            .child(
-                                div()
-                                    .id("tree-scroll")
-                                    .flex_1()
-                                    .min_h_0()
-                                    .overflow_scroll()
-                                    .key_context(tree::CONTEXT)
-                                    .track_focus(&self.tree_focus)
-                                    .on_action(cx.listener(|this, _: &TreeDown, _window, cx| {
-                                        this.move_tree_selection(1, cx)
-                                    }))
-                                    .on_action(cx.listener(|this, _: &TreeUp, _window, cx| {
-                                        this.move_tree_selection(-1, cx)
-                                    }))
-                                    .on_action(cx.listener(|this, _: &TreeOpen, window, cx| {
-                                        this.open_tree_row(window, cx)
-                                    }))
-                                    .on_action(cx.listener(
-                                        |this, _: &TreeCollapse, _window, cx| {
-                                            this.tree_collapse(cx)
-                                        },
-                                    ))
-                                    .on_action(cx.listener(|this, _: &TreeExpand, _window, cx| {
-                                        this.tree_expand(cx)
-                                    }))
-                                    .on_action(cx.listener(Self::focus_editor))
-                                    .on_action(cx.listener(Self::new_note))
-                                    .on_action(cx.listener(Self::new_folder))
-                                    .on_action(cx.listener(Self::rename_note))
-                                    .on_action(cx.listener(Self::delete_note))
-                                    .p_2()
-                                    .pt_1()
-                                    .text_size(crate::style::TEXT_SM)
-                                    .children(rows),
-                            ),
-                    )
+                    .when(self.tree_visible, |d| {
+                        d.child(
+                            div()
+                                .flex_none()
+                                .w(px(260.))
+                                .h_full()
+                                .flex()
+                                .flex_col()
+                                .border_r_1()
+                                .border_color(gpui::rgb(self.palette.ui_border))
+                                .child(
+                                    div()
+                                        .p_2()
+                                        .pb_1()
+                                        .font_weight(gpui::FontWeight::BOLD)
+                                        .child(
+                                            self.vault
+                                                .root()
+                                                .file_name()
+                                                .unwrap_or_default()
+                                                .to_string_lossy()
+                                                .to_string(),
+                                        ),
+                                )
+                                // The prompt is a sibling of the tree, not a child of
+                                // it: gpui enables a context's bindings whenever that
+                                // context is in the focused element's stack, so a prompt
+                                // *inside* the tree would still take the tree's `j`/`k`.
+                                .when_some(prompt, |d, prompt| {
+                                    d.child(div().px_2().pb_2().child(prompt))
+                                })
+                                .child(
+                                    div()
+                                        .id("tree-scroll")
+                                        .flex_1()
+                                        .min_h_0()
+                                        .overflow_scroll()
+                                        .key_context(tree::CONTEXT)
+                                        .track_focus(&self.tree_focus)
+                                        .on_action(cx.listener(
+                                            |this, _: &TreeDown, _window, cx| {
+                                                this.move_tree_selection(1, cx)
+                                            },
+                                        ))
+                                        .on_action(cx.listener(|this, _: &TreeUp, _window, cx| {
+                                            this.move_tree_selection(-1, cx)
+                                        }))
+                                        .on_action(cx.listener(|this, _: &TreeOpen, window, cx| {
+                                            this.open_tree_row(window, cx)
+                                        }))
+                                        .on_action(cx.listener(
+                                            |this, _: &TreeCollapse, _window, cx| {
+                                                this.tree_collapse(cx)
+                                            },
+                                        ))
+                                        .on_action(cx.listener(
+                                            |this, _: &TreeExpand, _window, cx| {
+                                                this.tree_expand(cx)
+                                            },
+                                        ))
+                                        .on_action(cx.listener(Self::focus_editor))
+                                        .on_action(cx.listener(Self::new_note))
+                                        .on_action(cx.listener(Self::new_folder))
+                                        .on_action(cx.listener(Self::rename_note))
+                                        .on_action(cx.listener(Self::delete_note))
+                                        .p_2()
+                                        .pt_1()
+                                        .text_size(crate::style::TEXT_SM)
+                                        .children(rows),
+                                ),
+                        )
+                    })
                     .child(
                         div()
                             .relative()

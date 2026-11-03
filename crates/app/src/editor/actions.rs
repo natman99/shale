@@ -110,6 +110,9 @@ impl MarkdownEditor {
             // tab it lives in — so the chord asks by name like every other leader
             // chord, and reaches the same command `:graph` and the palette do.
             Outcome::OpenGraph => window.dispatch_action(OpenGraph.boxed_clone(), cx),
+            // `space e`: the window owns the frame, so the tree goes away by asking the
+            // same command the palette and `:tree` run.
+            Outcome::ToggleTree => window.dispatch_action(TreeToggle.boxed_clone(), cx),
             Outcome::Stay | Outcome::Unhandled => {}
         }
         // The mirror, part 2: whatever the engine put in its register is now on the

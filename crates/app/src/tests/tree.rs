@@ -619,3 +619,196 @@ fn the_tree_marks_its_keyboard_row_with_the_focus_rule(cx: &mut TestAppContext) 
         "one row carries the focus rule: {places:?}"
     );
 }
+
+/// Where the note is painted: the widest quad wearing the note's own background
+/// colour, as `(x, width)`.
+///
+/// The note column is the widest thing in that colour — the editor inside it is
+/// narrower by the column's padding, and the chrome around it wears other colours —
+/// so this is the note's box on screen. Both halves matter: the sidebar's width in
+/// device pixels depends on the window's scale factor, so a test that hard-coded 260
+/// would be measuring the display rather than the layout.
+fn note_box(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> (f32, f32) {
+    window
+        .update(cx, |ws, window, _cx| {
+            let want = gpui::Hsla::from(gpui::rgb(ws.palette().bg));
+            window
+                .painted_quads()
+                .into_iter()
+                .filter(|quad| {
+                    quad.background.as_solid().is_some_and(|bg| {
+                        (bg.h - want.h).abs() < 0.001
+                            && (bg.s - want.s).abs() < 0.001
+                            && (bg.l - want.l).abs() < 0.001
+                    })
+                })
+                .map(|quad| {
+                    (
+                        quad.bounds.origin.x.as_f32(),
+                        quad.bounds.size.width.as_f32(),
+                    )
+                })
+                .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+        })
+        .unwrap()
+        .unwrap_or((0.0, 0.0))
+}
+
+/// `space e` puts the file tree away and brings it back, the way nvim-tree and
+/// NERDTree answer `<leader>e`. The bar says which half was reached, because a
+/// sidebar that vanishes with no other change on screen is easy to mistake for a
+/// key that did nothing.
+#[gpui::test]
+fn space_e_puts_the_file_tree_away_and_brings_it_back(cx: &mut TestAppContext) {
+    let (_dir, window) = workspace(cx, &["Welcome.md", "notes/First.md"]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    assert!(
+        window
+            .update(cx, |ws, _window, _cx| ws.tree_visible())
+            .unwrap(),
+        "a window starts with its tree showing"
+    );
+
+    cx.simulate_keystrokes("space e");
+    let (hidden, status) = window
+        .update(cx, |ws, _window, _cx| (!ws.tree_visible(), ws.status()))
+        .unwrap();
+    assert!(hidden, "the chord put the tree away");
+    assert!(status.contains("tree hidden"), "the bar says so: {status}");
+
+    cx.simulate_keystrokes("space e");
+    let (shown, status) = window
+        .update(cx, |ws, _window, _cx| (ws.tree_visible(), ws.status()))
+        .unwrap();
+    assert!(shown, "the same two keys bring it back");
+    assert!(status.contains("tree shown"), "and say which: {status}");
+}
+
+/// The point of hiding the tree is the width, so that is what is measured: the note
+/// has to take the sidebar's column rather than leave a gap where the tree was. The
+/// frame is `flex`, so this happens by not drawing the sidebar at all — the test is
+/// here to keep it that way when the frame is next reworked.
+#[gpui::test]
+fn the_note_takes_the_width_the_tree_had(cx: &mut TestAppContext) {
+    let (_dir, window) = workspace(cx, &["Welcome.md"]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    // The first frame has no measured width yet, so paint more than once.
+    for _ in 0..3 {
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+    }
+    let (x_with, width_with) = note_box(&window, cx);
+    assert!(width_with > 0.0, "the note paints a background at all");
+    assert!(
+        x_with > 0.0,
+        "with the tree showing, the note starts to the right of it: x {x_with}"
+    );
+
+    cx.simulate_keystrokes("space e");
+    for _ in 0..3 {
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+    }
+    let (x_without, width_without) = note_box(&window, cx);
+
+    assert_eq!(
+        x_without, 0.0,
+        "with the tree away the note starts at the window's left edge"
+    );
+    // The gap the sidebar left is exactly what the note gained, so nothing is left
+    // behind where the tree used to be.
+    assert_eq!(
+        width_without,
+        width_with + x_with,
+        "the note gained the sidebar's column: {x_with} + {width_with} -> {width_without}"
+    );
+}
+
+/// A tree that goes away while it holds the keyboard must not leave the keyboard on
+/// a row that is no longer drawn: every key from there would be aimed at nothing.
+/// The note takes the keyboard instead, which is checked by typing into it.
+#[gpui::test]
+fn a_hidden_tree_does_not_keep_the_keyboard(cx: &mut TestAppContext) {
+    let (_dir, window) = workspace(cx, &["Welcome.md"]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    cx.simulate_keystrokes("ctrl-w h");
+    assert!(
+        window
+            .update(cx, |ws, window, _cx| ws.tree_focus().is_focused(window))
+            .unwrap(),
+        "the sidebar has the keyboard"
+    );
+
+    cx.simulate_keystrokes("space e");
+    cx.simulate_keystrokes("i typed");
+    let text = window
+        .update(cx, |ws, _window, cx| ws.buffer_text(cx))
+        .unwrap();
+    assert!(
+        text.contains("typed"),
+        "the keys after the tree went away reached the note: {text:?}"
+    );
+
+    // And `ctrl-w h` is the way back: a window move aimed at a sidebar that is not
+    // drawn would otherwise be a dead key.
+    cx.simulate_keystrokes("escape ctrl-w h");
+    let (shown, focused) = window
+        .update(cx, |ws, window, _cx| {
+            (ws.tree_visible(), ws.tree_focus().is_focused(window))
+        })
+        .unwrap();
+    assert!(
+        shown && focused,
+        "the move brings the tree back and focuses it"
+    );
+}
+
+/// `:tree` is the same command from the command line, and takes `on` and `off` the
+/// way `:focus` and `:typewriter` do.
+#[gpui::test]
+fn the_command_line_moves_the_tree_both_ways(cx: &mut TestAppContext) {
+    let (_dir, window) = workspace(cx, &["Welcome.md"]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    cx.simulate_keystrokes(":");
+    cx.simulate_input("tree off");
+    cx.simulate_keystrokes("enter");
+    let (hidden, status) = window
+        .update(cx, |ws, _window, _cx| (!ws.tree_visible(), ws.status()))
+        .unwrap();
+    assert!(hidden, "`:tree off` put it away");
+    assert!(status.contains("tree hidden"), "and said so: {status}");
+
+    // Asking for a state that is already true changes nothing, and says that
+    // rather than pretending to have done something.
+    cx.simulate_keystrokes(":");
+    cx.simulate_input("tree off");
+    cx.simulate_keystrokes("enter");
+    let status = window.update(cx, |ws, _window, _cx| ws.status()).unwrap();
+    assert!(
+        status.contains("already hidden"),
+        "the second `:tree off` reports itself: {status}"
+    );
+
+    cx.simulate_keystrokes(":");
+    cx.simulate_input("tree on");
+    cx.simulate_keystrokes("enter");
+    assert!(
+        window
+            .update(cx, |ws, _window, _cx| ws.tree_visible())
+            .unwrap(),
+        "`:tree on` brings it back"
+    );
+
+    // A bare `:tree` is the toggle, so it agrees with the chord.
+    cx.simulate_keystrokes(":");
+    cx.simulate_input("tree");
+    cx.simulate_keystrokes("enter");
+    assert!(
+        !window
+            .update(cx, |ws, _window, _cx| ws.tree_visible())
+            .unwrap(),
+        "a bare `:tree` turns it around"
+    );
+}

@@ -213,7 +213,61 @@ impl Workspace {
         cx.notify();
     }
 
+    /// `space e` / `:tree`: put the file tree away, or bring it back.
+    ///
+    /// It is a toggle rather than an on and an off because the way out has to be the
+    /// same two keys as the way in, the same rule focus mode follows.
+    pub(super) fn toggle_tree(
+        &mut self,
+        _: &TreeToggle,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let show = !self.tree_visible;
+        self.set_tree_visible(show, window, cx);
+    }
+
+    /// The visibility change behind `space e`, `:tree`, the palette row and the MCP
+    /// command, so those doors cannot drift apart.
+    ///
+    /// The note takes the width the tree had, which is the point: hiding the sidebar
+    /// to read the note at full width costs the user nothing.
+    ///
+    /// Two things are said out loud. A sidebar that vanishes with no other change is
+    /// easy to mistake for a key that did nothing; and an `on` that was already true
+    /// reports itself, the way `:typewriter on` does, so the second of two identical
+    /// commands is not a mystery.
+    ///
+    /// The keyboard comes off the tree when it goes away. A tree that loses its rows
+    /// while it holds the keyboard would leave the keyboard sitting on a row that is
+    /// no longer drawn, and every key from there would be aimed at nothing.
+    pub(crate) fn set_tree_visible(
+        &mut self,
+        show: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let word = if show { "shown" } else { "hidden" };
+        if self.tree_visible == show {
+            self.say(format!("tree is already {word}"), cx);
+            return;
+        }
+        self.tree_visible = show;
+        if !show && self.tree_focus.is_focused(window) {
+            let focus = self.active_focus(cx);
+            window.focus(&focus, cx);
+        }
+        self.say(format!("tree {word}"), cx);
+        cx.notify();
+    }
+
     /// Give the sidebar the keyboard.
+    ///
+    /// A sidebar that is put away is brought back first: `ctrl-w h` aimed at a
+    /// window that is not drawn is a dead key otherwise, and the user asked to be
+    /// looking at the tree. This does not go through `set_tree_visible` because the
+    /// tree appearing on screen is its own report; a status line saying so would be
+    /// noise on a command the user can see working.
     pub(super) fn focus_tree(
         &mut self,
         _: &FocusTree,
@@ -223,6 +277,7 @@ impl Workspace {
         if self.tree_selection.is_none() {
             self.tree_selection = self.note().or_else(|| self.tree_rows.first().cloned());
         }
+        self.tree_visible = true;
         window.focus(&self.tree_focus, cx);
         cx.notify();
     }

@@ -183,6 +183,17 @@ impl Workspace {
     pub(crate) fn tree_selection(&self) -> Option<PathBuf> {
         self.tree_selection.clone()
     }
+    /// Whether the sidebar is drawn, for the `space e` and session tests.
+    #[cfg(test)]
+    pub(crate) fn tree_visible(&self) -> bool {
+        self.tree_visible
+    }
+    /// The sidebar's keyboard, for the tests that check where the keys go when the
+    /// tree is put away.
+    #[cfg(test)]
+    pub(crate) fn tree_focus(&self) -> gpui::FocusHandle {
+        self.tree_focus.clone()
+    }
     #[cfg(test)]
     pub(crate) fn active_path(&self) -> Option<PathBuf> {
         self.note()

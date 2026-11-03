@@ -120,6 +120,9 @@ actions!(
         TreeCollapse,
         TreeExpand,
         TreeOpen,
+        // Put the file tree away, or bring it back (`space e`, `:tree`). The note takes
+        // the width the tree had; nvim-tree and NERDTree answer `<leader>e` the same way.
+        TreeToggle,
         QuickOpen,
         // Walking the chain of notes the user came from (`ctrl-o` back, `ctrl-i`
         // forward), the way vim and neovim do.

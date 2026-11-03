@@ -4393,6 +4393,70 @@ Next steps, roughly in order:
     94.0 — the two new deps add no code, so this is the extra tests). Core **446** (was 442),
     mcp **35**. Clippy still exactly the 7 pre-existing warnings; `cargo fmt --check` clean.
 
+46. **`space` is the leader, and the file tree folds away** — user request (2026-11-03), from
+    `todo.md`. "Hide/show file tree with `space-e` in parity with neovim/other expanded vim
+    tools. The editor should then expand to fill the empty space. This probably has some overlap
+    with the planned focus mode." and "just remove `space` moving the cursor in insert mode, I
+    never use it and that's what neovim does. It can just be for binds."
+
+    ### What landed
+    - **`space` moves nothing** (`e9b2bfa`). It was vim's right motion, so a leader chord jumped
+      the cursor one column to the right before the second key arrived. Removed from the motion
+      table, from the table-cell step, and from visual selection extension. `f<space>`,
+      `t<space>` and `d<space>` still work — different tables, and the user reads those as find
+      and delete, not as the leader. Read as *normal* mode: there is no space motion in insert
+      mode, and taking `space` away there would break typing, which is the one thing the request
+      cannot mean.
+    - **`space e` folds the file tree away and brings it back** (`tree.toggle`, `TreeToggle`,
+      `Outcome::ToggleTree`, `Workspace::set_tree_visible`). nvim-tree and NERDTree both answer
+      `<leader>e` this way. Three doors, one action: the chord, `:tree [on|off]`, and the palette
+      row. `set_tree_visible` is the single place the flag moves, so they cannot drift.
+    - **The note takes the width for free.** The frame is `flex`, the sidebar is `flex_none`, and
+      hiding the tree means not rendering it at all — so the note's `flex_1` column simply grows.
+      No second layout path, and nothing to reconcile with focus mode (`space d`), which dims
+      rather than moves. The overlap the user flagged is real but small: both are "get the chrome
+      out of the way", neither changes the other, and they were left separate on purpose.
+    - **Session**: `Session::tree_visible: Option<bool>`, `None` meaning showing, so a session
+      file written before the toggle restores a window with its tree.
+
+    ### The finding worth keeping: gpui holds a keystroke pending, not just on a miss
+    `key_dispatch.rs::dispatch_key` returns *pending* before it returns bindings, so a context
+    that binds both `space` and `space e` never fires the `space` binding at all — it waits out
+    `PENDING_INPUT_TIMEOUT` (1 s) and replays it. The first version of this bound `space e` in
+    the tree context alongside the existing `space => TreeOpen`, and a lone `space` on a row went
+    from instant to a second late. The fix was to drop `space => TreeOpen` (`enter` opens a row)
+    rather than to give the leader back: a key that fires a second late reads as a key that did
+    not work. Worth knowing before adding any multi-stroke binding to a context that already
+    binds its first key — which is why `ctrl-w h` lives in the *global* context, where `ctrl-w`
+    is bound to nothing.
+
+    ### The finding worth keeping: a painted bound is device pixels
+    The width test asserted the note gains 260 px and failed with `3320 -> 3840`: the sidebar is
+    `px(260.)` in *logical* points and `PaintQuad::bounds` is in *device* pixels, so the test
+    window is at 2× and the column is 520. The assertion that holds at any scale is the
+    relational one — the note's `x` goes to 0 and its width grows by exactly the `x` that went
+    away — and it says more than the constant did anyway. Also: `PaintQuad::background` is a
+    `Background`, not an `Option<Hsla>`; its fields are `pub(crate)`, and `as_solid()` is the door.
+
+    ### Keyboard notes
+    Leader letters taken: `f s r l p y d g e`. In the tree context `space` is now the leader
+    prefix only (`space e`); `enter` opens a row. `e` was free in the tree, so nothing else moved.
+
+    ### Numbers
+    `cargo test -p shale-app` **402 passed / 4 ignored** (was 397), core **448 / 10 ignored**,
+    mcp **35**. Clippy still exactly 7 — though the two in `core/src/graph/quadtree.rs` are now
+    `unused variable: pinned` and `this if statement can be collapsed` rather than the pair of
+    `Hsla` conversions recorded above, which is that file moving under the graph agent.
+    `cargo fmt --all -- --check` clean.
+
+    **The live app's memory floor, measured.** Every RSS figure in this file is a *test binary*;
+    nobody had measured the app itself. A debug build opened on a copy of the demo vault for five
+    seconds peaks at **238–242 MB**, and the same measurement at `e9b2bfa` (before the tree
+    toggle) is **240–241 MB** — the same within run-to-run noise, so the toggle costs nothing.
+    That number is over the 200 MB line the project rules say to look at, and it is worth looking
+    at, but it is the app's floor and not something this change added. It is written down so the
+    next person does not spend an afternoon blaming whatever they just built.
+
 ## Parked threads (agreed 2026-10-28; not being worked now)
 
 The user is pivoting, so these are written down rather than left in the

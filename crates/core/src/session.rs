@@ -147,6 +147,10 @@ pub struct Session {
     pub focus_scope: Option<String>,
     /// Whether typewriter scroll was on.
     pub typewriter: Option<bool>,
+    /// Whether the file tree was showing. `None` is showing, so a session file that
+    /// predates the toggle restores a window with its tree. Like focus mode, this is a
+    /// decision made inside a window rather than a setting to edit by hand.
+    pub tree_visible: Option<bool>,
     /// The jump chain: the notes behind the user (oldest first) and the ones
     /// ahead, the way `ctrl-o`/`ctrl-i` walk them.
     pub jumps_back: Vec<Jump>,
@@ -206,6 +210,7 @@ mod tests {
             focus: Some(true),
             focus_scope: Some("section".into()),
             typewriter: Some(true),
+            tree_visible: Some(false),
             jumps_back: vec![Jump {
                 path: Some(PathBuf::from("Welcome.md")),
                 cursor: 7,
@@ -264,6 +269,9 @@ mod tests {
         assert_eq!(session.open_note.as_deref(), Some(Path::new("a.md")));
         assert_eq!(session.cursor, Some(3));
         assert_eq!(session.view, None);
+        // A file written before the tree toggle restores a window with its tree
+        // showing, which is what `None` means on this field.
+        assert_eq!(session.tree_visible, None);
         Ok(())
     }
 

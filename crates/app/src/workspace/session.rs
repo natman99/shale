@@ -96,6 +96,7 @@ impl Workspace {
             focus: seat.as_ref().map(|seat| seat.3),
             focus_scope: seat.as_ref().map(|seat| seat.4.clone()),
             typewriter: seat.as_ref().map(|seat| seat.5),
+            tree_visible: Some(self.tree_visible),
             jumps_back: back
                 .into_iter()
                 .map(|jump| CoreJump {
@@ -146,6 +147,12 @@ impl Workspace {
         }
 
         self.expanded = session.expanded.into_iter().collect();
+
+        // The tree, before any frame is drawn: a window that opens with its sidebar
+        // away should never have had one painted first to move it out of the way.
+        if let Some(visible) = session.tree_visible {
+            self.tree_visible = visible;
+        }
 
         // The graph filter, before any tab is opened: the graph tab's first frame is
         // built from the window's filter, so a seat that arrives afterwards would be

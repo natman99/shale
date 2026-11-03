@@ -184,6 +184,9 @@ pub(crate) struct Workspace {
     tree_focus: gpui::FocusHandle,
     /// The tree row the keyboard has selected.
     tree_selection: Option<PathBuf>,
+    /// Whether the file tree is drawn. `space e` / `:tree` move it, and the note takes
+    /// the width while it is away (see [`tree::Workspace::toggle_tree`][super::tree]).
+    tree_visible: bool,
     /// The rows the last frame drew, top to bottom, which is what `j`/`k` step
     /// through: a collapsed folder's children are skipped for free.
     tree_rows: Vec<PathBuf>,
@@ -433,6 +436,9 @@ impl Workspace {
             last_window_title: None,
             tree_focus: cx.focus_handle(),
             tree_selection: None,
+            // Every window starts with its tree showing; `restore_session` is what
+            // hides it again for a vault whose user had it hidden.
+            tree_visible: true,
             tree_rows: Vec::new(),
             prompt: None,
             prompt_return_focus: None,

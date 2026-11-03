@@ -85,6 +85,8 @@ fn a_session_reopens_the_vault_where_the_user_left_it(cx: &mut TestAppContext) {
         focus: Some(true),
         focus_scope: Some("section".into()),
         typewriter: Some(true),
+        // A sidebar the user had put away comes back put away.
+        tree_visible: Some(false),
         jumps_back: vec![Jump {
             path: Some(PathBuf::from("a.md")),
             cursor: 6,
@@ -133,6 +135,11 @@ fn a_session_reopens_the_vault_where_the_user_left_it(cx: &mut TestAppContext) {
     assert!(focus, "focus mode came back on");
     assert_eq!(scope, Scope::Section);
     assert!(typewriter, "and typewriter scroll with it");
+
+    let hidden = window
+        .update(cx, |ws, _window, _cx| !ws.tree_visible())
+        .unwrap();
+    assert!(hidden, "and the file tree is still put away");
 
     // The jump chain survived the restart: `ctrl-o` goes back to the note from
     // *before* Shale closed, which is what the roadmap calls the feature for.

@@ -138,6 +138,13 @@ pub enum Outcome {
     /// A request rather than an edit, like the other leader chords: the engine has a
     /// buffer, and a buffer does not know that the notes link to each other.
     OpenGraph,
+    /// `space e` was typed: put the file tree away, or bring it back. Like focus mode
+    /// this is the window's answer rather than the engine's — it changes what the frame
+    /// draws, and the note takes the width the tree had — and it is a toggle rather than
+    /// an on and an off because the way out has to be the same two keys as the way in.
+    /// `e` is what the expanded vim file browsers answer with `<leader>e`, which is the
+    /// shape a user reaching for this is reaching for.
+    ToggleTree,
 }
 
 /// The unnamed register, holding the last yank or delete.
@@ -338,6 +345,10 @@ impl Vim {
             // The vault's graph. `g` is the letter the word "graph" starts with, and
             // the only leader letter left that no view or clipboard chord has taken.
             (true, Key::Char('g')) => Some(Outcome::OpenGraph),
+            // The file tree. nvim-tree and NERDTree both answer `<leader>e` with this,
+            // and `e` is the last leader letter that no view, clipboard or graph chord
+            // has taken.
+            (true, Key::Char('e')) => Some(Outcome::ToggleTree),
             _ => None,
         };
         if let Some(outcome) = chord.filter(|_| !self.mode.is_visual()) {

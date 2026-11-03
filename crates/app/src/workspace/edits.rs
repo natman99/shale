@@ -163,6 +163,7 @@ impl Workspace {
             ex::Ex::Focus(Some(on)) => self.set_focus(on, cx),
             ex::Ex::FocusScope(word) => self.set_focus_scope(&word, cx),
             ex::Ex::Typewriter(Some(on)) => self.set_typewriter(on, cx),
+            ex::Ex::Tree(Some(on)) => self.set_tree_visible(on, window, cx),
             ex::Ex::Theme(name) => match self.set_theme(&name, cx) {
                 Ok(()) => {
                     // A hand-written theme that loads but paints something too
@@ -198,6 +199,7 @@ impl Workspace {
             | ex::Ex::Checker(_)
             | ex::Ex::Focus(None)
             | ex::Ex::Typewriter(None)
+            | ex::Ex::Tree(None)
             | ex::Ex::ThemePicker
             | ex::Ex::View(_)
             | ex::Ex::YankClipboard

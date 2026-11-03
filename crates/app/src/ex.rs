@@ -42,6 +42,9 @@ pub(crate) enum Ex {
     /// `typewriter on|1` / `typewriter off|0`, or bare `typewriter` to turn it
     /// around: keep the cursor's line near the middle of the window.
     Typewriter(Option<bool>),
+    /// `tree on|1` / `tree off|0`, or bare `tree` to turn it around: put the file
+    /// tree away, or bring it back. The note takes the width either way.
+    Tree(Option<bool>),
     /// `theme` with nothing after it: the theme picker.
     ThemePicker,
     /// `theme <name>`: that palette, now.
@@ -116,6 +119,7 @@ impl Ex {
             Ex::Checker(false) => "checker.off",
             Ex::Focus(_) | Ex::FocusScope(_) => "focus.toggle",
             Ex::Typewriter(_) => "typewriter.toggle",
+            Ex::Tree(_) => "tree.toggle",
             Ex::ThemePicker | Ex::Theme(_) => "theme.change",
             Ex::ThemeExport(_) => "theme.export",
             Ex::View(View::Raw) => "view.raw",
@@ -150,6 +154,7 @@ impl Ex {
             | Ex::Checker(_)
             | Ex::Focus(None)
             | Ex::Typewriter(None)
+            | Ex::Tree(None)
             | Ex::ThemePicker
             | Ex::View(_)
             | Ex::YankClipboard
@@ -236,6 +241,15 @@ pub(crate) fn parse(line: &str) -> Ex {
         "typewriter" => match bool_word(rest) {
             Some(on) => Ex::Typewriter(Some(on)),
             None if rest.is_empty() => Ex::Typewriter(None),
+            None => Ex::Unknown(format!("{word} {rest}")),
+        },
+        // The sidebar. Bare `tree` is the toggle, because that is what `space e`
+        // does and the two doors have to agree. `:e` is `:edit`, so the word here
+        // is the whole command: no abbreviation of `tree` is taken, because `tr`
+        // would sit too close to words this parser cannot tell apart yet.
+        "tree" => match bool_word(rest) {
+            Some(on) => Ex::Tree(Some(on)),
+            None if rest.is_empty() => Ex::Tree(None),
             None => Ex::Unknown(format!("{word} {rest}")),
         },
         // The three views. `source` and `src` are there because that is the word
@@ -401,6 +415,20 @@ mod tests {
         );
     }
 
+    /// The sidebar answers the same three ways as the other writing preferences:
+    /// yes, no, or a bare word that turns it around.
+    #[test]
+    fn the_file_tree_takes_yes_and_no_and_a_bare_word_toggles() {
+        for on in ["tree on", "tree 1", "TREE yes"] {
+            assert_eq!(parse(on), Ex::Tree(Some(true)), "{on}");
+        }
+        for off in ["tree off", "tree 0", "Tree NO"] {
+            assert_eq!(parse(off), Ex::Tree(Some(false)), "{off}");
+        }
+        assert_eq!(parse("tree"), Ex::Tree(None));
+        assert_eq!(parse("tree sideways"), Ex::Unknown("tree sideways".into()));
+    }
+
     #[test]
     fn an_unknown_word_is_named_rather_than_guessed() {
         assert_eq!(parse("xyzzy"), Ex::Unknown("xyzzy".into()));
@@ -433,6 +461,7 @@ mod tests {
             Ex::Checker(false),
             Ex::Focus(None),
             Ex::Typewriter(None),
+            Ex::Tree(None),
             Ex::ThemePicker,
             Ex::View(View::Raw),
             Ex::View(View::Live),
@@ -457,6 +486,7 @@ mod tests {
             Ex::WriteQuit,
             Ex::Focus(Some(true)),
             Ex::Typewriter(Some(false)),
+            Ex::Tree(Some(false)),
             Ex::Theme("catppuccin-mocha".into()),
             Ex::FocusScope("heading".into()),
             Ex::WordCount("notes".into()),

@@ -440,6 +440,17 @@ const ALL: &[Command] = &[
         action: Some(|| Box::new(ToggleTypewriter)),
     },
     Command {
+        id: "tree.toggle",
+        label: "Show or hide the file tree",
+        keys: "space e",
+        // The bare form is the toggle the action runs; `on|off` is spelled for the
+        // docs and answered in `ex`, the same way `:focus` is.
+        ex: &["tree"],
+        args: "[on|off]",
+        in_palette: true,
+        action: Some(|| Box::new(TreeToggle)),
+    },
+    Command {
         id: "window.left",
         label: "Focus the file tree",
         keys: "ctrl-w h",
