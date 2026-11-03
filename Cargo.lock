@@ -4861,6 +4861,7 @@ dependencies = [
  "futures",
  "gpui",
  "gpui_platform",
+ "image",
  "libc",
  "lyon",
  "serde_json",
