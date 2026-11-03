@@ -123,6 +123,10 @@ pub(crate) struct GraphView {
     /// What the graph holds, once the window has built it. `None` is the moment before
     /// the first build, and the panel says so rather than drawing a blank box.
     summary: Option<GraphSummary>,
+    /// Whether the window is scanning the vault for the index right now. The scan runs on
+    /// a background thread, so the tab is on screen before there is anything to draw, and
+    /// the counts row says so rather than showing an empty graph.
+    building: bool,
     /// What to paint: the window's simulation snapshot, shipped whenever it moves.
     frame: Option<Rc<GraphFrame>>,
     /// Where the **user** put the view — by a session restore, by a drag or a wheel.
@@ -188,6 +192,7 @@ impl GraphView {
             font,
             font_size,
             summary: None,
+            building: false,
             frame: None,
             camera: None,
             pending_fit: Rc::default(),
@@ -225,6 +230,14 @@ impl GraphView {
     /// is built or a note moves under it.
     pub(crate) fn set_summary(&mut self, summary: GraphSummary, cx: &mut Context<Self>) {
         self.summary = Some(summary);
+        cx.notify();
+    }
+
+    /// Whether the window is scanning the vault right now. The tab is on screen before
+    /// the scan's answer is, so this is the difference between an empty graph and a
+    /// graph on its way.
+    pub(crate) fn set_building(&mut self, building: bool, cx: &mut Context<Self>) {
+        self.building = building;
         cx.notify();
     }
 
@@ -628,11 +641,16 @@ impl Render for GraphView {
 
         // The summary, or the reason there is not one. A graph that has been built but
         // is empty says "0 notes", which is a different fact from "nothing has been
-        // built", and the user should be able to tell them apart.
+        // built", and a third from "the vault is being read right now" — the scan runs on
+        // a background thread, so the tab is on screen before there is a picture.
         let body = match self.summary {
             None => div()
                 .text_color(gpui::rgb(palette.ui_dim))
-                .child("The graph has not been built yet."),
+                .child(if self.building {
+                    "Building the graph…"
+                } else {
+                    "The graph has not been built yet."
+                }),
             Some(counts) => {
                 let mut row = div()
                     .flex()

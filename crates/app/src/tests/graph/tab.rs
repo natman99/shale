@@ -26,6 +26,85 @@ fn space_g_opens_the_graph_in_a_tab_of_its_own(cx: &mut TestAppContext) {
     assert_eq!(say(&window, &mut cx), "graph", "the status line says so");
 }
 
+/// The tab is on screen before the index is. The scan reads every note in the vault, and
+/// on a large vault that is seconds — long enough that doing it on the window's thread
+/// froze the whole window. So the tab answers at once, says it is working, and the
+/// picture arrives when the scan lands.
+#[gpui::test]
+fn the_graph_tab_opens_before_the_scan_lands(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = linked_vault(cx);
+    window
+        .update(&mut cx, |ws, _window, cx| ws.open_graph_now(cx))
+        .unwrap();
+
+    assert!(graph(&window, &mut cx), "the tab is on screen at once");
+    assert!(
+        window
+            .update(&mut cx, |ws, _window, _cx| ws.graph_building())
+            .unwrap(),
+        "and the window knows it is still reading"
+    );
+    assert!(
+        !window
+            .update(&mut cx, |ws, _window, _cx| ws.graph_built())
+            .unwrap(),
+        "and nothing has been read yet"
+    );
+    assert_eq!(
+        say(&window, &mut cx),
+        "graph: building…",
+        "which is what the status line says while it waits"
+    );
+
+    scan_landed(&mut cx);
+    assert!(
+        window
+            .update(&mut cx, |ws, _window, _cx| ws.graph_built())
+            .unwrap(),
+        "the answer arrives on its own"
+    );
+    assert!(
+        !window
+            .update(&mut cx, |ws, _window, _cx| ws.graph_building())
+            .unwrap(),
+        "and the window stops saying it is working"
+    );
+}
+
+/// A link typed while the vault was being read is not lost. The scan is a photograph of
+/// the disk taken some seconds before its answer, so what moved in between is folded into
+/// the index as it lands.
+#[gpui::test]
+fn a_note_saved_while_the_scan_runs_is_folded_in(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = linked_vault(cx);
+    window
+        .update(&mut cx, |ws, _window, cx| ws.open_graph_now(cx))
+        .unwrap();
+    assert_eq!(
+        window
+            .update(&mut cx, |ws, _window, cx| ws.graph_counts(cx))
+            .unwrap(),
+        None,
+        "the scan has not landed, so there are no counts yet"
+    );
+
+    window
+        .update(&mut cx, |ws, _window, _cx| {
+            ws.graph_note_saved(&PathBuf::from("c.md"), "over to [[a]]\n")
+        })
+        .unwrap();
+
+    scan_landed(&mut cx);
+    assert_eq!(
+        window
+            .update(&mut cx, |ws, _window, cx| ws.graph_counts(cx))
+            .unwrap()
+            .map(|counts| counts.links),
+        Some(4),
+        "the three links on disk plus the one typed during the scan"
+    );
+}
+
 /// One graph tab per window, which is the contract's, because the graph is a
 /// simulation and a second tab would be a second view of the same physics with its own
 /// camera to keep in step. Re-opening it moves the frame instead.
@@ -365,6 +444,9 @@ fn a_session_reopens_the_graph_tab(cx: &mut TestAppContext) {
         graph(&window, &mut cx),
         "the graph tab came back as a graph tab"
     );
+    // The tab came back before the index did: the scan is on a background thread, which
+    // is the point of it, so the test waits for the answer before asking about it.
+    scan_landed(&mut cx);
     assert!(
         window
             .update(&mut cx, |ws, _window, _cx| ws.graph_built())

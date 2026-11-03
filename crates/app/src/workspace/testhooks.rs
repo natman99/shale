@@ -223,6 +223,19 @@ impl Workspace {
     pub(crate) fn graph_built(&self) -> bool {
         self.graph.is_some()
     }
+    /// Open the graph the way `space g` does, but without a keystroke. A simulated
+    /// keystroke pumps gpui's test executor, which lands the background scan before the
+    /// test can see the gap between the tab opening and the picture arriving.
+    #[cfg(test)]
+    pub(crate) fn open_graph_now(&mut self, cx: &mut Context<Self>) {
+        self.open_graph(cx);
+    }
+    /// Whether an index scan is in flight: the gap between the tab opening and the
+    /// picture arriving, which is what the tab's "building" line is drawn from.
+    #[cfg(test)]
+    pub(crate) fn graph_building(&self) -> bool {
+        self.graph_build.is_some()
+    }
     /// The filter the window is working with: what the chips are answering about, and
     /// what the session file has to remember.
     #[cfg(test)]

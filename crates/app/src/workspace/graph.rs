@@ -21,9 +21,10 @@
 
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use gpui::{prelude::*, Context, Entity, Window};
+use shale_core::vault::{Vault, VaultEntry};
 use shale_core::watch::VaultChanges;
 
 use crate::acts::OpenGraph;
@@ -43,6 +44,33 @@ const TICKS_PER_BEAT: usize = 2;
 /// geometrically, so ~300 ticks is the real answer and this is only the guard rail.
 #[cfg(test)]
 const SETTLE_BOUND: usize = 1000;
+
+/// What the vault did while the index scan was in flight.
+///
+/// The scan is a photograph of the disk taken some seconds before its answer arrives, so
+/// anything that moved in between has to be folded into the index by hand or it stays
+/// invisible in the graph until something else forces a rebuild.
+pub(super) enum GraphChange {
+    /// A note and the text it now holds.
+    Saved(PathBuf, String),
+    /// A note that is gone.
+    Removed(PathBuf),
+}
+
+/// Fold one deferred change into a fresh index. The same calls the present-tense paths
+/// make, factored out so the queue and those paths cannot drift apart.
+fn apply_graph_change(
+    index: &mut shale_core::graph::GraphIndex,
+    change: GraphChange,
+    vault: &Vault,
+    entries: &[VaultEntry],
+    attachments: &[VaultEntry],
+) {
+    match change {
+        GraphChange::Saved(path, text) => index.set_note(&path, &text, vault, entries, attachments),
+        GraphChange::Removed(path) => index.remove_note(&path),
+    }
+}
 
 impl Workspace {
     /// The window's graph view, if any tab holds one. There is at most one graph tab
@@ -340,6 +368,23 @@ impl Workspace {
     /// DB-backed extraction deferred" ruling covers.
     pub(super) fn graph_changes(&mut self, changes: &VaultChanges) {
         let Some(index) = self.graph.as_mut() else {
+            // No index yet. If a scan is in flight it read the disk before these changes
+            // and will not have seen them, so they go on the queue and are folded in when
+            // it lands; with no scan running there is no graph to keep current, which is
+            // the same answer either way.
+            for removed in &changes.removed {
+                self.queue_graph_change(GraphChange::Removed(removed.clone()));
+            }
+            for path in changes.added.iter().chain(changes.modified.iter()) {
+                match self.vault.read(path) {
+                    Ok(text) => {
+                        self.queue_graph_change(GraphChange::Saved(path.clone(), text));
+                    }
+                    Err(err) => {
+                        tracing::warn!(path = %path.display(), "graph re-scan failed: {err:#}")
+                    }
+                }
+            }
             return;
         };
         for removed in &changes.removed {
@@ -360,6 +405,8 @@ impl Workspace {
     pub(crate) fn graph_note_saved(&mut self, path: &Path, text: &str) {
         if let Some(index) = self.graph.as_mut() {
             index.set_note(path, text, &self.vault, &self.entries, &self.attachments);
+        } else {
+            self.queue_graph_change(GraphChange::Saved(path.to_path_buf(), text.to_string()));
         }
     }
 
@@ -368,6 +415,8 @@ impl Workspace {
     pub(crate) fn graph_note_removed(&mut self, path: &Path) {
         if let Some(index) = self.graph.as_mut() {
             index.remove_note(path);
+        } else {
+            self.queue_graph_change(GraphChange::Removed(path.to_path_buf()));
         }
     }
 
@@ -386,28 +435,107 @@ impl Workspace {
             self.show_tab(index, cx);
             return;
         }
-        if self.graph.is_none() {
-            match shale_core::graph::GraphIndex::build(
-                &self.vault,
-                &self.entries,
-                &self.attachments,
-            ) {
-                Ok(index) => self.graph = Some(index),
-                Err(err) => {
-                    // The same posture as a checker that will not start: the graph is
-                    // a view of the notes, not another copy of them, so a failed build
-                    // is a message rather than a broken window.
-                    self.say(format!("graph failed: {err:#}"), cx);
-                    cx.notify();
-                    return;
+        // The tab opens first, index or no index. On a large vault the scan takes
+        // seconds, and a window that looks dead for seconds is the bug, not a detail: the
+        // tab says what it is waiting for, and the picture arrives when the scan lands.
+        self.add_graph_tab(cx);
+        if self.graph.is_none() && self.graph_build.is_none() {
+            self.start_graph_build(cx);
+        }
+        self.refresh_graph(cx);
+        // The same report a tab change makes: the frame moved to something that is not a
+        // note, and the status bar is where that is said. While the scan runs, that is
+        // what the status bar says as well, because it is where a user looks when a tab
+        // seems slow.
+        if self.graph_build.is_some() {
+            self.say("graph: building…", cx);
+        } else {
+            self.say("graph", cx);
+        }
+    }
+
+    /// Put the index scan on the background executor.
+    ///
+    /// This is the whole reason the tab can open before the graph exists:
+    /// [`shale_core::graph::GraphIndex::build`] reads every note and resolves every link
+    /// in it, which is seconds on a large vault and used to happen on the window's
+    /// thread, freezing the window. The scan takes its own copies of the vault and of the
+    /// two file lists — neither an `Rc` nor a borrow crosses a thread — and those lists
+    /// are the file tree's in-memory ones, so handing them over reads nothing.
+    fn start_graph_build(&mut self, cx: &mut Context<Self>) {
+        let vault = (*self.vault).clone();
+        let entries = self.entries.clone();
+        let attachments = self.attachments.clone();
+        self.graph_pending.clear();
+        self.graph_build = Some(cx.spawn(async move |ws, cx| {
+            let started = Instant::now();
+            let built = cx
+                .background_executor()
+                .spawn(async move {
+                    shale_core::graph::GraphIndex::build(&vault, &entries, &attachments)
+                })
+                .await;
+            ws.update(cx, |ws, cx| ws.graph_index_arrived(built, started, cx))
+                .ok();
+        }));
+        self.set_graph_building(cx, true);
+    }
+
+    /// The scan's answer: install the index, catch it up on whatever the vault did while
+    /// it ran, and send the picture to the tab.
+    fn graph_index_arrived(
+        &mut self,
+        built: anyhow::Result<shale_core::graph::GraphIndex>,
+        started: Instant,
+        cx: &mut Context<Self>,
+    ) {
+        self.graph_build = None;
+        self.set_graph_building(cx, false);
+        match built {
+            Ok(mut index) => {
+                for change in std::mem::take(&mut self.graph_pending) {
+                    apply_graph_change(
+                        &mut index,
+                        change,
+                        &self.vault,
+                        &self.entries,
+                        &self.attachments,
+                    );
                 }
+                // Info, not debug: this is the line that answers "how long does the graph
+                // take on my vault", and it only appears when a scan actually ran.
+                tracing::info!(
+                    nodes = index.graph().node_count(),
+                    took_ms = started.elapsed().as_millis(),
+                    "the graph index was built"
+                );
+                self.graph = Some(index);
+                self.refresh_graph(cx);
+                self.say("graph", cx);
+            }
+            Err(err) => {
+                // The same posture as a checker that will not start: the graph is a view
+                // of the notes, not another copy of them, so a failed build is a message
+                // rather than a broken window.
+                self.say(format!("graph failed: {err:#}"), cx);
             }
         }
-        self.add_graph_tab(cx);
-        self.refresh_graph(cx);
-        // The same report a tab change makes: the frame moved to something that is not
-        // a note, and the status bar is where that is said.
-        self.say("graph", cx);
+        cx.notify();
+    }
+
+    /// Tell the tab whether a scan is running, which is what its "building" line reads.
+    fn set_graph_building(&mut self, cx: &mut Context<Self>, building: bool) {
+        if let Some(view) = self.graph_view().cloned() {
+            view.update(cx, |view, cx| view.set_building(building, cx));
+        }
+    }
+
+    /// Note a vault change that happened during a scan. A no-op when no scan is running,
+    /// which is what lets every change path call it without asking.
+    fn queue_graph_change(&mut self, change: GraphChange) {
+        if self.graph_build.is_some() {
+            self.graph_pending.push(change);
+        }
     }
 
     /// The action's door: `space g`, `:graph`, the palette row and the MCP surface all

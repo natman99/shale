@@ -111,6 +111,11 @@ fn linked_vault(
 /// has no measured size yet — every paint test here has found that — so the camera's
 /// first fit is thrown away and the next one is the real thing.
 fn paint(cx: &mut VisualTestContext, window: &WindowHandle<Workspace>) {
+    // The index scan runs on the background executor, and gpui's test harness only pumps
+    // that executor when a keystroke is simulated. A test that opened the graph some
+    // other way — a session restore, an MCP call — has to pump it here, or it paints a
+    // graph that is still on its way.
+    cx.run_until_parked();
     window
         .update(cx, |ws, _window, cx| ws.settle_graph(cx))
         .unwrap();
@@ -131,6 +136,14 @@ fn repaint(cx: &mut VisualTestContext) {
         // update of the workspace from inside one is a double borrow.
         cx.update(|window, cx| window.simulate_next_frame(cx));
     }
+}
+
+/// Wait for the index scan to land, for the tests that reach the graph without pressing
+/// a key. The scan runs on the background executor, and a simulated keystroke is what
+/// pumps it in gpui's test harness; without this, the assertions below are about a graph
+/// that is still being read off the disk.
+fn scan_landed(cx: &mut VisualTestContext) {
+    cx.run_until_parked();
 }
 
 /// The round things the last frame painted. A quad that is square with its corners

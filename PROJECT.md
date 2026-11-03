@@ -3821,6 +3821,42 @@ Next steps, roughly in order:
       sidebar's rows so a fully-opened big vault costs a screenful rather than the vault;
       and scroll the active note's row into view.
 
+41. **Opening the graph on a big vault stopped freezing the window** — user request
+    (2026-11-03). Split in half with the graph track: the scan's own speed is theirs
+    (`Vault::resolve_link` and `core/src/graph/index.rs`, in flight as this lands); the
+    window's posture around it is mine.
+    - **The freeze was one synchronous call.** `open_graph` ran `GraphIndex::build` on the
+      window's thread: every note read from disk and every wikilink resolved, which on the
+      5k fixture is ~19.6k links × 5k entries × two passes (exact path, then a
+      case-insensitive stem pass that allocates per entry) — and ghosts pay both passes and
+      miss. The sim and the beat were never the problem: `pump_graph` ticks on the main
+      executor between frames.
+    - **The app half (done):** the tab opens first, `start_graph_build` puts the scan on
+      `cx.background_executor()`, and `graph_index_arrived` installs the index, refreshes
+      the view and pumps the beat. The scan takes its own `Vault` (a `PathBuf` in a
+      `#[derive(Clone)]` struct) and clones `entries`/`attachments` — the file tree's
+      in-memory lists, so handing them over reads nothing. `Workspace::graph_build` is both
+      the in-flight guard and what the counts row reads: "Building the graph…" rather than
+      an empty canvas, and the status line says `graph: building…`.
+    - **The part that would have been a silent bug:** the scan is a photograph of the disk
+      taken seconds before its answer. `graph_changes`, `graph_note_saved` and
+      `graph_note_removed` now queue into `Workspace::graph_pending` (`GraphChange::Saved /
+      ::Removed`) while a scan is in flight, and `apply_graph_change` folds the queue into
+      the fresh index as it lands. Without it, a link typed during a slow build stayed
+      invisible until something else forced a rebuild.
+    - **Test harness finding, worth remembering:** gpui's test executor is only pumped by
+      a simulated keystroke. Every graph test that opens the tab with `space g` got the
+      scan for free; the two that reach it through a **session restore** did not, and were
+      asserting against a graph still on its way. `scan_landed` (`cx.run_until_parked()`) is
+      now in `tests/graph/mod.rs`, and `paint()` pumps too. `open_graph_now` is the hook for
+      tests that need to look at the gap *before* the scan lands.
+    - **Not fixed here, and not mine to fix:** the build's wall-clock time. The graph track
+      has the resolution-map half (path→entry and lowercase-stem→entry built once per build
+      instead of a linear scan per link, ~2×10⁸ comparisons → ~2×10⁴ hash lookups). Until
+      that lands a 5k vault still takes seconds to appear — it just no longer takes the
+      window with it. `tracing::info!` now logs `nodes` and `took_ms` per scan, so the
+      question "how long does my vault take" has an answer in the log.
+
 ## Parked threads (agreed 2026-10-28; not being worked now)
 
 The user is pivoting, so these are written down rather than left in the

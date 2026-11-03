@@ -139,6 +139,19 @@ pub(crate) struct Workspace {
     /// and it stops by itself, because a settled graph that keeps asking for frames is
     /// the idling rule broken.
     graph_beat: Option<Task<()>>,
+    /// The index scan, while it is running.
+    ///
+    /// Building it reads every note in the vault and resolves every link in it, which on
+    /// a large vault is seconds — long enough that doing it on the window's thread froze
+    /// the whole window. So it runs on the background executor and the result is
+    /// delivered back here. `Some` means a scan is in flight, which is also what the tab
+    /// reads to say "building the graph".
+    graph_build: Option<Task<()>>,
+    /// What the vault did while that scan was in flight. The scan read the disk at a
+    /// moment that has already passed, so a note saved or deleted mid-build would
+    /// otherwise stay invisible in the graph until something else forced a rebuild; these
+    /// are folded into the index as it lands.
+    graph_pending: Vec<graph::GraphChange>,
     /// What the graph is showing. The window owns it rather than the view, because the
     /// mask it produces decides which nodes the **simulation** contains as well as which
     /// ones get painted, and the session file records it beside the camera.
@@ -381,6 +394,8 @@ impl Workspace {
             graph: None,
             graph_sim: None,
             graph_beat: None,
+            graph_build: None,
+            graph_pending: Vec::new(),
             // Everything on, which is Obsidian's default graph and core's.
             graph_filter: shale_core::graph::filter::GraphFilter::default(),
             expanded,
