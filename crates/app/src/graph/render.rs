@@ -14,15 +14,14 @@
 use std::rc::Rc;
 
 use gpui::{
-    point, px, size, App, Bounds, ContentMask, Font, PathBuilder, Pixels, Rgba, TextAlign, TextRun,
-    Window,
+    point, px, size, App, Bounds, ContentMask, Font, Path, PathVertex, Pixels, Point, TextAlign,
+    TextRun, Window,
 };
-use lyon::math::{point as lpoint, Point};
-use lyon::tessellation::VertexBuffers;
 use shale_core::graph::geom::Camera;
 use shale_core::graph::NodeKind;
 use shale_core::theme::Palette;
 
+pub(crate) use super::cache::{Cache, Key};
 use super::frame::{GraphFrame, GraphNode};
 
 /// The most labels drawn in one frame, highest degree first. A 2k-node vault at
@@ -92,10 +91,12 @@ pub(crate) struct Look {
 }
 
 /// Paint one graph frame into `bounds`, using `camera` for this frame and `look` for
-/// its colours, labels and chosen node.
+/// its colours, labels and chosen node, reusing what [`Cache`] still holds from the last
+/// paint of the same picture.
 ///
 /// Called from the canvas element's paint phase, so it borrows nothing that outlives
-/// the frame: the caller hands over an owned snapshot, a camera, and the look.
+/// the frame: the caller hands over an owned snapshot, a camera, the look, and the view's
+/// cache.
 ///
 /// Everything is painted behind a clip to `bounds`. The camera maps world units to
 /// window-absolute pixels and the graph is routinely larger than its pane, so a link whose
@@ -104,13 +105,14 @@ pub(crate) struct Look {
 pub(crate) fn paint_graph(
     bounds: Bounds<Pixels>,
     camera: Camera,
-    frame: &GraphFrame,
+    frame: &Rc<GraphFrame>,
     look: &Look,
+    cache: &mut Cache,
     window: &mut Window,
     cx: &mut App,
 ) {
     window.with_content_mask(Some(ContentMask { bounds }), |window| {
-        paint_frame(bounds, camera, frame, look, window, cx);
+        paint_frame(bounds, camera, frame, look, cache, window, cx);
     });
 }
 
@@ -134,16 +136,26 @@ pub(crate) fn paint_graph(
 pub(crate) fn paint_frame(
     bounds: Bounds<Pixels>,
     camera: Camera,
-    frame: &GraphFrame,
+    frame: &Rc<GraphFrame>,
     look: &Look,
+    cache: &mut Cache,
     window: &mut Window,
     cx: &mut App,
 ) {
     let palette = look.palette.as_ref();
     let view = Viewport::new(bounds, &camera);
+    let key = Key::new(frame, camera, bounds);
 
     window.paint_layer(bounds, |window| {
-        paint_links(frame, &camera, &view, palette.graph_edge, window);
+        paint_links(
+            cache,
+            &key,
+            frame,
+            &camera,
+            &view,
+            palette.graph_edge,
+            window,
+        );
     });
     if let Some(slot) = look.hover {
         window.paint_layer(bounds, |window| {
@@ -228,34 +240,52 @@ impl Viewport {
 /// Every visible link, in as few paths as gpui will allow. They share a colour, and one
 /// path is one scene primitive rather than thousands — but a whole vault's links do not fit
 /// in one path (see [`PATH_VERTEX_LIMIT`]), so this hands them over in batches.
+///
+/// The batches are kept in `cache` under `key`, and a paint whose key matches the held
+/// batch replays it instead of tessellating: see [`Cache`] for what that buys and what it
+/// does not.
 pub(crate) fn paint_links(
+    cache: &mut Cache,
+    key: &Key,
     frame: &GraphFrame,
     camera: &Camera,
     view: &Viewport,
     color: u32,
     window: &mut Window,
 ) {
-    let width = (LINK_WIDTH * camera.zoom).max(LINK_MIN_PX);
-    let mut batch = StrokeBatch::new(px(width), gpui::rgb(color), window);
-    for &[a, b] in &frame.edges {
-        let (Some(from), Some(to)) = (frame.nodes.get(a as usize), frame.nodes.get(b as usize))
-        else {
-            continue;
-        };
-        if view.link_misses(from.position, to.position) {
-            continue;
+    let color = gpui::rgb(color);
+    if let Some(paths) = cache.links(key) {
+        for path in paths {
+            window.paint_path(path.clone(), color);
         }
-        batch.segment(
-            camera.to_screen(from.position),
-            camera.to_screen(to.position),
-        );
+        return;
     }
+
+    // A second paint for the same key means the picture stopped moving, and only then is
+    // holding the batch worth the clone it costs.
+    let keep = cache.worth_keeping(key);
+    let width = px((LINK_WIDTH * camera.zoom).max(LINK_MIN_PX));
+    let paths = tessellate_links(frame, camera, view, width);
+    if keep {
+        for path in &paths {
+            window.paint_path(path.clone(), color);
+        }
+        cache.store_links(key.clone(), paths);
+    } else {
+        for path in paths {
+            window.paint_path(path, color);
+        }
+    }
+    cache.used(key.clone());
 }
 
 /// The links that hang off the chosen node, in the active colour: the graph's answer to
 /// "what connects to this?" without making the user trace lines by hand. Dimming
 /// everything else instead would need a colour per link, and one path per colour is the
 /// deal this renderer made.
+///
+/// Not cached: the hover slot is part of what decides this phase's geometry, so the cache
+/// would be thrown away on every hover change — and the phase is 0.14 ms of a 3.4 ms frame.
 pub(crate) fn paint_hover_links(
     frame: &GraphFrame,
     camera: &Camera,
@@ -264,23 +294,9 @@ pub(crate) fn paint_hover_links(
     color: u32,
     window: &mut Window,
 ) {
-    let width = (LINK_WIDTH * camera.zoom).max(LINK_MIN_PX);
-    let mut batch = StrokeBatch::new(px(width), gpui::rgb(color), window);
-    for &[a, b] in &frame.edges {
-        if a as usize != slot && b as usize != slot {
-            continue;
-        }
-        let (Some(from), Some(to)) = (frame.nodes.get(a as usize), frame.nodes.get(b as usize))
-        else {
-            continue;
-        };
-        if view.link_misses(from.position, to.position) {
-            continue;
-        }
-        batch.segment(
-            camera.to_screen(from.position),
-            camera.to_screen(to.position),
-        );
+    let width = px((LINK_WIDTH * camera.zoom).max(LINK_MIN_PX));
+    for path in tessellate_hover_links(frame, camera, view, slot, width) {
+        window.paint_path(path, gpui::rgb(color));
     }
 }
 
@@ -359,67 +375,94 @@ pub(crate) fn paint_nodes(
 
 // ----- link geometry --------------------------------------------------------
 
-/// The most vertices gpui will put in one path.
+/// The most vertices one link path is asked to carry.
 ///
-/// gpui hands a path's vertices to lyon's `VertexBuffers<Point, u16>`, and past 65535 of
-/// them the answer is `TooManyVertices`, the build fails, and gpui draws *nothing at all*
-/// for that path. This is not a performance detail: the 5k vault's 18843 links are more
-/// than twice the ceiling, so asking one path to hold them is not a big drawing, it is an
-/// empty pane with a warning in the log.
+/// This is gpui's ceiling for a *stroked* path: `PathBuilder::stroke` hands its triangles
+/// to lyon's `VertexBuffers<Point, u16>`, and past 65535 of them the answer is
+/// `TooManyVertices`, the build fails, and gpui draws *nothing at all* for that path. The
+/// renderer no longer goes through lyon at all — it writes a path's `PathVertex` array
+/// itself, and `gpui_wgpu` draws a path's vertices unindexed — so this is no longer a wall
+/// the graph can hit. It is kept as the bound on a batch anyway, because what settled
+/// [`LINKS_PER_PATH`] is the allocation a batch makes, not the ceiling.
 const PATH_VERTEX_LIMIT: usize = 65_535;
 
-/// The vertices a hand-built link takes: a quad, as two triangles that share an edge.
-const LINK_VERTICES: usize = 4;
+/// The vertices a hand-built link takes: a quad, as two triangles.
+///
+/// Six rather than four, because gpui's `Path` has no index buffer: `push_triangle` writes
+/// its three corners into the vertex array and shares nothing with the next triangle. That
+/// is also what gpui's own stroker ends up with, which is the shape this has to match.
+const LINK_VERTICES: usize = 6;
 
-/// How many links go into one path before it is painted and the next started.
+/// How many links go into one path before it is closed and the next started.
 ///
 /// Far below what [`PATH_VERTEX_LIMIT`] allows, and measured rather than derived: the
-/// batch's vertex buffer is the allocation that costs. A 15000-link batch asks for 665 KB,
+/// batch's vertex array is the allocation that costs. A 15000-link batch asks for 665 KB,
 /// which the allocator answers with fresh pages every frame; a 1000-link batch is 88 KB,
 /// which it keeps and hands back. On the 5k vault at whole-vault zoom that is 7.6 ms of a
 /// frame turned into 4.6, and it is why the ceiling is a limit and not a target.
-const LINKS_PER_PATH: usize = 1_000;
+///
+/// Re-checked after the batch became a `gpui::Path` vertex array instead of lyon's indexed
+/// buffers (a different allocation, six 32-byte vertices a link rather than four 8-byte
+/// points and six 2-byte indices): 512 and 2000 both came out no better than 1000, so 1000
+/// stayed. The paired A/B in the paint bench is the way to re-run that.
+///
+/// `pub(crate)` so the paint bench's comparison of the two ways to build a batch sizes its
+/// batches the same way the renderer does.
+pub(crate) const LINKS_PER_PATH: usize = 1_000;
 
 /// A batch stays inside gpui's ceiling whatever the tuning above settles on.
 const _: () = assert!(LINKS_PER_PATH * LINK_VERTICES < PATH_VERTEX_LIMIT);
 
-/// One colour's worth of link geometry, tessellated by hand and flushed a path at a time.
+/// The links of one frame, as the paths they are painted with.
 ///
-/// Two reasons this exists instead of asking gpui to stroke the edges:
+/// Three reasons this exists instead of asking gpui to stroke the edges:
 ///
 /// * A butt-capped straight segment *is* a quad. lyon's stroke tessellator runs a sweep
 ///   line over the whole path to find that out — measured 0.45 µs a segment, and the 5k
 ///   vault has 18843 of them — where the four corners here are a normal and two
-///   multiplications. On the 5k vault that is 7.9 ms of a frame at whole-vault zoom turned
-///   into 5.6, and 2.6 into 1.2 at a neighbourhood's.
-/// * [`PathBuilder::build_path`] is public and is the very function gpui's tessellators
-///   hand their results to, so the path that reaches the scene is shaped exactly as gpui
-///   would have shaped it. This is gpui's format, used from its own front door.
+///   multiplications. Paired A/B on the 5k vault at whole-vault zoom: gpui's stroker is
+///   9.4 ms of the frame, this is 1.9; at a neighbourhood's zoom, 2.6 against 0.86.
+/// * gpui's path format is a flat array of `PathVertex`s: `Path::push_triangle` writes
+///   three of them and grows `bounds`, and `gpui::PathBuilder::build_path` is a loop over
+///   it. Writing that array directly is using gpui's own format, not inventing a private
+///   one, and `a_hand_built_link_is_the_path_gpui_would_stroke` pins it against gpui's
+///   stroked path vertex for vertex.
+/// * Writing it directly is also about 30% cheaper than calling `push_triangle` from here,
+///   because that call inlines inside gpui — where `build_path` makes it — and not across
+///   a crate boundary, where it is six calls a link and 111k calls a frame.
 ///
 /// It batches because [`PATH_VERTEX_LIMIT`] says a whole vault does not fit in one path.
-struct StrokeBatch<'a> {
+struct LinkPaths {
     /// Half the stroke width in screen px: how far each corner sits from the line between
     /// the two nodes.
     half: f32,
-    /// The corners and triangles of the links waiting to be painted.
-    buf: VertexBuffers<Point, u16>,
-    /// How many links are in [`Self::buf`].
+    /// The path the links are going into. `None` before the first link and after every
+    /// closed batch: a path needs a starting point, and the first corner of the first link
+    /// is what `gpui::PathBuilder::build_path` would have used as its own.
+    path: Option<Path<Pixels>>,
+    /// How many links are in [`Self::path`].
     drawn: usize,
-    /// The colour every flushed path is painted with.
-    color: Rgba,
-    /// Where the flushed paths go.
-    window: &'a mut Window,
+    /// The closed batches, in the order they are painted.
+    closed: Vec<Path<Pixels>>,
+    /// What each batch's vertex array is reserved for, in vertices.
+    capacity: usize,
 }
 
-impl<'a> StrokeBatch<'a> {
-    /// A batch of links `width` wide, painted in `color`.
-    fn new(width: Pixels, color: Rgba, window: &'a mut Window) -> Self {
+impl LinkPaths {
+    /// A builder for links `width` wide, whose batches are sized for `links` of them.
+    ///
+    /// The hint is not a cap — a batch that outgrows it is closed and the next started —
+    /// it is what the vertex array is reserved for. A whole-vault pass wants
+    /// [`LINKS_PER_PATH`]; a hub's links want its degree, and reserving 6000 vertices for
+    /// a batch that draws forty of them is an allocation the hover would pay for every
+    /// time the pointer moves.
+    fn new(width: Pixels, links: usize) -> Self {
         Self {
             half: width.as_f32() / 2.0,
-            buf: empty_buffers(),
+            path: None,
             drawn: 0,
-            color,
-            window,
+            closed: Vec::new(),
+            capacity: links.min(LINKS_PER_PATH) * LINK_VERTICES,
         }
     }
 
@@ -433,57 +476,161 @@ impl<'a> StrokeBatch<'a> {
         if self.drawn == LINKS_PER_PATH {
             self.finish();
         }
-        let base = self.buf.vertices.len() as u16;
-        self.buf.vertices.extend_from_slice(&[
-            lpoint(quad[0][0], quad[0][1]),
-            lpoint(quad[1][0], quad[1][1]),
-            lpoint(quad[2][0], quad[2][1]),
-            lpoint(quad[3][0], quad[3][1]),
-        ]);
-        self.buf.indices.extend_from_slice(&[
-            base,
-            base + 1,
-            base + 2,
-            base + 1,
-            base + 2,
-            base + 3,
+        let corners = [
+            point(px(quad[0][0]), px(quad[0][1])),
+            point(px(quad[1][0]), px(quad[1][1])),
+            point(px(quad[2][0]), px(quad[2][1])),
+            point(px(quad[3][0]), px(quad[3][1])),
+        ];
+        let path = self.path.get_or_insert_with(|| {
+            let mut path = Path::new(corners[0]);
+            // Sized up front: the vertex array is only ever pushed to, and growing a
+            // several-thousand-vertex array by doubling is an allocation this code can
+            // actually avoid.
+            path.vertices = Vec::with_capacity(self.capacity);
+            path
+        });
+        // Two triangles a link, along the same diagonal `gpui::PathBuilder::build_path`
+        // takes from lyon's indices, with the normal it gives every vertex.
+        //
+        // The six vertices are written into the array directly rather than pushed through
+        // `Path::push_triangle`, which is the call gpui's own stroker makes — but makes
+        // *inside* gpui, where it inlines. From here it does not, and six calls a link
+        // across 18k links is a measurable part of a frame that is otherwise nothing but
+        // copying 32-byte vertices. `a_hand_built_link_is_the_path_gpui_would_stroke` is
+        // what keeps the two shapes identical, vertex for vertex.
+        let st = link_normal();
+        path.bounds = cover(path.bounds, &corners);
+        path.vertices.extend_from_slice(&[
+            vertex(corners[0], st),
+            vertex(corners[1], st),
+            vertex(corners[2], st),
+            vertex(corners[1], st),
+            vertex(corners[2], st),
+            vertex(corners[3], st),
         ]);
         self.drawn += 1;
     }
 
-    /// Paints the links waiting in the buffer and starts the next batch. Idempotent.
+    /// Closes the open batch, if there is one. Idempotent.
     fn finish(&mut self) {
         if self.drawn == 0 {
             return;
         }
-        let buf = std::mem::replace(&mut self.buf, empty_buffers());
-        self.window
-            .paint_path(PathBuilder::build_path(buf), self.color);
+        if let Some(path) = self.path.take() {
+            self.closed.push(path);
+        }
         self.drawn = 0;
     }
-}
 
-impl Drop for StrokeBatch<'_> {
-    /// Finishing is not optional: a batch that goes out of scope mid-way would leave its
-    /// last links undrawn.
-    fn drop(&mut self) {
+    /// The closed batches. It finishes first rather than trusting the caller to: a frame
+    /// that stopped mid-scan would otherwise lose the last links it drew, which is what
+    /// the `Drop` impl this replaces used to guarantee.
+    fn into_paths(mut self) -> Vec<Path<Pixels>> {
         self.finish();
+        self.closed
     }
 }
 
-/// A buffer sized for a full batch, so a batch never reallocates. [`PathBuilder::build_path`]
-/// takes the buffers by value, so each path needs a fresh one.
-fn empty_buffers() -> VertexBuffers<Point, u16> {
-    VertexBuffers::with_capacity(LINKS_PER_PATH * LINK_VERTICES, LINKS_PER_PATH * 6)
+/// The normal gpui gives every vertex of a stroked path: `build_path` passes `(0, 1)` for
+/// all of them, and matching it is what makes a hand-built path shade like a stroked one.
+fn link_normal() -> Point<f32> {
+    point(0.0, 1.0)
+}
+
+/// One vertex of a hand-built path, in the shape gpui's own stroker writes.
+fn vertex(xy_position: Point<Pixels>, st_position: Point<f32>) -> PathVertex<Pixels> {
+    PathVertex {
+        xy_position,
+        st_position,
+        content_mask: ContentMask::default(),
+    }
+}
+
+/// Growing `bounds` to cover `corners`, which is what `Path::push_triangle` does one vertex
+/// at a time: the same box, in one go.
+fn cover(bounds: Bounds<Pixels>, corners: &[Point<Pixels>; 4]) -> Bounds<Pixels> {
+    let (mut lo_x, mut lo_y) = (bounds.origin.x.as_f32(), bounds.origin.y.as_f32());
+    let (mut hi_x, mut hi_y) = (
+        (bounds.origin.x + bounds.size.width).as_f32(),
+        (bounds.origin.y + bounds.size.height).as_f32(),
+    );
+    for corner in corners {
+        lo_x = lo_x.min(corner.x.as_f32());
+        lo_y = lo_y.min(corner.y.as_f32());
+        hi_x = hi_x.max(corner.x.as_f32());
+        hi_y = hi_y.max(corner.y.as_f32());
+    }
+    Bounds {
+        origin: point(px(lo_x), px(lo_y)),
+        size: size(px(hi_x - lo_x), px(hi_y - lo_y)),
+    }
+}
+
+/// Every link the canvas can see, as paths.
+fn tessellate_links(
+    frame: &GraphFrame,
+    camera: &Camera,
+    view: &Viewport,
+    width: Pixels,
+) -> Vec<Path<Pixels>> {
+    let mut paths = LinkPaths::new(width, LINKS_PER_PATH);
+    for &[a, b] in &frame.edges {
+        let (Some(from), Some(to)) = (frame.nodes.get(a as usize), frame.nodes.get(b as usize))
+        else {
+            continue;
+        };
+        if view.link_misses(from.position, to.position) {
+            continue;
+        }
+        paths.segment(
+            camera.to_screen(from.position),
+            camera.to_screen(to.position),
+        );
+    }
+    paths.into_paths()
+}
+
+/// The links that hang off `slot`, as paths. The scan is over every edge either way, which
+/// is what makes a hub's links cost the same as a leaf's here.
+fn tessellate_hover_links(
+    frame: &GraphFrame,
+    camera: &Camera,
+    view: &Viewport,
+    slot: usize,
+    width: Pixels,
+) -> Vec<Path<Pixels>> {
+    let mut paths = LinkPaths::new(
+        width,
+        frame.nodes.get(slot).map_or(0, |node| node.degree as usize),
+    );
+    for &[a, b] in &frame.edges {
+        if a as usize != slot && b as usize != slot {
+            continue;
+        }
+        let (Some(from), Some(to)) = (frame.nodes.get(a as usize), frame.nodes.get(b as usize))
+        else {
+            continue;
+        };
+        if view.link_misses(from.position, to.position) {
+            continue;
+        }
+        paths.segment(
+            camera.to_screen(from.position),
+            camera.to_screen(to.position),
+        );
+    }
+    paths.into_paths()
 }
 
 /// The four corners of the quad a segment strokes to: its endpoints moved perpendicular to
 /// the line by `half`, in the endpoints' own space.
 ///
 /// `None` when the segment has no direction to be perpendicular to. Kept apart from
-/// [`StrokeBatch`] because it is the part that can be wrong without anything visibly
-/// breaking, and so the part worth pinning with a test.
-fn stroke_quad(a: [f32; 2], b: [f32; 2], half: f32) -> Option<[[f32; 2]; 4]> {
+/// [`LinkPaths`] because it is the part that can be wrong without anything visibly
+/// breaking, and so the part worth pinning with a test. `pub(crate)` so the paint bench's
+/// older-batch comparison strokes the same quads the renderer does.
+pub(crate) fn stroke_quad(a: [f32; 2], b: [f32; 2], half: f32) -> Option<[[f32; 2]; 4]> {
     let dx = b[0] - a[0];
     let dy = b[1] - a[1];
     let len = (dx * dx + dy * dy).sqrt();
@@ -569,6 +716,7 @@ pub(crate) fn paint_labels(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gpui::PathBuilder;
 
     /// A label's run has to cover the label's bytes.
     ///
@@ -643,7 +791,7 @@ mod tests {
 
     /// The renderer builds link geometry itself instead of asking lyon to stroke it, which
     /// is only safe if what it hands gpui is the same shape. This compares the two paths:
-    /// same vertex count, same bounds, same set of corners.
+    /// same vertex count, same bounds, same corners, same normals.
     ///
     /// If gpui ever changes what a stroke means (round caps, joins between subpaths, a
     /// different vertex format), this fails here rather than as links with the wrong ends in
@@ -660,32 +808,24 @@ mod tests {
         }
         let stroked = stroked.build().expect("gpui can stroke three segments");
 
-        let mut buf = VertexBuffers::new();
+        // The renderer's own builder, which is what a frame actually hands gpui.
+        let mut paths = LinkPaths::new(width, LINKS_PER_PATH);
         for [ax, ay, bx, by] in segments {
-            let quad = stroke_quad([ax, ay], [bx, by], width.as_f32() / 2.0)
-                .expect("these segments have a direction");
-            let base = buf.vertices.len() as u16;
-            buf.vertices.extend_from_slice(&[
-                lpoint(quad[0][0], quad[0][1]),
-                lpoint(quad[1][0], quad[1][1]),
-                lpoint(quad[2][0], quad[2][1]),
-                lpoint(quad[3][0], quad[3][1]),
-            ]);
-            buf.indices.extend_from_slice(&[
-                base,
-                base + 1,
-                base + 2,
-                base + 1,
-                base + 2,
-                base + 3,
-            ]);
+            paths.segment([ax, ay], [bx, by]);
         }
-        let hand = PathBuilder::build_path(buf);
+        let paths = paths.into_paths();
+        assert_eq!(paths.len(), 1, "three links fit in one batch");
+        let hand = &paths[0];
 
         assert_eq!(
             hand.vertices.len(),
             stroked.vertices.len(),
             "two triangles a link either way"
+        );
+        assert_eq!(
+            hand.vertices.len(),
+            segments.len() * LINK_VERTICES,
+            "and six vertices a link, because a gpui path has no index buffer"
         );
         for (a, b) in [
             (hand.bounds.origin.x, stroked.bounds.origin.x),
@@ -698,6 +838,21 @@ mod tests {
                 "the same bounds: {a} vs {b}"
             );
         }
+        let normals = |path: &gpui::Path<Pixels>| {
+            let mut seen: Vec<(f32, f32)> = path
+                .vertices
+                .iter()
+                .map(|v| (v.st_position.x, v.st_position.y))
+                .collect();
+            seen.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            seen.dedup();
+            seen
+        };
+        assert_eq!(
+            normals(hand),
+            normals(&stroked),
+            "every vertex carries the normal gpui's own stroker gives it, which is what makes \n             the two shade alike"
+        );
         let corners = |path: &gpui::Path<Pixels>| {
             let mut points: Vec<(f32, f32)> = path
                 .vertices
@@ -710,7 +865,7 @@ mod tests {
             points.dedup_by(|a, b| (a.0 - b.0).abs() < 1e-4 && (a.1 - b.1).abs() < 1e-4);
             points
         };
-        let (hand, stroked) = (corners(&hand), corners(&stroked));
+        let (hand, stroked) = (corners(hand), corners(&stroked));
         assert_eq!(
             hand.len(),
             stroked.len(),
@@ -722,6 +877,34 @@ mod tests {
                 "the same corners, got {h:?} vs {s:?}"
             );
         }
+    }
+
+    /// A batch closes at [`LINKS_PER_PATH`], and the links left over after the last full
+    /// batch are still drawn.
+    ///
+    /// The builder used to flush on `Drop`, which made that automatic; this one finishes in
+    /// [`LinkPaths::into_paths`], and a mistake there shows up as the last few links of
+    /// every frame quietly missing — which survives a glance at a window.
+    #[test]
+    fn the_last_links_of_a_frame_are_not_left_in_the_batch() {
+        let width = px(2.0);
+        let mut paths = LinkPaths::new(width, LINKS_PER_PATH);
+        for i in 0..(LINKS_PER_PATH + 7) {
+            let x = i as f32;
+            paths.segment([x, 0.], [x, 10.]);
+        }
+        let paths = paths.into_paths();
+        assert_eq!(paths.len(), 2, "one full batch and the remainder");
+        assert_eq!(
+            paths[0].vertices.len(),
+            LINKS_PER_PATH * LINK_VERTICES,
+            "the full one is full"
+        );
+        assert_eq!(
+            paths[1].vertices.len(),
+            7 * LINK_VERTICES,
+            "and nothing is lost"
+        );
     }
 
     /// The area of a quad given as corners in order, by the shoelace formula.

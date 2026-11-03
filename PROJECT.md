@@ -666,6 +666,22 @@ entity), cx)` while painting the current frame. Forget it and every character
   top of its nodes (quads), covering them. Use one layer **per phase**, in the order you want
   them stacked — each layer overlaps the last, so `BoundsTree::insert` hands them increasing
   orders. Pinned by `layers_are_painted_in_the_order_they_were_opened`. Thread 42.
+- **`Path::push_triangle` is gpui's front door for hand-built geometry, and it does not
+  inline across the crate boundary.** It is what `PathBuilder::build_path` loops over, so
+  calling it is the correct way to build a path by hand — and on 18k links it costs 30% more
+  than writing the six `PathVertex`s into `path.vertices` (a public field) and growing
+  `path.bounds` yourself, because gpui's own calls inline and yours do not. Measured on the 5k
+  vault at whole-vault zoom: 2.49 ms of links through `push_triangle`, 1.85 ms writing the
+  vertices. Both produce the same path; `a_hand_built_link_is_the_path_gpui_would_stroke`
+  compares vertices, bounds and normals against gpui's own stroked path, so the shortcut is
+  only allowed to be exactly that. Thread 43.
+- **A path's vertices are copied three times per frame no matter what produced them.**
+  `Window::paint_path` scales the path for the device factor and `Scene::insert_primitive`
+  clones it into the scene's array, and the caller had to own it to get it there. A
+  `PathVertex` is 32 bytes, so a 1000-link batch is 192 KB and a whole vault is ~11 MB of
+  copying a frame. That is the floor under the graph's paint cost, and it is why a paint
+  cache buys 15% at whole-vault zoom and 30% closer in, rather than the 70% the tessellation
+  alone would suggest. Thread 43.
 
 ### Testing
 
@@ -700,15 +716,24 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
   does not mirror the production path measures its own difference**, which is how this one
   came to blame a 1.4 ms cost on the link scan when it was the bench re-running `Camera::fit`
   over every node each frame. Thread 42.
+- **A row of that sweep is not comparable with another row of it.** The same code measured in
+  two rows of one sweep has come out 20% apart on this machine (load average 10, 16 cores),
+  which is more than most of the differences the table looks like it is reporting — one run
+  had the cached link row *slower* than the uncached one and the cached whole-frame row
+  faster, which is not a possible pair. What can be trusted is
+  `graph_paint_cache_pays_for_itself`: one window, one picture, the variants alternating
+  round by round so the machine's own drift lands on every side of the comparison, fastest of
+  `ROUNDS` rounds kept. Any A/B claim about the paint path goes in that test, not in a
+  difference between sweep rows. Thread 43.
 - Run the test binaries under `ulimit -v` when working on anything that scans
   text (a scanner bug can allocate until the OOM killer takes the editor down —
   see the table postmortem).
-  Current peak RSS of the test binaries (2026-11-03, app 383 / core 441 with 10
+  Current peak RSS of the test binaries (2026-11-03, app 388 / core 441 with 10
   ignored / mcp 35 tests — core's `db::` tests cost it nothing worth mentioning: 12.5
   MB to 16 MB, and the app's 79 MB to 96 MB is the eight `tests::index` windows that
   each open a real DB plus one headless window per test, which is nowhere near the
   200 MB line worth investigating):
-  core 18.4 MB, app 95.9 MB,
+  core 18.4 MB, app 95.0 MB,
   mcp 5.7 MB. The
   app binary's *address space* (not RSS) is far larger because of gpui/wgpu
   reservations, and it now needs **4 GB or more** — a 1 GB cap makes it die in an
@@ -4043,10 +4068,112 @@ Next steps, roughly in order:
     - **A paint cache** is the remaining big lever: when neither the frame nor the camera
       moved (hover, selection, an unrelated repaint), the link geometry is the same path and
       could be reused instead of rebuilt. It wants a revision counter on `GraphFrame`.
+      **Done in thread 43 — and it wanted no counter:** `Rc::ptr_eq` on the frame the view
+      already holds is the revision, because the simulation ships a fresh `Rc` per frame and
+      never edits one.
     - **The in-app readout** (`crates/app/src/graph/bench.rs`, the `fps` / `ms paint` counts
-      row) is now redundant with the bench. Parked as a question to the user.
+      row) is now redundant with the bench. Parked as a question to the user. **Answered:
+      keep it** — the user asked for it by name. It is what they watch while moving around a
+      real vault, and the bench cannot see a real vault.
     - The bench's `LAYER` / `NODES_PATH` / `LYON_LINKS` rows exist so each of the trades
       above can be re-measured rather than re-argued.
+
+43. **The graph's paint cache, and the two things the sweep kept hiding** — user request
+    (2026-11-03). "Go ahead and work on the paint cache."
+
+    ### The cache
+    `crates/app/src/graph/cache.rs`: one `Cache` per `GraphView`, in a cell for the same
+    reason the canvas bounds and the frame counter are — the paint phase cannot reach into
+    the entity it is painting. It holds the tessellated link paths under a `Key` of
+    (`Rc<GraphFrame>` compared **by identity**, `Camera`, canvas `Bounds`).
+
+    - **No revision counter.** Thread 42 predicted `GraphFrame` would need one; it does not.
+      The simulation builds a fresh frame and the view holds it in an `Rc`, and a frame is
+      never edited in place, so `Rc::ptr_eq` answers "the same picture?" for two pointer
+      reads. A counter would have been a field to keep correct, and a frame whose nodes
+      moved without the counter moving would have painted the old links.
+    - **The policy is the part worth reading.** The *first* paint for a key is not cached
+      (`Cache::worth_keeping`): while the layout settles, every frame is a new key, so
+      keeping each one would clone ~3.6 MB of vertices into a batch the next tick throws
+      away — on the frames that already carry the tightest budget in the tab. A key seen a
+      second time is the picture having stopped moving, which is exactly when the next
+      repaint is likely to come from somewhere else in the window: the counts row's `fps`
+      readout notifies once a second, a hover change notifies, the tab bar and the review
+      strip notify into the same frame. Pinned by `a_settling_layout_never_fills_the_cache`
+      and `a_cached_batch_answers_only_its_own_picture`.
+    - **Links only.** They are 76% of the layered frame and the only phase a hover change
+      leaves untouched. The nodes are 0.7 ms and the hovered node is one of them, so caching
+      them would discard the cache on precisely the repaints that are already cheap.
+    - Costs about 3.7 MB held per view (19 batches × 6000 vertices × 32 B). The 5k paint
+      bench peaks at 55 MB.
+
+    ### What it buys, and what it does not
+    Paired A/B on the 5k fixture (`graph_paint_cache_pays_for_itself`, three runs, fastest
+    of three rounds each):
+
+    | zoom | whole frame, cold | whole frame, cached | links, cold | links, cached |
+    |---|---|---|---|---|
+    | 1.0× (whole vault) | 2.55–2.85 ms | 2.11–2.46 | 1.77–1.92 | 1.59–2.32 |
+    | 3.0× (a neighbourhood) | 1.33–1.37 | 0.89–0.93 | 0.86–0.90 | 0.44–0.48 |
+    | 10.0× (one note) | 0.99–1.01 | 0.67–0.70 | 0.52–0.54 | 0.25–0.29 |
+
+    It buys **15% at whole-vault zoom and 30–35% closer in**, which is much less than the
+    70% the tessellation alone accounts for — and the reason is the gotcha about vertices
+    being copied three times a frame: `Window::paint_path` scales the path for the device
+    factor and `Scene::insert_primitive` clones it into the scene's array, so replaying a
+    cached path still moves 192 KB a batch. The cache removes the culling pass, the per-link
+    arithmetic and the batch allocations. It cannot remove the drawing, and gpui's API does
+    not let anything remove the copies.
+
+    ### The measurement was the hard part
+    The sweep's first verdict on this cache was that it made the links **54% slower** while
+    making the whole frame 30% faster — a pair that cannot both be true. The sweep is not
+    trustworthy for differences: the same code measured in two of its rows came out 20% apart
+    (`nodes` was 11.0 ms, 13.7 ms and 21.4 ms in three runs of unchanged code), on a machine
+    at load average 10. What fixed it:
+
+    - `graph_paint_cache_pays_for_itself`: **one window, one picture, variants alternating
+      round by round**, so whatever the machine is doing to its own speed lands on every side
+      of the comparison. Every claim in the table above comes from it.
+    - `ROUNDS` (fastest kept, not the mean) and a **cache-hit count printed beside the
+      timings**, because a cache that is not hitting is not slow, it is absent, and a timing
+      alone cannot tell the two apart.
+    - The sweep still exists for reading one row at a time — what each phase costs, what
+      survives culling — and says so in its own doc comment.
+
+    ### The other 30%: `Path::push_triangle` does not inline across the crate boundary
+    While the A/B was still noisy, the direct `Path` build (thread 42's hand-tessellated
+    links, written through `push_triangle` instead of lyon's buffers) looked like a 9%
+    regression. It was not a wash: it was **30% slower than the lyon route it replaced**,
+    and the reason is that `PathBuilder::build_path` calls `push_triangle` *inside* gpui,
+    where it inlines, while the renderer calls it across a crate boundary, where it does not
+    — six calls a link, 18.5k links.
+
+    So `LinkPaths` writes the six `PathVertex`s into `path.vertices` (a public field) and
+    grows `path.bounds` itself, which is exactly what `push_triangle` does. Paired A/B at
+    whole-vault zoom: **2.44–2.53 ms through `push_triangle`, 1.77–1.92 ms writing the
+    vertices**; at 3× 1.23 → 0.86; at 10× 0.70 → 0.52. `a_hand_built_link_is_the_path_gpui_
+    would_stroke` now compares the renderer's own builder against gpui's stroked path
+    vertex-for-vertex — count, bounds, normals, deduplicated corners — so the shortcut is
+    only allowed to be exactly the shape gpui would have made. `the_last_links_of_a_frame_
+    are_not_left_in_the_batch` pins the batch boundary, which used to be guaranteed by a
+    `Drop` impl and is now guaranteed by `into_paths`.
+
+    `LINKS_PER_PATH = 1000` was re-checked after that change, because the batch's dominant
+    allocation is now a 192 KB vertex array rather than lyon's 44 KB buffers: 512 and 2000
+    both came out no better, so 1000 stayed.
+
+    ### Where the cost is now
+    Whole-vault zoom, 5k fixture: **2.3–2.6 ms a frame** (13.7 unlayered before thread 42,
+    14.8–19.0 before any of it). Layered and cold, the phases are links 1.9, nodes 0.7,
+    hover 0.15, labels 0.13, frame floor 0.12. Closer in it is 0.7–0.9 ms cached.
+    - **What is left is mostly gpui's own copying**, ~11 MB of path vertices a frame at
+      whole-vault zoom, which no cache can avoid through the public API. The next lever with
+      room is drawing fewer links (level-of-detail past some zoom), and that is a visual
+      decision, not a performance one — it belongs with the UI revision, not here.
+    - `render.rs` is 920 lines and `paint_bench.rs` 933. Both are one addition away from the
+      1000-line refactor line in `AGENTS.md`; the bench's ceiling-probe section and the
+      renderer's node/label phases are the natural halves to split off when either crosses it.
 
 ## Parked threads (agreed 2026-10-28; not being worked now)
 

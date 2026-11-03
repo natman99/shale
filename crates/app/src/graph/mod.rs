@@ -14,6 +14,7 @@
 //! of one tab.
 
 mod bench;
+mod cache;
 mod frame;
 mod panel;
 pub(crate) mod render;
@@ -146,6 +147,10 @@ pub(crate) struct GraphView {
     /// is: the keyboard's zoom needs the middle of a space the view only learns about
     /// during a frame.
     canvas: Rc<RefCell<Option<Bounds<Pixels>>>>,
+    /// The links kept from the last paint, so a repaint that moved nothing does not
+    /// tessellate 18k of them again. In a cell because the paint phase cannot reach into
+    /// the entity it is painting; one per view because each view has its own camera.
+    paint: Rc<RefCell<render::Cache>>,
     /// The temporary frame counter: how often the canvas is painted and what each paint
     /// costs. See [`bench`] for why it exists and why it is meant to be deleted.
     bench: Rc<RefCell<bench::Bench>>,
@@ -197,6 +202,7 @@ impl GraphView {
             camera: None,
             pending_fit: Rc::default(),
             canvas: Rc::default(),
+            paint: Rc::new(RefCell::new(render::Cache::new())),
             bench: Rc::new(RefCell::new(bench::Bench::new())),
             hover: None,
             selected: None,
@@ -623,6 +629,7 @@ impl Render for GraphView {
         let pending_fit = Rc::clone(&self.pending_fit);
         let canvas_bounds = Rc::clone(&self.canvas);
         let bench = Rc::clone(&self.bench);
+        let paint = Rc::clone(&self.paint);
         let look = render::Look {
             palette: Rc::clone(&self.palette),
             hover: self.chosen(),
@@ -775,7 +782,15 @@ impl Render for GraphView {
                                 // them.
                                 let started = Instant::now();
                                 if let Some(frame) = &painted {
-                                    render::paint_graph(bounds, camera, frame, &look, window, cx);
+                                    render::paint_graph(
+                                        bounds,
+                                        camera,
+                                        frame,
+                                        &look,
+                                        &mut paint.borrow_mut(),
+                                        window,
+                                        cx,
+                                    );
                                 }
                                 bench.borrow_mut().time(started);
                             },

@@ -30,13 +30,15 @@ use gpui::{
     canvas, div, point, prelude::*, px, Bounds, Context, Font, IntoElement, PathBuilder, Pixels,
     Render, TestAppContext, VisualTestContext, Window, WindowHandle,
 };
+use lyon::math::point as lpoint;
+use lyon::tessellation::VertexBuffers;
 use shale_core::graph::{geom::Camera, GraphIndex, NodeKind};
 use shale_core::theme::Palette;
 use shale_core::vault::Vault;
 
 use crate::graph::render::{
-    paint_hover_links, paint_labels, paint_links, paint_nodes, Labels, Viewport, CULL_MARGIN,
-    LINK_MIN_PX, LINK_WIDTH,
+    paint_hover_links, paint_labels, paint_links, paint_nodes, stroke_quad, Cache, Key, Labels,
+    Viewport, CULL_MARGIN, LINK_MIN_PX, LINK_WIDTH,
 };
 use crate::graph::{GraphFrame, GraphSim};
 
@@ -52,6 +54,12 @@ const ZOOMS: [f32; 3] = [1.0, 3.0, 10.0];
 /// Frames per measurement. Enough to average out scheduler noise, short enough that the
 /// whole sweep finishes before the user forgets what they were looking for.
 const REPS: usize = 40;
+
+/// Measurements per cell, of which the **fastest** is the one printed. The same code
+/// measured twice on this machine has moved by 20%, which is more than several of the
+/// differences this table is read for; the spread is the scheduler, and the floor is the
+/// paint.
+const ROUNDS: usize = 3;
 
 /// Frames drawn before timing, so the allocator and the font caches are warm.
 const WARMUP: usize = 5;
@@ -75,6 +83,14 @@ const NODES_PATH: usize = 32;
 /// The links stroked by gpui's lyon-powered `PathBuilder::stroke` rather than tessellated
 /// by hand by the renderer, which is the slower one (see [`paint_links_lyon`]).
 const LYON_LINKS: usize = 64;
+/// The links through the renderer's paint cache, which is kept across the frames of one
+/// measurement. Without this flag every frame gets a cache of its own, which is the same
+/// as having none: the point of the cache is the second paint of a picture that stopped
+/// moving.
+const CACHE: usize = 128;
+/// The links built through lyon's indexed buffers, which is how the renderer used to build
+/// them, before it wrote `gpui::Path` vertices itself.
+const BUFFERS: usize = 256;
 const ALL: usize = LINKS | HOVER_LINKS | NODES | LABELS;
 
 /// A view that paints one graph frame and nothing else, so the numbers are the graph's
@@ -92,10 +108,17 @@ struct PaintBench {
     /// How much of the frame survives culling at this zoom — `(nodes, links)` — counted by
     /// the paint closure. The timings only mean anything next to these.
     counts: Rc<RefCell<(usize, usize)>>,
+    /// How many link paints found a cached batch, over the frames since the last write.
+    /// Printed beside the cached rows: a cache that is not hitting is not slow, it is
+    /// absent, and the timing alone cannot tell the two apart.
+    hits: Rc<RefCell<usize>>,
     /// Which phases to run this round.
     phases: usize,
     /// How much bigger than the fitted whole-vault view to draw at.
     zoom: f32,
+    /// The renderer's link cache, kept for the whole measurement so the cached rows get
+    /// their second and third paints of the same picture.
+    paint: Rc<RefCell<Cache>>,
 }
 
 impl Render for PaintBench {
@@ -110,6 +133,7 @@ impl Render for PaintBench {
         let fit_frame = self.frame.clone();
         let paint_frame = self.frame.clone();
         let counts = self.counts.clone();
+        let hits = self.hits.clone();
         let fitted = self.fitted.clone();
         let palette = self.palette.clone();
         let labels = Labels {
@@ -118,6 +142,7 @@ impl Render for PaintBench {
         };
         let phases = self.phases;
         let zoom = self.zoom;
+        let paint_cache = self.paint.clone();
         div().w(size.width).h(size.height).child(
             canvas(
                 // Framing happens in the prepaint phase, where the element's bounds are known,
@@ -185,7 +210,44 @@ impl Render for PaintBench {
                     let view = Viewport::new(bounds, &camera);
                     if phases & LINKS != 0 {
                         phase(window, bounds, layered, |window| {
-                            paint_links(&paint_frame, &camera, &view, palette.graph_edge, window);
+                            if phases & BUFFERS != 0 {
+                                paint_links_buffers(
+                                    &paint_frame,
+                                    &camera,
+                                    &view,
+                                    palette.graph_edge,
+                                    window,
+                                );
+                                return;
+                            }
+                            let key = Key::new(&paint_frame, camera, bounds);
+                            // A cache per frame is the same as no cache, and says so: the
+                            // cached rows are the ones that keep one across the frames.
+                            let cached = paint_cache.borrow().links(&key).is_some();
+                            if cached {
+                                *hits.borrow_mut() += 1;
+                            }
+                            if phases & CACHE != 0 {
+                                paint_links(
+                                    &mut paint_cache.borrow_mut(),
+                                    &key,
+                                    &paint_frame,
+                                    &camera,
+                                    &view,
+                                    palette.graph_edge,
+                                    window,
+                                );
+                            } else {
+                                paint_links(
+                                    &mut Cache::new(),
+                                    &key,
+                                    &paint_frame,
+                                    &camera,
+                                    &view,
+                                    palette.graph_edge,
+                                    window,
+                                );
+                            }
                         });
                     }
                     if phases & LYON_LINKS != 0 {
@@ -297,14 +359,26 @@ fn settled_frame(root: &std::path::Path) -> GraphFrame {
     sim.frame()
 }
 
-/// One (zoom, phase-set) cell of the sweep: how long a frame's paint phase takes, and how
-/// many primitives it makes.
-fn measure(
+/// A window that paints one graph frame at `zoom` with `phases`, and the handles on what
+/// it counts. Split out of [`measure`] so a comparison can hold one window open and change
+/// its mind between rounds.
+struct BenchWindow {
+    /// The view, for the repaints and for changing its phases.
+    window: WindowHandle<PaintBench>,
+    /// The context that draws it.
+    visual: VisualTestContext,
+    /// What survived culling, as `(nodes, links)`.
+    counts: Rc<RefCell<(usize, usize)>>,
+    /// How many link paints found a cached batch.
+    hits: Rc<RefCell<usize>>,
+}
+
+fn bench_window(
     cx: &mut TestAppContext,
     frame: &Rc<GraphFrame>,
     zoom: f32,
     phases: usize,
-) -> (Duration, usize, (usize, usize)) {
+) -> BenchWindow {
     let view = PaintBench {
         frame: frame.clone(),
         palette: Rc::new(Palette::built_in("mocha").expect("mocha is built in")),
@@ -314,27 +388,61 @@ fn measure(
         },
         fitted: Rc::new(RefCell::new(None)),
         counts: Rc::new(RefCell::new((0, 0))),
+        hits: Rc::new(RefCell::new(0)),
         phases,
         zoom,
+        paint: Rc::new(RefCell::new(Cache::new())),
     };
-    let view_counts = view.counts.clone();
+    let counts = view.counts.clone();
+    let hits = view.hits.clone();
     let window: WindowHandle<PaintBench> = cx.add_window(move |_window, _cx| view);
     // The window is drawn through a `VisualTestContext`, not through the window handle:
     // drawing renders the view, and rendering it from inside an update of it is a second
     // borrow of the entity being drawn.
-    let mut visual = VisualTestContext::from_window(window.into(), cx);
+    let visual = VisualTestContext::from_window(window.into(), cx);
+    BenchWindow {
+        window,
+        visual,
+        counts,
+        hits,
+    }
+}
+
+/// One (zoom, phase-set) cell of the sweep: how long a frame's paint phase takes, how many
+/// primitives it makes, and how often the link cache answered.
+fn measure(
+    cx: &mut TestAppContext,
+    frame: &Rc<GraphFrame>,
+    zoom: f32,
+    phases: usize,
+) -> (Duration, usize, (usize, usize), usize) {
+    let mut bench = bench_window(cx, frame, zoom, phases);
 
     for _ in 0..WARMUP {
-        repaint(&window, &mut visual);
+        repaint(&bench.window, &mut bench.visual);
     }
-    let started = Instant::now();
-    for _ in 0..REPS {
-        repaint(&window, &mut visual);
+    // The fastest round, not the average. This machine moves the same code by 20% between
+    // runs, which is more than several of the results in this table, and the spread is the
+    // scheduler: the floor is what it reports when it is not fighting for a core.
+    let mut best = Duration::MAX;
+    let mut hits = 0;
+    for _ in 0..ROUNDS {
+        *bench.hits.borrow_mut() = 0;
+        let started = Instant::now();
+        for _ in 0..REPS {
+            repaint(&bench.window, &mut bench.visual);
+        }
+        let per_frame = started.elapsed() / REPS as u32;
+        if per_frame < best {
+            best = per_frame;
+            hits = *bench.hits.borrow();
+        }
     }
-    let per_frame = started.elapsed() / REPS as u32;
-    let quads = visual.update(|window, _cx| window.painted_quads().len());
-    let drawn = *view_counts.borrow();
-    (per_frame, quads, drawn)
+    let quads = bench
+        .visual
+        .update(|window, _cx| window.painted_quads().len());
+    let drawn = *bench.counts.borrow();
+    (best, quads, drawn, hits)
 }
 
 /// One full frame: the view is marked dirty, then the window is drawn and its scene thrown
@@ -347,6 +455,11 @@ fn repaint(window: &WindowHandle<PaintBench>, cx: &mut VisualTestContext) {
 }
 
 /// The sweep, printed as a table a human can read.
+///
+/// **Read a row, not a difference between rows.** The same code measured in two rows of one
+/// sweep has come out 20% apart on this machine, which is more than most of the differences
+/// the table looks like it is reporting; [`graph_paint_cache_pays_for_itself`] is the one
+/// that alternates the variants in one window and can be trusted to compare them.
 fn sweep(cx: &mut TestAppContext, root: &std::path::Path) {
     let frame = Rc::new(settled_frame(root));
     eprintln!(
@@ -356,8 +469,8 @@ fn sweep(cx: &mut TestAppContext, root: &std::path::Path) {
         frame.edges.len()
     );
     eprintln!(
-        "  {:>7}  {:>12}  {:>10}  {:>13}",
-        "zoom", "per frame", "quads", "drawn"
+        "  {:>7}  {:>12}  {:>10}  {:>13}  {:>7}",
+        "zoom", "per frame", "quads", "drawn", "cache"
     );
     for zoom in ZOOMS {
         for (name, phases) in [
@@ -368,20 +481,33 @@ fn sweep(cx: &mut TestAppContext, root: &std::path::Path) {
             ("nodes", NODES),
             ("nodes+path", NODES_PATH),
             ("labels", LABELS),
+            // The same phases as the rows above, in a layer of their own, which is what the
+            // renderer does. A phase's cost is not the same in both: the bounds-tree search an
+            // unlayered primitive pays for its draw order is charged to the phase that pays
+            // it, and a full-canvas path pays a great deal more for it than a disc does.
+            ("lnk+lay", LINKS | LAYER),
+            ("hov+lay", HOVER_LINKS | LAYER),
+            ("nds+lay", NODES | LAYER),
+            ("lbl+lay", LABELS | LAYER),
             ("whole", ALL),
             ("whole+lay", ALL | LAYER),
+            // The frame the tab draws when nothing in it moved: the same picture painted
+            // again, which is what a hover change or another panel's `notify` asks for.
+            ("whole+cache", ALL | LAYER | CACHE),
+            ("lnk+cache", LINKS | LAYER | CACHE),
             (
                 "path+lay",
                 LINKS | HOVER_LINKS | NODES_PATH | LABELS | LAYER,
             ),
         ] {
-            let (per_frame, quads, (nodes, links)) = measure(cx, &frame, zoom, phases);
+            let (per_frame, quads, (nodes, links), hits) = measure(cx, &frame, zoom, phases);
             eprintln!(
-                "{zoom:>5.1}x {name:>7}  {:>10.3} ms  {:>10}  {:>6}n {:>5}l",
+                "{zoom:>5.1}x {name:>10}  {:>10.3} ms  {:>10}  {:>6}n {:>5}l  {:>4}",
                 per_frame.as_secs_f64() * 1000.0,
                 quads,
                 nodes,
-                links
+                links,
+                hits
             );
         }
     }
@@ -399,6 +525,75 @@ fn graph_paint_bench_5k(cx: &mut TestAppContext) {
 #[ignore]
 fn graph_paint_bench_1k(cx: &mut TestAppContext) {
     sweep(cx, &fixture("1k"));
+}
+
+/// The cache question, measured the only way this machine allows: one window, one picture,
+/// and the variants **alternating round by round**, so whatever the machine is doing to its
+/// own speed lands on every side of the comparison. Rows of a sweep are not comparable with
+/// each other here — the same code measured in two rows of one sweep has come out 20% apart,
+/// which is more than most of what this table is read for.
+///
+/// Three variants of the same links: the paths the renderer writes today, the lyon-indexed
+/// buffers it wrote before, and the cache replaying the paths it already wrote.
+#[gpui::test]
+#[ignore]
+fn graph_paint_cache_pays_for_itself(cx: &mut TestAppContext) {
+    let frame = Rc::new(settled_frame(&fixture("5k")));
+    eprintln!(
+        "\ncache A/B — {} nodes, {} links — {} rounds of {} frames, fastest kept",
+        frame.nodes.len(),
+        frame.edges.len(),
+        ROUNDS,
+        REPS
+    );
+    for zoom in ZOOMS {
+        for (name, phases) in [("links", LINKS | LAYER), ("whole", ALL | LAYER)] {
+            let mut bench = bench_window(cx, &frame, zoom, phases);
+            for _ in 0..WARMUP {
+                repaint(&bench.window, &mut bench.visual);
+            }
+            let mut plain = Duration::MAX;
+            let mut buffers = Duration::MAX;
+            let mut cached = Duration::MAX;
+            let mut hits = 0;
+            for _ in 0..ROUNDS {
+                for (extra, best) in [
+                    (0usize, &mut plain),
+                    (BUFFERS, &mut buffers),
+                    (CACHE, &mut cached),
+                ] {
+                    bench
+                        .window
+                        .update(&mut bench.visual, |view, _window, _cx| {
+                            view.phases = phases | extra;
+                        })
+                        .expect("the bench window is open");
+                    *bench.hits.borrow_mut() = 0;
+                    let started = Instant::now();
+                    for _ in 0..REPS {
+                        repaint(&bench.window, &mut bench.visual);
+                    }
+                    let per_frame = started.elapsed() / REPS as u32;
+                    let beat = per_frame < *best;
+                    if beat {
+                        *best = per_frame;
+                    }
+                    // Only the cached variant can hit, and the number worth printing is
+                    // the one from the round that produced the timing being printed.
+                    if beat && extra & CACHE != 0 {
+                        hits = *bench.hits.borrow();
+                    }
+                }
+            }
+            eprintln!(
+                "{zoom:>5.1}x {name:>6}  path {:>7.3} ms  buffers {:>7.3} ms  cached {:>7.3} ms  \
+                 {hits:>4} hits",
+                plain.as_secs_f64() * 1000.0,
+                buffers.as_secs_f64() * 1000.0,
+                cached.as_secs_f64() * 1000.0,
+            );
+        }
+    }
 }
 
 /// The fixtures live beside the vaults, not under the crate.
@@ -485,10 +680,70 @@ fn layers_are_painted_in_the_order_they_were_opened(cx: &mut TestAppContext) {
 
 // ----- the alternatives the bench keeps honest -------------------------------
 
+/// The links the way the renderer built them before it wrote `gpui::Path`s itself: the same
+/// hand-computed quads, but into lyon's indexed buffers, which `PathBuilder::build_path`
+/// then un-indexes one triangle at a time.
+///
+/// This is the previous version of the renderer's own code, kept so the change is a
+/// measurement rather than a claim: it costs one allocation and one copy a batch more, and
+/// the paired A/B below is what says whether that is what it costs.
+fn paint_links_buffers(
+    frame: &GraphFrame,
+    camera: &Camera,
+    view: &Viewport,
+    color: u32,
+    window: &mut Window,
+) {
+    let half = (LINK_WIDTH * camera.zoom).max(LINK_MIN_PX) / 2.0;
+    // Its own batch size, which is the one the renderer used with this route: the two
+    // routes' batches are sized by different allocations, so sharing a constant would
+    // retune the older one by accident.
+    const BATCH: usize = 1_000;
+    let mut buf = VertexBuffers::with_capacity(BATCH * 4, BATCH * 6);
+    let mut drawn = 0usize;
+    for &[a, b] in &frame.edges {
+        let (Some(from), Some(to)) = (frame.nodes.get(a as usize), frame.nodes.get(b as usize))
+        else {
+            continue;
+        };
+        if view.link_misses(from.position, to.position) {
+            continue;
+        }
+        let Some(quad) = stroke_quad(
+            camera.to_screen(from.position),
+            camera.to_screen(to.position),
+            half,
+        ) else {
+            continue;
+        };
+        if drawn == BATCH {
+            window.paint_path(
+                PathBuilder::build_path(std::mem::take(&mut buf)),
+                gpui::rgb(color),
+            );
+            buf = VertexBuffers::with_capacity(BATCH * 4, BATCH * 6);
+            drawn = 0;
+        }
+        let base = buf.vertices.len() as u16;
+        buf.vertices.extend_from_slice(&[
+            lpoint(quad[0][0], quad[0][1]),
+            lpoint(quad[1][0], quad[1][1]),
+            lpoint(quad[2][0], quad[2][1]),
+            lpoint(quad[3][0], quad[3][1]),
+        ]);
+        buf.indices
+            .extend_from_slice(&[base, base + 1, base + 2, base + 1, base + 2, base + 3]);
+        drawn += 1;
+    }
+    if drawn > 0 {
+        window.paint_path(PathBuilder::build_path(buf), gpui::rgb(color));
+    }
+}
+
 /// The links stroked the way gpui asks for it: `PathBuilder::stroke`, and lyon's sweep line
 /// over the whole edge list.
 ///
-/// The renderer hand-builds the same quads instead (`graph::render::StrokeBatch`), and this
+/// The renderer hand-builds the same quads instead (`graph::render::LinkPaths`), and this
 /// row is what that trade looks like: on the 5k vault, 7.9 ms of a frame against 5.6 at
 /// whole-vault zoom and 2.6 against 1.2 at a neighbourhood's. Kept because a trade you
 /// cannot re-measure is a guess.

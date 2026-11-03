@@ -763,16 +763,19 @@ into the Phase 3 addendum. **P2.5a landed 2026-11-01, so Phase 2 is closed**
   numbers and the resolution in PROJECT.md thread 39) — uniform-strength springs, not the
   repulsion constant, fixed in `91930f2`. The app no longer dies trying either: the hit-test
   grid is bounded by the layout.
-  **Paint phase measured and optimized the same day (PROJECT.md thread 42):** the paint
+  **Paint phase measured and optimized the same day (PROJECT.md threads 42–43):** the paint
   phase now has a bench (`tests/graph/paint_bench.rs`, release-only, `#[ignore]`d) and on the
-  5k fixture a whole graph frame costs **3.2 ms at whole-vault zoom, 1.7 ms at 3×, 1.1 ms at
-  10×** — down from 14.8–19 ms, from `Window::paint_layer` (gpui searches the scene's bounds
-  tree for every primitive's draw order, and that search is not linear) plus hand-tessellated
-  link quads. Three bugs came out of the same pass: the graph painted outside its pane, its
-  labels were `black()` because a `TextRun` with `len: 0` is stepped over, and above ~16k
-  visible links gpui drew **no links at all** (a path's vertices are u16-indexed). The fps /
-  idle-sleep check is now the remaining exit-criteria item, and so is the question of whether
-  the temporary `graph/bench.rs` readout stays in the counts row.
+  5k fixture a whole graph frame costs **2.3–2.6 ms at whole-vault zoom, 0.9 ms at 3×, 0.7 ms
+  at 10×** — down from 14.8–19 ms, from `Window::paint_layer` (gpui searches the scene's
+  bounds tree for every primitive's draw order, and that search is not linear), hand-
+  tessellated link quads written straight into gpui's vertex format, and a cache that replays
+  a settled frame's links instead of rebuilding them. Three bugs came out of the same pass:
+  the graph painted outside its pane, its labels were `black()` because a `TextRun` with
+  `len: 0` is stepped over, and above ~16k visible links gpui drew **no links at all** (a
+  path's vertices are u16-indexed). A fourth, from the batching itself: one layer over the
+  canvas made gpui order by primitive *kind*, so every link landed on top of every node —
+  hence one layer per phase. The fps / idle-sleep check is the remaining exit-criteria item;
+  the `graph/bench.rs` readout stays, at the user's request.
 - **P3.5 Graph M2–M5** in the plan's order: local graph + projected 3D →
   constellations + static mode → heatmap/groups/arrows → signature features
   (thread, pulses+glow, MST star-lines, nebulae, hjkl + f-jump, illumination,
