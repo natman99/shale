@@ -182,15 +182,12 @@ impl GraphIndex {
         &mut self,
         path: impl AsRef<Path>,
         text: &str,
-        _vault: &Vault,
         notes: &[VaultEntry],
         attachments: &[VaultEntry],
     ) {
         // Tables rebuilt per call: one save rescans the entry lists once
         // (milliseconds at vault scale), which beats caching tables that
-        // go stale the moment a file appears or moves. `_vault` is kept
-        // for call-site compatibility; the resolver replaced the scans
-        // that needed it.
+        // go stale the moment a file appears or moves.
         let note_res = LinkResolver::new(notes);
         let attach_res = LinkResolver::new(attachments);
         self.note_links.insert(
@@ -537,7 +534,6 @@ mod tests {
         index.set_note(
             "Welcome.md",
             "Now pointing at [[gone]].",
-            &vault,
             &notes,
             &attachments,
         );

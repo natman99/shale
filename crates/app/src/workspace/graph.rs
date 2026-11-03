@@ -24,7 +24,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use gpui::{prelude::*, Context, Entity, Window};
-use shale_core::vault::{Vault, VaultEntry};
+use shale_core::vault::VaultEntry;
 use shale_core::watch::VaultChanges;
 
 use crate::acts::OpenGraph;
@@ -62,12 +62,11 @@ pub(super) enum GraphChange {
 fn apply_graph_change(
     index: &mut shale_core::graph::GraphIndex,
     change: GraphChange,
-    vault: &Vault,
     entries: &[VaultEntry],
     attachments: &[VaultEntry],
 ) {
     match change {
-        GraphChange::Saved(path, text) => index.set_note(&path, &text, vault, entries, attachments),
+        GraphChange::Saved(path, text) => index.set_note(&path, &text, entries, attachments),
         GraphChange::Removed(path) => index.remove_note(&path),
     }
 }
@@ -392,9 +391,7 @@ impl Workspace {
         }
         for path in changes.added.iter().chain(changes.modified.iter()) {
             match self.vault.read(path) {
-                Ok(text) => {
-                    index.set_note(path, &text, &self.vault, &self.entries, &self.attachments)
-                }
+                Ok(text) => index.set_note(path, &text, &self.entries, &self.attachments),
                 Err(err) => tracing::warn!(path = %path.display(), "graph re-scan failed: {err:#}"),
             }
         }
@@ -404,7 +401,7 @@ impl Workspace {
     /// saves, so this is the only way a link typed in the editor reaches the graph.
     pub(crate) fn graph_note_saved(&mut self, path: &Path, text: &str) {
         if let Some(index) = self.graph.as_mut() {
-            index.set_note(path, text, &self.vault, &self.entries, &self.attachments);
+            index.set_note(path, text, &self.entries, &self.attachments);
         } else {
             self.queue_graph_change(GraphChange::Saved(path.to_path_buf(), text.to_string()));
         }
@@ -494,13 +491,7 @@ impl Workspace {
         match built {
             Ok(mut index) => {
                 for change in std::mem::take(&mut self.graph_pending) {
-                    apply_graph_change(
-                        &mut index,
-                        change,
-                        &self.vault,
-                        &self.entries,
-                        &self.attachments,
-                    );
+                    apply_graph_change(&mut index, change, &self.entries, &self.attachments);
                 }
                 // Info, not debug: this is the line that answers "how long does the graph
                 // take on my vault", and it only appears when a scan actually ran.

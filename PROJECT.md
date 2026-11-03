@@ -3856,6 +3856,24 @@ Next steps, roughly in order:
       that lands a 5k vault still takes seconds to appear — it just no longer takes the
       window with it. `tracing::info!` now logs `nodes` and `took_ms` per scan, so the
       question "how long does my vault take" has an answer in the log.
+      **Landed 2026-11-03 (`83d98aa`): 18.17 s → 89 ms on the 5k fixture.**
+    - **API follow-up, same day (user authorized the app track to edit the graph API for
+      this):** `GraphIndex::set_note` kept a `_vault: &Vault` parameter purely so call sites
+      would not break mid-flight; the `LinkResolver` replaced the scans that needed it. It is
+      now gone — `set_note(path, text, notes, attachments)` — and the app's three call sites
+      and core's own test follow. `GraphIndex::build` still takes the vault: it is the one
+      that reads the notes.
+    - **The other thing their change made loud:** `Vault::resolve_link` /
+      `resolve_attachment` are the *single-link* conveniences, and each one builds the four
+      lookup tables per call. `image::plans_by_row` calls it once per embed line, and it
+      runs on **every editor render** (`editor/render.rs`), so a note with a dozen embeds on
+      a 5k-attachment vault was building 48 hash tables per keystroke. It builds one
+      `LinkResolver` for the note now. `Workspace::follow_link` still uses the convenience —
+      one call per link followed is the right tool there.
+    - **Still open for the graph track:** `graph_changes` folds a watcher burst in by
+      calling `set_note` once per changed note, and `set_note` rebuilds the tables each time
+      — O(changed × entries) on the window's thread. A paste of fifty notes into a 5k vault
+      is fifty table builds. A batch `set_notes(&[(path, text)])` would make it one.
       **LANDED core-side (graph track, same day):** `LinkResolver` in `vault.rs` — the
       resolution rules now live in one table-based place, `Vault::resolve_link`/
       `resolve_attachment` delegate to it, and `GraphIndex::build` builds the notes and

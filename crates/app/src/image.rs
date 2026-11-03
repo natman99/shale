@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use gpui::{px, Pixels, RenderImage};
-use shale_core::vault::VaultEntry;
+use shale_core::vault::{LinkResolver, VaultEntry};
 use shale_core::Vault;
 
 /// The tallest an embedded image may be drawn, however tall the file is. A
@@ -52,10 +52,15 @@ pub(crate) fn plans_by_row(
     vault: &Vault,
     attachments: &[VaultEntry],
 ) -> Vec<Option<ImagePlan>> {
+    // One table build for the whole note. `Vault::resolve_attachment` is the
+    // single-link convenience, and it builds the lookup tables on every call;
+    // this runs on every editor render, so paying per embed line would be
+    // paying per line times the whole attachment list.
+    let resolver = LinkResolver::new(attachments);
     text.split('\n')
         .map(|line| {
             shale_core::markdown::line_image_embed(line).and_then(|embed| {
-                let entry = vault.resolve_attachment(&embed.target, attachments)?;
+                let entry = resolver.resolve_attachment(&embed.target)?;
                 Some(ImagePlan {
                     path: vault.root().join(&entry.path),
                     width: embed.width,
