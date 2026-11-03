@@ -291,11 +291,13 @@ impl Workspace {
         let attachments = vault.list_attachments().unwrap_or_default();
         // The palette comes from `appearance.theme`: a built-in name or a
         // `<vault>/.shale/themes/<name>.toml` file. A theme that cannot be found
-        // or parsed must not stop the editor from starting, so it is reported and
-        // the default palette is used. The name is kept, so the status line can
+        // or parsed must not stop the editor from starting, so it is reported —
+        // in the log *and* in the status bar, because a window that opens in a
+        // palette nobody chose should say why without a log file — and the
+        // default palette is used. The name is kept, so the status line can
         // say what is on screen after a live switch.
         let configured = config.appearance.theme.trim().to_string();
-        let (palette, theme_name) = match theme::palette_for(vault.root(), &configured) {
+        let (palette, theme_name, theme_error) = match theme::palette_for(vault.root(), &configured) {
             Ok(palette) => (
                 palette,
                 if configured.is_empty() {
@@ -303,10 +305,15 @@ impl Workspace {
                 } else {
                     configured
                 },
+                None,
             ),
             Err(err) => {
                 tracing::warn!("could not load the configured theme: {err:#}");
-                (Palette::DEFAULT, Palette::DEFAULT_NAME.to_string())
+                (
+                    Palette::DEFAULT,
+                    Palette::DEFAULT_NAME.to_string(),
+                    Some(err),
+                )
             }
         };
         let palette = Rc::new(palette);
@@ -455,6 +462,13 @@ impl Workspace {
         // Roadmap P2.3: the live channel comes up last, so the first snapshot the
         // server can answer with already knows the note the session restored.
         workspace.start_live(cx);
+        // A theme that failed to load is said here as well as logged: the window
+        // opens in the default palette, and the one thing the user should learn
+        // without opening a log file is *why the theme changed*. It is the last
+        // thing said, so nothing later at startup can bury it.
+        if let Some(err) = theme_error {
+            workspace.say(format!("theme failed: {err:#}"), cx);
+        }
         workspace
     }
 
