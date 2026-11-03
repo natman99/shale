@@ -587,7 +587,7 @@ impl<T: Clone + 'static> Render for Picker<T> {
             .bg(gpui::rgb(palette.ui_bg))
             .child(
                 div()
-                    .text_xs()
+                    .text_size(crate::style::TEXT_XS)
                     .px_2()
                     .pt_1()
                     .text_color(gpui::rgb(palette.ui_dim))
@@ -597,7 +597,7 @@ impl<T: Clone + 'static> Render for Picker<T> {
             .children(rows)
             .child(
                 div()
-                    .text_xs()
+                    .text_size(crate::style::TEXT_XS)
                     .px_2()
                     .py_1()
                     .text_color(gpui::rgb(palette.ui_dim))

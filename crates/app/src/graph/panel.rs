@@ -388,7 +388,7 @@ fn chip(palette: &Palette, label: &'static str, on: bool) -> gpui::Div {
     div()
         .flex_none()
         .px_2()
-        .text_xs()
+        .text_size(crate::style::TEXT_XS)
         .rounded(crate::style::CHIP_RADIUS)
         .border_1()
         .border_color(gpui::rgb(palette.ui_border))

@@ -270,7 +270,7 @@ impl Render for Prompt {
             }))
             .child(
                 div()
-                    .text_xs()
+                    .text_size(crate::style::TEXT_XS)
                     .mb_1()
                     .text_color(gpui::rgb(self.palette.ui_dim))
                     .child(self.label.clone()),

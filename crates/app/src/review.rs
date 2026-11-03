@@ -315,7 +315,7 @@ impl Render for Review {
             .w_full()
             .px(PAD)
             .py(PAD)
-            .text_xs()
+            .text_size(crate::style::TEXT_XS)
             .bg(gpui::rgb(palette.ui_status_bg))
             .text_color(gpui::rgb(palette.ui_fg))
             .child(

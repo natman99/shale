@@ -700,7 +700,7 @@ impl Render for GraphView {
             .child(
                 div()
                     .flex_none()
-                    .text_lg()
+                    .text_size(crate::style::TEXT_LG)
                     .font_weight(gpui::FontWeight::BOLD)
                     // The label is drawn in the colour the graph's own text will use,
                     // so the one thing on screen that is already the graph is painted

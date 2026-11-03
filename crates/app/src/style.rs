@@ -94,6 +94,22 @@ pub(crate) const MOTION_FAST: std::time::Duration = std::time::Duration::from_mi
 #[allow(dead_code)]
 pub(crate) const MOTION_SLOW: std::time::Duration = std::time::Duration::from_millis(240);
 
+/// The chrome's text sizes, as rem steps.
+///
+/// The note's type scale lives with the note: a base size from the config, a
+/// proportional heading scale, one line ratio. The chrome's is these three steps
+/// and no surface picking its own (`design-language.md` §6). They are gpui's
+/// `text_xs`, `text_sm` and `text_lg` spelled out as rems rather than called as
+/// helpers, so that one module holds the number and a density setting (§16) has
+/// one multiplier to reach for instead of eight call sites to find.
+pub(crate) const TEXT_XS: gpui::Rems = gpui::rems(0.75);
+/// A chrome label that is not a row: 0.875 rem, gpui's `text_sm`.
+pub(crate) const TEXT_SM: gpui::Rems = gpui::rems(0.875);
+/// The one large label in the chrome, on the graph's empty canvas: 1.125 rem,
+/// gpui's `text_lg`.
+#[allow(dead_code)]
+pub(crate) const TEXT_LG: gpui::Rems = gpui::rems(1.125);
+
 /// A folder the file tree has closed.
 pub(crate) const GLYPH_COLLAPSED: &str = "▸";
 

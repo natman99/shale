@@ -336,7 +336,7 @@ impl Render for Workspace {
                     .flex()
                     .items_center()
                     .gap(TAB_GAP)
-                    .text_xs()
+                    .text_size(crate::style::TEXT_XS)
                     .bg(gpui::rgb(self.palette.ui_status_bg))
                     .text_color(gpui::rgb(self.palette.ui_dim))
                     .children(tabs),
@@ -408,7 +408,7 @@ impl Render for Workspace {
                                     .on_action(cx.listener(Self::delete_note))
                                     .p_2()
                                     .pt_1()
-                                    .text_sm()
+                                    .text_size(crate::style::TEXT_SM)
                                     .children(rows),
                             ),
                     )
@@ -515,7 +515,7 @@ impl Render for Workspace {
                     .flex()
                     .items_center()
                     .gap_4()
-                    .text_xs()
+                    .text_size(crate::style::TEXT_XS)
                     .bg(gpui::rgb(self.palette.ui_status_bg))
                     .text_color(gpui::rgb(self.palette.ui_fg))
                     .child(format!("{mode}{pending}"))
