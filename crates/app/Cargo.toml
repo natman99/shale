@@ -38,6 +38,10 @@ ashpd = { version = "0.13", default-features = false, features = [
     "async-io",
     "settings",
 ] }
+# The window icon is an `image::RgbaImage` (`identity.rs`), which is the type
+# gpui's `WindowOptions::icon` asks for. `image` is already in the tree through
+# gpui, so this names a crate the build already has rather than adding one.
+image = { version = "0.25", default-features = false }
 
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }

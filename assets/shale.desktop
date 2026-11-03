@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Shale
+GenericName=Markdown editor
+Comment=Write in a vault of linked markdown notes
+Exec=shale /path/to/your/vault
+Icon=shale
+Terminal=false
+Categories=TextEditor;WordProcessor;
+Keywords=markdown;notes;wiki;vault;
+StartupWMClass=shale

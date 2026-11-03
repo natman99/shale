@@ -11,6 +11,7 @@ mod editor;
 mod ex;
 mod field;
 mod graph;
+mod identity;
 mod image;
 mod line;
 mod list;
@@ -116,6 +117,17 @@ fn main() -> Result<()> {
                         title: Some("Shale".into()),
                         ..Default::default()
                     }),
+                    // Filed under its own name rather than under whatever the
+                    // window manager guesses: X11 reads this as WM_CLASS, Wayland
+                    // as the xdg app_id, and `assets/shale.desktop` repeats it in
+                    // StartupWMClass so the desktop can find the entry, and
+                    // through it the mark (§13).
+                    app_id: Some(identity::APP_ID.into()),
+                    // The mark itself, for the one toolkit that takes it from the
+                    // program. A Wayland desktop gets the same mark from the
+                    // `.desktop` entry instead.
+                    #[cfg(target_os = "linux")]
+                    icon: Some(identity::window_icon(64)),
                     window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
                         None,
                         size(px(1200.), px(800.)),

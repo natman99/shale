@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+  <!-- The strata mark: four bedding lines of uneven thickness and uneven inset.
+       These are the same four bars `crates/app/src/identity.rs` rasterises for
+       the window icon, on the same 32-unit grid; the test `the_svg_is_the_same_mark`
+       fails if the two ever drift. -->
+  <rect x="4" y="6" width="24" height="4" fill="#7aa6f0"/>
+  <rect x="7" y="13" width="18" height="3" fill="#7aa6f0"/>
+  <rect x="4" y="19" width="22" height="5" fill="#7aa6f0"/>
+  <rect x="10" y="26" width="12" height="2" fill="#7aa6f0"/>
+</svg>
