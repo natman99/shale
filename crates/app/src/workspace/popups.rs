@@ -67,16 +67,16 @@ impl Workspace {
             return;
         }
         // Preview mode shows no checker at all: its underlines are not drawn, and
-        // every row a panel offers is an edit the view refuses to make.
-        if self.editor().read(cx).view() == View::Preview {
+        // every row a panel offers is an edit the view refuses to make. The graph tab
+        // has no note to ask about, and answers the same way.
+        let Some(handle) = self.editor().cloned() else {
+            return;
+        };
+        if handle.read(cx).view() == View::Preview {
             return;
         }
-        let offset = self
-            .editor()
-            .read_with(cx, |editor, _cx| editor.cursor_offset());
-        let line = self
-            .editor()
-            .read_with(cx, |editor, _cx| editor.display_position().0);
+        let offset = handle.read_with(cx, |editor, _cx| editor.cursor_offset());
+        let line = handle.read_with(cx, |editor, _cx| editor.display_position().0);
         self.open_popup_for(offset, line, false, window, cx);
     }
 
@@ -109,8 +109,10 @@ impl Workspace {
         // pointer brushed a word would be worse than no popup at all. Preview mode
         // is reading: it draws no underlines, so a panel appearing over the word
         // the pointer happens to cross would be a surprise with nothing to offer.
-        if !self.editor().read_with(cx, |editor, _cx| {
-            editor.is_normal_mode() && editor.view() != View::Preview
+        if !self.editor().is_some_and(|editor| {
+            editor.read_with(cx, |editor, _cx| {
+                editor.is_normal_mode() && editor.view() != View::Preview
+            })
         }) {
             return;
         }
@@ -287,7 +289,7 @@ impl Workspace {
         self.popup_fixes.clear();
         let focus = match self.popup_return_focus.take() {
             Some(focus) => focus,
-            None => self.editor().read(cx).focus_handle.clone(),
+            None => self.active_focus(cx),
         };
         window.focus(&focus, cx);
         cx.notify();
@@ -325,9 +327,9 @@ impl Workspace {
         // replacement, and the command is the server remembering it (which is also
         // what makes the new text come back marked clean).
         if !fix.edits.is_empty() {
-            let applied = self
-                .editor()
-                .update(cx, |editor, cx| editor.apply_edits(&fix.edits, cx));
+            let applied = self.editor().is_some_and(|editor| {
+                editor.update(cx, |editor, cx| editor.apply_edits(&fix.edits, cx))
+            });
             self.say(
                 if applied {
                     "applied the checker's fix"
@@ -390,7 +392,8 @@ impl Workspace {
     /// about is a corridor over empty space.
     pub(crate) fn popup_place(&self, window: &Window, cx: &gpui::App) -> Option<PlacedPopup> {
         let anchor = self.popup_anchor?;
-        let (line, size, visible) = self.editor().read_with(cx, |editor, _cx| {
+        let editor = self.editor()?;
+        let (line, size, visible) = editor.read_with(cx, |editor, _cx| {
             (
                 editor.hit_line_bounds(anchor),
                 editor.font_size(),

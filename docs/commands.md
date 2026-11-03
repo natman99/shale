@@ -53,6 +53,7 @@ as you would type it.
 | `tab.close` | Close this tab, writing its note first | `the tab's ×` | `:tabclose`, `:tabc` | — |
 | `tab.only` | Close every tab but this one | — | `:tabonly`, `:tabo` | — |
 | `tab.move` | Move this tab to a position | — | `:tabmove <n>` | `<n>` |
+| `graph.open` | Show the vault's link graph | `space g` | `:graph`, `:g` | — |
 
 The palette does not list `app.quit-force`, `note.write-quit`, `review.next`, `review.prev`, `review.accept`, `review.reject`, `review.open-note`, `review.collapse`, `tab.next`, `tab.prev`, `tab.only`, `tab.move`: `note.write-quit` is save and then quit, two
 actions rather than one, `app.quit-force` is the exit that throws unsaved

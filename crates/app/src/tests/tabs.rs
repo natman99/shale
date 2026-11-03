@@ -363,12 +363,14 @@ fn a_session_reopens_every_tab(cx: &mut TestAppContext) {
         jumps_forward: vec![],
         tabs: vec![
             Tab {
-                path: PathBuf::from("a.md"),
+                path: Some(PathBuf::from("a.md")),
                 view: "live".into(),
+                graph: false,
             },
             Tab {
-                path: PathBuf::from("b.md"),
+                path: Some(PathBuf::from("b.md")),
                 view: "preview".into(),
+                graph: false,
             },
         ],
         active_tab: Some(1),
@@ -419,12 +421,14 @@ fn a_session_tab_whose_note_is_gone_is_dropped(cx: &mut TestAppContext) {
         jumps_forward: vec![],
         tabs: vec![
             Tab {
-                path: PathBuf::from("gone.md"),
+                path: Some(PathBuf::from("gone.md")),
                 view: "live".into(),
+                graph: false,
             },
             Tab {
-                path: PathBuf::from("a.md"),
+                path: Some(PathBuf::from("a.md")),
                 view: "live".into(),
+                graph: false,
             },
         ],
         active_tab: Some(0),

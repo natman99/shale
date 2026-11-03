@@ -86,7 +86,7 @@ fn a_session_reopens_the_vault_where_the_user_left_it(cx: &mut TestAppContext) {
 
     let (cursor, view, focus, scope, typewriter) = window
         .update(cx, |ws, _window, cx| {
-            ws.editor().read_with(cx, |editor, _cx| {
+            ws.editor().unwrap().read_with(cx, |editor, _cx| {
                 (
                     editor.cursor_offset(),
                     editor.view(),

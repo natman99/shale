@@ -321,6 +321,7 @@ fn the_panel_follows_its_line(cx: &mut TestAppContext) {
     window
         .update(cx, |ws, _window, cx| {
             ws.editor()
+                .unwrap()
                 .update(cx, |editor, cx| editor.reveal_line(119, cx))
         })
         .unwrap();

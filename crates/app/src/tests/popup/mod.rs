@@ -97,7 +97,9 @@ fn offers(cx: &mut VisualTestContext, window: &WindowHandle<Workspace>) -> Vec<S
 fn text(cx: &mut VisualTestContext, window: &WindowHandle<Workspace>) -> String {
     window
         .update(cx, |ws, _window, cx| {
-            ws.editor().read_with(cx, |editor, _cx| editor.text())
+            ws.editor()
+                .unwrap()
+                .read_with(cx, |editor, _cx| editor.text())
         })
         .unwrap()
 }
@@ -111,7 +113,7 @@ fn line_box(
 ) -> (gpui::Pixels, gpui::Pixels, gpui::Pixels) {
     window
         .update(cx, |ws, _window, cx| {
-            ws.editor().read_with(cx, |editor, _cx| {
+            ws.editor().unwrap().read_with(cx, |editor, _cx| {
                 let (left, _right) = editor.hit_line_x(line).unwrap();
                 let (top, bottom) = editor.hit_line_edges(line).unwrap();
                 (left, top, bottom)
@@ -131,6 +133,7 @@ fn x_over(
     left + window
         .update(cx, |ws, _window, cx| {
             ws.editor()
+                .unwrap()
                 .read_with(cx, |editor, _cx| editor.x_for_offset(line, offset))
         })
         .unwrap()
@@ -165,7 +168,11 @@ fn panel_bottom(cx: &mut VisualTestContext, window: &WindowHandle<Workspace>) ->
 fn note_has_keys(cx: &mut VisualTestContext, window: &WindowHandle<Workspace>) -> bool {
     window
         .update(cx, |ws, window, cx| {
-            ws.editor().read(cx).focus_handle.is_focused(window)
+            ws.editor()
+                .unwrap()
+                .read(cx)
+                .focus_handle
+                .is_focused(window)
         })
         .unwrap()
 }
@@ -188,7 +195,9 @@ fn panel_height(cx: &mut VisualTestContext, window: &WindowHandle<Workspace>) ->
 fn text_size(cx: &mut VisualTestContext, window: &WindowHandle<Workspace>) -> f32 {
     window
         .update(cx, |ws, _window, cx| {
-            ws.editor().read_with(cx, |editor, _cx| editor.font_size())
+            ws.editor()
+                .unwrap()
+                .read_with(cx, |editor, _cx| editor.font_size())
         })
         .unwrap()
 }

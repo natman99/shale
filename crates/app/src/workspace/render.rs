@@ -108,43 +108,67 @@ impl Render for Workspace {
             window.defer(cx, move |window, cx| focus.focus(window, cx));
         }
 
-        let mode = mode_label(self.editor().read(cx).mode());
-        let dirty = save_indicator(self.editor().read(cx).is_dirty());
-        let pending = self.editor().read(cx).pending_hint();
-        let (line, col) = self.editor().read(cx).display_position();
-        // Which of the three views the note is in, for the badge below. All three
-        // are named, so the slot does not appear and disappear as the user moves
+        // The status bar's note segments. With the graph tab on screen there is no
+        // buffer to report a mode, a save dot, a cursor or a word count for, so each is
+        // empty rather than a stale number from a note that is not drawn. The view
+        // badge is the one segment that changes, and it says what *is* on screen.
+        let editor = self.editor().cloned();
+        let mode = editor
+            .as_ref()
+            .map(|editor| mode_label(editor.read(cx).mode()))
+            .unwrap_or("");
+        let dirty = editor
+            .as_ref()
+            .map(|editor| save_indicator(editor.read(cx).is_dirty()))
+            .unwrap_or("");
+        let pending = editor
+            .as_ref()
+            .map(|editor| editor.read(cx).pending_hint())
+            .unwrap_or_default();
+        let (line, col) = editor
+            .as_ref()
+            .map(|editor| editor.read(cx).display_position())
+            .unwrap_or((0, 0));
+        // Which of the three views the note is in, or `None` for the graph tab. All
+        // three are named, so the slot does not appear and disappear as the user moves
         // between them; the default one is drawn quiet, because a badge for the
         // state the note is nearly always in should not compete with the two that
         // mean something is different.
-        let view = self.editor().read(cx).view();
+        let view = editor.as_ref().map(|editor| editor.read(cx).view());
         // Focus mode gets a badge only while it is on, and names its scope with
         // it, because "dimmed" and "dimmed to the whole section" are different
         // things to see. Unlike the view badge this slot comes and goes: a mode
         // that is nearly always off would only add a word to every status line.
-        let focus = if self.editor().read(cx).focus_mode() {
-            format!("focus {}", self.editor().read(cx).focus_scope().word())
-        } else {
-            String::new()
+        let focus = match &editor {
+            Some(editor) if editor.read(cx).focus_mode() => {
+                format!("focus {}", editor.read(cx).focus_scope().word())
+            }
+            _ => String::new(),
         };
         // The checker's count, so "no underlines" can be told apart from "the
         // checker has not answered yet". Preview draws no underlines at all, so it
-        // has nothing to count either.
-        let spell = if view == View::Preview {
-            String::new()
-        } else {
-            match self.checker_notes.len() {
+        // has nothing to count either, and the graph tab has no note to check.
+        let spell = match &editor {
+            Some(editor) if editor.read(cx).view() == View::Preview => String::new(),
+            Some(_) => match self.checker_notes.len() {
                 0 => String::new(),
                 1 => "1 spellcheck note".into(),
                 n => format!("{n} spellcheck notes"),
-            }
+            },
+            None => String::new(),
         };
         // Which match of how many the cursor is on, while a `/` search is up.
         let search = self.search_label();
         // The open note's own word count, live from the buffer. It is state, not a
         // message: it is true for exactly as long as it is shown, and it moves with
         // the typing rather than a save later.
-        let words = word_badge(self.note().is_some(), self.editor().read(cx).word_count());
+        let words = word_badge(
+            self.note().is_some(),
+            editor
+                .as_ref()
+                .map(|editor| editor.read(cx).word_count())
+                .unwrap_or(0),
+        );
 
         // The tab bar's rows. Built here rather than in a widget of its own because a
         // tab is not a thing that can be drawn without the window: clicking one moves
@@ -154,16 +178,21 @@ impl Render for Workspace {
             .into_iter()
             .enumerate()
             .map(|(index, tab)| {
-                let label = tab
-                    .path
-                    .as_ref()
-                    .map(|path| {
-                        path.file_stem()
-                            .unwrap_or_default()
-                            .to_string_lossy()
-                            .to_string()
-                    })
-                    .unwrap_or_else(|| "no note".to_string());
+                let label = if tab.graph {
+                    // The graph tab has no file name to show, and "graph" is what the
+                    // tab is: the same word the status bar's badge uses.
+                    "graph".to_string()
+                } else {
+                    tab.path
+                        .as_ref()
+                        .map(|path| {
+                            path.file_stem()
+                                .unwrap_or_default()
+                                .to_string_lossy()
+                                .to_string()
+                        })
+                        .unwrap_or_else(|| "no note".to_string())
+                };
                 let entity = cx.entity().clone();
                 let close = cx.entity().clone();
                 let id = tab.id;
@@ -276,6 +305,10 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::review_reject))
             .on_action(cx.listener(Self::review_open_note))
             .on_action(cx.listener(Self::review_collapse))
+            // The graph tab (roadmap P3.4). Handled on the window rather than on the
+            // view because the command is reachable from the note's `space g` chord,
+            // the palette and the command line as well as from the graph itself.
+            .on_action(cx.listener(Self::show_graph))
             // Clicking off the picker or the command line closes it. Both float over
             // the note, and a click under them used to belong to nothing at all, so
             // they simply stayed up until `escape`. A click inside a panel never
@@ -406,7 +439,16 @@ impl Render for Workspace {
                                     this.pointer_moved(event.position, window, cx);
                                 },
                             ))
-                            .child(div().flex_1().min_h_0().child(self.editor().clone()))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_h_0()
+                                    .when_some(self.editor().cloned(), |d, editor| d.child(editor))
+                                    // The graph tab's view takes the same slot. Only
+                                    // one of the two is ever present, because a tab is
+                                    // one or the other.
+                                    .when_some(self.graph_view().cloned(), |d, view| d.child(view)),
+                            )
                             // A picker *overlays* the note rather than pushing it
                             // down: it is painted after the text, so opening one does
                             // not re-wrap every line underneath. Like the prompt it is
@@ -478,15 +520,21 @@ impl Render for Workspace {
                     // or `:live` is how the user gets back. Live is the resting state,
                     // so it is drawn in the chrome's quiet colour rather than the
                     // accent, which is reserved for the two views that change what the
-                    // note will do.
+                    // note will do. The graph tab has no view, so the same slot names
+                    // what is on screen instead — in the quiet colour, because the
+                    // graph is the resting state of the tab it is on.
                     .child(
                         div()
-                            .text_color(gpui::rgb(if view == View::Live {
-                                self.palette.ui_dim
-                            } else {
-                                self.palette.accent
+                            .text_color(gpui::rgb(match view {
+                                Some(View::Raw) | Some(View::Preview) => self.palette.accent,
+                                // Live is the resting state, and the graph tab has no
+                                // view at all: neither is news, so neither is accented.
+                                _ => self.palette.ui_dim,
                             }))
-                            .child(view.word().to_string()),
+                            .child(match view {
+                                Some(view) => view.word().to_string(),
+                                None => "graph".to_string(),
+                            }),
                     )
                     .when(!focus.is_empty(), |d| {
                         d.child(

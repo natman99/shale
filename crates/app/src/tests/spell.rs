@@ -4,6 +4,7 @@
 //! editor and the window around it.
 
 use super::*;
+use crate::acts::FocusEditor;
 
 /// A checker that is not installed is a missing feature, not a broken editor:
 /// the window opens, the note opens, it paints, and nothing is underlined.
@@ -39,7 +40,9 @@ fn a_missing_checker_leaves_the_editor_alone(cx: &mut TestAppContext) {
             (
                 ws.has_checker(),
                 ws.spell_note_count(),
-                ws.editor().read_with(cx, |editor, _cx| editor.text()),
+                ws.editor()
+                    .unwrap()
+                    .read_with(cx, |editor, _cx| editor.text()),
             )
         })
         .unwrap();

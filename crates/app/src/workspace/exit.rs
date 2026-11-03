@@ -134,8 +134,11 @@ impl Workspace {
         // findable in the log afterwards, and with tabs open it can be more than one
         // note being thrown away.
         for tab in self.tabs.iter() {
-            if let Some(path) = tab.path.as_ref() {
-                if tab.editor.read_with(cx, |editor, _cx| editor.is_dirty()) {
+            if let Some(path) = tab.path() {
+                if tab
+                    .editor()
+                    .is_some_and(|editor| editor.read_with(cx, |editor, _cx| editor.is_dirty()))
+                {
                     tracing::warn!(path = %path.display(), "quit discarded unsaved edits");
                 }
             }

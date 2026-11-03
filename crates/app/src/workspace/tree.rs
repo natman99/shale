@@ -9,8 +9,8 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use gpui::{
-    div, prelude::*, px, Context, Focusable, InteractiveElement, ParentElement,
-    StatefulInteractiveElement, Styled, Window,
+    div, prelude::*, px, Context, InteractiveElement, ParentElement, StatefulInteractiveElement,
+    Styled, Window,
 };
 use shale_core::theme::Palette;
 
@@ -203,13 +203,22 @@ impl Workspace {
     }
 
     /// Hand the keyboard back to the note.
+    ///
+    /// With the graph tab on screen that means moving the frame back to the note tab
+    /// the user was last on: the keyboard cannot be handed to an editor that is not
+    /// drawn, and `escape` out of the graph is the same request as `ctrl-w l`.
     pub(crate) fn focus_editor(
         &mut self,
         _: &FocusEditor,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let focus = self.editor().read(cx).focus_handle(cx);
+        if self.tabs[self.tab].is_graph() {
+            if let Some(index) = self.note_mru.and_then(|id| self.tab_for_id(id)) {
+                self.show_tab(index, cx);
+            }
+        }
+        let focus = self.active_focus(cx);
         window.focus(&focus, cx);
         cx.notify();
     }

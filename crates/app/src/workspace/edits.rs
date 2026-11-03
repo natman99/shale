@@ -16,6 +16,7 @@ use crate::ex;
 use crate::prompt;
 
 use super::note_keys;
+use super::tabs::TabContent;
 use super::Workspace;
 
 impl Workspace {
@@ -29,8 +30,9 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let family = self.editor().read(cx).font_family();
-        let size = self.editor().read(cx).font_size();
+        // The field is drawn in the note's font so a typed name looks like the text it
+        // will become.
+        let (family, size) = self.note_font(cx);
         let palette = Rc::clone(&self.palette);
         let prompt =
             cx.new(|cx| prompt::Prompt::new(kind, label, initial, palette, family, size, cx));
@@ -79,7 +81,7 @@ impl Workspace {
         self.prompt = None;
         let focus = match self.prompt_return_focus.take() {
             Some(focus) => focus,
-            None => self.editor().read(cx).focus_handle(cx),
+            None => self.active_focus(cx),
         };
         window.focus(&focus, cx);
         cx.notify();
@@ -193,7 +195,8 @@ impl Workspace {
             | ex::Ex::TabNext
             | ex::Ex::TabPrev
             | ex::Ex::TabClose
-            | ex::Ex::TabOnly => {
+            | ex::Ex::TabOnly
+            | ex::Ex::Graph => {
                 unreachable!("a command with no argument is dispatched by id")
             }
         }
@@ -208,7 +211,12 @@ impl Workspace {
     /// no command at all: the editor mirrors its register to the clipboard (see
     /// `mirror_register`); this is the copy that *reports*.
     pub(crate) fn copy_text(&mut self, _: &CopyText, _window: &mut Window, cx: &mut Context<Self>) {
-        match self.editor().read(cx).clipboard_candidate() {
+        let Some(editor) = self.editor().cloned() else {
+            self.say("no note open", cx);
+            cx.notify();
+            return;
+        };
+        match editor.read(cx).clipboard_candidate() {
             Some(text) => {
                 let chars = text.chars().count();
                 cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
@@ -266,12 +274,21 @@ impl Workspace {
                 // would ever notice them.
                 self.index_renamed(&from, &renamed);
                 self.index_rewrites(&report.written);
+                // The graph moves with the file: the old path is gone, and the new one
+                // has to be re-scanned for the links inside it.
+                self.graph_note_removed(&from);
+                if let Ok(text) = self.vault.read(&renamed) {
+                    self.graph_note_saved(&renamed, &text);
+                }
+                self.refresh_graph(cx);
                 // Every tab that was showing the old name now shows the new one.
                 // More than one can be, which is what a tab holding a note while
                 // another tab holds the same note looks like from here.
                 for tab in self.tabs.iter_mut() {
-                    if tab.path.as_deref() == Some(from.as_path()) {
-                        tab.path = Some(renamed.clone());
+                    if let TabContent::Note { path, .. } = &mut tab.content {
+                        if path.as_deref() == Some(from.as_path()) {
+                            *path = Some(renamed.clone());
+                        }
                     }
                 }
                 // The jump chain named the old path, and a chain that points at a
@@ -299,7 +316,7 @@ impl Workspace {
                 // gone, and a tab holding a note that no longer exists is a lie.
                 let mut cleared = false;
                 for index in 0..self.tabs.len() {
-                    if self.tabs[index].path.as_deref() == Some(target.as_path()) {
+                    if self.tabs[index].path() == Some(target.as_path()) {
                         self.clear_tab(index, cx);
                         cleared = true;
                     }
@@ -312,6 +329,8 @@ impl Workspace {
                 // And every jump that named it.
                 self.jumps.forget(&target);
                 self.index_deleted(&target);
+                self.graph_note_removed(&target);
+                self.refresh_graph(cx);
                 self.tree_selection = None;
                 self.refresh_entries(cx);
                 self.say(format!("deleted {}", target.display()), cx);
@@ -347,7 +366,9 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> Result<RewriteReport> {
         let open = self.note();
-        let dirty = self.editor().read_with(cx, |editor, _cx| editor.is_dirty());
+        let dirty = self
+            .editor()
+            .is_some_and(|editor| editor.read_with(cx, |editor, _cx| editor.is_dirty()));
         let mut report = RewriteReport::default();
         for rewrite in rewrites {
             // The renamed note is the one file that has already moved.
@@ -368,8 +389,9 @@ impl Workspace {
             report.written.push(path.clone());
             if is_open {
                 let text = rewrite.text.clone();
-                self.editor()
-                    .update(cx, |editor, cx| editor.set_text(text.clone(), cx));
+                if let Some(editor) = self.editor().cloned() {
+                    editor.update(cx, |editor, cx| editor.set_text(text.clone(), cx));
+                }
                 // The checker's document moved with the note: its URI is the
                 // note's path, so the old one is dropped and the new one opened
                 // with what the buffer now holds.
@@ -394,7 +416,10 @@ impl Workspace {
         // tab comes forward. The two fields are kept on the window for the same
         // reason, so a tab opened later starts with what is on disk now.
         for tab in self.tabs.iter() {
-            tab.editor.update(cx, |editor, cx| {
+            let Some(editor) = tab.editor() else {
+                continue;
+            };
+            editor.update(cx, |editor, cx| {
                 editor.set_known_links(self.known.clone(), cx);
                 editor.set_vault(Rc::clone(&vault), self.attachments.clone(), cx);
             });

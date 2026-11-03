@@ -134,6 +134,10 @@ pub enum Outcome {
     TabNext,
     /// `g T` was typed: the previous tab.
     TabPrev,
+    /// `space g` was typed: the UI should show the vault's link graph (roadmap P3.4).
+    /// A request rather than an edit, like the other leader chords: the engine has a
+    /// buffer, and a buffer does not know that the notes link to each other.
+    OpenGraph,
 }
 
 /// The unnamed register, holding the last yank or delete.
@@ -331,6 +335,9 @@ impl Vim {
             // `d` because the mode is the note going quiet, and because every
             // letter the view chords did not take is worth spending once.
             (true, Key::Char('d')) => Some(Outcome::ToggleFocus),
+            // The vault's graph. `g` is the letter the word "graph" starts with, and
+            // the only leader letter left that no view or clipboard chord has taken.
+            (true, Key::Char('g')) => Some(Outcome::OpenGraph),
             _ => None,
         };
         if let Some(outcome) = chord.filter(|_| !self.mode.is_visual()) {

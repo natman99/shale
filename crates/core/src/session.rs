@@ -40,10 +40,24 @@ pub struct Jump {
 /// read another in preview is the whole point of having both.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Tab {
-    /// Vault-relative path of the note the tab holds.
-    pub path: PathBuf,
-    /// Which of the three views that tab was in: `raw`, `live` or `preview`.
+    /// Vault-relative path of the note the tab holds. `None` for a tab that holds no
+    /// note — the graph tab (roadmap P3.4). Optional rather than an empty path so a
+    /// session file written before a tab could hold anything else still restores
+    /// exactly as it did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<PathBuf>,
+    /// Which of the three views that tab was in: `raw`, `live` or `preview`. Empty for
+    /// a tab that has no note to be in a view.
     pub view: String,
+    /// Whether this tab is the vault's graph. At most one tab in a window is, and its
+    /// [`Self::path`] is `None`.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub graph: bool,
+}
+
+/// serde: a flag that is `false` is the default, so it does not belong in the file.
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 /// What the next window should look like.
@@ -139,12 +153,14 @@ mod tests {
             jumps_forward: vec![],
             tabs: vec![
                 Tab {
-                    path: PathBuf::from("Welcome.md"),
+                    path: Some(PathBuf::from("Welcome.md")),
                     view: "live".into(),
+                    graph: false,
                 },
                 Tab {
-                    path: PathBuf::from("notes/idea.md"),
+                    path: Some(PathBuf::from("notes/idea.md")),
                     view: "raw".into(),
+                    graph: false,
                 },
             ],
             active_tab: Some(1),

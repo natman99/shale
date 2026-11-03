@@ -17,6 +17,7 @@ mod blocks;
 mod commands;
 mod exit;
 mod focus;
+mod graph;
 mod index;
 mod jumps;
 mod keys;
@@ -111,7 +112,7 @@ fn open_window(cx: &mut TestAppContext, dir: &Path, config: Config) -> WindowHan
             // The same call `main` makes, so the tests see the window the live app
             // has, hover included.
             ws.attach_window(window, cx);
-            ws.focus_editor(&FocusEditor, window, cx);
+            ws.focus_active_tab(window, cx);
         })
         .unwrap();
     window

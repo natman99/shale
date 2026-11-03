@@ -158,6 +158,71 @@ pub fn apply(index: &GraphIndex, f: &GraphFilter) -> Vec<bool>
 
 Commit after each task (`feat(core): graph index`, etc.).
 
+## M1b integration contract (ruled 2026-11-02, before a line of app code)
+
+The roadmap's gate: *"Before M1b touches workspace state (tabs, jump chain, theme,
+idle flag), write a short contract doc."* These are the rulings; the product questions
+above were already settled, and none of them is reopened here.
+
+**Tab kind.** `Tab.content` is an enum — `TabContent::Note { path, editor }` or
+`TabContent::Graph(Entity<GraphView>)`. `Workspace::editor()` becomes **optional**, and
+that is the point: with a graph tab on screen the checker, `/` search, the dirty dot,
+the word badge and the review strip genuinely have nothing to act on, and `Option`
+says so instead of a hidden empty editor pretending otherwise. **One graph tab per
+window** — each one is a simulation, and a second view of the same vault wants the
+same positions, not its own physics. `:graph` / `graph.open` on a window that already
+has one moves the frame to it.
+
+**Opening a note while the graph is on screen.** "Fill the current tab" cannot apply to
+a graph tab. The rule: switch to the tab that already holds the note; otherwise use the
+**most recently used note tab** (tracked by tab id, updated on every frame change);
+otherwise add a note tab. The graph tab is never converted into a note tab.
+
+**One graph per window, many views.** `Workspace::graph` holds the `GraphIndex` and the
+`Sim<2>` plus the latest positions. A `GraphView` is a **camera over that**: pan, zoom,
+hover, selection, filter bitmask, spatial grid. This is what lets M5j's minimap and a
+local-graph view appear later without a second simulation of the same vault.
+
+**Index lifecycle.** Build once when the graph is first needed, then keep it current
+incrementally through `GraphIndex::set_note` / `remove_note`, driven by the
+`VaultChanges` the window already computes in `apply_disk_changes`. `GraphIndex::build`
+reads every note from disk, so a rebuild on every keystroke is off the table.
+**DB-backed edge extraction is deferred**: the DB's `links` table (with `target_kind`
+and `first_seen_at`) is the right source eventually — it also feeds link-age and the
+heatmap — but the incremental path removes the cost that motivated moving, and doing
+both at once would blur which change fixed what.
+
+**Session, not config.** Camera, zoom and filter live in the graph tab's entry in
+`session.json`, next to the per-tab view. Losing them is a shrug; losing a theme or an
+autosave setting is not. **No `[graph]` config section in M1b** — which also defers the
+question of splicing a new TOML *table* rather than a line.
+
+**Idle.** One shared `window_active` flag on the workspace (the activation observer
+already exists for autosave-on-blur). Deactivate: stop shipping positions to the UI and
+freeze any render-only clock. Settle: the sim sleeps and nothing notifies. With drift
+off (M5g, not built) and the sim settled, **zero frames**. Verified the way the plan
+says: `FrameLoop::Parked` in the Wayland logs and `pidstat` on the process, plus the
+user eyeballing it for motion.
+
+**Input.** A `graph` keymap context on the view's own focus handle, so the graph's keys
+can never collide with vim normal mode. Clicking the canvas takes the keyboard;
+`escape` hands it back to the note. Doors: `:graph`, the palette row, and `space g` —
+resolved **inside the vim engine**, not as a two-stroke keymap chord (the `]a`/`[a`
+lesson: a chord holds its first key as pending input). **Right-click context menu is
+deferred**: the window has one popup slot and the checker owns it, and "only one popup,
+no stacking" is a rule, not an accident.
+
+**Testing.** The view exposes a synchronous `advance(ticks)`; tests drive the layout
+with it and never depend on a thread. The headless assertions the plan names — the frame
+paints, `painted_quads()` counts the visible nodes, toggling orphans removes the degree-0
+quads — run against a fixture vault.
+
+**Ownership.** `crates/core/src/graph/**` and `PROGRESS.md` stay the graph agent's.
+`crates/app/src/graph/**` and everything else are this agent's. A core change is a
+request, not an edit: it goes in PROJECT.md with the reason, and the user decides.
+
+---
+
 ## Milestone M1b — app: the graph tab (after tabs land)
 
 New module `crates/app/src/graph/` (`mod.rs` — the `GraphView` entity; `render.rs` — canvas painting; `interactions.rs` — mouse/keyboard; `panel.rs` — filter popover). Wire into the tab host in `workspace/` as a tab kind alongside file tabs; command `graph:open` in `workspace/commands.rs`; ribbon button.
@@ -165,6 +230,22 @@ New module `crates/app/src/graph/` (`mod.rs` — the `GraphView` entity; `render
 ### Task 5: `GraphView` entity + tab wiring
 
 `GraphView` holds: `GraphIndex` handle (rebuilt on vault edits via the existing watch path), `Sim`, camera `{ pan: Point, zoom: f32 }`, hover/selection, filter bitmask, spatial grid. Owns the sim thread: spawn on first open (`cx.background_spawn`), stream positions back, `cx.notify()` per batch; stop when the tab closes. Re-heat on edit/filter/drag.
+
+**Landed 2026-11-02, with three deliberate departures.** (1) The index is *not*
+inside the view: `Workspace.graph` owns the one `GraphIndex` and feeds it from
+`apply_disk_changes`, because the window already computes a `VaultChanges` list and a
+view that owns the index would rebuild it per tab. (2) No sim thread yet — the view is
+a shell (focus handle, palette, `GraphSummary`) with no `Sim` and no camera, so the
+synchronous `advance(ticks)` the contract asks for arrives with Task 6, where the
+positions exist. Streaming batches from a thread before there is anything to paint
+would be a thread with no purpose. (3) The counts row is the only content: notes,
+ghosts, tags, links, so the tab is visibly alive before it is a canvas.
+
+What the tab wiring actually cost: `Workspace::editor()` became `Option` and every
+call site (about 80) had to say what it means when there is no note ("no note open" in the bar for
+note-only commands, empty segments in the status bar, `view: "graph"` over MCP). That
+is the contract's point — a graph tab genuinely has nothing for the checker, `/`, the
+dirty dot or the word badge to act on.
 
 ### Task 6: Canvas painting
 

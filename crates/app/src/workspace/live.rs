@@ -101,18 +101,45 @@ impl Workspace {
         let Some(shared) = &self.live_snapshot else {
             return;
         };
-        let editor = self.editor().read(cx);
-        let (row, col) = editor.cursor_position();
         let (back, forward) = self.jumps.snapshot();
+        // The graph tab has no buffer, so the snapshot says what is on screen and
+        // leaves the cursor fields at their nothing rather than repeating the last
+        // note's. An agent reading `view: "graph"` knows why they are empty.
+        let (note, dirty, view, mode, row, col, byte, selection) = match self.editor() {
+            Some(handle) => {
+                let editor = handle.read(cx);
+                let (row, col) = editor.cursor_position();
+                (
+                    self.note().as_ref().map(|path| path.display().to_string()),
+                    editor.is_dirty(),
+                    editor.view().word().to_string(),
+                    mode_word(editor.mode()).to_string(),
+                    row,
+                    col,
+                    editor.cursor_offset(),
+                    editor.selection(),
+                )
+            }
+            None => (
+                None,
+                false,
+                "graph".to_string(),
+                String::new(),
+                0,
+                0,
+                0,
+                None,
+            ),
+        };
         let snapshot = Snapshot {
-            note: self.note().as_ref().map(|path| path.display().to_string()),
-            dirty: editor.is_dirty(),
-            view: editor.view().word().to_string(),
-            mode: mode_word(editor.mode()).to_string(),
+            note,
+            dirty,
+            view,
+            mode,
             row,
             col,
-            byte: editor.cursor_offset(),
-            selection: editor.selection(),
+            byte,
+            selection,
             back: back
                 .into_iter()
                 .map(|jump| jump.path.display().to_string())

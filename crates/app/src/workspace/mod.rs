@@ -3,11 +3,13 @@
 //!
 //! Split into `keys.rs` (the keymap), `tree.rs` (the sidebar's keyboard state and
 //! the rows it draws), `edits.rs` (the prompt and the vault edits behind its
-//! answers) and `render.rs` (the frame). All four are descendants of `workspace`,
-//! so they reach `Workspace`'s private state directly; anything one of them calls
-//! on another is `pub(super)`.
+//! answers), `checker.rs` (the window's half of the spellchecker) and `render.rs`
+//! (the frame). All of them are descendants of `workspace`, so they reach
+//! `Workspace`'s private state directly; anything one of them calls on another is
+//! `pub(super)`.
 
 mod bar;
+mod checker;
 mod edits;
 mod exit;
 mod index;
@@ -32,7 +34,7 @@ pub(crate) use keys::keybindings;
 pub(crate) use open::PickerTarget;
 
 use std::collections::{BTreeMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -46,9 +48,10 @@ use shale_core::{Config, Vault};
 
 use crate::acts::*;
 use crate::editor::EditorEvent;
-use crate::lsp::{absolute, Diagnostic, Fix, Spell};
+use crate::lsp::{Diagnostic, Fix, Spell};
 use crate::picker;
 use crate::prompt;
+use tabs::TabContent;
 
 /// The whole window's state: what is open, what the sidebar shows, and the editor
 /// that holds the note.
@@ -114,6 +117,14 @@ pub(crate) struct Workspace {
     /// The files that are not notes, for the same reason: `![[image.png]]` resolves
     /// against these.
     attachments: Vec<VaultEntry>,
+    /// The vault's link graph, built the first time the graph tab is opened and kept
+    /// current from then on (see [`crate::graph`] and `graph-view-plan.md`).
+    ///
+    /// `None` means the graph has never been asked for: building it reads every note,
+    /// so a window that never opens the tab never pays for it. **One per window** — the
+    /// graph tab is a view over this, not a second copy of it, which is what lets a
+    /// minimap or a local-graph view appear later without a second simulation.
+    graph: Option<shale_core::graph::GraphIndex>,
     expanded: HashSet<PathBuf>,
     /// The open tabs, left to right on the tab bar. **Never empty**: closing the last
     /// one clears it rather than removing it, which is what a window over an empty
@@ -122,6 +133,10 @@ pub(crate) struct Workspace {
     /// Which tab is on screen: the note, the keyboard, the checker's answers and the
     /// status bar's numbers all mean "this tab".
     tab: usize,
+    /// The id of the note tab the frame was last on. Only the graph tab has no note to
+    /// open into, and this is what decides where a note goes instead of it (see
+    /// [`Workspace::note_tab`]).
+    note_mru: Option<usize>,
     /// The next tab id. Monotonic, because a tab's *index* moves when another tab
     /// closes and its editor's subscription needs an identity that does not.
     tab_seq: usize,
@@ -339,12 +354,16 @@ impl Workspace {
             dirs,
             known: every_name,
             attachments,
+            // Not built at startup: the graph reads every note, and most windows never
+            // ask for it (see [`Workspace::open_graph`]).
+            graph: None,
             expanded,
             // The window starts with no tabs and gets its first one below, which is
             // the same door `ctrl-t` uses: one place decides what a new tab's editor
             // is wired up with.
             tabs: Vec::new(),
             tab: 0,
+            note_mru: None,
             tab_seq: 0,
             tree_focus: cx.focus_handle(),
             tree_selection: None,
@@ -466,7 +485,14 @@ impl Workspace {
     /// the frame, and the frame itself schedules the rehook, because this is the
     /// subscription that needs a window: opening a popup is a focus change.
     pub(super) fn watch_hover(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let editor = self.tabs[self.tab].editor.clone();
+        // The graph tab has no note to hover, so its subscription is simply dropped:
+        // leaving the previous tab's in place would let a panel open for a note that is
+        // no longer on screen.
+        let Some(editor) = self.tabs[self.tab].editor().cloned() else {
+            self._hover_events = None;
+            self.hover_stale = false;
+            return;
+        };
         self._hover_events = Some(cx.subscribe_in(
             &editor,
             window,
@@ -543,14 +569,19 @@ impl Workspace {
         // The same for a search: its matches are offsets into the note that is
         // closing.
         self.clear_search(cx);
+        // The graph tab is never turned into a note tab, so a note opened while the
+        // graph is on screen moves the frame first (see [`Workspace::note_tab`]).
+        let index = self.note_tab(cx);
         match self.vault.read(path) {
             Ok(text) => {
                 tracing::debug!(path = %path.display(), bytes = text.len(), "opened note");
-                let index = self.tab;
-                self.tabs[index].path = Some(path.clone());
-                self.tabs[index]
-                    .editor
-                    .update(cx, |editor, cx| editor.set_text(text.clone(), cx));
+                if let TabContent::Note {
+                    path: slot, editor, ..
+                } = &mut self.tabs[index].content
+                {
+                    *slot = Some(path.clone());
+                    editor.update(cx, |editor, cx| editor.set_text(text.clone(), cx));
+                }
                 self.checker_opened(path, &text, cx);
                 self.say(path.display().to_string(), cx);
                 true
@@ -570,9 +601,11 @@ impl Workspace {
         self.open_note(path, cx);
         // Only if the note really opened — a read error leaves the tab alone.
         if self.note().as_deref() == Some(path.as_path()) {
-            self.editor().update(cx, |editor, cx| {
-                editor.reveal_line(line.saturating_sub(1), cx)
-            });
+            if let Some(editor) = self.editor().cloned() {
+                editor.update(cx, |editor, cx| {
+                    editor.reveal_line(line.saturating_sub(1), cx)
+                });
+            }
         }
     }
 
@@ -603,121 +636,6 @@ impl Workspace {
         }
     }
 
-    // ----- spell and grammar checking ------------------------------------
-
-    /// Tell the checker which note the editor now holds. It keeps one document
-    /// open at a time, so this replaces whatever it was last looking at. The path
-    /// is vault-relative here and absolute by the time it becomes a URI, which is
-    /// what the server matches its answers back to.
-    fn checker_opened(&mut self, path: &Path, text: &str, cx: &mut Context<Self>) {
-        let Some(spell) = self.spell.clone() else {
-            return;
-        };
-        let path = absolute(self.vault.root(), path);
-        spell.update(cx, |spell, cx| spell.open(&path, text, cx));
-    }
-
-    /// The editor no longer holds a note, so the checker has nothing to say.
-    fn checker_closed(&mut self, cx: &mut Context<Self>) {
-        let Some(spell) = self.spell.clone() else {
-            return;
-        };
-        spell.update(cx, |spell, cx| spell.close(cx));
-    }
-
-    /// The buffer changed, so the checker's copy of the note is out of date. It
-    /// debounces, which is what keeps typing a word at one request per word
-    /// rather than one per character.
-    fn send_note_to_checker(&mut self, cx: &mut Context<Self>) {
-        let Some(spell) = self.spell.clone() else {
-            return;
-        };
-        let text = self.editor().read_with(cx, |editor, _cx| editor.text());
-        spell.update(cx, |spell, cx| spell.changed(&text, cx));
-    }
-
-    /// The checker answered. Its notes become the editor's wavy underlines and
-    /// the number the status bar shows, so the user can tell "no notes" from
-    /// "not finished yet"; they also refresh a popup that is already up, whose
-    /// rows are the checker's own offers.
-    fn show_checker_notes(&mut self, spell: Entity<Spell>, cx: &mut Context<Self>) {
-        let notes: Vec<Diagnostic> = spell.read(cx).diagnostics().to_vec();
-        self.show_notes(notes, cx);
-    }
-
-    /// Put a fresh set of notes on the open note: the underlines, the count, and
-    /// the rows of a popup that is up.
-    fn show_notes(&mut self, notes: Vec<Diagnostic>, cx: &mut Context<Self>) {
-        self.checker_notes = notes;
-        let marks: Vec<(usize, usize)> = self
-            .checker_notes
-            .iter()
-            .map(|note| (note.start, note.end))
-            .collect();
-        self.editor()
-            .update(cx, |editor, cx| editor.set_marks(marks, cx));
-        self.refresh_popup_rows(cx);
-        cx.notify();
-    }
-    /// Start or stop the spell and grammar checker, whatever the config asked for
-    /// at startup (`:harper on|off`).
-    ///
-    /// Turning it off drops the checker entity, whose `Drop` ends the server
-    /// process, and with it the underlines and any panel about one of them.
-    /// Turning it on starts the server the config names and hands it the note that
-    /// is open; a server that is not installed is reported the way a missing one is
-    /// at startup — a missing feature rather than a broken editor. The note waits
-    /// for the server's handshake, so it is checked whether the handshake wins the
-    /// race or the note does.
-    pub(super) fn set_checker(&mut self, on: bool, cx: &mut Context<Self>) {
-        if self.spell.is_some() == on {
-            self.say(
-                if on {
-                    "the spellchecker is already on"
-                } else {
-                    "the spellchecker is already off"
-                },
-                cx,
-            );
-            cx.notify();
-            return;
-        }
-        if on {
-            match Spell::start(&self.config.spellcheck, cx) {
-                Ok(spell) => {
-                    let events =
-                        cx.observe(&spell, |ws, spell, cx| ws.show_checker_notes(spell, cx));
-                    self._spell_events = Some(events);
-                    self.spell = Some(spell);
-                    self.say("spellcheck on", cx);
-                    // This server has never seen the note on screen. Handing it
-                    // over in the same breath as starting the server is safe only
-                    // because the checker stages the open until its handshake is
-                    // answered: a `didOpen` the server reads while it is still
-                    // starting is one it throws away, and the note is then never
-                    // checked (`:harper on` used to leave exactly that).
-                    if let Some(path) = self.note().clone() {
-                        let text = self.editor().read_with(cx, |editor, _cx| editor.text());
-                        self.checker_opened(&path, &text, cx);
-                    }
-                }
-                Err(err) => {
-                    tracing::warn!("no spellcheck: {err:#}");
-                    self.say(format!("{err:#}"), cx);
-                }
-            }
-        } else {
-            self._spell_events = None;
-            self.spell = None;
-            // A panel about a word the checker no longer has anything to say about
-            // has nothing left to show.
-            self.drop_popup(cx);
-            self.show_notes(Vec::new(), cx);
-            self.say("spellcheck off", cx);
-        }
-        cx.notify();
-    }
-
     pub(super) fn save(&mut self, _: &Save, _window: &mut Window, cx: &mut Context<Self>) {
         self.write_note(cx);
         cx.notify();
@@ -736,23 +654,28 @@ impl Workspace {
     /// has a frame to report through afterwards, and closing a tab writes its note
     /// whether or not that tab is the one on screen.
     fn write_tab(&mut self, index: usize, cx: &mut Context<Self>) {
-        let Some(path) = self.tabs[index].path.clone() else {
+        let Some(path) = self.tabs[index].path().map(|path| path.to_path_buf()) else {
             self.say("no file open", cx);
             return;
         };
-        let text = self.tabs[index]
-            .editor
-            .read_with(cx, |editor, _cx| editor.text());
+        // The handle is taken out of `self.tabs` first: the write below reports through
+        // `say`, which needs `self` mutably.
+        let Some(editor) = self.tabs[index].editor().cloned() else {
+            return;
+        };
+        let text = editor.read_with(cx, |editor, _cx| editor.text());
         match self.vault.write(&path, &text) {
             Ok(()) => {
-                self.tabs[index]
-                    .editor
-                    .update(cx, |editor, _cx| editor.mark_clean());
+                editor.update(cx, |editor, _cx| editor.mark_clean());
                 // Shale just changed the disk itself; re-stamping it is what stops
                 // the watcher reporting our own save as an outside edit.
                 self.resign();
                 // ...and the index has to be told, for the same reason.
                 self.index_saved(&path);
+                // ...and the graph, for the same reason: the watcher never sees our
+                // own write.
+                self.graph_note_saved(&path, &text);
+                self.refresh_graph(cx);
                 self.say(format!("saved {}", path.display()), cx);
             }
             Err(err) => {
@@ -824,26 +747,24 @@ impl Workspace {
         if !self.config.editor.autosave {
             return;
         }
-        if !self.tabs[index]
-            .editor
-            .read_with(cx, |editor, _cx| editor.is_dirty())
-        {
-            return;
-        }
-        let Some(path) = self.tabs[index].path.clone() else {
+        let Some(editor) = self.tabs[index].editor().cloned() else {
             return;
         };
-        let text = self.tabs[index]
-            .editor
-            .read_with(cx, |editor, _cx| editor.text());
+        if !editor.read_with(cx, |editor, _cx| editor.is_dirty()) {
+            return;
+        }
+        let Some(path) = self.tabs[index].path().map(|path| path.to_path_buf()) else {
+            return;
+        };
+        let text = editor.read_with(cx, |editor, _cx| editor.text());
         match self.vault.write(&path, &text) {
             Ok(()) => {
-                self.tabs[index]
-                    .editor
-                    .update(cx, |editor, _cx| editor.mark_clean());
+                editor.update(cx, |editor, _cx| editor.mark_clean());
                 // Our own write must not come back as somebody else's edit.
                 self.resign();
                 self.index_saved(&path);
+                self.graph_note_saved(&path, &text);
+                self.refresh_graph(cx);
                 // The session rides the same beat (roadmap P1.8): the pause that
                 // writes a note is also the moment the window knows what it looks
                 // like, and a crash between here and the next pause loses at most one
@@ -935,6 +856,9 @@ impl Workspace {
         // change list. Everything in it is best-effort: a failed index is a log
         // line, never a reason the window stops showing the vault.
         self.index_changes(&changes, Provenance::External);
+        // The graph follows the disk as well, when it has been built at all.
+        self.graph_changes(&changes);
+        self.refresh_graph(cx);
         // A note that is gone cannot be jumped to, so it leaves the chain — the
         // same rule the explicit delete follows.
         for removed in &changes.removed {
@@ -944,12 +868,13 @@ impl Workspace {
         // the tab bar is a note the user is one key away from, and a buffer holding a
         // copy of something that is no longer true is the same trap either way.
         for index in 0..self.tabs.len() {
-            let Some(path) = self.tabs[index].path.clone() else {
+            let Some(path) = self.tabs[index].path().map(|path| path.to_path_buf()) else {
                 continue;
             };
-            let dirty = self.tabs[index]
-                .editor
-                .read_with(cx, |editor, _cx| editor.is_dirty());
+            let Some(editor) = self.tabs[index].editor().cloned() else {
+                continue;
+            };
+            let dirty = editor.read_with(cx, |editor, _cx| editor.is_dirty());
             if changes.was_removed(&path) {
                 if dirty {
                     self.say(
@@ -981,9 +906,7 @@ impl Workspace {
                     // background tab reloading under the user means.
                     match self.vault.read(&path) {
                         Ok(text) => {
-                            self.tabs[index]
-                                .editor
-                                .update(cx, |editor, cx| editor.set_text(text.clone(), cx));
+                            editor.update(cx, |editor, cx| editor.set_text(text.clone(), cx));
                             if index == self.tab {
                                 self.checker_opened(&path, &text, cx);
                             }

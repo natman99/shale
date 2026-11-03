@@ -106,6 +106,10 @@ impl MarkdownEditor {
             // `space d`: the window owns the frame, so the chord dispatches the
             // same action the palette does rather than setting a flag of its own.
             Outcome::ToggleFocus => window.dispatch_action(ToggleFocus.boxed_clone(), cx),
+            // `space g`: the window owns the graph — the index, the simulation and the
+            // tab it lives in — so the chord asks by name like every other leader
+            // chord, and reaches the same command `:graph` and the palette do.
+            Outcome::OpenGraph => window.dispatch_action(OpenGraph.boxed_clone(), cx),
             Outcome::Stay | Outcome::Unhandled => {}
         }
         // The mirror, part 2: whatever the engine put in its register is now on the

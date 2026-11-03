@@ -282,13 +282,22 @@ Workspace layout:
   segments, `?` for one character, and an empty pattern that covers nothing),
   `session` (the session file — where the last window stood: open note, cursor
   and scroll, expanded folders, view, focus mode and scope, typewriter, the jump
-  chain, and the tabs with the view each was in — `.shale/session.json`,
+  chain, and the tabs with the view each was in (a tab's `path` is optional: a tab
+  with no path and `graph = true` is the graph tab) — `.shale/session.json`,
   incremental like the config and written with that same atomic discipline), `live` (the **contract** both halves of the live
   MCP channel speak, roadmap P2.3: the `.shale/mcp.lock` record and its read/write/
   remove, the token header, the four endpoint paths, the `Status` shape `shale://status`
   reports, a hand-rolled loopback client and the `probe` that decides whether a port
   is a Shale window, and the strict reply parser that tells one from some other
-  program's port) and `theme` (the
+  program's port), `graph` (roadmap P3, the other agent's module — its progress is
+  in `PROGRESS.md`: `index.rs` the `GraphIndex` over a `petgraph` arena, built from
+  the vault's notes, attachments, ghosts and tags, with **no parallel edges** (a→b
+  and b→a is one edge, flagged bidirectional) and incremental `set_note`/`remove_note`
+  — note that **both rebuild the arena, so node indexes are unstable after any
+  change**; `sim.rs` the dimension-generic force sim `Sim<const D>` (Barnes-Hut
+  θ 0.5, naive under `NAIVE_LIMIT` 256); `geom.rs` the camera with cursor-anchored
+  zoom and fit, the spatial grid and Prim's MST; `filter.rs` the filter bitmask;
+  `hues.rs` the OKLCH tag hues; `proj.rs` the 3D camera and painter sort) and `theme` (the
   colour palette as data: the `Palette` roles and 20 built-in values — Shale's
   `dark`/`light` plus the palettes of seven families, one module per family
   (`theme/catppuccin.rs`, `tokyo_night.rs`, `gruvbox.rs`, `nord.rs`,
@@ -340,10 +349,10 @@ Workspace layout:
   `:wq`, `:x`, `:e`, `:harper on|off|1|0`, `:theme [name]`, `:raw|:live|:preview`,
   `:focus|:dim on|off`, `:typewriter on|off`, `:wordcount [folder]`, `:review`,
   `:tabnew|:tabedit`, `:tabnext|:tabn`, `:tabprev|:tabp`, `:tabclose|:tabc`,
-  `:tabonly|:tabo`, `:tabmove [n]`;
+  `:tabonly|:tabo`, `:tabmove [n]`, `:graph`;
   `ex.rs` is its whole
   vocabulary, and a word it does not know runs nothing). One **command registry**
-  (`command.rs`) is behind both front-ends: 42 rows, each with a stable dotted id
+  (`command.rs`) is behind both front-ends: 43 rows, each with a stable dotted id
   (`note.save`), a label, the keys that reach it, the `:` words that spell it, how
   its argument is spelled, and the gpui action that runs it. The palette lists the
   rows marked for it, and the command line dispatches the *same* action for every
@@ -369,6 +378,21 @@ Workspace layout:
   field's box (along its top only, because the underline is its edge) are rounded
   from the same constant, `style.rs::CHIP_RADIUS`. The surfaces Shale paints itself
   are the rest of that look, and they are roadmap P6.9.
+  A tab holds a **kind** of content, not only a note (roadmap P3.4): `TabContent` is
+  `Note` or `Graph`, and the **link graph** (`space g`, `:graph`, or the palette's
+  *Show the vault's link graph*) lives in a tab of its own. There is **one graph tab
+  per window** — each is a simulation, and a second view of the same vault wants the
+  same positions — so `:graph` again moves the frame to the tab that exists. Because
+  a graph tab has no note, `Workspace::editor()` is now `Option`, and the parts of
+  the window that need a note say so (`:raw` on the graph answers *no note open*,
+  the bar's note-shaped segments go empty, the badge reads `graph`, and live MCP
+  reports `view: "graph"` with an empty mode and a zero cursor). Opening a note from the
+  graph never converts the graph tab: it goes to the tab that already holds the note,
+  else the **most recently used note tab** (tracked by tab id), else a new tab.
+  Closing the graph tab leaves a place to write: the tab is converted in place into
+  an empty note tab under the same id. The session file keeps the graph tab's seat.
+  The tab shows the vault's counts (notes, ghosts, tags, links) over an empty canvas
+  slot for now — painting is Task 6.
   the last tab leaves an empty tab rather than an empty window, which is what lets
   every part of the window ask for "the note" and get an answer. An exit owes every
   tab: `:wq`, a quit with autosave on, a blur and a window-manager close write them
@@ -434,6 +458,8 @@ Workspace layout:
   opening, closing, and applying what the checker offered,
   `search.rs` the `/` search: the query, its matches and which one the cursor is
   on, kept here so `n`/`N` outlive the field that typed the query,
+  `checker.rs` the window's half of the spellchecker (handing it the note, keeping
+  it current, and turning its answers into underlines, a count and a popup's rows),
   `bar.rs` the status bar's segments (`save_indicator`, `mode_label`,
   `word_badge`) and its TTL,
   `index.rs` the vault index inside the window (the startup pass, telling the index
@@ -449,19 +475,30 @@ Workspace layout:
   accept/reject/collapse/open do to the buffer, the disk and the queue file),
   `session.rs` the session file (capture, save on the autosave beat and every
   graceful exit, restore once in `new`),
-  `tabs.rs` the tab bar and the note each tab owns (roadmap P3.1: **the editor
+  `tabs.rs` the tab bar and the content each tab owns (roadmap P3.1: **the editor
   belongs to the tab**, so a tab keeps its cursor, scroll, folds, view and undo
   history; the at-least-one-tab invariant; `ctrl-t`, `g t`/`g T`, `:tab*`, the tab
-  bar's clicks, per-tab autosave, and what an exit owes every tab),
+  bar's clicks, per-tab autosave, and what an exit owes every tab; roadmap P3.4:
+  a tab holds a `TabContent` — a note or the graph — so `editor()` is optional,
+  `note_editor()` is the door a note-requiring command goes through, and the
+  most-recently-used note tab is where a note goes when the graph is on screen),
   `render.rs` the frame, `testhooks.rs` the accessors only the tests call),
   `tree.rs` (turning the vault's entries
-  into rows), `views.rs` (the three views, focus mode and typewriter scroll) and
+  into rows), `views.rs` (the three views, focus mode and typewriter scroll),
+  `graph/` (roadmap P3.4: `mod.rs` the `GraphView` entity — a focus handle with a
+  `graph` keymap context, the palette it paints with, and the vault's `GraphSummary`
+  counts the tab shows until the canvas lands — plus the `stat` chip that draws one
+  count) and
   its headless tests in `tests/` (`keys.rs`, `motions.rs`,
   `blocks.rs`, `paint.rs`, `tree.rs`, `picker.rs`, `commands.rs`, `search.rs`,
   `autosave.rs`, `exit.rs`, `session.rs`, `spell.rs`, `focus.rs`, `tabs.rs` (the
   bar itself: `ctrl-t`, `g t`/`g T`, `:tab*`, a tab keeping its own cursor and undo
   history, opening an open note finding its tab, and what a quit and a blur owe a
-  note that is not on screen), `live.rs` (the
+  note that is not on screen), `graph.rs` (the graph tab: `space g` opening it, one
+  tab per window, `escape` going back to the note, the bar reporting no note state
+  over it, a note opening without converting it, closing it leaving a place to write,
+  the counts row, the index following the vault, and a session reopening the tab),
+  `live.rs` (the
   channel turned on: the lock it leaves, what the port answers about the note, and
   the beat that keeps it current), `review.rs` (the queue discovered at startup, the
   two layers of keys, accept into the buffer and onto the disk, the stale and clash
@@ -591,13 +628,13 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
 - Run the test binaries under `ulimit -v` when working on anything that scans
   text (a scanner bug can allocate until the OOM killer takes the editor down —
   see the table postmortem).
-  Current peak RSS of the test binaries (2026-11-02, app 336 / core 438 with 10
+  Current peak RSS of the test binaries (2026-11-02, app 346 / core 439 with 10
   ignored / mcp 35 tests — core's `db::` tests cost it nothing worth mentioning: 12.5
   MB to 16 MB, and the app's 79 MB to 93 MB is the eight `tests::index` windows that
   each open a real DB plus one headless window per test, which is nowhere near the
   200 MB line worth investigating):
-  core 16.2 MB, app 91.6 MB,
-  mcp 5.5 MB. The
+  core 16.2 MB, app 91.2 MB,
+  mcp 5.7 MB. The
   app binary's *address space* (not RSS) is far larger because of gpui/wgpu
   reservations, and it now needs **4 GB or more** — a 1 GB cap makes it die in an
   80-byte allocation. Build with `cargo test --workspace --no-run`, then run each
@@ -2254,6 +2291,18 @@ Largest files now (2026-10-30, after Phase 0's module splits; what the DB spine
   405 → **434**, `vim/motions.rs` 366 → **378**, `editor/render.rs` and `acts.rs` a
   few lines each. `editor/mod.rs` is unchanged at **993** — the review work went into
   new files rather than through its door.
+  **P3.4 Task 5 (2026-11-02):** new `crates/app/src/graph/mod.rs` **162** and
+  `tests/graph.rs` **446**. Grown inside existing files: `workspace/tabs.rs` 472 →
+  **812** (the tab *kind* half — `TabContent`, the MRU seat, the graph doors),
+  `workspace/testhooks.rs` 250 → **304**, `workspace/render.rs` 569 → **617**,
+  `command.rs` 732 → **747** (the `graph.open` row), `ex.rs` 427 → **436**,
+  `workspace/keys.rs` 267 → **279**, `workspace/session.rs` 206 → **234**, core
+  `session.rs` 197 → **213**, `vim/mod.rs` 441 → **448**.
+  `workspace/mod.rs` went over the rule at **1110** (the graph index field, the MRU
+  seat, and the `Option` guards), so its checker half — the six methods that hand the
+  note to the server and turn its answers into marks — moved to
+  `workspace/checker.rs` **142**, leaving `mod.rs` at **989**: below where it started.
+  `editor/mod.rs` is still the one to watch.
 
 System dependency (Linux): `libxkbcommon-x11-devel` (plus fontconfig, freetype,
 x11, xcb, wayland dev packages) and a working Vulkan driver (the Linux renderer
@@ -3302,6 +3351,66 @@ Next steps, roughly in order:
       chains and per-tab checker answers (both are window-level today, and P3.2's
       panes ask the same question), drag-to-reorder, and middle-click-to-open-in-a-new-
       tab. `ctrl-w` stays reserved for the window commands P3.2 will want.
+
+34. **A tab that is not a note: the graph tab, and what `Option` cost** — P3.4 Task 5
+    (2026-11-02).
+    - **`editor()` returning `Option` is the feature, not the fallout.** The old
+      invariant ("there is always at least one tab, and it holds an editor") let every
+      part of the window ask for the note and get one. A graph tab breaks that on
+      purpose: the checker, `/`, the dirty dot, the word badge, the review strip and
+      the view commands genuinely have nothing to act on, and an `Option` says so where
+      a hidden empty editor would pretend otherwise. The refactor is mechanical but
+      wide (about 80 `editor()` call sites), and each site had to *choose*: `note_editor()`
+      for a command whose key did nothing is now a bar message (*no note open*),
+      `if let Some` for a status segment that goes empty, `is_some_and` for a question
+      about whether a note exists at all. `tests::graph::the_graph_tab_reports_no_note_state`
+      pins the bar's shape, and `live_note` answering `view: "graph"` with an empty
+      mode and a zero cursor is the MCP half of the same statement.
+    - **The MRU note tab is what makes "open a note" work from the graph.** "Fill the
+      current tab" cannot apply to a graph tab, and always adding a tab turns link
+      navigation into a tab factory. So `Workspace::note_mru` holds a **tab id** (never
+      an index — indexes shift under a close), updated on every frame change, and the
+      order is: the tab that already holds the note → the MRU note tab → a new tab.
+      `tree.rs`'s `focus_editor` uses the same field to answer `escape` from the graph:
+      the keyboard goes to the note the user was last standing in.
+    - **Closing the graph tab converts it in place.** `clear_tab` on a graph tab puts
+      a fresh empty *note* tab under the same id rather than clearing a graph tab, and
+      that is what closing the only tab does: the thing to fall back to is a place to
+      write. `closing_the_only_graph_tab_leaves_a_place_to_write` is the test.
+    - **Startup focus had to stop assuming the note.** `main.rs` and the tests'
+      `open_window` both called `focus_editor` right after building the workspace. With
+      the new "`focus_editor` leaves the graph for the note" rule, that threw a restored
+      graph tab off screen at launch. Both now call `focus_active_tab`, which is the
+      honest version: the keyboard goes where the frame is.
+    - **The index is the window's, not the tab's.** `Workspace.graph` holds the one
+      `GraphIndex`; it is built the first time a graph tab opens and then fed from the
+      `VaultChanges` the window already computes, plus the saves and vault edits Shale
+      makes itself. Two traps found on the way: `GraphIndex::set_note`/`remove_note`
+      **rebuild the arena**, so a node index is only valid until the next change (Task
+      6 must re-resolve every frame or keep its own stable id), and `graph_changes()`
+      deliberately does not touch the panel — every caller has to follow it with
+      `refresh_graph(cx)` or the counts row goes stale while the graph underneath is
+      current.
+    - **Headless gpui tests and a second focusable widget.** Three things cost time and
+      are worth remembering: a `VisualTestContext` **does not repaint between
+      keystrokes**, so a tab change made off the keystroke path leaves `focus_stale`
+      set and the next keystroke is lost (drive those through `focus_active_tab` or the
+      `show_tab_at` hook, not through a picker); `simulate_keystrokes("i typed")` does
+      not insert text where `simulate_keystrokes("i")` + `simulate_input(" typed")`
+      does; and vim's `space` motion moves the caret **right one character before the
+      chord resolves**, so after `space g` a typing assertion has to match
+      `contains(" typed")`, not `starts_with`.
+    - **`space g` is resolved inside the vim engine**, not as a two-stroke keymap
+      chord — the `]a`/`[a` lesson again: a chord holds its first key as pending input,
+      and `g` is already the leader for `gx`/`gt`/`gT`. The engine answers
+      `Outcome::OpenGraph`, and `keys.rs` binds only `escape` in the `graph` context.
+    - **Deferred on purpose:** the canvas (Task 6), interactions and the keyboard
+      context (Task 7), the filter panel (Task 8), the sim thread and the synchronous
+      `advance(ticks)` (they arrive with positions to paint — a thread with nothing to
+      ship is a thread with no purpose), camera and filter in `session.json` (nothing
+      to store yet), the right-click menu (one popup slot, and the checker owns it),
+      and DB-backed edge extraction. `Tab.path` becoming `Option` plus a `graph` flag
+      is backwards compatible, so an old `session.json` still restores.
 
 ## Parked threads (agreed 2026-10-28; not being worked now)
 

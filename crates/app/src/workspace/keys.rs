@@ -263,5 +263,17 @@ pub(crate) fn keybindings() -> Vec<KeyBinding> {
         "z a" => ReviewCollapse,
         "escape" => FocusEditor,
     ]);
+    // The graph tab (roadmap P3.4). Its own context for the same reason the popup and
+    // the review strip have one: the keys the graph will want (`h`/`j`/`k`/`l`, `f`,
+    // `enter`) are all vim motions in the note, so they can only be bound where the
+    // note is not what has the keyboard. Task 5 gives it the way out; the pan, zoom
+    // and selection keys land with Task 7.
+    //
+    // `escape` is `note.focus-editor` rather than a graph-specific action because it is
+    // the same request `ctrl-w l` makes: put the keyboard on the note. With the graph on
+    // screen that means moving the frame back to the note tab the user was last on.
+    bind!(crate::graph::CONTEXT, [
+        "escape" => FocusEditor,
+    ]);
     keys
 }

@@ -61,7 +61,9 @@ fn view(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> View {
 fn note_text(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> String {
     window
         .update(cx, |ws, _window, cx| {
-            ws.editor().read_with(cx, |editor, _cx| editor.text())
+            ws.editor()
+                .unwrap()
+                .read_with(cx, |editor, _cx| editor.text())
         })
         .unwrap()
 }
@@ -291,7 +293,9 @@ fn a_view_change_ends_insert_mode(cx: &mut TestAppContext) {
     assert_eq!(
         window
             .update(cx, |ws, _window, cx| {
-                ws.editor().read_with(cx, |editor, _cx| editor.mode())
+                ws.editor()
+                    .unwrap()
+                    .read_with(cx, |editor, _cx| editor.mode())
             })
             .unwrap(),
         shale_core::vim::Mode::Normal,
@@ -364,6 +368,7 @@ fn preview_still_answers_keys_that_are_not_edits(cx: &mut TestAppContext) {
         window
             .update(cx, |ws, _window, cx| {
                 ws.editor()
+                    .unwrap()
                     .read_with(cx, |editor, _cx| editor.cursor_position())
             })
             .unwrap(),

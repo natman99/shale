@@ -730,7 +730,10 @@ into the Phase 3 addendum. **P2.5a landed 2026-11-01, so Phase 2 is closed**
   dependencies: `crates/core/src/graph/{index,sim,quadtree,filter}.rs` +
   petgraph. See `graph-view-plan.md` Tasks 1–4.
 - **P3.4 Graph M1b** — the graph tab, canvas painting, interactions, filter
-  panel (`graph-view-plan.md` Tasks 5–8).
+  panel (`graph-view-plan.md` Tasks 5–8). **Task 5 landed 2026-11-02**: the tab
+  host now holds a `TabContent` (note or graph), `space g` / `:graph` / the palette
+  row open one graph tab per window, and the index is kept current from the
+  watcher. Tasks 6–8 (canvas, interactions, filter panel) remain.
 - **P3.5 Graph M2–M5** in the plan's order: local graph + projected 3D →
   constellations + static mode → heatmap/groups/arrows → signature features
   (thread, pulses+glow, MST star-lines, nebulae, hjkl + f-jump, illumination,

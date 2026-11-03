@@ -625,6 +625,20 @@ const ALL: &[Command] = &[
         in_palette: false,
         action: None,
     },
+    // ---- the graph (roadmap P3.4) ------------------------------------------
+    // One tab per window, so the command means "show the graph": pressing it again
+    // moves the frame to the tab that already holds it. `escape` in the graph tab is
+    // not a registry command — it is `note.focus-editor`, the same request `ctrl-w l`
+    // makes, which is why it needs no row of its own.
+    Command {
+        id: "graph.open",
+        label: "Show the vault's link graph",
+        keys: "space g",
+        ex: &["graph", "g"],
+        args: "",
+        in_palette: true,
+        action: Some(|| Box::new(OpenGraph)),
+    },
 ];
 
 #[cfg(test)]
@@ -675,6 +689,7 @@ mod tests {
             "yank",
             "paste",
             "wordcount notes",
+            "graph",
         ];
         for line in lines {
             let parsed = ex::parse(line);

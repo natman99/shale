@@ -29,60 +29,129 @@
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use gpui::{prelude::*, Context, Entity, Focusable, Subscription, Task, Window};
+use gpui::{prelude::*, Context, Entity, Focusable, SharedString, Subscription, Task, Window};
+use shale_core::watch::VaultChanges;
 
-use crate::acts::{TabClose, TabNew, TabNext, TabOnly, TabPrev};
+use crate::acts::{OpenGraph, TabClose, TabNew, TabNext, TabOnly, TabPrev};
 use crate::editor::{EditorEvent, MarkdownEditor, View};
 
 use super::Workspace;
 
-/// One tab: a note, and the editor holding it.
+/// One tab: a note, and the editor holding it — or the vault's graph.
 pub(crate) struct Tab {
     /// Stable identity. A tab's *index* moves when another tab closes, and the
     /// editor's subscription outlives that, so the subscription carries the id and
     /// the window looks the tab up by it.
     pub(crate) id: usize,
-    /// The note this tab holds. `None` is the empty tab: what closing the last tab
-    /// leaves behind, and what a window over an empty vault starts with.
-    pub(crate) path: Option<PathBuf>,
-    /// The editor. Owned by the tab, so the cursor, scroll, folds, view and undo
-    /// history are the ones the user left in this tab.
-    pub(crate) editor: Entity<MarkdownEditor>,
-    /// The subscription that carries this editor's events to the window. Alive for as
-    /// long as the tab is (see [`Workspace::editor_event`]).
-    pub(crate) _events: Subscription,
+    /// What the tab holds.
+    pub(crate) content: TabContent,
     /// Bumped by every edit in this tab. The debounce below writes only if the number
     /// it was started with is still the current one, so a burst of typing becomes one
     /// write at the end of the pause. Per tab, because a note typed in one tab must
-    /// not cancel another tab's pending write.
+    /// not cancel another tab's pending write. Unused by the graph tab, which has no
+    /// note to write.
     pub(crate) autosave_seq: u64,
     /// This tab's autosave countdown. Replacing it drops the old one.
     pub(crate) _autosave: Option<Task<()>>,
 }
 
-impl Workspace {
-    /// The editor of the tab on screen. Every part of the window that talks to the
-    /// note goes through this rather than holding an editor of its own, which is what
-    /// keeps "the note" meaning "the note in this tab" everywhere at once.
-    pub(crate) fn editor(&self) -> &Entity<MarkdownEditor> {
-        &self.tabs[self.tab].editor
+/// What a tab holds. The graph tab is why [`Workspace::editor`] is optional: with the
+/// graph on screen the checker, the `/` search, the dirty dot and the word badge have
+/// nothing to act on, and saying so is better than a hidden empty editor pretending
+/// there is a note (roadmap P3.4, integration contract).
+pub(crate) enum TabContent {
+    /// A note, and the editor holding it.
+    Note {
+        /// The note this tab holds. `None` is the empty tab: what closing the last tab
+        /// leaves behind, and what a window over an empty vault starts with.
+        path: Option<PathBuf>,
+        /// The editor. Owned by the tab, so the cursor, scroll, folds, view and undo
+        /// history are the ones the user left in this tab.
+        editor: Entity<MarkdownEditor>,
+        /// The subscription that carries this editor's events to the window. Alive for
+        /// as long as the tab is (see [`Workspace::editor_event`]).
+        _events: Subscription,
+    },
+    /// The vault's link graph. **One per window**: it is a simulation, and a second
+    /// view of the same vault wants the same positions, not its own physics.
+    Graph(Entity<crate::graph::GraphView>),
+}
+
+impl Tab {
+    /// The note this tab holds. `None` for an empty note tab, and for the graph.
+    pub(crate) fn path(&self) -> Option<&Path> {
+        match &self.content {
+            TabContent::Note { path, .. } => path.as_deref(),
+            TabContent::Graph(_) => None,
+        }
     }
 
-    /// The note the tab on screen holds, or `None` for an empty tab.
+    /// The tab's editor, or `None` when the tab is the graph.
+    pub(crate) fn editor(&self) -> Option<&Entity<MarkdownEditor>> {
+        match &self.content {
+            TabContent::Note { editor, .. } => Some(editor),
+            TabContent::Graph(_) => None,
+        }
+    }
+
+    /// Whether this tab is the graph.
+    pub(crate) fn is_graph(&self) -> bool {
+        matches!(self.content, TabContent::Graph(_))
+    }
+}
+
+impl Workspace {
+    /// The editor of the tab on screen, or `None` when that tab is the graph. Every
+    /// part of the window that talks to the note goes through this rather than holding
+    /// an editor of its own, which is what keeps "the note" meaning "the note in this
+    /// tab" everywhere at once — and what lets a graph tab simply have no answer.
+    pub(crate) fn editor(&self) -> Option<&Entity<MarkdownEditor>> {
+        self.tabs[self.tab].editor()
+    }
+
+    /// The face the note is drawn in, which every panel that types text matches so a
+    /// typed name looks like the text it will become. With the graph tab on screen
+    /// there is no note to match, and the window's configured font is the nearest
+    /// thing to it.
+    pub(crate) fn note_font(&self, cx: &gpui::App) -> (SharedString, f32) {
+        match self.editor() {
+            Some(editor) => (editor.read(cx).font_family(), editor.read(cx).font_size()),
+            None => (
+                self.config.appearance.font_family.clone().into(),
+                self.config.appearance.font_size,
+            ),
+        }
+    }
+
+    /// The note the command acts on, or a message saying there is none.
+    ///
+    /// The graph tab has no note, and a command that quietly did nothing reads as a
+    /// binding that is broken. Saying "no note open" is the integration contract's
+    /// answer for every command that needs a buffer (`graph-view-plan.md`).
+    pub(crate) fn note_editor(&mut self, cx: &mut Context<Self>) -> Option<Entity<MarkdownEditor>> {
+        match self.editor().cloned() {
+            Some(editor) => Some(editor),
+            None => {
+                self.say("no note open", cx);
+                cx.notify();
+                None
+            }
+        }
+    }
+
+    /// The note the tab on screen holds, or `None` for an empty tab or the graph.
     pub(crate) fn note(&self) -> Option<PathBuf> {
-        self.tabs[self.tab].path.clone()
+        self.tabs[self.tab].path().map(|path| path.to_path_buf())
     }
 
     /// Which tab holds `path`, if one does. This is what makes opening a note that is
     /// already open a tab change rather than a second copy of the note.
     pub(super) fn tab_for_path(&self, path: &Path) -> Option<usize> {
-        self.tabs
-            .iter()
-            .position(|tab| tab.path.as_deref() == Some(path))
+        self.tabs.iter().position(|tab| tab.path() == Some(path))
     }
 
     /// Which tab has this id, for the subscriptions that captured one.
-    fn tab_for_id(&self, id: usize) -> Option<usize> {
+    pub(super) fn tab_for_id(&self, id: usize) -> Option<usize> {
         self.tabs.iter().position(|tab| tab.id == id)
     }
 
@@ -98,8 +167,41 @@ impl Workspace {
         let view = self
             .tabs
             .get(self.tab)
-            .map(|tab| tab.editor.read(cx).view())
+            .and_then(|tab| tab.editor())
+            .map(|editor| editor.read(cx).view())
             .unwrap_or(View::Live);
+        let content = self.note_content(id, view, cx);
+        let index = if self.tabs.is_empty() {
+            0
+        } else {
+            self.tab + 1
+        };
+        self.tabs.insert(
+            index,
+            Tab {
+                id,
+                content,
+                autosave_seq: 0,
+                _autosave: None,
+            },
+        );
+        self.tab = index;
+        self.mark_note_mru();
+        // The new tab is the drawn one, so both the pointer's subscription and the
+        // keyboard have to come here; neither path has a window, so the next frame is
+        // asked for both.
+        self.hover_stale = true;
+        self.focus_stale = true;
+        index
+    }
+
+    /// An empty note tab's content: a fresh editor, wired to the window exactly as
+    /// [`add_tab`] wires one, and subscribed under `id`.
+    ///
+    /// Split out because a tab can *become* this without changing its id, which is what
+    /// closing the last tab does to a graph tab: the subscriptions that captured the id
+    /// keep pointing at the same tab.
+    fn note_content(&self, id: usize, view: View, cx: &mut Context<Self>) -> TabContent {
         let editor = cx.new(|cx| MarkdownEditor::new(cx));
         // Everything the window knows that an editor cannot discover for itself —
         // the vault, the attachments, the link names, the font, the palette — is
@@ -116,6 +218,30 @@ impl Workspace {
         let events = cx.subscribe(&editor, move |ws, _editor, event, cx| {
             ws.editor_event(id, event, cx)
         });
+        TabContent::Note {
+            path: None,
+            editor,
+            _events: events,
+        }
+    }
+
+    /// The window's graph view, if any tab holds one. There is at most one graph tab
+    /// per window (see [`TabContent::Graph`]), so this is a search rather than a table.
+    pub(super) fn graph_view(&self) -> Option<&Entity<crate::graph::GraphView>> {
+        self.tabs.iter().find_map(|tab| match &tab.content {
+            TabContent::Graph(view) => Some(view),
+            TabContent::Note { .. } => None,
+        })
+    }
+
+    /// Add the window's graph tab after the one on screen, and make it the active one.
+    ///
+    /// Unlike [`add_tab`] there is no editor event to subscribe to: the graph changes
+    /// because the vault changed, and the window is the one that noticed.
+    fn add_graph_tab(&mut self, cx: &mut Context<Self>) -> usize {
+        let id = self.tab_seq;
+        self.tab_seq += 1;
+        let view = cx.new(|cx| crate::graph::GraphView::new(Rc::clone(&self.palette), cx));
         let index = if self.tabs.is_empty() {
             0
         } else {
@@ -125,20 +251,174 @@ impl Workspace {
             index,
             Tab {
                 id,
-                path: None,
-                editor,
-                _events: events,
+                content: TabContent::Graph(view),
                 autosave_seq: 0,
                 _autosave: None,
             },
         );
         self.tab = index;
-        // The new tab is the drawn one, so both the pointer's subscription and the
-        // keyboard have to come here; neither path has a window, so the next frame is
-        // asked for both.
+        // The graph takes the pointer's subscription away: there is no note under it
+        // to hover, and the keyboard has to land on the graph's own key context.
         self.hover_stale = true;
         self.focus_stale = true;
         index
+    }
+
+    /// Records which note tab the frame is on, which is what the graph tab's "where
+    /// does a note open instead?" rule needs (see [`Workspace::note_tab`]). Called
+    /// wherever `self.tab` is assigned.
+    pub(super) fn mark_note_mru(&mut self) {
+        if !self.tabs[self.tab].is_graph() {
+            self.note_mru = Some(self.tabs[self.tab].id);
+        }
+    }
+
+    /// The tab a note should open into, making it the one on screen.
+    ///
+    /// The graph tab is never the answer: it is a view over the whole vault, and a
+    /// click on a link that turned it into a note would be the graph vanishing. So a
+    /// note opened while the graph is on screen goes to the note tab the frame was
+    /// most recently on, and to a new tab when the window holds none (integration
+    /// contract, `graph-view-plan.md`).
+    pub(super) fn note_tab(&mut self, cx: &mut Context<Self>) -> usize {
+        if !self.tabs[self.tab].is_graph() {
+            return self.tab;
+        }
+        let index = self
+            .note_mru
+            .and_then(|id| self.tab_for_id(id))
+            .unwrap_or_else(|| self.add_tab(cx));
+        self.show_tab(index, cx);
+        index
+    }
+
+    /// The counts the graph panel shows, read off the window's index. `None` when the
+    /// index has never been built.
+    fn graph_summary(&self) -> Option<crate::graph::GraphSummary> {
+        use shale_core::graph::NodeKind;
+        let index = self.graph.as_ref()?;
+        let (mut notes, mut ghosts, mut tags) = (0usize, 0usize, 0usize);
+        for node in index.graph().node_indices() {
+            match index.meta(node).kind {
+                NodeKind::Note | NodeKind::Attachment => notes += 1,
+                NodeKind::Ghost => ghosts += 1,
+                NodeKind::Tag => tags += 1,
+            }
+        }
+        Some(crate::graph::GraphSummary {
+            notes,
+            ghosts,
+            tags,
+            // The graph is undirected and never holds parallel edges, so this is
+            // already "A→B and B→A counted once".
+            links: index.graph().edge_count(),
+        })
+    }
+
+    /// Re-send the counts to the graph view, if the window has both an index and a tab
+    /// showing it. Called when the index is built and whenever a note moves under it.
+    pub(crate) fn refresh_graph(&mut self, cx: &mut Context<Self>) {
+        let Some(summary) = self.graph_summary() else {
+            return;
+        };
+        let Some(view) = self.graph_view().cloned() else {
+            return;
+        };
+        view.update(cx, |view, cx| view.set_summary(summary, cx));
+    }
+
+    /// Fold one set of disk changes into the graph, if it has been built.
+    ///
+    /// `set_note` and `remove_note` each rebuild the arena, so a burst of changes costs
+    /// one rebuild per changed note. That is cheap enough at the vault sizes the graph
+    /// is useful at, and it is what the integration contract's "incremental now,
+    /// DB-backed extraction deferred" ruling covers.
+    pub(super) fn graph_changes(&mut self, changes: &VaultChanges) {
+        let Some(index) = self.graph.as_mut() else {
+            return;
+        };
+        for removed in &changes.removed {
+            index.remove_note(removed);
+        }
+        for path in changes.added.iter().chain(changes.modified.iter()) {
+            match self.vault.read(path) {
+                Ok(text) => {
+                    index.set_note(path, &text, &self.vault, &self.entries, &self.attachments)
+                }
+                Err(err) => tracing::warn!(path = %path.display(), "graph re-scan failed: {err:#}"),
+            }
+        }
+    }
+
+    /// The graph follows a note Shale wrote itself. The watcher is stamped over our own
+    /// saves, so this is the only way a link typed in the editor reaches the graph.
+    pub(crate) fn graph_note_saved(&mut self, path: &Path, text: &str) {
+        if let Some(index) = self.graph.as_mut() {
+            index.set_note(path, text, &self.vault, &self.entries, &self.attachments);
+        }
+    }
+
+    /// A note that is gone leaves the graph — and the ghosts and tags only it linked to
+    /// leave with it.
+    pub(crate) fn graph_note_removed(&mut self, path: &Path) {
+        if let Some(index) = self.graph.as_mut() {
+            index.remove_note(path);
+        }
+    }
+
+    /// `space g` / `:graph`: put the vault's graph on screen.
+    ///
+    /// A second call moves the frame to the tab that already holds the graph rather
+    /// than opening another: the graph is one simulation per window, and a second tab
+    /// would be a second view of the same physics with its own camera to keep in step
+    /// (integration contract, `graph-view-plan.md`).
+    ///
+    /// The index is built on the first call and kept current after that, because
+    /// building it reads every note in the vault and a window that never opens the
+    /// graph should never pay for it.
+    pub(crate) fn open_graph(&mut self, cx: &mut Context<Self>) {
+        if let Some(index) = self.tabs.iter().position(|tab| tab.is_graph()) {
+            self.show_tab(index, cx);
+            return;
+        }
+        if self.graph.is_none() {
+            match shale_core::graph::GraphIndex::build(
+                &self.vault,
+                &self.entries,
+                &self.attachments,
+            ) {
+                Ok(index) => self.graph = Some(index),
+                Err(err) => {
+                    // The same posture as a checker that will not start: the graph is
+                    // a view of the notes, not another copy of them, so a failed build
+                    // is a message rather than a broken window.
+                    self.say(format!("graph failed: {err:#}"), cx);
+                    cx.notify();
+                    return;
+                }
+            }
+        }
+        self.add_graph_tab(cx);
+        self.refresh_graph(cx);
+        // The same report a tab change makes: the frame moved to something that is not
+        // a note, and the status bar is where that is said.
+        self.say("graph", cx);
+    }
+
+    /// The action's door: `space g`, `:graph`, the palette row and the MCP surface all
+    /// reach [`Workspace::open_graph`] this way.
+    ///
+    /// The keyboard comes here now rather than waiting for the next frame, as it does
+    /// for `ctrl-t`: the graph has a key context of its own, and until the frame is on
+    /// it its bindings — `escape` among them — are not the active ones.
+    pub(super) fn show_graph(
+        &mut self,
+        _: &OpenGraph,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_graph(cx);
+        self.focus_active_tab(window, cx);
     }
 
     /// What the window does with an editor's news, which it can only decide by asking
@@ -188,6 +468,7 @@ impl Workspace {
         self.drop_popup(cx);
         self.clear_search(cx);
         self.tab = index;
+        self.mark_note_mru();
         // The pointer can only hover over the note that is drawn, so the hover
         // subscription has to move with the frame. It needs a window, and this path
         // does not always have one, so the next frame is asked to do it.
@@ -199,25 +480,43 @@ impl Workspace {
         // user can act on. `checker_opened` sends the new note and clears the old
         // note's diagnostics.
         if let Some(path) = self.note() {
-            let text = self.editor().read_with(cx, |editor, _cx| editor.text());
+            let text = self
+                .editor()
+                .map(|editor| editor.read_with(cx, |editor, _cx| editor.text()))
+                .unwrap_or_default();
             self.checker_opened(&path, &text, cx);
             self.say(path.display().to_string(), cx);
         } else {
             self.checker_closed(cx);
+            // The graph tab has no note to name, so the bar says what is on screen.
+            if self.tabs[index].is_graph() {
+                self.say("graph", cx);
+            }
         }
         cx.notify();
     }
 
     /// Hand the keyboard to the tab on screen.
     ///
-    /// A tab owns its editor, so the node the keystrokes reach is the drawn tab's
-    /// editor. After a tab change the focus tracker still points at the entity that is
-    /// no longer drawn, and every keystroke after it is lost — which is why every path
-    /// that moves the frame marks this owed, and the next frame pays it.
-    pub(super) fn focus_active_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// A tab owns what it shows — a note tab its editor, the graph tab its view — so
+    /// the node the keystrokes reach is the drawn tab's. After a tab change the focus
+    /// tracker still points at the entity that is no longer drawn, and every keystroke
+    /// after it is lost — which is why every path that moves the frame marks this owed,
+    /// and the next frame pays it.
+    pub(crate) fn focus_active_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.focus_stale = false;
-        let focus = self.editor().read(cx).focus_handle(cx);
+        let focus = self.active_focus(cx);
         window.focus(&focus, cx);
+    }
+
+    /// The focus handle of the tab on screen: a note tab's editor, the graph tab's
+    /// view. Every path that owes the keyboard to "wherever the user was working" asks
+    /// for this rather than assuming it was the note.
+    pub(super) fn active_focus(&self, cx: &mut Context<Self>) -> gpui::FocusHandle {
+        match &self.tabs[self.tab].content {
+            TabContent::Note { editor, .. } => editor.read(cx).focus_handle(cx),
+            TabContent::Graph(view) => view.read(cx).focus_handle(cx),
+        }
     }
 
     /// Move the tab on screen by `by`, wrapping at the ends: a tab bar is usually a
@@ -245,16 +544,16 @@ impl Workspace {
             return false;
         }
         // A tab holding a note writes it before it goes; an empty tab has nothing to
-        // write, and nothing to fail at writing.
-        if self.tabs[index].path.is_some()
+        // write, and nothing to fail at writing. The graph tab has no note either.
+        if self.tabs[index].path().is_some()
             && self.tabs[index]
-                .editor
-                .read_with(cx, |editor, _cx| editor.is_dirty())
+                .editor()
+                .is_some_and(|editor| editor.read_with(cx, |editor, _cx| editor.is_dirty()))
         {
             self.write_tab(index, cx);
             if self.tabs[index]
-                .editor
-                .read_with(cx, |editor, _cx| editor.is_dirty())
+                .editor()
+                .is_some_and(|editor| editor.read_with(cx, |editor, _cx| editor.is_dirty()))
             {
                 cx.notify();
                 return false;
@@ -262,7 +561,9 @@ impl Workspace {
         }
         if self.tabs.len() == 1 {
             // The last tab: cleared rather than removed, so the window keeps its
-            // invariant and the user keeps a place to type.
+            // invariant and the user keeps a place to type. Closing the graph tab
+            // leaves an empty *note* tab, because the thing to fall back to is a place
+            // to write.
             self.clear_tab(0, cx);
             self.checker_closed(cx);
             self.say("no note open", cx);
@@ -270,13 +571,19 @@ impl Workspace {
             self.tabs.remove(index);
             // The tab to the left, which is where the eye already is.
             self.tab = index.min(self.tabs.len() - 1);
+            self.mark_note_mru();
             self.hover_stale = true;
             self.focus_stale = true;
             self.drop_popup(cx);
             self.clear_search(cx);
             if let Some(path) = self.note() {
-                let text = self.editor().read_with(cx, |editor, _cx| editor.text());
+                let text = self
+                    .editor()
+                    .map(|editor| editor.read_with(cx, |editor, _cx| editor.text()))
+                    .unwrap_or_default();
                 self.checker_opened(&path, &text, cx);
+            } else if !self.tabs[self.tab].is_graph() {
+                self.checker_closed(cx);
             }
         }
         cx.notify();
@@ -284,13 +591,31 @@ impl Workspace {
     }
 
     /// Empty a tab without closing it: what `:tabonly` leaves, and what closing the
-    /// last tab leaves.
+    /// last tab leaves. A graph tab cannot be emptied — an empty graph tab is a window
+    /// with nothing in it — so it becomes a fresh empty *note* tab under the same id,
+    /// which is the place to write the invariant asks for.
     pub(super) fn clear_tab(&mut self, index: usize, cx: &mut Context<Self>) {
-        self.tabs[index].path = None;
+        if self.tabs[index].is_graph() {
+            let id = self.tabs[index].id;
+            let content = self.note_content(id, View::Live, cx);
+            let tab = &mut self.tabs[index];
+            tab.content = content;
+            tab.autosave_seq = 0;
+            tab._autosave = None;
+            return;
+        }
+        // The editor is taken out of the borrow before it is written to: the autosave
+        // subscription lives on the same tab, and `self.tabs` cannot be borrowed twice
+        // to clear both.
+        let editor = match &mut self.tabs[index].content {
+            TabContent::Note { path, editor, .. } => {
+                *path = None;
+                editor.clone()
+            }
+            TabContent::Graph(_) => return,
+        };
         self.tabs[index]._autosave = None;
-        self.tabs[index]
-            .editor
-            .update(cx, |editor, cx| editor.set_text(String::new(), cx));
+        editor.update(cx, |editor, cx| editor.set_text(String::new(), cx));
     }
 
     /// `ctrl-t` / `:tabnew`: a new tab holding the note in hand. Two tabs on one note
@@ -302,10 +627,13 @@ impl Workspace {
         if let Some(path) = path.as_ref() {
             match self.vault.read(path) {
                 Ok(text) => {
-                    self.tabs[index].path = Some(path.clone());
-                    self.tabs[index]
-                        .editor
-                        .update(cx, |editor, cx| editor.set_text(text, cx));
+                    if let TabContent::Note {
+                        path: slot, editor, ..
+                    } = &mut self.tabs[index].content
+                    {
+                        *slot = Some(path.clone());
+                        editor.update(cx, |editor, cx| editor.set_text(text, cx));
+                    }
                     // The view came from the tab it was opened from, and `set_view`
                     // is what makes a preview tab read-only, so nothing else is owed
                     // here.
@@ -390,7 +718,7 @@ impl Workspace {
             return;
         };
         self.show_tab(index, cx);
-        let handle = self.editor().read(cx).focus_handle.clone();
+        let handle = self.active_focus(cx);
         window.focus(&handle, cx);
     }
 
@@ -418,15 +746,15 @@ impl Workspace {
         let mut clean = true;
         for index in 0..self.tabs.len() {
             if !self.tabs[index]
-                .editor
-                .read_with(cx, |editor, _cx| editor.is_dirty())
+                .editor()
+                .is_some_and(|editor| editor.read_with(cx, |editor, _cx| editor.is_dirty()))
             {
                 continue;
             }
             self.write_tab(index, cx);
             if self.tabs[index]
-                .editor
-                .read_with(cx, |editor, _cx| editor.is_dirty())
+                .editor()
+                .is_some_and(|editor| editor.read_with(cx, |editor, _cx| editor.is_dirty()))
             {
                 clean = false;
             }
@@ -435,23 +763,33 @@ impl Workspace {
     }
 
     /// Whether any tab is ahead of its note on disk, which is what `:q` asks with
-    /// autosave off, and what the tab bar's dots show.
+    /// autosave off, and what the tab bar's dots show. The graph tab is never dirty:
+    /// it has no note to be ahead of.
     pub(super) fn any_dirty(&self, cx: &gpui::App) -> bool {
-        self.tabs
-            .iter()
-            .any(|tab| tab.editor.read_with(cx, |editor, _cx| editor.is_dirty()))
+        self.tabs.iter().any(|tab| {
+            tab.editor()
+                .is_some_and(|editor| editor.read_with(cx, |editor, _cx| editor.is_dirty()))
+        })
     }
 
-    /// The tabs as the tab bar and the session file want them: path, whether the note
-    /// is ahead of the disk, and the view the tab is in.
+    /// The tabs as the tab bar and the session file want them: whether the tab is the
+    /// graph, its path, whether the note is ahead of the disk, and the view the tab is
+    /// in. A graph tab has no path, no dirty state and no view, which is what the tab
+    /// bar and the session both read as "this one is the graph".
     pub(crate) fn tab_state(&self, cx: &gpui::App) -> Vec<TabState> {
         self.tabs
             .iter()
             .map(|tab| TabState {
                 id: tab.id,
-                path: tab.path.clone(),
-                dirty: tab.editor.read_with(cx, |editor, _cx| editor.is_dirty()),
-                view: tab.editor.read(cx).view().word().to_string(),
+                graph: tab.is_graph(),
+                path: tab.path().map(|path| path.to_path_buf()),
+                dirty: tab
+                    .editor()
+                    .is_some_and(|editor| editor.read_with(cx, |editor, _cx| editor.is_dirty())),
+                view: tab
+                    .editor()
+                    .map(|editor| editor.read(cx).view().word().to_string())
+                    .unwrap_or_default(),
             })
             .collect()
     }
@@ -463,8 +801,10 @@ impl Workspace {
 pub(crate) struct TabState {
     /// The tab's stable id, which is what a click is answered with.
     pub(crate) id: usize,
-    /// The note it holds, or `None` for an empty tab.
+    /// The note it holds, or `None` for an empty tab and for the graph.
     pub(crate) path: Option<PathBuf>,
+    /// Whether this tab is the vault's graph rather than a note.
+    pub(crate) graph: bool,
     /// Whether its note is ahead of the disk: the dot on the tab.
     pub(crate) dirty: bool,
     /// Which of the three views the tab is in, since a tab keeps its own.

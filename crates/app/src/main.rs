@@ -9,6 +9,7 @@ mod dim;
 mod editor;
 mod ex;
 mod field;
+mod graph;
 mod image;
 mod line;
 mod list;
@@ -34,8 +35,6 @@ use anyhow::{Context as _, Result};
 use clap::Parser;
 use gpui::{prelude::*, px, size, App, Bounds, TitlebarOptions, WindowBounds, WindowOptions};
 use shale_core::{Config, Vault};
-
-use acts::FocusEditor;
 
 use workspace::{keybindings, start_watcher, Workspace};
 
@@ -130,12 +129,12 @@ fn main() -> Result<()> {
                 },
             )
             .unwrap();
-        // The note holds the keyboard from the first frame, so the very first
-        // keystroke after launch is an edit and not an ignored key.
+        // Whatever the window came up on holds the keyboard from the first frame, so
+        // the very first keystroke after launch is an edit and not an ignored key. Not
+        // `focus_editor`: a session that ended on the graph tab comes back to the graph
+        // tab, and the keyboard has to be where the frame is.
         window
-            .update(cx, |ws, window, cx| {
-                ws.focus_editor(&FocusEditor, window, cx)
-            })
+            .update(cx, |ws, window, cx| ws.focus_active_tab(window, cx))
             .unwrap();
 
         // The vault can change while Shale is open — Obsidian, git, another

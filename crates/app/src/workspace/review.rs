@@ -136,8 +136,9 @@ impl Workspace {
         // the user can see.
         if let Some(index) = self.tab_for_path(note) {
             self.tabs[index]
-                .editor
-                .read_with(cx, |editor, _cx| editor.text())
+                .editor()
+                .map(|editor| editor.read_with(cx, |editor, _cx| editor.text()))
+                .unwrap_or_default()
         } else {
             self.vault.read(note).unwrap_or_default()
         }
@@ -333,7 +334,7 @@ impl Workspace {
     fn after_queue_change(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.scan_pending(cx);
         if self.review.read(cx).is_empty() {
-            let focus = self.editor().read(cx).focus_handle(cx);
+            let focus = self.active_focus(cx);
             window.focus(&focus, cx);
         }
         cx.notify();
@@ -405,6 +406,7 @@ impl Workspace {
                 // disk is unchanged.
                 return (0, stale);
             }
+            self.refresh_graph(cx);
         }
 
         // Three answers, and the difference between the last two matters: a proposal
@@ -444,7 +446,11 @@ impl Workspace {
         let Some((start, end, text)) = diff::region(current, hunk) else {
             return false;
         };
-        self.tabs[index].editor.update(cx, |editor, cx| {
+        let Some(editor) = self.tabs[index].editor().cloned() else {
+            // A graph tab never holds a note, so this is only the compiler's company.
+            return false;
+        };
+        editor.update(cx, |editor, cx| {
             editor.apply_edits(&[(start, end, text)], cx)
         })
     }
@@ -463,6 +469,9 @@ impl Workspace {
         } else {
             self.index_created(note);
         }
+        // The graph is kept current from the window, and an accepted proposal is one
+        // of the ways a note changes without the watcher noticing.
+        self.graph_note_saved(note, text);
         Ok(())
     }
 
@@ -489,10 +498,9 @@ impl Workspace {
     /// it, since a background tab is still a tab the user will bring forward.
     fn note_is_preview(&self, note: &Path, cx: &gpui::App) -> bool {
         self.tab_for_path(note).is_some_and(|index| {
-            self.tabs[index]
-                .editor
-                .read_with(cx, |editor, _cx| editor.view())
-                == View::Preview
+            self.tabs[index].editor().is_some_and(|editor| {
+                editor.read_with(cx, |editor, _cx| editor.view()) == View::Preview
+            })
         })
     }
 

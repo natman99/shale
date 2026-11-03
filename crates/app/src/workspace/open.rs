@@ -198,12 +198,8 @@ impl Workspace {
         &self,
         cx: &Context<Self>,
     ) -> (Rc<shale_core::theme::Palette>, SharedString, f32) {
-        let editor = self.editor().read(cx);
-        (
-            Rc::clone(&self.palette),
-            editor.font_family(),
-            editor.font_size(),
-        )
+        let (family, size) = self.note_font(cx);
+        (Rc::clone(&self.palette), family, size)
     }
 
     /// Put an open picker on screen and point the keyboard at it.
@@ -302,7 +298,7 @@ impl Workspace {
         self.revert_theme(cx);
         let focus = match self.picker_return_focus.take() {
             Some(focus) => focus,
-            None => self.editor().read(cx).focus_handle(cx),
+            None => self.active_focus(cx),
         };
         window.focus(&focus, cx);
         cx.notify();

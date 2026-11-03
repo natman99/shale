@@ -190,7 +190,7 @@ fn a_hunk_the_user_walked_over_is_stale(cx: &mut TestAppContext) {
     // The user edits the very line the proposal is about.
     window
         .update(&mut cx, |ws, _window, cx| {
-            ws.editor().update(cx, |editor, cx| {
+            ws.editor().unwrap().update(cx, |editor, cx| {
                 editor.set_text(NOTE.replace("three", "three, mine"), cx);
             });
         })

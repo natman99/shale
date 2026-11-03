@@ -170,7 +170,12 @@ impl Workspace {
         if current.as_path() == going_to {
             return;
         }
-        let cursor = self.editor().read(cx).cursor_offset();
+        // `note()` already answers `None` for the graph tab, so the editor is here
+        // whenever the note is; the fallback is only the compiler's company.
+        let cursor = self
+            .editor()
+            .map(|editor| editor.read(cx).cursor_offset())
+            .unwrap_or(0);
         self.jumps.record(Jump {
             path: current,
             cursor,
@@ -182,10 +187,14 @@ impl Workspace {
         // There does not have to be a note on screen. Deleting the open note clears
         // the active tab, and `ctrl-o` is the press the user reaches for at that
         // moment, so the place being left is optional.
-        let leaving = self.note().map(|path| Jump {
-            path,
-            cursor: self.editor().read(cx).cursor_offset(),
-        });
+        let leaving = match (self.note(), self.editor()) {
+            (Some(path), Some(editor)) => Some(Jump {
+                path,
+                cursor: editor.read(cx).cursor_offset(),
+            }),
+            // The graph tab, or an empty tab: there is no place being left.
+            _ => None,
+        };
         let Some(jump) = self.jumps.step(forward, leaving) else {
             self.say(
                 if forward {
@@ -203,8 +212,9 @@ impl Workspace {
         // read (deleted outside Shale, a path the chain outlived) costs the user one
         // press and one step, and the read error is on the status line.
         if self.load_note(&path, cx) {
-            self.editor()
-                .update(cx, |editor, cx| editor.reveal_offset(jump.cursor, cx));
+            if let Some(editor) = self.editor().cloned() {
+                editor.update(cx, |editor, cx| editor.reveal_offset(jump.cursor, cx));
+            }
         }
         cx.notify();
     }

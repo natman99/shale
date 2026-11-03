@@ -17,7 +17,9 @@ const LINK: usize = 13;
 /// Where the cursor is in the open note, as a buffer byte offset.
 fn cursor(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> usize {
     window
-        .update(cx, |ws, _window, cx| ws.editor().read(cx).cursor_offset())
+        .update(cx, |ws, _window, cx| {
+            ws.editor().unwrap().read(cx).cursor_offset()
+        })
         .unwrap()
 }
 

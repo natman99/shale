@@ -52,8 +52,8 @@ fn search(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> Searc
     window
         .update(cx, |ws, _window, cx| {
             let state = ws.search_state();
-            let drawn = ws.editor().read(cx).hits().to_vec();
-            let active = ws.editor().read(cx).active_hit();
+            let drawn = ws.editor().unwrap().read(cx).hits().to_vec();
+            let active = ws.editor().unwrap().read(cx).active_hit();
             Search {
                 query: state.query.clone(),
                 hits: state.hits.clone(),
@@ -68,7 +68,9 @@ fn search(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> Searc
 /// Where the cursor is, as a buffer byte offset.
 fn cursor(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> usize {
     window
-        .update(cx, |ws, _window, cx| ws.editor().read(cx).cursor_offset())
+        .update(cx, |ws, _window, cx| {
+            ws.editor().unwrap().read(cx).cursor_offset()
+        })
         .unwrap()
 }
 

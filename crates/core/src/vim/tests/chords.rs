@@ -185,6 +185,26 @@ fn the_space_leader_asks_the_ui_for_each_view() {
 }
 
 #[test]
+fn space_g_asks_the_ui_for_the_graph() {
+    let mut vim = Vim::new();
+    let mut b = note_buf();
+    b.goto_line(0);
+    assert_eq!(vim.handle_normal_key(Key::Char(' '), &mut b), Outcome::Stay);
+    assert_eq!(
+        vim.handle_normal_key(Key::Char('g'), &mut b),
+        Outcome::OpenGraph,
+        "the leader's `g` is the graph, not the start of a `g` command"
+    );
+    // A chord, not a change, and it leaves nothing pending: the graph is the window's
+    // answer, and the next key starts a fresh command.
+    assert_eq!(vim.repeat_last(&mut b), Outcome::Unhandled);
+    let before = b.text().to_string();
+    assert_eq!(vim.handle_normal_key(Key::Char('d'), &mut b), Outcome::Stay);
+    vim.handle_normal_key(Key::Char('w'), &mut b);
+    assert_ne!(b.text(), before, "`dw` still works after the chord");
+}
+
+#[test]
 fn space_y_asks_the_ui_for_the_system_clipboard() {
     let mut vim = Vim::new();
     let mut b = note_buf();

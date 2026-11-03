@@ -111,11 +111,14 @@ impl Workspace {
     /// ahead of the disk: how a test checks what a disk change did to a note.
     #[cfg(test)]
     pub(crate) fn buffer_text<C: gpui::AppContext>(&self, cx: &C) -> String {
-        self.editor().read_with(cx, |editor, _cx| editor.text())
+        self.editor()
+            .map(|editor| editor.read_with(cx, |editor, _cx| editor.text()))
+            .unwrap_or_default()
     }
     #[cfg(test)]
     pub(crate) fn buffer_is_dirty<C: gpui::AppContext>(&self, cx: &C) -> bool {
-        self.editor().read_with(cx, |editor, _cx| editor.is_dirty())
+        self.editor()
+            .is_some_and(|editor| editor.read_with(cx, |editor, _cx| editor.is_dirty()))
     }
     /// Whether any tab is ahead of its note on disk.
     #[cfg(test)]
@@ -126,21 +129,30 @@ impl Workspace {
     /// dot is lit while the note is ahead of the disk and gone once it is not.
     #[cfg(test)]
     pub(crate) fn dirty_indicator(&self, cx: &gpui::App) -> &'static str {
-        save_indicator(self.editor().read(cx).is_dirty())
+        save_indicator(
+            self.editor()
+                .is_some_and(|editor| editor.read(cx).is_dirty()),
+        )
     }
     /// What the status bar shows for the open note's word count: how a test checks
     /// that the badge follows the buffer as the user types, and stays out of the bar
     /// when there is no note open.
     #[cfg(test)]
     pub(crate) fn word_badge(&self, cx: &gpui::App) -> String {
-        word_badge(self.note().is_some(), self.editor().read(cx).word_count())
+        word_badge(
+            self.note().is_some(),
+            self.editor()
+                .map(|editor| editor.read(cx).word_count())
+                .unwrap_or(0),
+        )
     }
     /// The cursor's buffer position (row, column), 0-based: how a test checks
     /// that choosing a search hit lands on the line that row was showing.
     #[cfg(test)]
     pub(crate) fn cursor_position<C: gpui::AppContext>(&self, cx: &C) -> (usize, usize) {
         self.editor()
-            .read_with(cx, |editor, _cx| editor.cursor_position())
+            .map(|editor| editor.read_with(cx, |editor, _cx| editor.cursor_position()))
+            .unwrap_or((0, 0))
     }
     /// Whether the cursor's display line is inside the viewport as it was last
     /// painted. What the typewriter-scroll tests ask: a caret the reader cannot
@@ -149,7 +161,8 @@ impl Workspace {
     pub(crate) fn cursor_line_is_visible<C: gpui::AppContext>(&self, cx: &C) -> bool {
         let line = self
             .editor()
-            .read_with(cx, |editor, _cx| editor.display_position().0);
+            .map(|editor| editor.read_with(cx, |editor, _cx| editor.display_position().0))
+            .unwrap_or(0);
         self.display_line_is_visible(cx, line)
     }
     /// Whether the display line `line` is inside the viewport as it was last
@@ -159,7 +172,7 @@ impl Workspace {
     #[cfg(test)]
     pub(crate) fn display_line_is_visible<C: gpui::AppContext>(&self, cx: &C, line: usize) -> bool {
         self.editor()
-            .read_with(cx, |editor, _cx| editor.line_is_visible(line))
+            .is_some_and(|editor| editor.read_with(cx, |editor, _cx| editor.line_is_visible(line)))
     }
     #[cfg(test)]
     pub(crate) fn tree_rows(&self) -> Vec<PathBuf> {
@@ -187,6 +200,44 @@ impl Workspace {
     pub(crate) fn tab_index(&self) -> usize {
         self.tab
     }
+    /// How many graph tabs the window holds. The one-per-window rule is what a test
+    /// checks, and `:graph` twice is how it would break.
+    #[cfg(test)]
+    pub(crate) fn graph_tabs(&self) -> usize {
+        self.tabs.iter().filter(|tab| tab.is_graph()).count()
+    }
+    /// Whether the tab on screen is the graph.
+    #[cfg(test)]
+    pub(crate) fn showing_graph(&self) -> bool {
+        self.tabs[self.tab].is_graph()
+    }
+    /// The counts the graph panel was last told: how a test checks the panel is
+    /// showing the vault rather than a placeholder.
+    #[cfg(test)]
+    pub(crate) fn graph_counts(&self, cx: &gpui::App) -> Option<crate::graph::GraphSummary> {
+        self.graph_view().and_then(|view| view.read(cx).summary())
+    }
+    /// Whether the window has built its graph index at all — as distinct from having a
+    /// tab showing it, which is what `:graph` on a second call must not rebuild.
+    #[cfg(test)]
+    pub(crate) fn graph_built(&self) -> bool {
+        self.graph.is_some()
+    }
+    /// Close the tab on screen, as the tab bar's `×` and `:tabclose` do. The graph tab
+    /// has no command line of its own — `:` is bound in the note's context — so the
+    /// tests that want a tab gone ask the window rather than typing a word it cannot
+    /// hear.
+    #[cfg(test)]
+    pub(crate) fn close_active_tab(&mut self, cx: &mut Context<Self>) -> bool {
+        let index = self.tab;
+        self.close_tab(index, cx)
+    }
+    /// Move the frame to tab `index`, for the same reason: a test that needs the
+    /// keyboard on a tab no key reaches from where the keyboard already is.
+    #[cfg(test)]
+    pub(crate) fn show_tab_at(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.show_tab(index, cx);
+    }
     /// The palette the window is drawn with. Only the tests ask, to check that a
     /// theme preview changed it and that `escape` put it back.
     #[cfg(test)]
@@ -201,7 +252,9 @@ impl Workspace {
     /// really did take the keyboard.
     #[cfg(test)]
     pub(crate) fn mode_label(&self, cx: &gpui::App) -> &'static str {
-        mode_label(self.editor().read(cx).mode())
+        self.editor()
+            .map(|editor| mode_label(editor.read(cx).mode()))
+            .unwrap_or("")
     }
     /// What the open prompt holds, or `None` while no prompt is open.
     #[cfg(test)]
@@ -233,7 +286,8 @@ impl Workspace {
         &self,
         cx: &C,
     ) -> Option<(gpui::Pixels, gpui::Pixels)> {
-        self.editor().read_with(cx, |editor, _cx| {
+        let editor = self.editor()?;
+        editor.read_with(cx, |editor, _cx| {
             let top = editor.hit_line_edges(0)?.0;
             // `hit_line_x` is the painted line's left edge in window
             // coordinates; `x_for_offset` is relative to the line, so it would

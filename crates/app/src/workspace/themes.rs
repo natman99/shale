@@ -27,6 +27,7 @@ use crate::acts::ChangeTheme;
 use crate::picker::PickerItem;
 
 use super::open::PickerTarget;
+use super::tabs::TabContent;
 use super::Workspace;
 
 impl Workspace {
@@ -149,9 +150,9 @@ impl Workspace {
 
     /// Hand a new palette to everything that draws with it: the window (whose
     /// render reads it for the tab bar, the sidebar, the panels and the status bar),
-    /// **every tab's** editor (the note and its underlines), and the open picker —
-    /// which is drawn in the theme it is offering, so a preview is not hidden behind
-    /// the panel showing it.
+    /// **every tab's** editor (the note and its underlines) or graph view, and the open
+    /// picker — which is drawn in the theme it is offering, so a preview is not hidden
+    /// behind the panel showing it.
     ///
     /// Every tab, not just the one on screen: a background tab is drawn the moment
     /// the user presses `g t`, and a tab that kept the old palette would be a theme
@@ -159,8 +160,14 @@ impl Workspace {
     fn apply_palette(&mut self, palette: Rc<Palette>, cx: &mut Context<Self>) {
         self.palette = Rc::clone(&palette);
         for tab in self.tabs.iter() {
-            tab.editor
-                .update(cx, |editor, cx| editor.set_palette(Rc::clone(&palette), cx));
+            match &tab.content {
+                TabContent::Note { editor, .. } => {
+                    editor.update(cx, |editor, cx| editor.set_palette(Rc::clone(&palette), cx))
+                }
+                TabContent::Graph(view) => {
+                    view.update(cx, |view, cx| view.set_palette(Rc::clone(&palette), cx));
+                }
+            }
         }
         if let Some(picker) = self.picker.clone() {
             picker.update(cx, |picker, cx| picker.set_palette(palette, cx));

@@ -203,6 +203,10 @@ actions!(
         ReviewReject,
         ReviewOpenNote,
         ReviewCollapse,
+        // The vault's graph (`space g`, `:graph`). One tab per window, so the action
+        // means "show the graph": a second press moves the frame to the tab that
+        // already holds it rather than opening another (roadmap P3.4).
+        OpenGraph,
     ]
 );
 

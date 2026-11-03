@@ -81,6 +81,10 @@ pub(crate) enum Ex {
     /// `tabmove <n>`: move this tab to position `n`, 1-based as typed. The one tab
     /// command with an argument, so it is the one that does not travel as an action.
     TabMove(usize),
+    /// `graph` / `g`: the vault's link graph, in a tab of its own. One per window, so
+    /// a second `:graph` moves the frame to the graph that is already open (roadmap
+    /// P3.4).
+    Graph,
     /// Anything else, with the word that was typed. Nothing runs: an unknown word
     /// is a typo, not something to guess at.
     Unknown(String),
@@ -118,6 +122,7 @@ impl Ex {
             Ex::TabClose => "tab.close",
             Ex::TabOnly => "tab.only",
             Ex::TabMove(_) => "tab.move",
+            Ex::Graph => "graph.open",
         })
     }
 
@@ -145,7 +150,8 @@ impl Ex {
             | Ex::TabNext
             | Ex::TabPrev
             | Ex::TabClose
-            | Ex::TabOnly => self.command_id()?,
+            | Ex::TabOnly
+            | Ex::Graph => self.command_id()?,
             _ => return None,
         })
     }
@@ -227,6 +233,9 @@ pub(crate) fn parse(line: &str) -> Ex {
         // The review strip. `pending` is there because that is the word the queue is
         // named by on disk, and the quit prompt says "agent edits are waiting".
         "review" | "pending" => Ex::Review,
+        // The graph. `g` is the letter the chord already uses (`space g`), and the
+        // command line is exact, so it cannot collide with anything else.
+        "graph" | "g" => Ex::Graph,
         // The tabs (roadmap P3.1). vim's spellings, abbreviated the way vim allows,
         // and `:tabmove` is the only one that takes a number.
         "tabnew" | "tabedit" => Ex::TabNew,
