@@ -758,11 +758,21 @@ into the Phase 3 addendum. **P2.5a landed 2026-11-01, so Phase 2 is closed**
   a note a node click opened. A temporary fps / paint-ms readout sits in the counts row
   (`graph/bench.rs`) for the exit-criteria check on `examples/graph/`, and comes out once
   that is verified.
-  **Exit-criteria blocker found on the big fixtures (2026-11-03):** the layout diverges
-  at 1k and 5k notes (the bounding box grows ~10× per tick; numbers in PROJECT.md thread
-  39), so the fps and idle-sleep checks cannot be run there yet. The app no longer dies
-  trying — the hit-test grid is bounded by the layout — but the sim needs a force or
-  velocity cap before the graph is usable at that size.
+  **Exit-criteria blocker found on the big fixtures (2026-11-03), closed core-side the same
+  day:** the layout diverged at 1k and 5k notes (the bounding box grew ~10× per tick;
+  numbers and the resolution in PROJECT.md thread 39) — uniform-strength springs, not the
+  repulsion constant, fixed in `91930f2`. The app no longer dies trying either: the hit-test
+  grid is bounded by the layout.
+  **Paint phase measured and optimized the same day (PROJECT.md thread 42):** the paint
+  phase now has a bench (`tests/graph/paint_bench.rs`, release-only, `#[ignore]`d) and on the
+  5k fixture a whole graph frame costs **3.2 ms at whole-vault zoom, 1.7 ms at 3×, 1.1 ms at
+  10×** — down from 14.8–19 ms, from `Window::paint_layer` (gpui searches the scene's bounds
+  tree for every primitive's draw order, and that search is not linear) plus hand-tessellated
+  link quads. Three bugs came out of the same pass: the graph painted outside its pane, its
+  labels were `black()` because a `TextRun` with `len: 0` is stepped over, and above ~16k
+  visible links gpui drew **no links at all** (a path's vertices are u16-indexed). The fps /
+  idle-sleep check is now the remaining exit-criteria item, and so is the question of whether
+  the temporary `graph/bench.rs` readout stays in the counts row.
 - **P3.5 Graph M2–M5** in the plan's order: local graph + projected 3D →
   constellations + static mode → heatmap/groups/arrows → signature features
   (thread, pulses+glow, MST star-lines, nebulae, hjkl + f-jump, illumination,

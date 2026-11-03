@@ -631,6 +631,89 @@ mod tests {
         );
     }
 
+    /// The renderer builds link geometry itself instead of asking lyon to stroke it, which
+    /// is only safe if what it hands gpui is the same shape. This compares the two paths:
+    /// same vertex count, same bounds, same set of corners.
+    ///
+    /// If gpui ever changes what a stroke means (round caps, joins between subpaths, a
+    /// different vertex format), this fails here rather than as links with the wrong ends in
+    /// a window.
+    #[test]
+    fn a_hand_built_link_is_the_path_gpui_would_stroke() {
+        let segments: [[f32; 4]; 3] = [[0., 0., 10., 0.], [0., 0., 0., 8.], [-3., -4., 6., 12.]];
+        let width = px(2.0);
+
+        let mut stroked = PathBuilder::stroke(width);
+        for [ax, ay, bx, by] in segments {
+            stroked.move_to(point(px(ax), px(ay)));
+            stroked.line_to(point(px(bx), px(by)));
+        }
+        let stroked = stroked.build().expect("gpui can stroke three segments");
+
+        let mut buf = VertexBuffers::new();
+        for [ax, ay, bx, by] in segments {
+            let quad = stroke_quad([ax, ay], [bx, by], width.as_f32() / 2.0)
+                .expect("these segments have a direction");
+            let base = buf.vertices.len() as u16;
+            buf.vertices.extend_from_slice(&[
+                lpoint(quad[0][0], quad[0][1]),
+                lpoint(quad[1][0], quad[1][1]),
+                lpoint(quad[2][0], quad[2][1]),
+                lpoint(quad[3][0], quad[3][1]),
+            ]);
+            buf.indices.extend_from_slice(&[
+                base,
+                base + 1,
+                base + 2,
+                base + 1,
+                base + 2,
+                base + 3,
+            ]);
+        }
+        let hand = PathBuilder::build_path(buf);
+
+        assert_eq!(
+            hand.vertices.len(),
+            stroked.vertices.len(),
+            "two triangles a link either way"
+        );
+        for (a, b) in [
+            (hand.bounds.origin.x, stroked.bounds.origin.x),
+            (hand.bounds.origin.y, stroked.bounds.origin.y),
+            (hand.bounds.size.width, stroked.bounds.size.width),
+            (hand.bounds.size.height, stroked.bounds.size.height),
+        ] {
+            assert!(
+                (a.as_f32() - b.as_f32()).abs() < 1e-3,
+                "the same bounds: {a} vs {b}"
+            );
+        }
+        let corners = |path: &gpui::Path<Pixels>| {
+            let mut points: Vec<(f32, f32)> = path
+                .vertices
+                .iter()
+                .map(|v| (v.xy_position.x.as_f32(), v.xy_position.y.as_f32()))
+                .collect();
+            points.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            // Deduplicated: both paths are two triangles a link, but they split the quad
+            // along different diagonals, so which corner is repeated is not the same.
+            points.dedup_by(|a, b| (a.0 - b.0).abs() < 1e-4 && (a.1 - b.1).abs() < 1e-4);
+            points
+        };
+        let (hand, stroked) = (corners(&hand), corners(&stroked));
+        assert_eq!(
+            hand.len(),
+            stroked.len(),
+            "the same twelve corners: four a link, whatever diagonal each splits its quad along"
+        );
+        for (h, s) in hand.iter().zip(stroked.iter()) {
+            assert!(
+                (h.0 - s.0).abs() < 1e-3 && (h.1 - s.1).abs() < 1e-3,
+                "the same corners, got {h:?} vs {s:?}"
+            );
+        }
+    }
+
     /// The area of a quad given as corners in order, by the shoelace formula.
     fn quad_area(quad: &[[f32; 2]; 4]) -> f32 {
         let mut sum = 0.0;

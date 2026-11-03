@@ -643,8 +643,22 @@ entity), cx)` while painting the current frame. Forget it and every character
   sets `font_family`/`text_size` on its root and lets its rows inherit. And a
   `HitLine`'s own x is measured **from the line's left edge** while a mouse event's
   is a **window** coordinate — the editor has margins and a table row starts further
-  in again, so mixing them puts the cursor (or a hover) a few characters off. See
-  `MarkdownEditor::offset_at_x` (line-local) vs `offset_at_pointer_x` (window).
+  in again, so mixing them puts the cursor (or a hover) a few characters off.
+- **A `TextRun` with `len: 0` paints in `black()`, whatever `color` says.** gpui walks its
+  shaped glyphs against the decoration runs and steps over a run covering no bytes, so the
+  glyphs keep the line painter's initial colour. `TextRun::default()` has `len: 0`, which is
+  how the graph's node labels came out near-black on a dark canvas for weeks while looking
+  exactly like an alpha bug. Always set `len` to the bytes the run covers. Thread 42.
+- **One path holds at most 65535 vertices, and past that gpui draws nothing.** lyon
+  tessellates into `VertexBuffers<Point, u16>`; overflow is `TooManyVertices`, `build()`
+  returns `Err`, and the path is silently absent. A whole vault's links are well past it.
+  Batch, and assert the batch size against the ceiling. Thread 42.
+- **Every scene primitive pays a bounds-tree search for its draw order, and it is not
+  linear.** `Scene::insert_primitive` → `primitive_bounds.insert(…)`; measured 2.4 µs each at
+  ~4800 primitives where 1150 cost 1.6 µs each. `Window::paint_layer(bounds, …)` replaces the
+  whole batch's worth of searching with one insert and keeps insertion order inside the layer
+  (gpui's sort by draw order is stable). Fewer primitives is not the only lever — batching
+  them into one layer is the bigger one. Thread 42.
 
 ### Testing
 
@@ -668,16 +682,27 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
   every fixture embeds (self-links, colliding stems, links inside code, edges
   written both ways), and `--stats` are in `examples/graph/README.md` and
   `graph-view-plan.md` §Fixtures.
+- **Paint and frame benchmarks live in the test binary and are `#[ignore]`d**
+  (`tests/graph/paint_bench.rs`). Run them from the **release** test binary: a debug build
+  measures 5–10× the work and its fixed costs (lyon, font shaping) do not scale the same
+  way, so a debug number points at the wrong things. Two traps in writing one: a
+  `div().size_full()` at the root of a gpui test window resolves to **height 0** (definite
+  width, automatic height) and `canvas` has no intrinsic height either, so a bench canvas
+  culls everything and reports fixed overhead as if it were the workload — size the div from
+  `window.viewport_size()` and put `.size_full()` on the canvas element; and **a bench that
+  does not mirror the production path measures its own difference**, which is how this one
+  came to blame a 1.4 ms cost on the link scan when it was the bench re-running `Camera::fit`
+  over every node each frame. Thread 42.
 - Run the test binaries under `ulimit -v` when working on anything that scans
   text (a scanner bug can allocate until the OOM killer takes the editor down —
   see the table postmortem).
-  Current peak RSS of the test binaries (2026-11-02, app 370 / core 439 with 10
+  Current peak RSS of the test binaries (2026-11-03, app 383 / core 441 with 10
   ignored / mcp 35 tests — core's `db::` tests cost it nothing worth mentioning: 12.5
   MB to 16 MB, and the app's 79 MB to 96 MB is the eight `tests::index` windows that
   each open a real DB plus one headless window per test, which is nowhere near the
   200 MB line worth investigating):
-  core 15.9 MB, app 96.2 MB,
-  mcp 5.4 MB. The
+  core 18.4 MB, app 95.9 MB,
+  mcp 5.7 MB. The
   app binary's *address space* (not RSS) is far larger because of gpui/wgpu
   reservations, and it now needs **4 GB or more** — a 1 GB cap makes it die in an
   80-byte allocation. Build with `cargo test --workspace --no-run`, then run each
@@ -3888,6 +3913,118 @@ Next steps, roughly in order:
       A 5k vault now appears essentially immediately; `took_ms` in the log should say
       single-digit hundreds. `Vault::backlinks` got the same one-resolver-per-call shape.
       Drift guard test: `link_resolver_ties_suffix_and_attachment_rules`.
+
+42. **The graph's paint phase, measured and then made 4.6× cheaper** — user request
+    (2026-11-03). "Figure out how to benchmark and optimize the painting algorithm", plus
+    two things they saw in a screenshot: link lines bleeding over the rest of the app, and
+    note labels that were **still** near-black after two earlier attempts at them.
+    Landed as `ec806d6`.
+
+    ### The bench, and the trap in it
+    `crates/app/src/tests/graph/paint_bench.rs` — ignored tests, because a wall-clock number
+    from one machine is not an assertion. `cargo test -p shale-app --release -- --ignored
+    --nocapture graph_paint` (or run the release test binary directly). It paints one
+    `GraphFrame` in a window of its own, so the numbers are the graph's rather than the file
+    tree's or the editor's, and prints **primitive count and what survived culling beside
+    every timing** — those do not move with the machine, the timings do.
+    - **Release, always.** A debug build measures 5–10× the work and its fixed costs do not
+      scale the same way, so a debug number points at the wrong things.
+    - **A `div().size_full()` at the root of a gpui test window resolves to height 0** (its
+      parent chain has a definite width and an automatic height), and `canvas` has no
+      intrinsic height either. A zero-height canvas culls everything and the bench reports
+      fixed overhead as if it were the workload. Fix: `.w(…)/.h(…)` from
+      `window.viewport_size()` on the div **and** `.size_full()` on the canvas element.
+    - **The first version of this bench lied about the links.** Its prepaint closure called
+      `Camera::fit` over every node each frame, which the live tab does once and then caches.
+      That read as "the link scan costs 1.4 ms even at 10×"; with the framing cached it is
+      **0.03 ms for 18843 edges**, and the real link cost is tessellation. If a bench and a
+      production path differ, the bench measures the difference.
+
+    ### The labels were never an alpha problem
+    `TextRun::default().len` is **0**. gpui colours shaped glyphs by walking the decoration
+    runs it was handed and steps over a run that covers no bytes, which leaves every glyph at
+    the line painter's initial colour — `black()` (`gpui/src/text_system/line.rs:554`). So
+    `label_runs` handing over a default run meant the labels were black whatever the palette
+    asked for, on every zoom, since the day they were drawn. Both earlier diagnoses were
+    wrong: the 0.6-alpha-blending-into-`graph_edge` story and the count-ramp story. The ramp
+    stays (it is about how many nodes are worth naming at a zoom where they cannot be read),
+    but its comment now says the near-black was never an opacity effect. `label_runs` sets
+    `len: text.len()`, and because this gpui has no `painted_text()`, the unit test pins the
+    run itself: `a_label_run_covers_the_whole_label`.
+
+    ### The bleed, and gpui's path vertex ceiling (a real bug, not a slow one)
+    - The canvas paints in window-absolute px with no clip, so a link whose ends were
+      outside the pane was drawn across the file tree and the tab bar. `paint_graph` now
+      wraps everything in `with_content_mask(Some(ContentMask { bounds }))`. The test has
+      teeth: with the clip removed, a disc's `content_mask.bounds` is the whole 3840×2160
+      window instead of the pane. (`Quad.content_mask` is not an `Option` — that is what
+      makes the assertion possible. Paths and text are **not** in `painted_quads()`.)
+    - **gpui tessellates every path into lyon's `VertexBuffers<Point, u16>`.** Past 65535
+      vertices lyon answers `TooManyVertices`, `PathBuilder::build()` returns `Err`, and gpui
+      draws *nothing at all* for that path. One path for the 5k vault's 18843 links is 75372
+      vertices — so above ~16k visible links the graph had **no links**, and a warning in the
+      log nobody was looking at. Links now go to the scene in batches (`StrokeBatch`), with
+      the ceiling asserted by a `const _: () = assert!(…)` rather than assumed.
+    - The exchange rate, from `the_path_vertex_ceiling` (ignored): a stroked two-point
+      subpath is **exactly 6 vertices at any width** (10922 is the exact ceiling); a filled
+      disc is radius-dependent — 21 vertices at r=0.25, 33 at r=1, 73 at r=4, 184 at r=12 —
+      because lyon subdivides arcs to a fixed tolerance.
+
+    ### What the optimization was
+    5k fixture (5261 nodes, 18843 links), whole frame, ms per paint phase:
+
+    | zoom | before (quads, lyon links, no layer) | after |
+    |---|---|---|
+    | 1.0× (whole vault) | 14.8–19.0 | **3.2** |
+    | 3.0× (a neighbourhood) | 3.5–5.2 | **1.7** |
+    | 10.0× (one note) | 1.2–2.2 | **1.1** |
+
+    - **`Window::paint_layer` is the big one.** gpui gives every primitive a draw order by
+      searching the scene's `primitive_bounds` (`BoundsTree`, `gpui/src/scene.rs:87` →
+      `bounds_tree.rs:120` `find_max_ordering`), and that search is **not linear in the
+      primitive count**: 4768 discs cost 11.6 ms of it (2.4 µs each) where 1151 of the same
+      discs cost 1.9 ms. `paint_layer(bounds, …)` is gpui's own way of saying "this batch
+      shares a draw order" — one insert for the pane, and `Scene::finish`'s `sort_by_key` is
+      stable, so insertion order inside the layer is kept: links under nodes under labels,
+      hover ring under the chosen node's fill. Nothing in the graph tab paints over the
+      canvas, so sharing one order costs nothing today.
+    - **Hand-tessellated links.** A butt-capped straight segment *is* a quad; lyon's stroke
+      tessellator runs a sweep line over the whole path to discover that (0.45 µs a segment,
+      18843 of them). `PathBuilder::build_path` is public and is the very function gpui's
+      tessellators hand their results to, so filling the buffer ourselves and handing it over
+      produces the same path the engine would have built — gpui's format, from its front
+      door. `cull_mode: None` in `gpui_wgpu`, so the triangle winding is not load-bearing.
+      lyon is now a direct dependency of `shale-app` for the buffer type; it was already
+      compiled into the binary through gpui.
+      `stroke_quad` is a free function with its own test (`a_link_is_a_quad_the_width_of_its_stroke`:
+      corners perpendicular, exactly `half` off the line, shoelace area = length × width,
+      degenerate → `None`) because wrong geometry here still draws *something*.
+    - **Batch size is a tuning knob, measured:** `LINKS_PER_PATH` 15133 → 7.6 ms, 4000 →
+      4.9, **1000 → 4.6**, 500 → 6.2. The batch's vertex buffer is the allocation that costs;
+      665 KB per path goes to fresh pages every frame, 88 KB stays in the allocator.
+
+    ### Measured and rejected, kept as bench rows
+    - **Nodes as one filled path per colour** (1 primitive instead of 4768): 25.8 ms against
+      11.8. lyon tessellates every disc and gpui copies the vertex buffer into the scene
+      (`Path` is cloned into the scene, then scaled — 32 B per vertex, 3 vertices per
+      triangle). Fewer primitives is not automatically cheaper when the primitives are
+      expensive to build.
+    - **Clipping links to the pane with Liang-Barsky** instead of their bounding box: at 10×
+      it rejected 8% of them (3262 boxes in view, 3003 actually crossing) because a hub's
+      links are long and cross the pane from off-screen, and the four divisions per edge cost
+      more than the drawing it saved. The box test stays.
+
+    ### Where the cost is now, and what would move it next
+    At whole-vault zoom the frame is ~3.2 ms: links ~1.9 (18.5k of them, ~10 MB of path
+    vertices per frame between `build_path`, `Path::scale` and the scene's clone), nodes ~1.0
+    (4768 quads), labels and hover ~0.5. At the zooms the user lives at it is 1.1–1.7 ms.
+    - **A paint cache** is the remaining big lever: when neither the frame nor the camera
+      moved (hover, selection, an unrelated repaint), the link geometry is the same path and
+      could be reused instead of rebuilt. It wants a revision counter on `GraphFrame`.
+    - **The in-app readout** (`crates/app/src/graph/bench.rs`, the `fps` / `ms paint` counts
+      row) is now redundant with the bench. Parked as a question to the user.
+    - The bench's `LAYER` / `NODES_PATH` / `LYON_LINKS` rows exist so each of the trades
+      above can be re-measured rather than re-argued.
 
 ## Parked threads (agreed 2026-10-28; not being worked now)
 
