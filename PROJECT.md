@@ -4449,13 +4449,85 @@ Next steps, roughly in order:
     `Hsla` conversions recorded above, which is that file moving under the graph agent.
     `cargo fmt --all -- --check` clean.
 
-    **The live app's memory floor, measured.** Every RSS figure in this file is a *test binary*;
+    ### The live app's memory floor, measured. Every RSS figure in this file is a *test binary*;
     nobody had measured the app itself. A debug build opened on a copy of the demo vault for five
     seconds peaks at **238–242 MB**, and the same measurement at `e9b2bfa` (before the tree
     toggle) is **240–241 MB** — the same within run-to-run noise, so the toggle costs nothing.
     That number is over the 200 MB line the project rules say to look at, and it is worth looking
     at, but it is the app's floor and not something this change added. It is written down so the
     next person does not spend an afternoon blaming whatever they just built.
+
+47. **Where the app's memory actually goes** — user request (2026-11-03). "let's do some testing
+    and memory optimization. See if you can knock off some quick low hanging fruit."
+
+    ### The decomposition, and the number that was wrong
+    Peak RSS (`/usr/bin/time -v`, and `VmHWM`) charges a process the **whole** of every shared
+    mapping it touches. For a GPU app that is the wrong question: the display driver's library
+    pages are shared with every other client of the X server. `Pss` is the honest figure, and
+    `smaps_rollup`'s `Anonymous` is the only part Shale can shrink. Release build, demo vault:
+
+    | | kB |
+    | --- | --- |
+    | peak RSS (VmHWM) | 198,400 |
+    | Rss | 183,000 |
+    | Pss | 172,200 |
+    | **Anonymous (the app's own)** | **40,600** |
+
+    So ~150 MB of the "240 MB editor" is **other people's code**: `libnvidia-gpucomp` 28–43 MB,
+    `libLLVM` 24.7, `/dev/nvidiactl` 15.1, `libnvidia-glcore` 13.2, `libnvidia-rtcore` 10.9,
+    `libnvidia-eglcore` 9.7. Shale does not decide any of that. The app's own footprint is ~40 MB
+    of heap plus ~24 MB of its own touched `.text`.
+
+    ### Measured and rejected
+    - **`MALLOC_ARENA_MAX=1`: 0.8 MB.** The first probe showed a 15 MB win; it was noise. Three
+      alternating runs put it under a megabyte. This is the trap with single-run memory
+      measurements on a GPU box — the NVIDIA mappings move by tens of megabytes between runs
+      depending on how much of the shader compiler got touched, so *any* A/B has to alternate.
+      `target/memab.py` does; `target/memprobe.py` is the per-run breakdown.
+    - **The vault's own data is cheap.** Empty vault 192 MB, demo (3 notes) 198 MB, 5,000 notes
+      209–212 MB: about **2.5 kB per note**, and a synthetic 2,000-note vault is indistinguishable
+      from the 3-note one. Nothing to win here.
+    - **The graph paint cache is bounded**: `cache.rs` holds exactly one `Batch`, replaced on every
+      store, and `worth_keeping` refuses to store the first paint for a key. No leak.
+
+    ### The one thing that moved, and what it is really worth
+    There was no `[profile]` section at all, so release was cargo's default: 16 codegen units per
+    crate, no cross-crate inlining. `lto = "thin"` + `codegen-units = 1`:
+
+    | | before | after |
+    | --- | --- | --- |
+    | binary | 50.4 MB | 39.4 MB |
+    | `.text` | 26.98 MB | 24.71 MB |
+    | peak RSS | 198.4 MB | 198.8 MB |
+
+    **It is a build and disk win, not a memory win.** The binary is 22% smaller and `.text` 8%
+    smaller, but the resident set did not move at all — the pages that get touched are the ones
+    the startup path executes, and inlining does not change which those are. Kept for the size
+    and the startup fault count, and recorded as *not* a memory lever so nobody re-tries it
+    expecting one.
+
+    ### The lever that works but is not ours to pull
+    Restricting the Vulkan loader to the one ICD this machine has a GPU for —
+    `VK_DRIVER_FILES=/usr/share/vulkan/icd.d/nvidia_icd.x86_64.json` — is a **repeatable 8 MB**:
+    198.5 → 190.1 MB peak, 174.8 → 166.6 Pss, both runs. wgpu 30 calls `enumerate_adapters`
+    with `Backends::all()` (in gpui, not here), which makes the loader dlopen every ICD in
+    `/usr/share/vulkan/icd.d` — on this box that is radeon, llvmpipe, dzn and their gallium,
+    ~11 MB of code loaded to answer "not this GPU". wgpu 30 no longer honours a backend env var,
+    so the only door is the loader's, and hardcoding an ICD path into the app would break every
+    machine that is not this one. Worth a config key someday; not worth a silent default.
+
+    ### Where the real growth is
+    The graph tab, not the vault: 5k vault **209 MB** with a note open, **226 MB** with the graph
+    tab restored; organic-5k **212 MB** → **239 MB**. Seventeen to twenty-seven megabytes for one
+    tab. The suspects are the graph index (`note_links`, `by_path`, `by_tag`, `by_ghost`) and the
+    **two `LinkResolver`s** `graph/index.rs` builds per index pass — each is four `HashMap`s
+    holding a cloned `VaultEntry` per note, so every note's `PathBuf` is copied four times, twice
+    over. `vault.rs` is ours; `core/src/graph/**` is the graph agent's.
+
+    ### Numbers
+    Release build, demo vault, alternating runs: peak **198.4 MB**, Pss **172.2 MB**, anonymous
+    **40.6 MB**. Debug build of the same: **240 MB**. Tests unchanged (no code changed): app 402,
+    core 448, mcp 35, clippy 7, fmt clean.
 
 ## Parked threads (agreed 2026-10-28; not being worked now)
 

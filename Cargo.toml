@@ -6,6 +6,16 @@ members = [
     "crates/mcp",
 ]
 
+# The release profile was whatever cargo's default is, which for a binary this wide
+# means 16 codegen units per crate and no cross-crate inlining: 27 MB of `.text`, of
+# which the running app keeps ~24 MB resident. `lto` and a single codegen unit let the
+# generics that repeat across crates collapse into one copy each, which is the only
+# part of a GPU app's footprint the app itself controls -- the other ~150 MB is the
+# display driver's shared library text. Measured below, in PROJECT.md.
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
