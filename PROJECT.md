@@ -3771,7 +3771,10 @@ Next steps, roughly in order:
       fixture settles fine, so it scales with node count. The app passes
       `SimParams::default()` unchanged, and the current defaults (`repel: -200`, chosen
       2026-11-02 for label spacing) are the most likely lever — worth a probe at 1k and
-      5k before the next spacing change.
+      5k before the next spacing change. **(Corrected by the graph track's A/B,
+      2026-11-03: not the repulsion — uniform-strength springs diverge at -90 AND
+      -200, and degree-divided springs settle at both. The divergence predates
+      fd3e093; see the resolution bullet below.)**
     - **The OOM was the hit-test grid, not the sim.** `Grid::build` allocates one
       `Vec<u32>` bucket per cell over the positions' bounding box, so with a cell sized
       off the node radii (≈47 world units) and a span of 1e9 the bucket count is
@@ -3786,6 +3789,18 @@ Next steps, roughly in order:
       core's `step`, or the app refusing to keep ticking a layout whose span is growing
       monotonically. The second is a few lines in `graph_tick`; say the word and it
       lands, but the first is the real fix.
+      **RESOLVED core-side (2026-11-03, graph track, `91930f2`):** the divergence was
+      the spring law — per-node effective stiffness `sum strength*bias-share` reaches
+      21.8 on tag hubs (maxdeg 468) against the explicit-Euler stability bound
+      `2(1+d)/d = 5.33` at damping 0.6, so the integrator oscillates with growing
+      amplitude (the eigenvalue goes negative past the bound — the span bouncing
+      1e12 → 6.7e8 → 2e10). `apply_links` now divides each spring by
+      `min(deg_a, deg_b)` — d3's actual law, the one `link_strength`'s doc already
+      promised — capping per-node stiffness near `link_strength` for any shape; and
+      `integrate` clamps |vel| to 2000/tick (a healthy 5k settle peaks ~850, so it
+      never binds; it turns any future blow-up into the linear growth the app's grid
+      bound already survives). Regression test: `the_1k_fixture_settles_and_stays_bounded`
+      (core, non-ignored). The 1k/5k fixtures now settle; the beat stops on its own.
     - **Repro recipe** (a scratch `#[test]` in `tests/graph/`, deleted after use): open
       the vault with `Vault::open`, `GraphIndex::build`, `GraphSim::build`, then
       `advance(2)` + `frame()` in a loop printing `(hi-lo).max()` per tick. Run the test
