@@ -29,6 +29,7 @@ use gpui::{
 use shale_core::theme::Palette;
 
 use crate::acts::{ApplyRow, FieldCancel, FieldSubmit, PickerDown, PickerUp};
+use crate::style::CHIP_RADIUS;
 
 /// The key context the popup's bindings live in. Like the prompt and the pickers
 /// it is drawn as a *sibling* of the note, so the vim contexts cannot swallow the
@@ -46,8 +47,9 @@ pub(crate) const WIDTH: Pixels = px(430.);
 fn row_height(size: f32) -> Pixels {
     px(crate::theme::line_height(size))
 }
-/// Space between the border and the first line.
-const PAD: Pixels = px(6.);
+/// Space between the border and the first line: the spacing scale's second step
+/// (`design-language.md` §2). It was 6 px, which is not on the scale.
+const PAD: Pixels = crate::style::SPACE_2;
 /// The border, counted twice in the height.
 const BORDER: Pixels = px(1.);
 /// How many characters of a message or a title fit on one line. Longer ones are
@@ -276,6 +278,10 @@ impl Render for Popup {
             .text_color(gpui::rgb(palette.ui_fg))
             .border_1()
             .border_color(gpui::rgb(palette.popup_border))
+            // The same corner as the picker's panel: both are raised surfaces over
+            // the note, and §5 of `design-language.md` says every floating thing
+            // uses the raised triple identically -- which includes its shape.
+            .rounded(CHIP_RADIUS)
             .on_action(cx.listener(|_, _: &FieldCancel, _window, cx| {
                 cx.emit(PopupEvent::Cancel);
             }))

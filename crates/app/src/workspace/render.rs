@@ -22,8 +22,10 @@ const TAB_BAR: gpui::Pixels = gpui::px(28.);
 /// are the point: with one tab open, a chip that fills the bar reads as the bar, and
 /// a chip the bar frames reads as a tab.
 const TAB_ROW: gpui::Pixels = gpui::px(20.);
-/// The bar's own colour left at its ends and between two tabs.
-const TAB_GAP: gpui::Pixels = gpui::px(6.);
+/// The bar's own colour left at its ends and between two tabs: the spacing scale's
+/// first step (`design-language.md` §2), which is also the bar colour above and below
+/// a tab, so the frame the bar draws around its tabs is the same width on every side.
+const TAB_GAP: gpui::Pixels = crate::style::SPACE_1;
 
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {

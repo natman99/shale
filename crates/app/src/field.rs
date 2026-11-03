@@ -23,7 +23,11 @@ use shale_core::theme::Palette;
 use crate::style::CHIP_RADIUS;
 use crate::theme::{self, RunStyle};
 
-/// Padding inside the field, in pixels.
+/// Padding inside the field, in pixels: [`crate::style::SPACE_1`]'s step.
+///
+/// An `f32` rather than a `Pixels` because most of what the field does with it is
+/// hit-testing arithmetic against a character width, where the newtype would only
+/// get unwrapped again.
 pub(crate) const PAD: f32 = 4.;
 
 /// A single line of text with a caret.

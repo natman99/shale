@@ -24,8 +24,9 @@ use crate::popup::{Popup, PopupEvent};
 
 use super::Workspace;
 
-/// How far below the line the panel starts.
-const GAP: Pixels = px(4.);
+/// How far below the line the panel starts: the spacing scale's first step
+/// (`design-language.md` §2).
+const GAP: Pixels = crate::style::SPACE_1;
 
 /// How far past the panel's outer edge the pointer may go before the panel is
 /// dismissed.

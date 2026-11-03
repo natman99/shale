@@ -40,8 +40,9 @@ pub(crate) const CONTEXT: &str = "review";
 /// The height of one row of the strip. The same order as the status bar's, so the two
 /// read as one area at the bottom of the window rather than two widgets.
 const ROW: Pixels = px(20.);
-/// Space between the strip's edge and its rows.
-const PAD: Pixels = px(4.);
+/// Space between the strip's edge and its rows: the spacing scale's first step
+/// (`design-language.md` §2), the same one a picker row and a file-tree row take.
+const PAD: Pixels = crate::style::SPACE_1;
 /// How many hunk rows the strip draws at once.
 ///
 /// More than that and the strip is a panel that pushes the note off screen, which is
@@ -293,6 +294,10 @@ impl Render for Review {
                     .when(!is_marked, |d| {
                         d.hover(|s| s.bg(gpui::rgb(palette.ui_hover_bg)))
                     })
+                    // A marked row is a chip, as a file-tree row and a picker row
+                    // are: the strip pads its rows, so the corner shows against the
+                    // strip's own background.
+                    .rounded(crate::style::CHIP_RADIUS)
                     .on_click(move |_, window, cx| {
                         // The strip takes the keyboard on a click, so the bare keys
                         // work straight after pointing at a row.
