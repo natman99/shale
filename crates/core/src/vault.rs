@@ -17,7 +17,8 @@ const FORBIDDEN_NAME_CHARS: &[char] = &['*', '"', '\\', '/', '<', '>', ':', '|',
 /// A markdown note inside a vault, addressed by a vault-relative path.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VaultEntry {
-    /// Vault-relative path, e.g. `notes/idea.md`.
+    /// Vault-relative path, e.g. `notes/idea.md`. Written out with [`rel_text`], which is what
+    /// makes the same note one string on every platform.
     pub path: PathBuf,
 }
 
@@ -26,6 +27,24 @@ impl VaultEntry {
     pub fn stem(&self) -> &str {
         self.path.file_stem().and_then(|s| s.to_str()).unwrap_or("")
     }
+}
+
+/// The one text form of a vault-relative path: `/`-joined, on every platform.
+///
+/// A `PathBuf` renders with `\` on Windows, and a vault-relative path is not only a path — it is
+/// a graph node's label, a `folder:` filter's prefix, an index row's key, and text a user reads
+/// in a status line. Every one of those is written by hand with `/`, in a note, a config file or
+/// a query, so the platform's rendering makes them disagree with the note on disk. Everything
+/// that turns a relative path into text goes through here.
+///
+/// Going through `components()` rather than replacing separators also drops `.` and doubled
+/// separators, which is what makes a path written two ways compare as one path.
+pub fn rel_text(rel: impl AsRef<Path>) -> String {
+    rel.as_ref()
+        .components()
+        .map(|comp| comp.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 /// Pre-built lookup tables for link resolution: the same rules as
@@ -63,8 +82,13 @@ impl LinkResolver {
         let mut by_name = HashMap::with_capacity(entries.len());
         for entry in entries {
             exact.insert(entry.path.clone(), entry.clone());
-            let lossy = entry.path.to_string_lossy();
-            insert_shortest(&mut by_lower_path, lossy.to_lowercase(), entry);
+            // The key is built the way the query is (`rel_text`, then lowercased), or a
+            // case-insensitive path match misses on any platform whose separator is not `/`.
+            insert_shortest(
+                &mut by_lower_path,
+                rel_text(&entry.path).to_lowercase(),
+                entry,
+            );
             let key = entry.stem().to_lowercase();
             insert_shortest(&mut by_stem, key, entry);
             if let Some(name) = entry.path.file_name().and_then(|s| s.to_str()) {
@@ -495,6 +519,15 @@ fn checked_rel(rel: &Path) -> Result<PathBuf> {
     if rel.as_os_str().is_empty() {
         bail!("a name cannot be empty");
     }
+    // Checked on the text, before it is split into components. `Path::components` treats `\` as
+    // a separator on Windows, so the per-component rule below never sees the character there and
+    // `back\slash.md` would arrive as two clean names and create a folder instead of being
+    // refused. On unix the character survives into a component and is refused by `check_name`,
+    // where it is also on the forbidden list; the same refusal on both is what keeps a vault
+    // portable, since a name legal on ext4 is not legal on Windows.
+    if rel.as_os_str().to_string_lossy().contains('\\') {
+        bail!("`\\` is not allowed in a note name ({})", rel.display());
+    }
     let mut out = PathBuf::new();
     for comp in rel.components() {
         match comp {
@@ -574,6 +607,20 @@ mod tests {
         fs::write(root.join("notes/ignored.txt"), "not markdown")?;
         fs::write(root.join("assets/Diagram.png"), "not really a png")?;
         Ok((dir, Vault::open(root)?))
+    }
+
+    /// A relative path's text form is `/`-joined however the components were assembled, so a
+    /// graph label, an index key and a folder prefix all name the same note on a platform whose
+    /// separator is not `/`.
+    #[test]
+    fn a_relative_path_is_written_with_slashes() {
+        let mut joined = PathBuf::new();
+        joined.push("notes");
+        joined.push("Another Note.md");
+        assert_eq!(rel_text(&joined), "notes/Another Note.md");
+        // A `.` or a doubled separator is not part of a note's identity, so it does not survive
+        // into the text that is used as an identity.
+        assert_eq!(rel_text("notes//./a.md"), "notes/a.md");
     }
 
     #[test]

@@ -26,7 +26,7 @@ use rusqlite::{params, Connection};
 
 use crate::graph::extract_tags;
 use crate::markdown::extract_wikilinks;
-use crate::vault::{Vault, VaultEntry};
+use crate::vault::{rel_text, Vault, VaultEntry};
 use crate::watch::{Stamp, VaultChanges};
 
 use super::{now_epoch, Db, Provenance};
@@ -108,7 +108,8 @@ impl SyncReport {
 /// cannot be read costs its own row rather than taking the rest of the pass down
 /// with it.
 struct Record {
-    /// Vault-relative path, as the `notes.path` column holds it.
+    /// Vault-relative path, as the `notes.path` column holds it: `/`-joined on every
+    /// platform, by [`rel_text`].
     path: String,
     /// Bytes on disk, so a change that lands inside the second the note was last
     /// indexed is still seen as a change.
@@ -153,15 +154,12 @@ fn record(
         // The same resolution order the graph and the backlinks use: a note, then an
         // attachment, then a ghost keyed by what the author wrote.
         let (stored, kind) = match vault.resolve_link(target, notes) {
-            Ok(Some(entry)) => (entry.path.to_string_lossy().into_owned(), target_kind::NOTE),
+            Ok(Some(entry)) => (rel_text(&entry.path), target_kind::NOTE),
             // A target that names a real note but fails to resolve (a path that
             // escapes the vault, say) is treated as unresolved rather than dropped,
             // so the author still sees it in an unresolved-link list.
             _ => match vault.resolve_attachment(target, attachments) {
-                Some(entry) => (
-                    entry.path.to_string_lossy().into_owned(),
-                    target_kind::ATTACHMENT,
-                ),
+                Some(entry) => (rel_text(&entry.path), target_kind::ATTACHMENT),
                 None => (target.to_string(), target_kind::GHOST),
             },
         };
@@ -173,7 +171,7 @@ fn record(
     }
 
     Ok(Record {
-        path: rel.to_string_lossy().into_owned(),
+        path: rel_text(rel),
         size: meta.len() as i64,
         modified_at,
         words: word_count(&text) as i64,
@@ -378,7 +376,7 @@ impl Db {
 
     /// Drop a note that just went away, and record that it did.
     pub fn note_deleted(&self, rel: &Path, provenance: Provenance) -> Result<()> {
-        let path = rel.to_string_lossy().into_owned();
+        let path = rel_text(rel);
         self.write(move |conn| {
             drop_note(conn, &path)?;
             event(conn, &path, EventKind::Delete, provenance, "")?;
@@ -395,7 +393,7 @@ impl Db {
         let notes = vault.list_markdown()?;
         let attachments = vault.list_attachments()?;
         let note = record(vault, to, &notes, &attachments)?;
-        let old = from.to_string_lossy().into_owned();
+        let old = rel_text(from);
         self.write(move |conn| {
             drop_note(conn, &old)?;
             write_record(conn, &note, Provenance::Rename)?;
@@ -496,7 +494,7 @@ impl Db {
             .removed
             .iter()
             .filter(|path| is_markdown(path))
-            .map(|path| path.to_string_lossy().into_owned())
+            .map(rel_text)
             .collect();
         report.removed = gone.len();
         written.retain(|note| !gone.contains(&note.path));

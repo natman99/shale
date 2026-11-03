@@ -4339,8 +4339,44 @@ Next steps, roughly in order:
     `db::index` counts follow from the same thing. `vault::tests::names_a_vault_cannot_hold_are_refused`
     is a second and sharper bug: `create_note` refuses a name containing `/` but not one
     containing `\`, and on Windows `\` *is* a separator, so `back\slash.md` is accepted and writes
-    into a subfolder. Neither is fixed: the first is a decision about how core spells
-    vault-relative paths (15 places in `core` stringify one), not a test fix.
+    into a subfolder.
+
+    ### The separator rule
+    A vault-relative path has **one text form: `/`-joined, on every platform**. It is not only a
+    path. The same string is a graph node's label, a `folder:` filter's prefix, an index row's
+    key, a backlink lookup and text the user reads in a status line — and every one of those is
+    written by a human with `/`, in a note, in a config file, or in a query. A `PathBuf` renders
+    with `\` on Windows, so letting the platform decide makes all five disagree with the note on
+    disk. `vault::rel_text` is the one place that decides, and every site that turns a relative
+    path into text goes through it: the link resolver's case-insensitive path table, the graph's
+    ghost key and label, the folder scope's prefix match and its search, and the index's `path`
+    column and its delete/rename keys. `glob.rs` already normalised the other direction (a typed
+    link target's `\` to `/`), which is the tell that this was the intended invariant: the query
+    side normalised and the stored side did not.
+
+    The index's `path` column changes format with this. It is a cache the notes can rebuild, and
+    no Windows build has ever written one, so there is nothing to migrate.
+
+    The second bug is not a separator bug at all and is sharper: `FORBIDDEN_NAME_CHARS` already
+    lists `\`, but `checked_rel` validates *components*, and on Windows `Path::components` treats
+    `\` as a separator, so `back\slash.md` arrives as two clean components and is accepted —
+    creating a folder instead of refusing. The rule now applies to the path's text before it is
+    split, on every platform: a backslash in a name Shale is asked to create is refused whether
+    the platform would have seen a separator or a filename character. On unix that name is
+    perfectly legal on the filesystem, and Shale refuses it anyway, which is Obsidian's rule and
+    the one that keeps a vault portable.
+
+    Two follow-ups, not taken: the app still renders vault-relative paths with `display()` in
+    status lines, MCP payloads and graph labels (`live.rs`, `graph/sim.rs`, `notes.rs`, `tabs.rs`,
+    `open.rs`, `review.rs`), which is a wrong-looking path on Windows rather than a wrong answer;
+    and `crates/core/src/graph/{index,filter}.rs` are the graph agent's files — four lines there,
+    listed here so the ownership rule is honoured rather than quietly broken.
+
+    Landed and re-run under Wine: **445 passed, 0 failed, 10 ignored** (was 437/7). The two tests
+    the Linux count has and the Windows count does not are `atomic.rs`'s pair behind
+    `#[cfg(unix)]`, so nothing is being skipped by accident. `target/winefix.sh` is the loop that
+    gets a fresh prefix past the setupapi spin; it is scratch, and `cargo clean` takes it — the
+    working prefix itself now lives at `~/.wine-shale`, outside the repo.
 
     ### Not built
     - **Live following** (reacting when the desktop flips dark↔light mid-session). The one-shot

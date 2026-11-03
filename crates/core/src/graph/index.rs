@@ -16,7 +16,7 @@ use petgraph::graph::{NodeIndex, UnGraph};
 
 use crate::markdown::extract_wikilinks;
 use crate::mdstyle::{style_spans, Style};
-use crate::vault::{LinkResolver, Vault, VaultEntry};
+use crate::vault::{rel_text, LinkResolver, Vault, VaultEntry};
 
 /// What a graph node represents.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -262,7 +262,7 @@ impl GraphIndex {
                                     self.by_path.insert(path.clone(), node);
                                     node
                                 } else {
-                                    let key = path.to_string_lossy().into_owned();
+                                    let key = rel_text(path);
                                     match self.by_ghost.get(&key) {
                                         Some(node) => *node,
                                         None => {

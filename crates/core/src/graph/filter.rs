@@ -8,6 +8,7 @@ use petgraph::graph::NodeIndex;
 
 use crate::fuzzy::fuzzy_match;
 use crate::graph::index::{GraphIndex, NodeKind};
+use crate::vault::rel_text;
 
 /// What to show. Defaults: everything on (Obsidian's default graph).
 #[derive(Debug, Clone)]
@@ -53,7 +54,7 @@ pub fn apply(index: &GraphIndex, filter: &GraphFilter) -> Vec<bool> {
             let meta = index.meta(NodeIndex::new(i));
             match meta.kind {
                 NodeKind::Note | NodeKind::Attachment => {
-                    let path = meta.path.as_ref().map(|p| p.to_string_lossy().into_owned());
+                    let path = meta.path.as_ref().map(rel_text);
                     let inside = match path {
                         Some(p) => p == prefix || p.starts_with(&format!("{prefix}/")),
                         None => false,
@@ -103,11 +104,7 @@ pub fn apply(index: &GraphIndex, filter: &GraphFilter) -> Vec<bool> {
                 let node = NodeIndex::new(i);
                 let meta = index.meta(node);
                 let label = &meta.label;
-                let path = meta
-                    .path
-                    .as_ref()
-                    .map(|p| p.to_string_lossy().into_owned())
-                    .unwrap_or_default();
+                let path = meta.path.as_ref().map(rel_text).unwrap_or_default();
                 let matched = fuzzy_match(query, label).is_some()
                     || (!path.is_empty() && fuzzy_match(query, &path).is_some());
                 if !matched {
