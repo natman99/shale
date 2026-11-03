@@ -7,7 +7,6 @@
 //! it predates autosave, still writes a dirty note first, and gpui's test platform
 //! has no meaningful `quit()` to observe.
 
-use std::os::unix::fs::PermissionsExt;
 use std::time::Duration;
 
 use super::*;
@@ -207,8 +206,15 @@ fn closing_the_window_writes_the_note(cx: &mut TestAppContext) {
 /// A note that cannot be written keeps its window open, the way `:q` refuses to
 /// quit: the alternative is a silent loss, and a window is where the user can
 /// still see what went wrong.
+///
+/// Making a file unwritable is a mode-bit operation, so this test is a unix one.
+/// The refusal it checks is not: the write path just reports whatever error the
+/// platform gives it.
+#[cfg(unix)]
 #[gpui::test]
 fn a_note_that_cannot_be_written_keeps_its_window(cx: &mut TestAppContext) {
+    use std::os::unix::fs::PermissionsExt as _;
+
     let (dir, window) = workspace(cx, &["a.md"]);
     open(&window, cx, "a.md");
     let cx = &mut VisualTestContext::from_window(window.into(), cx);

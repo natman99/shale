@@ -5,6 +5,7 @@
 
 mod acts;
 mod command;
+mod desktop;
 mod dim;
 mod editor;
 mod ex;
@@ -28,7 +29,7 @@ mod workspace;
 
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use anyhow::{Context as _, Result};
@@ -78,6 +79,10 @@ fn main() -> Result<()> {
     // SIGKILL cannot be caught, which is why the note writes themselves are atomic
     // (`shale_core::atomic`) and the index is a cache rather than a record.
     let terminating = Arc::new(AtomicBool::new(false));
+    // Signals are a unix thing, and so are the two crates that raise them; the
+    // flag stays, because the window's poll is the same code on every platform,
+    // and a Windows console handler is the part that would have to be written.
+    #[cfg(unix)]
     let _signal_handlers = [libc::SIGTERM, libc::SIGHUP, libc::SIGINT]
         .into_iter()
         .map(|signal| {
@@ -88,7 +93,9 @@ fn main() -> Result<()> {
             // the previous handler back, and the previous handler for SIGTERM is
             // "drop the process where it stands".
             unsafe {
-                signal_hook_registry::register(signal, move || flag.store(true, Ordering::SeqCst))
+                signal_hook_registry::register(signal, move || {
+                    flag.store(true, std::sync::atomic::Ordering::SeqCst)
+                })
             }
         })
         .collect::<std::result::Result<Vec<_>, _>>()

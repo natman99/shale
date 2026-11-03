@@ -14,20 +14,30 @@ clap = { version = "4", features = ["derive"] }
 futures.workspace = true
 gpui.workspace = true
 gpui_platform.workspace = true
-# The termination signals (roadmap P1.5): `signal-hook-registry` installs a handler
-# that only raises a flag, and `libc` supplies the signal numbers. Both are already
-# in the tree through gpui's Linux backend, so this adds no code to the binary — and
-# neither is a binding to a library beyond the libc every Linux process links.
-libc = "0.2"
 # The graph's links are tessellated by hand (see `graph::render`), which means filling the
 # same vertex buffer gpui's own tessellators fill. lyon is already compiled into the binary
 # through gpui, so this names a crate the build already has rather than adding one.
 lyon = "1.0"
 serde_json.workspace = true
 shale-core.workspace = true
-signal-hook-registry = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Signals are a unix thing, and so are the two crates that raise them;
+# `main` installs them behind the same gate.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+signal-hook-registry = "1"
+
+# The desktop's dark-or-light setting (`desktop.rs`, `design-language.md` §15).
+# `ashpd` is the XDG Desktop Portal client gpui's Linux backend already links --
+# the same version and the same features it asks for -- so this names a crate
+# the build already has rather than adding one.
+[target.'cfg(target_os = "linux")'.dependencies]
+ashpd = { version = "0.13", default-features = false, features = [
+    "async-io",
+    "settings",
+] }
 
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }
