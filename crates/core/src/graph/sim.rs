@@ -152,11 +152,7 @@ impl<const D: usize> Sim<D> {
             .collect();
         let min_deg: Vec<f32> = edges
             .iter()
-            .map(|&[a, b]| {
-                degree[a as usize]
-                    .min(degree[b as usize])
-                    .max(1) as f32
-            })
+            .map(|&[a, b]| degree[a as usize].min(degree[b as usize]).max(1) as f32)
             .collect();
 
         // d3-force's initial placement: a phyllotaxis spiral, golden angle
@@ -929,8 +925,7 @@ fn the_1k_fixture_settles_and_stays_bounded() -> anyhow::Result<()> {
     use crate::graph::GraphIndex;
     use crate::vault::Vault;
     use petgraph::visit::EdgeRef;
-    let root =
-        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/graph/1k");
+    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/graph/1k");
     let vault = Vault::open(&root)?;
     let index = GraphIndex::build(&vault, &vault.list_markdown()?, &vault.list_attachments()?)?;
     let g = index.graph();
@@ -954,7 +949,10 @@ fn the_1k_fixture_settles_and_stays_bounded() -> anyhow::Result<()> {
         }
         max_span = max_span.max((hi[0] - lo[0]).max(hi[1] - lo[1]));
     }
-    assert!(sim.is_settled(), "the 1k fixture must settle (ticks={ticks})");
+    assert!(
+        sim.is_settled(),
+        "the 1k fixture must settle (ticks={ticks})"
+    );
     assert!(
         max_span < 5.0e4,
         "the layout must stay bounded, max span {max_span:.3e}"
