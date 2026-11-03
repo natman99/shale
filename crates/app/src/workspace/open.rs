@@ -265,10 +265,11 @@ impl Workspace {
             PickerTarget::Theme(name) => {
                 // Chosen, so it is saved: the theme the picker was opened with is
                 // the one the next launch should open in.
+                let note = self.readability_suffix();
                 let saved = self.persist_theme(&name);
                 self.say(
                     match saved {
-                        Ok(()) => format!("theme: {name}"),
+                        Ok(()) => format!("theme: {name}{note}"),
                         Err(err) => {
                             tracing::warn!("could not save the theme: {err:#}");
                             format!("theme: {name}, not saved: {err:#}")

@@ -297,7 +297,8 @@ impl Workspace {
         // default palette is used. The name is kept, so the status line can
         // say what is on screen after a live switch.
         let configured = config.appearance.theme.trim().to_string();
-        let (palette, theme_name, theme_error) = match theme::palette_for(vault.root(), &configured) {
+        let (palette, theme_name, theme_error) = match theme::palette_for(vault.root(), &configured)
+        {
             Ok(palette) => (
                 palette,
                 if configured.is_empty() {
@@ -468,6 +469,16 @@ impl Workspace {
         // thing said, so nothing later at startup can bury it.
         if let Some(err) = theme_error {
             workspace.say(format!("theme failed: {err:#}"), cx);
+        } else {
+            // A theme that loads but paints something too faint to read is a
+            // theme with a bug in it rather than a broken one: the window keeps
+            // the palette the user chose and says what is wrong with it. Only a
+            // hand-written palette ever has anything to say here, because the
+            // built-ins are tested against the same rules.
+            let note = workspace.readability_suffix();
+            if !note.is_empty() {
+                workspace.say(format!("theme {theme_name}{note}"), cx);
+            }
         }
         workspace
     }

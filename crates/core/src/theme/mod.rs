@@ -33,10 +33,15 @@ use crate::mdstyle::CalloutKind;
 mod builtins;
 /// The Catppuccin flavours, as palettes built from the upstream palette file.
 pub mod catppuccin;
-/// Atom's One Dark and One Light, evaluated from their upstream HSL definitions.
+/// The readability rules a palette is judged by, and the measuring that checks
+/// them. The built-in test and the app's theme loader both go through it, so a
+/// vault's own theme gets the same judgement as a shipped palette.
+pub mod contrast;
+/// Dracula, as a palette built from the upstream theme's own colours.
 pub mod dracula;
 pub mod gruvbox;
 pub mod nord;
+/// Atom's One Dark and One Light, evaluated from their upstream HSL definitions.
 pub mod one;
 pub mod rose_pine;
 pub mod solarized;

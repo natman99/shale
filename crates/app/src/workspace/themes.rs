@@ -179,6 +179,33 @@ impl Workspace {
         }
         cx.notify();
     }
+
+    /// The status bar's suffix for the palette on screen: nothing when it reads,
+    /// and otherwise how many problems the readability auditor found and the
+    /// first of them in its own words.
+    ///
+    /// A vault's own theme file is judged by the same rules the built-ins are
+    /// tested against (`design-language.md` §10), but only ever reported: an
+    /// author who wants a low-contrast look keeps it, and the window still
+    /// paints in the palette they asked for. Built-ins always come back empty,
+    /// which is what the core test guarantees, so this only ever says anything
+    /// about a palette someone wrote by hand.
+    pub(super) fn readability_suffix(&self) -> String {
+        let flags = theme::contrast::audit(&self.palette);
+        if flags.is_empty() {
+            return String::new();
+        }
+        let first = flags[0].to_string();
+        // The rest go to the log: a status bar has room for one complaint, and
+        // a theme with six is one bad colour choice rather than six.
+        for flag in flags.iter().skip(1) {
+            tracing::warn!("theme: {flag}");
+        }
+        match flags.len() {
+            1 => format!(" · hard to read: {first}"),
+            n => format!(" · hard to read, {} findings, first: {first}", n - 1),
+        }
+    }
 }
 
 /// One row of the theme picker: the name, and where the name comes from.

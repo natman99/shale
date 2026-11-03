@@ -71,322 +71,29 @@ fn palette_for_resolves_built_ins_and_files() {
     assert!(palette_for(dir.path(), "gruvbox").is_err());
 }
 
-/// WCAG relative luminance: the sRGB channels linearized and combined with
-/// the Rec. 709 weights. The channels have to be linearized first; weighting
-/// the raw 0-1 values (the obvious shortcut) under-reports mid-tone contrast
-/// badly enough to fail a palette that is perfectly readable — Catppuccin
-/// Latte's text on its own background is 7:1, which the shortcut calls 2.7:1.
-/// This is still only here to catch a theme whose text matches its
-/// background, not to certify a palette.
-fn luminance(rgb: u32) -> f32 {
-    let channel = |byte: u32| {
-        let c = byte as f32 / 255.0;
-        if c <= 0.04045 {
-            c / 12.92
-        } else {
-            ((c + 0.055) / 1.055).powf(2.4)
-        }
-    };
-    0.2126 * channel((rgb >> 16) & 0xff)
-        + 0.7152 * channel((rgb >> 8) & 0xff)
-        + 0.0722 * channel(rgb & 0xff)
-}
-
-/// The WCAG contrast ratio of two colours: 1 is identical, 21 is black on
-/// white, and 4.5 is the usual floor for body text.
-fn contrast(a: u32, b: u32) -> f32 {
-    let x = luminance(a).max(luminance(b));
-    let y = luminance(a).min(luminance(b));
-    (x + 0.05) / (y + 0.05)
-}
-
 /// The built-in palettes have to be usable in their own right: a theme whose
 /// text matches its background is not a theme.
 ///
-/// Every role is judged against the surface it is actually drawn on, which
-/// is the note's background for most of them, the code block's for the
-/// `code_*` tokens, and the window's for the `ui_*` ones. The thresholds are
-/// the WCAG body-text floor for the roles a reader has to parse (note text,
-/// headings, links, tags, code) and a lower bar for the roles that are meant
-/// to recede (syntax markers, unresolved links, quoted text, comments) or
-/// only to be *distinguishable* rather than read (a rule, a tab's edge, a
-/// graph's edges). Roles that are not painted yet are still checked, so a
-/// reserved colour cannot quietly be a useless one.
+/// The rules, the surfaces each role is judged against and the floors it has
+/// to clear live in [`contrast::audit`] rather than here, because the same
+/// judgement runs over a vault's own theme file when it loads -- see
+/// [`the_auditor_flags_a_theme_file_that_reads_badly`]. One table, judged
+/// twice.
 #[test]
 fn the_built_in_palettes_are_readable() {
-    // (role, the role it is drawn over, floor)
-    let roles = |p: &Palette| -> Vec<(&str, u32, &str, u32, f32)> {
-        vec![
-            ("note text", p.fg, "the note background", p.bg, 4.5),
-            ("heading text", p.heading, "the note background", p.bg, 4.5),
-            ("a resolved link", p.link, "the note background", p.bg, 3.0),
-            ("a tag", p.tag, "the note background", p.bg, 3.0),
-            ("quoted text", p.quote, "the note background", p.bg, 2.5),
-            ("syntax markers", p.dim, "the note background", p.bg, 2.0),
-            (
-                "an unresolved link",
-                p.link_unresolved,
-                "the note background",
-                p.bg,
-                2.0,
-            ),
-            (
-                "the checker's squiggle",
-                p.spell,
-                "the note background",
-                p.bg,
-                2.0,
-            ),
-            (
-                "ordinary code",
-                p.code_text,
-                "the code block",
-                p.code_block_bg,
-                4.0,
-            ),
-            (
-                "a code comment",
-                p.code_comment,
-                "the code block",
-                p.code_block_bg,
-                2.0,
-            ),
-            // A token colour only has to be distinguishable from the code
-            // around it: `code_text` carries the body-text floor, and every
-            // family's own syntax theme is the authority on its tokens.
-            (
-                "a keyword",
-                p.code_keyword,
-                "the code block",
-                p.code_block_bg,
-                2.0,
-            ),
-            (
-                "a string",
-                p.code_string,
-                "the code block",
-                p.code_block_bg,
-                2.0,
-            ),
-            (
-                "a number",
-                p.code_number,
-                "the code block",
-                p.code_block_bg,
-                2.0,
-            ),
-            (
-                "a function name",
-                p.code_function,
-                "the code block",
-                p.code_block_bg,
-                2.0,
-            ),
-            (
-                "a type name",
-                p.code_type,
-                "the code block",
-                p.code_block_bg,
-                2.0,
-            ),
-            (
-                "a constant",
-                p.code_const,
-                "the code block",
-                p.code_block_bg,
-                2.0,
-            ),
-            (
-                "an operator",
-                p.code_operator,
-                "the code block",
-                p.code_block_bg,
-                2.0,
-            ),
-            ("window text", p.ui_fg, "the window", p.ui_bg, 4.5),
-            ("a hint line", p.ui_dim, "the window", p.ui_bg, 2.0),
-            (
-                "a focused rule",
-                p.ui_active_border,
-                "the window",
-                p.ui_bg,
-                1.2,
-            ),
-            ("a tab", p.ui_tab_bg, "the window", p.ui_bg, 1.1),
-            (
-                "the open tab",
-                p.ui_tab_active_bg,
-                "the window",
-                p.ui_bg,
-                1.25,
-            ),
-            ("the panel", p.popup_bg, "the note", p.bg, 1.1),
-            (
-                "the panel's rule",
-                p.popup_border,
-                "the panel",
-                p.popup_bg,
-                1.2,
-            ),
-            ("a graph node", p.graph_node, "the note", p.bg, 1.5),
-            (
-                "the focused node",
-                p.graph_node_active,
-                "the note",
-                p.bg,
-                2.0,
-            ),
-            ("a graph edge", p.graph_edge, "the note", p.bg, 1.1),
-            ("a node label", p.graph_text, "the note", p.bg, 2.5),
-            ("a ghost node", p.graph_ghost, "the note", p.bg, 1.5),
-            ("a tag node", p.graph_tag, "the note", p.bg, 1.5),
-            (
-                "an attachment node",
-                p.graph_attachment,
-                "the note",
-                p.bg,
-                1.5,
-            ),
-            ("the agent's mark", p.agent, "the window", p.ui_bg, 2.0),
-            (
-                "a disabled control",
-                p.ui_disabled,
-                "the window",
-                p.ui_bg,
-                1.5,
-            ),
-            // The review strip is chrome, so its three line colours are judged
-            // on the window rather than on the note they describe.
-            (
-                "a proposed addition",
-                p.diff_add,
-                "the window",
-                p.ui_bg,
-                2.0,
-            ),
-            (
-                "a proposed deletion",
-                p.diff_delete,
-                "the window",
-                p.ui_bg,
-                2.0,
-            ),
-            (
-                "a proposed change",
-                p.diff_changed,
-                "the window",
-                p.ui_bg,
-                2.0,
-            ),
-        ]
-    };
-    // A background role and the text role drawn on it, with the floor that
-    // pair has to clear. A highlighted row gets a lower floor than body
-    // text: it is transient, its text is short, and it has to be *visible*
-    // against the surface it sits on, which for a palette whose text is a
-    // mid-tone pulls the other way. Solarized's own tone table rates body
-    // text on its secondary background as less than optimal reading, which
-    // is why the cursor's line is held to 4.0 rather than 4.5.
-    let pairs = |p: &Palette| -> Vec<(&str, u32, &str, u32, f32)> {
-        vec![
-            (
-                "the status bar's text",
-                p.ui_fg,
-                "the status bar",
-                p.ui_status_bg,
-                4.5,
-            ),
-            (
-                "what you type",
-                p.ui_fg,
-                "the prompt field",
-                p.ui_field_bg,
-                4.5,
-            ),
-            (
-                "the open tab's label",
-                p.ui_fg,
-                "the open tab",
-                p.ui_tab_active_bg,
-                3.0,
-            ),
-            ("the panel's text", p.ui_fg, "the panel", p.popup_bg, 4.5),
-            (
-                "a panel row's text",
-                p.ui_fg,
-                "the highlighted row",
-                p.popup_hover_bg,
-                3.5,
-            ),
-            (
-                "text on the cursor's line",
-                p.fg,
-                "the cursor's line",
-                p.cursor_line_bg,
-                4.0,
-            ),
-        ]
-    };
     for (name, palette) in Palette::BUILT_INS {
-        for (role, colour, on, against, floor) in roles(palette) {
-            assert!(
-                contrast(against, colour) > floor,
-                "{name}: {role} is too faint on {on}",
-            );
-        }
-        // The cursor's line is a band, not a highlight: it has to be
-        // visible without competing with the text on it.
+        let flags = contrast::audit(palette);
         assert!(
-            contrast(palette.bg, palette.cursor_line_bg) > 1.05,
-            "{name}: the cursor's line is indistinguishable from the note",
+            flags.is_empty(),
+            "{name}: {}",
+            flags
+                .iter()
+                .map(|flag| flag.to_string())
+                .collect::<Vec<_>>()
+                .join("; ")
         );
-        // A picker's rows are drawn on the window's background, and the
-        // highlighted one on `ui_active_bg`. Matched characters are short,
-        // so they get the floor for short text on an ordinary row and a
-        // lower one on the highlighted row, where the rest of the row is
-        // still body text at full contrast.
-        assert!(
-            contrast(palette.ui_bg, palette.match_text) > 3.0,
-            "{name}: a query's matched characters are too faint on a picker row",
-        );
-        assert!(
-            contrast(palette.ui_active_bg, palette.match_text) > 2.5,
-            "{name}: a query's matched characters are too faint on the chosen row",
-        );
-        for (what, colour, on, against, floor) in pairs(palette) {
-            assert!(
-                contrast(against, colour) > floor,
-                "{name}: {what} is too faint on {on}",
-            );
-        }
     }
     assert_ne!(Palette::DARK.bg, Palette::LIGHT.bg);
-    for (name, palette) in Palette::BUILT_INS {
-        // A node's kind is told by its colour, so the four kinds have to be
-        // four colours: a tag that is the colour of every note node is not
-        // a tag.
-        let kinds = [
-            ("a note", palette.graph_node),
-            ("a ghost", palette.graph_ghost),
-            ("a tag", palette.graph_tag),
-            ("an attachment", palette.graph_attachment),
-        ];
-        for (i, (what, colour)) in kinds.iter().enumerate() {
-            for (other, other_colour) in &kinds[i + 1..] {
-                assert_ne!(
-                    *colour, *other_colour,
-                    "{name}: {what} and {other} are the same colour in the graph",
-                );
-            }
-        }
-        // "You cannot have this" must never read as more important than a
-        // label: a disabled control is at most as prominent as quiet text.
-        assert!(
-            contrast(palette.ui_bg, palette.ui_disabled)
-                <= contrast(palette.ui_bg, palette.ui_dim) + 0.001,
-            "{name}: a disabled control is louder than a label",
-        );
-    }
     // Every callout role reads off the palette it was given, so a theme can
     // retune one type without touching the others.
     let dark = Palette::DARK;
@@ -396,6 +103,38 @@ fn the_built_in_palettes_are_readable() {
     );
     assert_eq!(dark.callout_accent(CalloutKind::Quote), dark.quote);
     assert_eq!(dark.callout_accent(CalloutKind::Other), dark.accent);
+}
+
+/// The auditor is what the app runs against a vault's own theme file, so it
+/// has to answer for a palette a user wrote and not only for the built-ins: a
+/// colour copied out of a dark palette into a light one, or two graph node
+/// kinds given one hue, is reported rather than silently painted.
+#[test]
+fn the_auditor_flags_a_theme_file_that_reads_badly() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = ThemeFile::path(dir.path(), "mine");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(
+        &path,
+        "base = \"dark\"\nfg = \"#1e1e1e\"\ngraph_tag = \"#7aa6f0\"\n",
+    )
+    .unwrap();
+    let palette = palette_for(dir.path(), "mine").unwrap();
+    let said = contrast::audit(&palette)
+        .iter()
+        .map(|flag| flag.to_string())
+        .collect::<Vec<_>>();
+    assert!(
+        said.iter().any(|s| s.starts_with("note text is too faint")),
+        "the note's text went unreported: {said:?}"
+    );
+    assert!(
+        said.iter()
+            .any(|s| s.starts_with("a note node and a tag node")),
+        "the two node kinds went unreported: {said:?}"
+    );
+    // And a palette that reads is reported as reading.
+    assert!(contrast::audit(&Palette::DARK).is_empty());
 }
 
 /// The Catppuccin flavours are selectable by name, by their `catppuccin-`

@@ -163,13 +163,20 @@ impl Workspace {
             ex::Ex::FocusScope(word) => self.set_focus_scope(&word, cx),
             ex::Ex::Typewriter(Some(on)) => self.set_typewriter(on, cx),
             ex::Ex::Theme(name) => match self.set_theme(&name, cx) {
-                Ok(()) => match self.persist_theme(&name) {
-                    Ok(()) => self.say(format!("theme: {name}"), cx),
-                    Err(err) => {
-                        tracing::warn!("could not save the theme: {err:#}");
-                        self.say(format!("theme: {name}, not saved: {err:#}"), cx);
+                Ok(()) => {
+                    // A hand-written theme that loads but paints something too
+                    // faint to read is reported on the same line as the switch:
+                    // the palette is kept, and the user learns what is wrong
+                    // with it without opening a log.
+                    let note = self.readability_suffix();
+                    match self.persist_theme(&name) {
+                        Ok(()) => self.say(format!("theme: {name}{note}"), cx),
+                        Err(err) => {
+                            tracing::warn!("could not save the theme: {err:#}");
+                            self.say(format!("theme: {name}, not saved: {err:#}"), cx);
+                        }
                     }
-                },
+                }
                 Err(err) => self.say(format!("{err:#}"), cx),
             },
             ex::Ex::WordCount(folder) => self.wordcount(&folder, cx),

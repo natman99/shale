@@ -136,6 +136,34 @@ fn theme_names_a_palette_and_switches_to_it(cx: &mut TestAppContext) {
     );
 }
 
+/// A vault theme that loads but paints something too faint to read is kept and
+/// reported, not refused. The palette is the user's to choose; what they are
+/// owed is knowing that part of it is invisible.
+#[gpui::test]
+fn a_theme_that_reads_badly_is_reported_not_refused(cx: &mut TestAppContext) {
+    let (dir, window) = workspace(cx, &["Welcome.md"]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    let path = dir.path().join(".shale/themes/mine.toml");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    // The note's text in the note's own background colour.
+    std::fs::write(&path, "base = \"dark\"\nfg = \"#1e1e1e\"\n").unwrap();
+
+    type_command("theme mine", cx);
+    assert_eq!(
+        palette(&window, cx).fg,
+        0x1e1e1e,
+        "the palette the user wrote is the palette on screen"
+    );
+    let said = status(&window, cx);
+    assert!(said.starts_with("theme: mine"), "{said}");
+    assert!(said.contains("hard to read"), "{said}");
+    assert!(said.contains("note text is too faint"), "{said}");
+
+    // A palette that reads says nothing beyond the switch.
+    type_command("theme dark", cx);
+    assert_eq!(status(&window, cx), "theme: dark");
+}
+
 /// A theme the user picks is written back into the vault's config, so the next
 /// launch opens in it. The write is a splice: a config the user hand-edited keeps
 /// its comments, its other settings, and the note written beside the line that
