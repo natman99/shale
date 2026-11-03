@@ -31,6 +31,7 @@ mod search;
 mod session;
 mod spell;
 mod status;
+mod tabs;
 mod tree;
 mod views;
 

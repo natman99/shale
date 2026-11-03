@@ -16,7 +16,7 @@
 //! forgotten state is sad, a window that will not open is worse.
 
 use gpui::Context;
-use shale_core::session::Jump as CoreJump;
+use shale_core::session::{Jump as CoreJump, Tab as CoreTab};
 use shale_core::Session;
 
 use super::Workspace;
@@ -26,7 +26,7 @@ use crate::editor::View;
 impl Workspace {
     /// Everything the next window should know, as of this frame.
     fn capture_session(&self, cx: &mut Context<Self>) -> Session {
-        let editor = self.editor.read_with(cx, |editor, _cx| {
+        let editor = self.editor().read_with(cx, |editor, _cx| {
             (
                 editor.cursor_offset(),
                 editor.scroll_y(),
@@ -39,8 +39,21 @@ impl Workspace {
         let (back, forward) = self.jumps.snapshot();
         let mut expanded: Vec<_> = self.expanded.iter().cloned().collect();
         expanded.sort();
+        // An empty tab is not a tab worth restoring: it holds no note, and a session
+        // file full of nulls is noise. One empty tab means "the window had nothing
+        // open", which `open_note: None` already says.
+        let tabs = self
+            .tab_state(cx)
+            .into_iter()
+            .filter_map(|tab| {
+                tab.path.map(|path| CoreTab {
+                    path,
+                    view: tab.view,
+                })
+            })
+            .collect();
         Session {
-            open_note: self.active.clone(),
+            open_note: self.note(),
             cursor: Some(editor.0),
             scroll_y: Some(editor.1),
             expanded,
@@ -62,6 +75,8 @@ impl Workspace {
                     cursor: jump.cursor,
                 })
                 .collect(),
+            tabs,
+            active_tab: Some(self.tab),
         }
     }
 
@@ -96,14 +111,49 @@ impl Workspace {
 
         self.expanded = session.expanded.into_iter().collect();
 
-        if let Some(note) = session.open_note.as_ref() {
+        // The tabs, left to right (roadmap P3.1). A session file written before tabs
+        // have none, and the `open_note` branch below is that case — which is also
+        // what a one-tab session writes today, so the two agree.
+        let had_tabs = !session.tabs.is_empty();
+        if had_tabs {
+            for (index, tab) in session.tabs.iter().enumerate() {
+                // The window's first tab is already there; the rest come through the
+                // same door `ctrl-t` uses, so a restored tab is wired up exactly as a
+                // new one would be.
+                if index > 0 {
+                    self.add_tab(cx);
+                }
+                if self.vault.exists(&tab.path) {
+                    self.load_note(&tab.path, cx);
+                    // Each tab keeps the view it was in: one note left in raw mode to
+                    // read another in preview is the point of the per-tab editor.
+                    self.editor().update(cx, |editor, cx| {
+                        editor.set_view(View::from_word(&tab.view), cx)
+                    });
+                }
+            }
+            // A note deleted since last time is not a session, it is a memory, so its
+            // tab goes — and the window keeps the at-least-one-tab invariant.
+            self.tabs.retain(|tab| tab.path.is_some());
+            if self.tabs.is_empty() {
+                self.add_tab(cx);
+            }
+            self.tab = session.active_tab.unwrap_or(0).min(self.tabs.len() - 1);
+            // The cursor and scroll belong to the tab that had the keyboard: the
+            // session remembers one seat, the one the user was looking at.
+            if let Some(offset) = session.cursor {
+                self.editor().update(cx, |editor, cx| {
+                    editor.restore_place(offset, session.scroll_y, cx)
+                });
+            }
+        } else if let Some(note) = session.open_note.as_ref() {
             // A note deleted since last time is not a session, it is a memory;
             // the window opens with nothing rather than an error on frame one.
             if self.vault.exists(note) {
                 self.load_note(note, cx);
-                if self.active.as_deref() == Some(note.as_path()) {
+                if self.note().as_deref() == Some(note.as_path()) {
                     if let Some(offset) = session.cursor {
-                        self.editor.update(cx, |editor, cx| {
+                        self.editor().update(cx, |editor, cx| {
                             editor.restore_place(offset, session.scroll_y, cx)
                         });
                     }
@@ -111,9 +161,18 @@ impl Workspace {
             }
         }
 
-        self.editor.update(cx, |editor, cx| {
-            if let Some(view) = session.view.as_deref() {
-                editor.set_view(View::from_word(view), cx);
+        // Focus mode and typewriter scroll are the frame's decisions rather than the
+        // note's, so they land on the tab that had the keyboard. With tabs open the
+        // other tabs start as the editor's defaults have them; per-tab focus is a
+        // P3.2 question, since it is the same question a pane asks.
+        self.editor().update(cx, |editor, cx| {
+            // The view is a tab's own, and the loop above already handed each tab the
+            // view it was left in. `session.view` is the pre-tab field: it is only
+            // read when there were no tabs to ask, where it describes the one tab.
+            if !had_tabs {
+                if let Some(view) = session.view.as_deref() {
+                    editor.set_view(View::from_word(view), cx);
+                }
             }
             if session.focus == Some(true) {
                 editor.set_focus_mode(true, cx);

@@ -10,12 +10,8 @@ use super::bar::{mode_label, save_indicator, word_badge};
 use super::*;
 
 impl Workspace {
-    /// The editor entity. Only the tests ask for it, to look at what the window
-    /// handed the checker.
-    #[cfg(test)]
-    pub(crate) fn editor(&self) -> &Entity<MarkdownEditor> {
-        &self.editor
-    }
+    /// The editor entity of the tab on screen. Only the tests ask for it, to look at
+    /// what the window handed the checker.
     /// The checker's notes on the open note, as the editor draws them.
     #[cfg(test)]
     pub(crate) fn spell_note_count(&self) -> usize {
@@ -86,7 +82,23 @@ impl Workspace {
     /// with autosave off.
     #[cfg(test)]
     pub(crate) fn autosave_now(&mut self, cx: &mut Context<Self>) {
-        self.autosave(cx);
+        let tab = self.tab;
+        self.autosave(tab, cx);
+    }
+    /// Turn autosave on or off in the window's own config, for the tests that check
+    /// what an exit owes a note the user did not save by hand. The window holds its
+    /// config by `Rc`, so this replaces it rather than editing one both share.
+    #[cfg(test)]
+    pub(crate) fn set_autosave(&mut self, on: bool) {
+        let mut config = (*self.config).clone();
+        config.editor.autosave = on;
+        self.config = Rc::new(config);
+    }
+    /// Every tab's countdown-driven write, for the tests that check that a quit or a
+    /// blur owes more than the note on screen.
+    #[cfg(test)]
+    pub(crate) fn autosave_every_tab(&mut self, cx: &mut Context<Self>) {
+        self.autosave_all(cx);
     }
     /// What the watcher does on its timer — re-walk the vault and fold any
     /// difference into the window — without waiting for the timer.
@@ -99,30 +111,35 @@ impl Workspace {
     /// ahead of the disk: how a test checks what a disk change did to a note.
     #[cfg(test)]
     pub(crate) fn buffer_text<C: gpui::AppContext>(&self, cx: &C) -> String {
-        self.editor.read_with(cx, |editor, _cx| editor.text())
+        self.editor().read_with(cx, |editor, _cx| editor.text())
     }
     #[cfg(test)]
     pub(crate) fn buffer_is_dirty<C: gpui::AppContext>(&self, cx: &C) -> bool {
-        self.editor.read_with(cx, |editor, _cx| editor.is_dirty())
+        self.editor().read_with(cx, |editor, _cx| editor.is_dirty())
+    }
+    /// Whether any tab is ahead of its note on disk.
+    #[cfg(test)]
+    pub(crate) fn any_tab_is_dirty(&self, cx: &gpui::App) -> bool {
+        self.any_dirty(cx)
     }
     /// What the status bar shows for the save state: how a test checks that the
     /// dot is lit while the note is ahead of the disk and gone once it is not.
     #[cfg(test)]
     pub(crate) fn dirty_indicator(&self, cx: &gpui::App) -> &'static str {
-        save_indicator(self.editor.read(cx).is_dirty())
+        save_indicator(self.editor().read(cx).is_dirty())
     }
     /// What the status bar shows for the open note's word count: how a test checks
     /// that the badge follows the buffer as the user types, and stays out of the bar
     /// when there is no note open.
     #[cfg(test)]
     pub(crate) fn word_badge(&self, cx: &gpui::App) -> String {
-        word_badge(self.active.is_some(), self.editor.read(cx).word_count())
+        word_badge(self.note().is_some(), self.editor().read(cx).word_count())
     }
     /// The cursor's buffer position (row, column), 0-based: how a test checks
     /// that choosing a search hit lands on the line that row was showing.
     #[cfg(test)]
     pub(crate) fn cursor_position<C: gpui::AppContext>(&self, cx: &C) -> (usize, usize) {
-        self.editor
+        self.editor()
             .read_with(cx, |editor, _cx| editor.cursor_position())
     }
     /// Whether the cursor's display line is inside the viewport as it was last
@@ -131,7 +148,7 @@ impl Workspace {
     #[cfg(test)]
     pub(crate) fn cursor_line_is_visible<C: gpui::AppContext>(&self, cx: &C) -> bool {
         let line = self
-            .editor
+            .editor()
             .read_with(cx, |editor, _cx| editor.display_position().0);
         self.display_line_is_visible(cx, line)
     }
@@ -141,7 +158,7 @@ impl Workspace {
     /// screen when the frame centred the caret in the window.
     #[cfg(test)]
     pub(crate) fn display_line_is_visible<C: gpui::AppContext>(&self, cx: &C, line: usize) -> bool {
-        self.editor
+        self.editor()
             .read_with(cx, |editor, _cx| editor.line_is_visible(line))
     }
     #[cfg(test)]
@@ -154,7 +171,21 @@ impl Workspace {
     }
     #[cfg(test)]
     pub(crate) fn active_path(&self) -> Option<PathBuf> {
-        self.active.clone()
+        self.note()
+    }
+    /// The tabs as the bar sees them: `(note, dirty)`, left to right, for the tests
+    /// that check what `ctrl-t`, `gt` and `:tabclose` did to the bar.
+    #[cfg(test)]
+    pub(crate) fn tab_paths(&self, cx: &gpui::App) -> Vec<(Option<PathBuf>, bool)> {
+        self.tab_state(cx)
+            .into_iter()
+            .map(|tab| (tab.path, tab.dirty))
+            .collect()
+    }
+    /// Which tab is on screen, by index.
+    #[cfg(test)]
+    pub(crate) fn tab_index(&self) -> usize {
+        self.tab
     }
     /// The palette the window is drawn with. Only the tests ask, to check that a
     /// theme preview changed it and that `escape` put it back.
@@ -170,7 +201,7 @@ impl Workspace {
     /// really did take the keyboard.
     #[cfg(test)]
     pub(crate) fn mode_label(&self, cx: &gpui::App) -> &'static str {
-        mode_label(self.editor.read(cx).mode())
+        mode_label(self.editor().read(cx).mode())
     }
     /// What the open prompt holds, or `None` while no prompt is open.
     #[cfg(test)]
@@ -202,7 +233,7 @@ impl Workspace {
         &self,
         cx: &C,
     ) -> Option<(gpui::Pixels, gpui::Pixels)> {
-        self.editor.read_with(cx, |editor, _cx| {
+        self.editor().read_with(cx, |editor, _cx| {
             let top = editor.hit_line_edges(0)?.0;
             // `hit_line_x` is the painted line's left edge in window
             // coordinates; `x_for_offset` is relative to the line, so it would

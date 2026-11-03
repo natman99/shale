@@ -127,6 +127,13 @@ pub enum Outcome {
     ReviewNext,
     /// `[a` was typed: the marker to the previous pending hunk.
     ReviewPrev,
+    /// `g t` was typed: the UI should go to the next tab. The engine has no idea the
+    /// window has tabs — it has a buffer, and a buffer does not know what else is
+    /// open beside it — so this is a request, like `space f` and `]a`. vim spells the
+    /// same thing `:tabnext`.
+    TabNext,
+    /// `g T` was typed: the previous tab.
+    TabPrev,
 }
 
 /// The unnamed register, holding the last yank or delete.

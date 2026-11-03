@@ -282,8 +282,8 @@ Workspace layout:
   segments, `?` for one character, and an empty pattern that covers nothing),
   `session` (the session file — where the last window stood: open note, cursor
   and scroll, expanded folders, view, focus mode and scope, typewriter, the jump
-  chain — `.shale/session.json`, incremental like the config and written with
-  that same atomic discipline), `live` (the **contract** both halves of the live
+  chain, and the tabs with the view each was in — `.shale/session.json`,
+  incremental like the config and written with that same atomic discipline), `live` (the **contract** both halves of the live
   MCP channel speak, roadmap P2.3: the `.shale/mcp.lock` record and its read/write/
   remove, the token header, the four endpoint paths, the `Status` shape `shale://status`
   reports, a hand-rolled loopback client and the `probe` that decides whether a port
@@ -338,10 +338,12 @@ Workspace layout:
   **command palette** (`ctrl-shift-p`) beside vim's **command line** (`:`, which is
   deliberately *not* the palette: one word, matched exactly — `:w`, `:q`, `:q!`,
   `:wq`, `:x`, `:e`, `:harper on|off|1|0`, `:theme [name]`, `:raw|:live|:preview`,
-  `:focus|:dim on|off`, `:typewriter on|off`, `:wordcount [folder]`, `:review`;
+  `:focus|:dim on|off`, `:typewriter on|off`, `:wordcount [folder]`, `:review`,
+  `:tabnew|:tabedit`, `:tabnext|:tabn`, `:tabprev|:tabp`, `:tabclose|:tabc`,
+  `:tabonly|:tabo`, `:tabmove [n]`;
   `ex.rs` is its whole
   vocabulary, and a word it does not know runs nothing). One **command registry**
-  (`command.rs`) is behind both front-ends: 36 rows, each with a stable dotted id
+  (`command.rs`) is behind both front-ends: 42 rows, each with a stable dotted id
   (`note.save`), a label, the keys that reach it, the `:` words that spell it, how
   its argument is spelled, and the gpui action that runs it. The palette lists the
   rows marked for it, and the command line dispatches the *same* action for every
@@ -352,7 +354,21 @@ Workspace layout:
   *overlay* the note rather than pushing it down, and the note has margins around
   it. `ctrl-w h`/`ctrl-w l` move the keyboard between the sidebar and the note,
   and **vault search** (`ctrl-shift-f`, or `space s`) lists every line that holds what you type,
-  opening the note on that line. Spell and grammar checking come from a language
+  opening the note on that line.
+  **Tabs** (roadmap P3.1): the note the window shows lives in a tab, and the tab
+  owns the editor that holds it, so each tab keeps its own cursor, scroll, folds,
+  view and undo history. A new tab comes from `ctrl-t` / `:tabnew` (a second tab on
+  the note in hand — the same note read twice), and opening a note the bar already
+  holds goes to that tab instead of putting it on the bar twice. `g t`/`g T` walk
+  the bar (wrapping), `:tabnext`/`:tabprev`/`:tabclose`/`:tabonly`/`:tabmove [n]`
+  are the command-line doors, and the bar itself is clicked: a tab's row switches
+  to it, its `×` closes it, and a dirty dot sits on the tab it belongs to. Closing
+  the last tab leaves an empty tab rather than an empty window, which is what lets
+  every part of the window ask for "the note" and get an answer. An exit owes every
+  tab: `:wq`, a quit with autosave on, a blur and a window-manager close write them
+  all, and `:q` with autosave off is refused by a dirty note in a *background* tab
+  too. The session file remembers the bar, in order, with the view each tab was in.
+  Spell and grammar checking come from a language
   server (`harper-ls --stdio` by default, named by `[spellcheck]` in `shale.toml`):
   what it finds is drawn as wavy underlines in the note and counted in the status
   bar, and vim's `K` — or resting the pointer on a marked word — opens a **popup**
@@ -366,7 +382,9 @@ Workspace layout:
   beat (the vault watcher deliberately ignores dot directories, so `.shale/` needs
   its own poll) and shows a **review strip** at the bottom of the window, above the
   status bar: one row per hunk — note, profile, line, `−N +M`, and a `stale` or
-  `clash` badge — with the keys named in its header. It appears only when something
+  `clash` badge — with the keys named in its header. At most **six** rows are drawn
+  (`review::VISIBLE_ROWS`); a longer queue is a sliding window that the `j`/`k`
+  marker walks, so the strip never eats the note. It appears only when something
   is waiting. The keys are two layers: while the strip has the keyboard (`:review`)
   bare `j`/`k` hop the marker, `y`/`x` accept and reject, `o` opens the note, `za`
   collapses a proposal (and then `y` answers all of its hunks), `escape` gives the
@@ -422,12 +440,19 @@ Workspace layout:
   accept/reject/collapse/open do to the buffer, the disk and the queue file),
   `session.rs` the session file (capture, save on the autosave beat and every
   graceful exit, restore once in `new`),
+  `tabs.rs` the tab bar and the note each tab owns (roadmap P3.1: **the editor
+  belongs to the tab**, so a tab keeps its cursor, scroll, folds, view and undo
+  history; the at-least-one-tab invariant; `ctrl-t`, `g t`/`g T`, `:tab*`, the tab
+  bar's clicks, per-tab autosave, and what an exit owes every tab),
   `render.rs` the frame, `testhooks.rs` the accessors only the tests call),
   `tree.rs` (turning the vault's entries
   into rows), `views.rs` (the three views, focus mode and typewriter scroll) and
   its headless tests in `tests/` (`keys.rs`, `motions.rs`,
   `blocks.rs`, `paint.rs`, `tree.rs`, `picker.rs`, `commands.rs`, `search.rs`,
-  `autosave.rs`, `exit.rs`, `session.rs`, `spell.rs`, `focus.rs`, `live.rs` (the
+  `autosave.rs`, `exit.rs`, `session.rs`, `spell.rs`, `focus.rs`, `tabs.rs` (the
+  bar itself: `ctrl-t`, `g t`/`g T`, `:tab*`, a tab keeping its own cursor and undo
+  history, opening an open note finding its tab, and what a quit and a blur owe a
+  note that is not on screen), `live.rs` (the
   channel turned on: the lock it leaves, what the port answers about the note, and
   the beat that keeps it current), `review.rs` (the queue discovered at startup, the
   two layers of keys, accept into the buffer and onto the disk, the stale and clash
@@ -557,12 +582,13 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
 - Run the test binaries under `ulimit -v` when working on anything that scans
   text (a scanner bug can allocate until the OOM killer takes the editor down —
   see the table postmortem).
-  Current peak RSS of the test binaries (2026-11-01, app 320 / core 437 with 10
+  Current peak RSS of the test binaries (2026-11-02, app 336 / core 438 with 10
   ignored / mcp 35 tests — core's `db::` tests cost it nothing worth mentioning: 12.5
-  MB to 16 MB, and the app's 79 MB to 88 MB is the eight `tests::index` windows that
-  each open a real DB, which is nowhere near the 200 MB line worth investigating):
-  core 16.0 MB, app 87.5 MB,
-  mcp 5.9 MB. The
+  MB to 16 MB, and the app's 79 MB to 93 MB is the eight `tests::index` windows that
+  each open a real DB plus one headless window per test, which is nowhere near the
+  200 MB line worth investigating):
+  core 16.2 MB, app 91.6 MB,
+  mcp 5.5 MB. The
   app binary's *address space* (not RSS) is far larger because of gpui/wgpu
   reservations, and it now needs **4 GB or more** — a 1 GB cap makes it die in an
   80-byte allocation. Build with `cargo test --workspace --no-run`, then run each
@@ -3210,6 +3236,63 @@ Next steps, roughly in order:
       authoritative, inline opportunistic); no in-place editing of a proposed hunk;
       accept is user-only, the agent keeps only `retract_pending`; no provenance badge
       saying which profile wrote what (P2.8).
+
+33. **One editor per tab: what a tab is, and what it owes** — P3.1 (2026-11-02).
+    - **The editor belongs to the tab.** The cheaper design — one editor whose text is
+      swapped when the tab changes — is a third of the code and wrong: the cursor, the
+      scroll, the folds, the view and the undo stack all live *in* the editor, so
+      swapping text would let `u` in one tab undo another note's work. `Tab` owns an
+      `Entity<MarkdownEditor>`, and `tests::tabs::a_tab_keeps_its_own_cursor_and_undo`
+      is the test that says why. It is also what makes a per-tab view (this tab raw,
+      that one preview) fall out for free instead of needing a second table of
+      per-note state.
+    - **The bar is never empty.** Closing the last tab *clears* it (no path, no text)
+      rather than removing it — the same shape a window over an empty vault starts
+      with. That invariant is what lets `Workspace::editor()` return an editor instead
+      of an `Option`, and every part of the window (bar, checker, search, review,
+      session, exits) leans on it. `tests::tabs::closing_the_last_tab_leaves_an_empty_one`
+      pins it, and the empty tab is still a place to type.
+    - **A tab's identity is a monotonic `id`, not its index.** The editor's
+      subscription outlives the tab change that closing another tab causes, and an
+      index shifts under it; `editor_event(id, …)` looks the tab up by id and drops
+      the event if the tab is gone. Ids also make two tabs on one note legal — the
+      "read the top of this note while I edit the bottom of it" case `ctrl-t` is for.
+    - **Opening a note that is already open goes to its tab** (Obsidian's rule), and
+    a note that is not open fills the tab in hand. Without the first half, following
+    three links makes three tabs; without the second, `:e` becomes a tab factory.
+    - **Autosave is per tab** (a `seq` and a `Task` inside `Tab`, the spawned task
+      finding its tab by id), because a note typed in one tab must not cancel another
+      tab's pending write — `a_tab_switch_does_not_cancel_another_tabs_write`. And an
+      exit owes **every** tab: `:wq`, a quit with autosave on, a blur and a
+      window-manager close write them all, while `:q` with autosave off is refused by
+      a dirty note in a *background* tab, because "I save by hand" is a decision that
+      belongs to that note too.
+    - **The bug the design exposed: the keyboard belongs to the drawn editor.** With
+      one editor per window, focus was a detail; with one per tab, the focused node is
+      the *active tab's* editor, and after a tab change the focus tracker is still
+      pointing at an entity that is no longer in the tree — every keystroke after the
+      switch is silently lost, which is why `g T` appeared to do nothing. Fixed on two
+      levels: the tab paths that have a window (`ctrl-t`, `g t`/`g T`, `:tabclose`,
+      `:tabonly`, a click on a row or its `×`) move the keyboard immediately, and every
+      path that does not (`:tabnext` from the command line, a session restore, a
+      picker's choice) sets `focus_stale`, which the next frame pays — the same shape
+      the hover subscription already needed, because a pointer can only hover over the
+      note that is drawn. **Headless tests never draw a frame**, so a next-frame fix is
+      invisible to them; that is why the immediate half is not just a latency saving.
+    - **Second bug the tab tests caught: `session.view` overrode the restored tabs.**
+      The shared tail of `restore_session` applied the pre-tab `view` field to the
+      active tab *after* the loop had given each tab its own, so a note left in
+      preview came back in live and took typing. `session.view` is now read only when
+      the file has no `tabs` at all, which is also what keeps a pre-tab session file
+      restoring exactly as it used to.
+    - **`:tabonly` is not a save.** It writes the tabs it *closes* (a tab the user
+      closed is not a wish to lose the note) and leaves the tab that stays dirty, dot
+      lit. Vim agrees.
+    - **Deferred on purpose:** a tab bar that scrolls when the tabs outgrow the width
+      (they share it and ellipsize), `3gt` counting to a tab number, per-tab jump
+      chains and per-tab checker answers (both are window-level today, and P3.2's
+      panes ask the same question), drag-to-reorder, and middle-click-to-open-in-a-new-
+      tab. `ctrl-w` stays reserved for the window commands P3.2 will want.
 
 ## Parked threads (agreed 2026-10-28; not being worked now)
 

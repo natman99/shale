@@ -20,6 +20,7 @@ mod render;
 mod review;
 mod search;
 mod session;
+mod tabs;
 #[cfg(test)]
 mod testhooks;
 mod themes;
@@ -44,7 +45,7 @@ use shale_core::watch::{Stamp, VaultChanges};
 use shale_core::{Config, Vault};
 
 use crate::acts::*;
-use crate::editor::{EditorEvent, MarkdownEditor};
+use crate::editor::EditorEvent;
 use crate::lsp::{absolute, Diagnostic, Fix, Spell};
 use crate::picker;
 use crate::prompt;
@@ -106,8 +107,24 @@ pub(crate) struct Workspace {
     entries: Vec<VaultEntry>,
     /// The vault's folders, which is how an empty one still gets a tree row.
     dirs: Vec<VaultEntry>,
+    /// Every name a wiki-link could point at. Kept on the window rather than handed
+    /// once to one editor, because a tab opened at any point in the session has to
+    /// resolve links exactly as the first one did.
+    known: HashSet<String>,
+    /// The files that are not notes, for the same reason: `![[image.png]]` resolves
+    /// against these.
+    attachments: Vec<VaultEntry>,
     expanded: HashSet<PathBuf>,
-    active: Option<PathBuf>,
+    /// The open tabs, left to right on the tab bar. **Never empty**: closing the last
+    /// one clears it rather than removing it, which is what a window over an empty
+    /// vault starts with too (see [`tabs`]).
+    tabs: Vec<tabs::Tab>,
+    /// Which tab is on screen: the note, the keyboard, the checker's answers and the
+    /// status bar's numbers all mean "this tab".
+    tab: usize,
+    /// The next tab id. Monotonic, because a tab's *index* moves when another tab
+    /// closes and its editor's subscription needs an identity that does not.
+    tab_seq: usize,
     /// The sidebar's own focus, so the tree can be driven from the keyboard.
     tree_focus: gpui::FocusHandle,
     /// The tree row the keyboard has selected.
@@ -186,26 +203,26 @@ pub(crate) struct Workspace {
     /// a message writes only if the number it was started with is still the
     /// current one, so an older timer can never wipe out a newer message.
     status_seq: u64,
-    /// The status-bar countdown currently parked. Replacing it drops the old one,
-    /// exactly as [`Workspace::_autosave`] does for the save debounce.
+    /// The status-bar countdown currently parked. Replacing it drops the old one.
     _status_timer: Option<Task<()>>,
-    editor: Entity<MarkdownEditor>,
-    _editor_events: Subscription,
-    /// Bumped by every edit to the note. A debounce timer writes only if the
-    /// number it was started with is still the current one, so a burst of typing
-    /// becomes one write at the end of the pause rather than one per keystroke.
-    autosave_seq: u64,
-    /// The autosave countdown currently parked. Replacing it drops the old timer;
-    /// [`Workspace::autosave_seq`] is the belt to that brace, because a timer that
-    /// already woke up is stopped by the number, not by the drop.
-    _autosave: Option<Task<()>>,
     /// The window-activation subscription: losing focus writes the note at once
     /// instead of waiting out the countdown. `attach_window` adds it, because that
     /// is where there is a window to observe.
     _activation_events: Option<Subscription>,
     /// The pointer-over-the-note subscription. It needs a window to hand the
-    /// keyboard to, so `attach_window` adds it rather than `new`.
+    /// keyboard to, so `attach_window` adds it rather than `new` — and it follows the
+    /// tab on screen, because a pointer can only hover over the note that is drawn.
     _hover_events: Option<Subscription>,
+    /// Whether that subscription is pointing at a tab that is no longer on screen.
+    /// Set by the tab paths that have no window to rehook with, and cleared by the
+    /// next frame, which does.
+    hover_stale: bool,
+    /// Whether the keyboard has to follow the frame. A tab owns its editor, so the
+    /// node with the keyboard is the drawn tab's editor; after a tab change the
+    /// keyboard is still on the entity that is no longer drawn, and the next keystroke
+    /// goes nowhere. Set by the tab paths that have no window to move it with, and
+    /// cleared by the next frame, which does.
+    focus_stale: bool,
     _keystroke_observer: Subscription,
 }
 
@@ -216,18 +233,12 @@ impl Workspace {
         let signature = vault.signature().unwrap_or_default();
         // Every folder starts open: the tree is the vault, not a browser.
         let expanded = dirs.iter().map(|e| e.path.clone()).collect();
-        let editor = cx.new(|cx| MarkdownEditor::new(cx));
-        let known = note_keys(&entries);
-        editor.update(cx, |editor, cx| editor.set_known_links(known, cx));
-        // The editor resolves `![[image.png]]` against the vault's attachments,
-        // so it needs the vault itself and everything in it that is not a note.
+        let every_name = note_keys(&entries);
+        // The files that are not notes, which is what `![[image.png]]` resolves
+        // against. Both this and the link names live on the window rather than being
+        // handed to one editor, because every tab opened later has to see the vault
+        // exactly as the first one does.
         let attachments = vault.list_attachments().unwrap_or_default();
-        editor.update(cx, |editor, cx| {
-            editor.set_vault(vault.clone(), attachments, cx);
-        });
-        editor.update(cx, |editor, cx| {
-            editor.set_font_family(&config.appearance.font_family, cx);
-        });
         // The palette comes from `appearance.theme`: a built-in name or a
         // `<vault>/.shale/themes/<name>.toml` file. A theme that cannot be found
         // or parsed must not stop the editor from starting, so it is reported and
@@ -249,30 +260,10 @@ impl Workspace {
             }
         };
         let palette = Rc::new(palette);
-        editor.update(cx, |editor, cx| {
-            editor.set_palette(Rc::clone(&palette), cx);
-            editor.set_font_size(config.appearance.font_size, cx);
-        });
         // Focus mode and typewriter scroll deliberately do *not* come from the
         // config: they are state the user chose in this window, and they belong
         // with the session file (roadmap P1.8) rather than the settings they edit
         // by hand. The editor's own defaults — both off, scope `block` — stand.
-        let editor_events = cx.subscribe(&editor, |ws, _editor, event, cx| match event {
-            EditorEvent::FollowLink { target } => ws.follow_link(target, cx),
-            // The buffer moved, so the checker's copy of the note is out of date
-            // (`Spell::changed` debounces, so a typed word is one request) and the
-            // autosave countdown restarts.
-            EditorEvent::Changed => {
-                ws.send_note_to_checker(cx);
-                ws.queue_autosave(cx);
-                // The matches are byte offsets into the note, so an edit moves
-                // them: re-run the query rather than let them drift.
-                ws.refresh_search(cx);
-            }
-            // Hover is answered by the subscription `attach_window` adds, which is
-            // the one that has a window to hand the keyboard to.
-            EditorEvent::Hovered { .. } => {}
-        });
         // Spell and grammar checking runs in a language server (`harper-ls` by
         // default). A server that is not installed, or will not start, is a
         // missing feature rather than a broken editor: it is reported and the
@@ -346,8 +337,15 @@ impl Workspace {
             _spell_events: spell_events,
             entries,
             dirs,
+            known: every_name,
+            attachments,
             expanded,
-            active: None,
+            // The window starts with no tabs and gets its first one below, which is
+            // the same door `ctrl-t` uses: one place decides what a new tab's editor
+            // is wired up with.
+            tabs: Vec::new(),
+            tab: 0,
+            tab_seq: 0,
             tree_focus: cx.focus_handle(),
             tree_selection: None,
             tree_rows: Vec::new(),
@@ -373,14 +371,15 @@ impl Workspace {
             status: "".into(),
             status_seq: 0,
             _status_timer: None,
-            editor,
-            _editor_events: editor_events,
-            autosave_seq: 0,
-            _autosave: None,
             _activation_events: None,
             _hover_events: None,
+            hover_stale: false,
+            focus_stale: false,
             _keystroke_observer: keystroke_observer,
         };
+        // The first tab, before the session is read: restoring a note means putting
+        // it in a tab, and there has to be one to put it in.
+        workspace.add_tab(cx);
         // Roadmap P1.8: the window comes up where the last one left it, before
         // anything else has a chance to look at what "where" was.
         workspace.restore_session(cx);
@@ -413,25 +412,15 @@ impl Workspace {
         if self._hover_events.is_some() {
             return;
         }
-        self._hover_events = Some(cx.subscribe_in(
-            &self.editor,
-            window,
-            |ws, _editor, event, window, cx| match event {
-                EditorEvent::Hovered { offset, line, at } => {
-                    ws.pointer_hovered(*offset, *line, *at, window, cx)
-                }
-                // Everything else the editor reports is handled by the subscription
-                // `new` makes, which needs no window.
-                EditorEvent::FollowLink { .. } | EditorEvent::Changed => {}
-            },
-        ));
+        self.watch_hover(window, cx);
         self._activation_events = Some(cx.observe_window_activation(window, |ws, window, cx| {
             // Losing focus is the other half of "the user stopped typing": they
-            // have gone somewhere else with the note still ahead of the disk, so
-            // it is written now rather than after the countdown. Activating again
-            // has nothing to catch up on.
+            // have gone somewhere else with a note still ahead of the disk, so it is
+            // written now rather than after the countdown. Every tab, because every
+            // tab is a note the user can see on the tab bar. Activating again has
+            // nothing to catch up on.
             if !window.is_window_active() {
-                ws.autosave(cx);
+                ws.autosave_all(cx);
             }
         }));
 
@@ -442,19 +431,17 @@ impl Workspace {
         //
         // The write here is the one `quit` does rather than the autosave, because
         // `editor.autosave = false` means "do not write while I am working", not
-        // "lose the note when the window goes away". A note that cannot be written
-        // keeps the window open, exactly as `:q` refuses to quit: the status bar
-        // says why, and there is still a window to act on that from.
+        // "lose the note when the window goes away" — and with tabs open it means
+        // every note on the tab bar, not just the one on screen. A note that cannot
+        // be written keeps the window open, exactly as `:q` refuses to quit: the
+        // status bar says why, and there is still a window to act on that from.
         let weak = cx.entity().downgrade();
-        window.on_window_should_close(cx, move |window, cx| {
+        window.on_window_should_close(cx, move |_window, cx| {
             weak.update(cx, |ws, cx| {
-                if ws.editor.read_with(cx, |editor, _cx| editor.is_dirty()) {
-                    ws.save(&Save, window, cx);
-                    if ws.editor.read_with(cx, |editor, _cx| editor.is_dirty()) {
-                        // The write failed: the window stays, with the reason in
-                        // the status bar.
-                        return false;
-                    }
+                if !ws.write_all_tabs(cx) {
+                    // A write failed: the window stays, with the reason in the
+                    // status bar.
+                    return false;
                 }
                 // Roadmap P1.8: the session goes with the note — this is the last
                 // moment the window knows what it looked like.
@@ -469,6 +456,30 @@ impl Workspace {
             })
             .unwrap_or(true)
         });
+    }
+
+    /// Point the hover subscription at the tab that is on screen.
+    ///
+    /// Only the note that is drawn can be hovered, so one subscription is enough —
+    /// but it does have to be the drawn tab's. [`Workspace::show_tab`],
+    /// [`Workspace::add_tab`] and [`Workspace::close_tab`] mark it stale when they move
+    /// the frame, and the frame itself schedules the rehook, because this is the
+    /// subscription that needs a window: opening a popup is a focus change.
+    pub(super) fn watch_hover(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let editor = self.tabs[self.tab].editor.clone();
+        self._hover_events = Some(cx.subscribe_in(
+            &editor,
+            window,
+            |ws, _editor, event, window, cx| match event {
+                EditorEvent::Hovered { offset, line, at } => {
+                    ws.pointer_hovered(*offset, *line, *at, window, cx)
+                }
+                // Everything else the editor reports is handled by the subscription
+                // the tab itself makes, which needs no window.
+                EditorEvent::FollowLink { .. } | EditorEvent::Changed => {}
+            },
+        ));
+        self.hover_stale = false;
     }
 
     /// Put a message in the status bar and start the countdown that clears it.
@@ -503,6 +514,18 @@ impl Workspace {
     }
 
     pub(crate) fn open_note(&mut self, path: &PathBuf, cx: &mut Context<Self>) {
+        // A note that is already open in another tab is *found*, not opened again:
+        // following three links back to a note the tab bar already holds should not
+        // put it on the bar twice. The current tab is the exception — reopening the
+        // note that is already on screen re-reads it, which is what a reload from
+        // disk asks for.
+        if let Some(index) = self.tab_for_path(path) {
+            if index != self.tab {
+                self.record_jump(path, cx);
+                self.show_tab(index, cx);
+                return;
+            }
+        }
         // Going to a different note is a jump, so the place being left goes onto
         // the chain `ctrl-o` walks back.
         self.record_jump(path, cx);
@@ -510,9 +533,10 @@ impl Workspace {
         cx.notify();
     }
 
-    /// Read `path` and make it the note on screen: everything [`Self::open_note`]
-    /// does except decide what happens to the jump chain. Whether it worked, which
-    /// is what the jump path needs to know before it moves the cursor.
+    /// Read `path` into the tab on screen and make it that tab's note: everything
+    /// [`Self::open_note`] does except decide what happens to the jump chain and
+    /// whether another tab already holds the note. Whether it worked, which is what
+    /// the jump path needs to know before it moves the cursor.
     fn load_note(&mut self, path: &PathBuf, cx: &mut Context<Self>) -> bool {
         // A popup belongs to the note it was opened over, so a new note ends it.
         self.drop_popup(cx);
@@ -522,8 +546,10 @@ impl Workspace {
         match self.vault.read(path) {
             Ok(text) => {
                 tracing::debug!(path = %path.display(), bytes = text.len(), "opened note");
-                self.active = Some(path.clone());
-                self.editor
+                let index = self.tab;
+                self.tabs[index].path = Some(path.clone());
+                self.tabs[index]
+                    .editor
                     .update(cx, |editor, cx| editor.set_text(text.clone(), cx));
                 self.checker_opened(path, &text, cx);
                 self.say(path.display().to_string(), cx);
@@ -542,9 +568,9 @@ impl Workspace {
     /// picker becomes the row the editor shows them.
     pub(crate) fn open_note_at(&mut self, path: &PathBuf, line: usize, cx: &mut Context<Self>) {
         self.open_note(path, cx);
-        // Only if the note really opened — a read error leaves `active` alone.
-        if self.active.as_deref() == Some(path.as_path()) {
-            self.editor.update(cx, |editor, cx| {
+        // Only if the note really opened — a read error leaves the tab alone.
+        if self.note().as_deref() == Some(path.as_path()) {
+            self.editor().update(cx, |editor, cx| {
                 editor.reveal_line(line.saturating_sub(1), cx)
             });
         }
@@ -606,7 +632,7 @@ impl Workspace {
         let Some(spell) = self.spell.clone() else {
             return;
         };
-        let text = self.editor.read_with(cx, |editor, _cx| editor.text());
+        let text = self.editor().read_with(cx, |editor, _cx| editor.text());
         spell.update(cx, |spell, cx| spell.changed(&text, cx));
     }
 
@@ -628,7 +654,7 @@ impl Workspace {
             .iter()
             .map(|note| (note.start, note.end))
             .collect();
-        self.editor
+        self.editor()
             .update(cx, |editor, cx| editor.set_marks(marks, cx));
         self.refresh_popup_rows(cx);
         cx.notify();
@@ -670,8 +696,8 @@ impl Workspace {
                     // answered: a `didOpen` the server reads while it is still
                     // starting is one it throws away, and the note is then never
                     // checked (`:harper on` used to leave exactly that).
-                    if let Some(path) = self.active.clone() {
-                        let text = self.editor.read_with(cx, |editor, _cx| editor.text());
+                    if let Some(path) = self.note().clone() {
+                        let text = self.editor().read_with(cx, |editor, _cx| editor.text());
                         self.checker_opened(&path, &text, cx);
                     }
                 }
@@ -697,19 +723,31 @@ impl Workspace {
         cx.notify();
     }
 
-    /// The write itself: no window, no repaint. The exits that end a session — `quit`
-    /// and a termination signal — come through here, because neither has a frame to
-    /// report through afterwards.
+    /// The write of the note on screen. [`Workspace::write_all_tabs`] is the one the
+    /// exits use, because with tabs open a quit owes every note on the bar, not just
+    /// the one under the cursor.
     fn write_note(&mut self, cx: &mut Context<Self>) {
-        let Some(path) = self.active.clone() else {
+        let tab = self.tab;
+        self.write_tab(tab, cx);
+    }
+
+    /// The write itself for one tab: no window, no repaint. The exits that end a
+    /// session — `quit` and a termination signal — come through here, because neither
+    /// has a frame to report through afterwards, and closing a tab writes its note
+    /// whether or not that tab is the one on screen.
+    fn write_tab(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some(path) = self.tabs[index].path.clone() else {
             self.say("no file open", cx);
-            cx.notify();
             return;
         };
-        let text = self.editor.read_with(cx, |editor, _cx| editor.text());
+        let text = self.tabs[index]
+            .editor
+            .read_with(cx, |editor, _cx| editor.text());
         match self.vault.write(&path, &text) {
             Ok(()) => {
-                self.editor.update(cx, |editor, _cx| editor.mark_clean());
+                self.tabs[index]
+                    .editor
+                    .update(cx, |editor, _cx| editor.mark_clean());
                 // Shale just changed the disk itself; re-stamping it is what stops
                 // the watcher reporting our own save as an outside edit.
                 self.resign();
@@ -726,40 +764,51 @@ impl Workspace {
         }
     }
 
-    /// Restart the autosave countdown for an edit that just happened.
+    /// Restart the autosave countdown for an edit in one tab.
     ///
-    /// Every keystroke replaces the parked timer, so what fires is one write after
-    /// the typing stopped — `editor.autosave_after_ms` of quiet, which is two
+    /// Every keystroke replaces that tab's parked timer, so what fires is one write
+    /// after the typing stopped — `editor.autosave_after_ms` of quiet, which is two
     /// seconds by default. Dropping the old [`Task`] stops its timer; the sequence
     /// number is what stops a timer that had already woken from writing a note the
     /// user has since edited again.
     ///
+    /// **Per tab**, which is the point of putting both halves in the tab: typing in
+    /// one tab must not cancel another tab's pending write, and a tab that closes
+    /// takes its countdown with it.
+    ///
     /// The `editor.autosave` check here is only so a setting that is off does not
     /// park a timer for nothing; [`Workspace::autosave`] is where the setting
     /// actually governs.
-    fn queue_autosave(&mut self, cx: &mut Context<Self>) {
+    fn queue_autosave(&mut self, index: usize, cx: &mut Context<Self>) {
         if !self.config.editor.autosave {
             return;
         }
-        self.autosave_seq += 1;
-        let seq = self.autosave_seq;
+        let tab = &mut self.tabs[index];
+        tab.autosave_seq += 1;
+        let seq = tab.autosave_seq;
+        let id = tab.id;
         let delay = Duration::from_millis(self.config.editor.autosave_after_ms);
-        self._autosave = Some(cx.spawn(async move |ws, cx| {
+        tab._autosave = Some(cx.spawn(async move |ws, cx| {
             cx.background_executor().timer(delay).await;
-            // The weak handle is what stops a timer outliving its window, and the
-            // sequence number is what stops it writing a note that has been edited
-            // again since it was parked.
+            // The weak handle is what stops a timer outliving its window, the id is
+            // what finds the tab after another one closed and moved the indices, and
+            // the sequence number is what stops it writing a note that has been
+            // edited again since it was parked.
             let _ = ws.update(cx, |ws, cx| {
-                if ws.autosave_seq == seq {
-                    ws.autosave(cx);
+                let found = ws.tabs.iter().position(|tab| tab.id == id);
+                if let Some(index) = found {
+                    if ws.tabs[index].autosave_seq == seq {
+                        ws.autosave(index, cx);
+                    }
                 }
             });
         }));
     }
 
-    /// Write the open note when it holds edits — quietly. No status-line report:
+    /// Write one tab's note when it holds edits — quietly. No status-line report:
     /// this runs on a timer and on every blur, so a message each time would bury
-    /// everything the bar is for. The dot going out is the signal that it worked.
+    /// everything the bar is for. The dot going out on that tab is the signal that it
+    /// worked.
     ///
     /// Nothing is skipped for an open prompt. A rename re-points the open note at
     /// the new path when it applies, so writing the old path first just means the
@@ -771,27 +820,34 @@ impl Workspace {
     /// entered: the timer and the blur. The two exits that end the session — `quit`
     /// and the window manager's close — write through `save` instead, because
     /// turning autosave off is not a wish to lose the note.
-    fn autosave(&mut self, cx: &mut Context<Self>) {
+    fn autosave(&mut self, index: usize, cx: &mut Context<Self>) {
         if !self.config.editor.autosave {
             return;
         }
-        if !self.editor.read_with(cx, |editor, _cx| editor.is_dirty()) {
+        if !self.tabs[index]
+            .editor
+            .read_with(cx, |editor, _cx| editor.is_dirty())
+        {
             return;
         }
-        let Some(path) = self.active.clone() else {
+        let Some(path) = self.tabs[index].path.clone() else {
             return;
         };
-        let text = self.editor.read_with(cx, |editor, _cx| editor.text());
+        let text = self.tabs[index]
+            .editor
+            .read_with(cx, |editor, _cx| editor.text());
         match self.vault.write(&path, &text) {
             Ok(()) => {
-                self.editor.update(cx, |editor, _cx| editor.mark_clean());
+                self.tabs[index]
+                    .editor
+                    .update(cx, |editor, _cx| editor.mark_clean());
                 // Our own write must not come back as somebody else's edit.
                 self.resign();
                 self.index_saved(&path);
                 // The session rides the same beat (roadmap P1.8): the pause that
-                // writes the note is also the moment the window knows what it
-                // looks like, and a crash between here and the next pause loses
-                // at most one pause's worth of state.
+                // writes a note is also the moment the window knows what it looks
+                // like, and a crash between here and the next pause loses at most one
+                // pause's worth of state.
                 self.save_session(cx);
                 tracing::debug!(path = %path.display(), "autosaved");
             }
@@ -800,6 +856,15 @@ impl Workspace {
                 self.say(format!("autosave failed: {err:#}"), cx);
                 cx.notify();
             }
+        }
+    }
+
+    /// Every tab's countdown-driven write, for the blur: the user left the window
+    /// with notes ahead of the disk, and which tab they were looking at is beside the
+    /// point.
+    pub(super) fn autosave_all(&mut self, cx: &mut Context<Self>) {
+        for index in 0..self.tabs.len() {
+            self.autosave(index, cx);
         }
     }
 
@@ -875,8 +940,16 @@ impl Workspace {
         for removed in &changes.removed {
             self.jumps.forget(removed);
         }
-        if let Some(path) = self.active.clone() {
-            let dirty = self.editor.read_with(cx, |editor, _cx| editor.is_dirty());
+        // Every tab whose note moved on disk, not only the one on screen: a note in
+        // the tab bar is a note the user is one key away from, and a buffer holding a
+        // copy of something that is no longer true is the same trap either way.
+        for index in 0..self.tabs.len() {
+            let Some(path) = self.tabs[index].path.clone() else {
+                continue;
+            };
+            let dirty = self.tabs[index]
+                .editor
+                .read_with(cx, |editor, _cx| editor.is_dirty());
             if changes.was_removed(&path) {
                 if dirty {
                     self.say(
@@ -887,10 +960,10 @@ impl Workspace {
                         cx,
                     );
                 } else {
-                    self.active = None;
-                    self.editor
-                        .update(cx, |editor, cx| editor.set_text(String::new(), cx));
-                    self.checker_closed(cx);
+                    self.clear_tab(index, cx);
+                    if index == self.tab {
+                        self.checker_closed(cx);
+                    }
                     self.say(format!("{} deleted from disk", path.display()), cx);
                 }
             } else if changes.was_modified(&path) {
@@ -903,8 +976,23 @@ impl Workspace {
                         cx,
                     );
                 } else {
-                    self.open_note(&path, cx);
-                    self.say(format!("{} reloaded from disk", path.display()), cx);
+                    // Re-read into the tab that holds it. Going through `open_note`
+                    // would move the note to the tab on screen, which is not what a
+                    // background tab reloading under the user means.
+                    match self.vault.read(&path) {
+                        Ok(text) => {
+                            self.tabs[index]
+                                .editor
+                                .update(cx, |editor, cx| editor.set_text(text.clone(), cx));
+                            if index == self.tab {
+                                self.checker_opened(&path, &text, cx);
+                            }
+                            self.say(format!("{} reloaded from disk", path.display()), cx);
+                        }
+                        Err(err) => {
+                            tracing::warn!(path = %path.display(), "re-read failed: {err:#}")
+                        }
+                    }
                 }
             }
         }

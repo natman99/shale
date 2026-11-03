@@ -164,15 +164,15 @@ impl Workspace {
     /// note over and over is noise the user would have to step through, and the
     /// disk-reload path calls this for the note that is already on screen.
     pub(super) fn record_jump(&mut self, going_to: &Path, cx: &mut Context<Self>) {
-        let Some(current) = self.active.as_deref() else {
+        let Some(current) = self.note() else {
             return;
         };
-        if current == going_to {
+        if current.as_path() == going_to {
             return;
         }
-        let cursor = self.editor.read(cx).cursor_offset();
+        let cursor = self.editor().read(cx).cursor_offset();
         self.jumps.record(Jump {
-            path: current.to_path_buf(),
+            path: current,
             cursor,
         });
     }
@@ -182,9 +182,9 @@ impl Workspace {
         // There does not have to be a note on screen. Deleting the open note clears
         // the active tab, and `ctrl-o` is the press the user reaches for at that
         // moment, so the place being left is optional.
-        let leaving = self.active.clone().map(|path| Jump {
+        let leaving = self.note().map(|path| Jump {
             path,
-            cursor: self.editor.read(cx).cursor_offset(),
+            cursor: self.editor().read(cx).cursor_offset(),
         });
         let Some(jump) = self.jumps.step(forward, leaving) else {
             self.say(
@@ -203,7 +203,7 @@ impl Workspace {
         // read (deleted outside Shale, a path the chain outlived) costs the user one
         // press and one step, and the read error is on the status line.
         if self.load_note(&path, cx) {
-            self.editor
+            self.editor()
                 .update(cx, |editor, cx| editor.reveal_offset(jump.cursor, cx));
         }
         cx.notify();

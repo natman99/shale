@@ -47,8 +47,14 @@ as you would type it.
 | `review.reject` | Reject the pending hunk under the marker | `x in the strip` | — | — |
 | `review.open-note` | Open the note the pending hunk is about | `o in the strip` | — | — |
 | `review.collapse` | Collapse or expand the pending proposal under the marker | `za in the strip` | — | — |
+| `tab.new` | Open this note in a new tab | `ctrl-t` | `:tabnew`, `:tabedit` | — |
+| `tab.next` | Go to the next tab | `gt` | `:tabnext`, `:tabn` | — |
+| `tab.prev` | Go to the previous tab | `gT` | `:tabprev`, `:tabp` | — |
+| `tab.close` | Close this tab, writing its note first | `the tab's ×` | `:tabclose`, `:tabc` | — |
+| `tab.only` | Close every tab but this one | — | `:tabonly`, `:tabo` | — |
+| `tab.move` | Move this tab to a position | — | `:tabmove <n>` | `<n>` |
 
-The palette does not list `app.quit-force`, `note.write-quit`, `review.next`, `review.prev`, `review.accept`, `review.reject`, `review.open-note`, `review.collapse`: `note.write-quit` is save and then quit, two
+The palette does not list `app.quit-force`, `note.write-quit`, `review.next`, `review.prev`, `review.accept`, `review.reject`, `review.open-note`, `review.collapse`, `tab.next`, `tab.prev`, `tab.only`, `tab.move`: `note.write-quit` is save and then quit, two
 actions rather than one, `app.quit-force` is the exit that throws unsaved
 edits away (not a row to offer next to *Quit Shale* in a list you pick
 from), and the `review.*` keys other than `review.focus` mean nothing while

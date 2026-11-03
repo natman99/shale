@@ -130,8 +130,14 @@ impl Workspace {
     /// otherwise. A note that is not on disk counts as empty, which is what a proposal
     /// to create one expects.
     fn note_text(&self, note: &Path, cx: &Context<Self>) -> String {
-        if self.active.as_deref() == Some(note) {
-            self.editor.read_with(cx, |editor, _cx| editor.text())
+        // The tab that holds it, if one does — which need not be the tab on screen.
+        // A proposal against a note in the background is judged against what that tab
+        // is holding, not against the file, or it would be called stale for a change
+        // the user can see.
+        if let Some(index) = self.tab_for_path(note) {
+            self.tabs[index]
+                .editor
+                .read_with(cx, |editor, _cx| editor.text())
         } else {
             self.vault.read(note).unwrap_or_default()
         }
@@ -211,7 +217,7 @@ impl Workspace {
             return;
         };
         let note = self.review.read(cx).edit(&row).note.clone();
-        if self.active.as_ref() == Some(&note) {
+        if self.note().as_ref() == Some(&note) {
             self.say(format!("already showing {}", note.display()), cx);
             cx.notify();
             return;
@@ -237,7 +243,9 @@ impl Workspace {
             return;
         };
         let edit = self.review.read(cx).edit(&row).clone();
-        if self.editor_is_preview(cx) && self.active.as_ref() == Some(&edit.note) {
+        // A note in the view that refuses edits cannot take an accept, whichever tab
+        // it is on.
+        if self.note_is_preview(&edit.note, cx) {
             // Preview mode refuses edits, and an accept that quietly did nothing would
             // be worse than saying the note has to be editable first.
             self.say(
@@ -325,7 +333,7 @@ impl Workspace {
     fn after_queue_change(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.scan_pending(cx);
         if self.review.read(cx).is_empty() {
-            let focus = self.editor.read(cx).focus_handle(cx);
+            let focus = self.editor().read(cx).focus_handle(cx);
             window.focus(&focus, cx);
         }
         cx.notify();
@@ -346,7 +354,7 @@ impl Workspace {
         only: Option<usize>,
         cx: &mut Context<Self>,
     ) -> (usize, usize) {
-        let open = self.active.as_ref() == Some(&edit.note);
+        let open = self.tab_for_path(&edit.note);
         let mut current = self.note_text(&edit.note, cx);
         let mut left = edit.clone();
         let mut applied = 0;
@@ -367,11 +375,13 @@ impl Workspace {
                 }
                 diff::Outcome::Applied(next) => next,
             };
-            if open && !self.patch_buffer(&current, &hunk, cx) {
-                // `apply` said it fits, so `region` cannot disagree; if it ever did,
-                // stopping here is the honest answer rather than a half-applied edit.
-                stale += 1;
-                break;
+            if let Some(index) = open {
+                if !self.patch_buffer(index, &current, &hunk, cx) {
+                    // `apply` said it fits, so `region` cannot disagree; if it ever did,
+                    // stopping here is the honest answer rather than a half-applied edit.
+                    stale += 1;
+                    break;
+                }
             }
             current = next;
             applied += 1;
@@ -387,7 +397,7 @@ impl Workspace {
             }
         }
 
-        if !open && applied > 0 {
+        if open.is_none() && applied > 0 {
             if let Err(err) = self.write_unopened_note(&edit.note, &current) {
                 tracing::warn!(path = %edit.note.display(), "could not write the accepted note: {err:#}");
                 self.say(format!("could not write the note: {err:#}"), cx);
@@ -424,11 +434,17 @@ impl Workspace {
     ///
     /// The byte range comes from [`diff::region`] rather than a whole-note rewrite, so
     /// the cursor, the undo history and everything the user has not saved survive.
-    fn patch_buffer(&mut self, current: &str, hunk: &Hunk, cx: &mut Context<Self>) -> bool {
+    fn patch_buffer(
+        &mut self,
+        index: usize,
+        current: &str,
+        hunk: &Hunk,
+        cx: &mut Context<Self>,
+    ) -> bool {
         let Some((start, end, text)) = diff::region(current, hunk) else {
             return false;
         };
-        self.editor.update(cx, |editor, cx| {
+        self.tabs[index].editor.update(cx, |editor, cx| {
             editor.apply_edits(&[(start, end, text)], cx)
         })
     }
@@ -469,9 +485,15 @@ impl Workspace {
         }
     }
 
-    /// Whether the note on screen is in the view that refuses edits.
-    fn editor_is_preview(&self, cx: &gpui::App) -> bool {
-        self.editor.read(cx).view() == View::Preview
+    /// Whether the note is in the view that refuses edits — in whichever tab holds
+    /// it, since a background tab is still a tab the user will bring forward.
+    fn note_is_preview(&self, note: &Path, cx: &gpui::App) -> bool {
+        self.tab_for_path(note).is_some_and(|index| {
+            self.tabs[index]
+                .editor
+                .read_with(cx, |editor, _cx| editor.view())
+                == View::Preview
+        })
     }
 
     /// The strip's rows, for the tests: what the user can see, in the order they can
@@ -502,6 +524,13 @@ impl Workspace {
                 )
             })
             .collect()
+    }
+
+    /// How many hunks are waiting, for the tests that build a queue long enough to
+    /// need the strip's cap.
+    #[cfg(test)]
+    pub(crate) fn review_hunks(&self, cx: &gpui::App) -> usize {
+        self.review.read(cx).hunk_count()
     }
 
     /// The marker, as `(note, hunk)`, for the tests that check where `j`/`k` and

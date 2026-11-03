@@ -13,10 +13,28 @@ use super::bar::{mode_label, save_indicator, word_badge};
 use super::tree::{push_node, TreeState};
 use super::Workspace;
 
+/// The height of the tab bar's row, and of one tab within it. A little taller than
+/// the status bar because it is something the pointer aims at, not something it
+/// reads.
+const TAB_BAR: gpui::Pixels = gpui::px(28.);
+/// One tab's height inside the bar, leaving a line of the bar's colour above and
+/// below it.
+const TAB_ROW: gpui::Pixels = gpui::px(22.);
+
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // A tab change that had no window to rehook the hover subscription with gets
+        // it here, one frame later, rather than never: the pointer can only hover over
+        // the note that is drawn, so the subscription has to be the drawn tab's. The
+        // keyboard follows the same rule, for the same reason.
+        if self.hover_stale {
+            cx.on_next_frame(window, |ws, window, cx| ws.watch_hover(window, cx));
+        }
+        if self.focus_stale {
+            cx.on_next_frame(window, |ws, window, cx| ws.focus_active_tab(window, cx));
+        }
         let tree = tree::build_tree(&self.entries, &self.dirs);
-        let active = self.active.clone();
+        let active = self.note();
         let selected = self.tree_selection.clone();
         let expanded = &self.expanded;
         // The keyboard selection is only drawn while the sidebar has the
@@ -86,22 +104,22 @@ impl Render for Workspace {
             window.defer(cx, move |window, cx| focus.focus(window, cx));
         }
 
-        let mode = mode_label(self.editor.read(cx).mode());
-        let dirty = save_indicator(self.editor.read(cx).is_dirty());
-        let pending = self.editor.read(cx).pending_hint();
-        let (line, col) = self.editor.read(cx).display_position();
+        let mode = mode_label(self.editor().read(cx).mode());
+        let dirty = save_indicator(self.editor().read(cx).is_dirty());
+        let pending = self.editor().read(cx).pending_hint();
+        let (line, col) = self.editor().read(cx).display_position();
         // Which of the three views the note is in, for the badge below. All three
         // are named, so the slot does not appear and disappear as the user moves
         // between them; the default one is drawn quiet, because a badge for the
         // state the note is nearly always in should not compete with the two that
         // mean something is different.
-        let view = self.editor.read(cx).view();
+        let view = self.editor().read(cx).view();
         // Focus mode gets a badge only while it is on, and names its scope with
         // it, because "dimmed" and "dimmed to the whole section" are different
         // things to see. Unlike the view badge this slot comes and goes: a mode
         // that is nearly always off would only add a word to every status line.
-        let focus = if self.editor.read(cx).focus_mode() {
-            format!("focus {}", self.editor.read(cx).focus_scope().word())
+        let focus = if self.editor().read(cx).focus_mode() {
+            format!("focus {}", self.editor().read(cx).focus_scope().word())
         } else {
             String::new()
         };
@@ -122,7 +140,81 @@ impl Render for Workspace {
         // The open note's own word count, live from the buffer. It is state, not a
         // message: it is true for exactly as long as it is shown, and it moves with
         // the typing rather than a save later.
-        let words = word_badge(self.active.is_some(), self.editor.read(cx).word_count());
+        let words = word_badge(self.note().is_some(), self.editor().read(cx).word_count());
+
+        // The tab bar's rows. Built here rather than in a widget of its own because a
+        // tab is not a thing that can be drawn without the window: clicking one moves
+        // the keyboard, and closing one writes its note.
+        let tabs: Vec<gpui::Stateful<gpui::Div>> = self
+            .tab_state(cx)
+            .into_iter()
+            .enumerate()
+            .map(|(index, tab)| {
+                let label = tab
+                    .path
+                    .as_ref()
+                    .map(|path| {
+                        path.file_stem()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .to_string()
+                    })
+                    .unwrap_or_else(|| "no note".to_string());
+                let entity = cx.entity().clone();
+                let close = cx.entity().clone();
+                let id = tab.id;
+                let active = index == self.tab;
+                div()
+                    .id(("tab", id))
+                    .flex_1()
+                    .min_w_0()
+                    .h(TAB_ROW)
+                    .px_2()
+                    .flex()
+                    .items_center()
+                    .gap_1()
+                    // A tab is a thing to act on, so the pointer says so rather than
+                    // offering the caret it inherits from the note.
+                    .cursor(gpui::CursorStyle::PointingHand)
+                    .text_color(gpui::rgb(if active {
+                        self.palette.ui_fg
+                    } else {
+                        self.palette.ui_dim
+                    }))
+                    .child(
+                        // The same dot the status bar uses, on the tab it belongs to:
+                        // with tabs open, a note ahead of its file is not necessarily
+                        // the one on screen.
+                        div()
+                            .text_color(gpui::rgb(self.palette.accent))
+                            .child(save_indicator(tab.dirty)),
+                    )
+                    .child(div().flex_1().min_w_0().text_ellipsis().child(label))
+                    .child(
+                        div()
+                            .id(("tab-close", id))
+                            .text_color(gpui::rgb(self.palette.ui_dim))
+                            .cursor(gpui::CursorStyle::PointingHand)
+                            .child("\u{00d7}")
+                            // The `\u{00d7}` is the tab's own click. Without stopping
+                            // the propagation the row behind it would take the same
+                            // click and switch to the tab it is closing.
+                            .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                                cx.stop_propagation();
+                            })
+                            .on_click(move |_, window, cx| {
+                                close.update(cx, |ws, cx| ws.click_tab_close(id, window, cx));
+                            }),
+                    )
+                    .when(active, |d| d.bg(gpui::rgb(self.palette.ui_active_bg)))
+                    .when(!active, |d| {
+                        d.hover(|s| s.bg(gpui::rgb(self.palette.ui_hover_bg)))
+                    })
+                    .on_click(move |_, window, cx| {
+                        entity.update(cx, |ws, cx| ws.click_tab(id, window, cx));
+                    })
+            })
+            .collect();
 
         div()
             .track_focus(&self.focus_handle)
@@ -144,6 +236,11 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::focus_editor))
             .on_action(cx.listener(Self::window_left))
             .on_action(cx.listener(Self::window_right))
+            .on_action(cx.listener(Self::tab_next))
+            .on_action(cx.listener(Self::tab_prev))
+            .on_action(cx.listener(Self::tab_new))
+            .on_action(cx.listener(Self::tab_close))
+            .on_action(cx.listener(Self::tab_only))
             .on_action(cx.listener(Self::quick_open))
             .on_action(cx.listener(Self::jump_back))
             .on_action(cx.listener(Self::jump_forward))
@@ -184,6 +281,25 @@ impl Render for Workspace {
                 cx.listener(|this, _event: &gpui::MouseDownEvent, window, cx| {
                     this.dismiss_overlays(window, cx);
                 }),
+            )
+            // The tabs (roadmap P3.1). Top of the window, one row per open note, where
+            // a window's tabs already live in every other editor the user has used.
+            // It is `flex_none`, so it takes its height and the note takes what is
+            // left; the tabs share that width and ellipsis rather than scrolling, which
+            // is the part still to do.
+            .child(
+                div()
+                    .flex_none()
+                    .w_full()
+                    .h(TAB_BAR)
+                    .px_1()
+                    .flex()
+                    .items_center()
+                    .gap_1()
+                    .text_xs()
+                    .bg(gpui::rgb(self.palette.ui_status_bg))
+                    .text_color(gpui::rgb(self.palette.ui_dim))
+                    .children(tabs),
             )
             .child(
                 div()
@@ -285,7 +401,7 @@ impl Render for Workspace {
                                     this.pointer_moved(event.position, window, cx);
                                 },
                             ))
-                            .child(div().flex_1().min_h_0().child(self.editor.clone()))
+                            .child(div().flex_1().min_h_0().child(self.editor().clone()))
                             // A picker *overlays* the note rather than pushing it
                             // down: it is painted after the text, so opening one does
                             // not re-wrap every line underneath. Like the prompt it is

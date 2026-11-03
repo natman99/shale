@@ -63,7 +63,7 @@ impl Workspace {
         self.search.index = None;
         self.recount_hits(cx);
         if let Some(hit) = self.search.current() {
-            self.editor
+            self.editor()
                 .update(cx, |editor, cx| editor.reveal_offset(hit.0, cx));
         }
         cx.notify();
@@ -81,7 +81,7 @@ impl Workspace {
         self.search.index = None;
         self.recount_hits(cx);
         if let Some(hit) = self.search.current() {
-            self.editor
+            self.editor()
                 .update(cx, |editor, cx| editor.reveal_offset(hit.0, cx));
         }
         self.close_prompt(window, cx);
@@ -152,7 +152,7 @@ impl Workspace {
         let next = (at + delta).rem_euclid(len) as usize;
         self.search.index = Some(next);
         let hit = self.search.hits[next];
-        self.editor
+        self.editor()
             .update(cx, |editor, cx| editor.reveal_offset(hit.0, cx));
         self.paint_hits(cx);
         cx.notify();
@@ -162,7 +162,7 @@ impl Workspace {
     /// when it still exists and clamping to the last one when the note got shorter
     /// under it.
     fn recount_hits(&mut self, cx: &mut Context<Self>) {
-        let text = self.editor.read(cx).text();
+        let text = self.editor().read(cx).text();
         let hits = find_all(&text, &self.search.query);
         self.search.index = if hits.is_empty() {
             None
@@ -177,7 +177,7 @@ impl Workspace {
     fn paint_hits(&mut self, cx: &mut Context<Self>) {
         let hits = self.search.hits.clone();
         let active = self.search.current();
-        self.editor
+        self.editor()
             .update(cx, |editor, cx| editor.set_hits(hits, active, cx));
     }
 

@@ -20,7 +20,7 @@ const PAUSE: Duration = Duration::from_millis(2000);
 /// A vault holding `notes` with real text, and a session file as a previous
 /// Shale would have left it — written before the window exists, so the restore
 /// is the window's first act rather than a race with it.
-fn vault_with_session(
+pub(crate) fn vault_with_session(
     cx: &mut TestAppContext,
     notes: &[(&str, &str)],
     session: &Session,
@@ -60,6 +60,10 @@ fn a_session_reopens_the_vault_where_the_user_left_it(cx: &mut TestAppContext) {
             cursor: 6,
         }],
         jumps_forward: vec![],
+        // A session file written before tabs: the `open_note` half is the whole of it,
+        // and restoring one must still land on that note.
+        tabs: vec![],
+        active_tab: None,
     };
     let (_dir, window) = vault_with_session(
         cx,

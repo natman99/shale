@@ -198,7 +198,7 @@ impl Workspace {
         &self,
         cx: &Context<Self>,
     ) -> (Rc<shale_core::theme::Palette>, SharedString, f32) {
-        let editor = self.editor.read(cx);
+        let editor = self.editor().read(cx);
         (
             Rc::clone(&self.palette),
             editor.font_family(),
@@ -302,7 +302,7 @@ impl Workspace {
         self.revert_theme(cx);
         let focus = match self.picker_return_focus.take() {
             Some(focus) => focus,
-            None => self.editor.read(cx).focus_handle(cx),
+            None => self.editor().read(cx).focus_handle(cx),
         };
         window.focus(&focus, cx);
         cx.notify();

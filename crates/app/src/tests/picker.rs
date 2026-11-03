@@ -130,9 +130,10 @@ fn clicking_inside_the_picker_keeps_it(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("space f");
     assert_eq!(matches(&window, cx), Some(2));
 
-    // The panel starts 8px from the top of the note column, and its label is the
-    // first thing in it: inside the panel, on nothing that answers a click.
-    cx.simulate_click(gpui::point(px(500.), px(14.)), gpui::Modifiers::none());
+    // The panel starts 8px from the top of the note column — which sits below the
+    // 28px tab bar — and its label is the first thing in it: inside the panel, on
+    // nothing that answers a click.
+    cx.simulate_click(gpui::point(px(500.), px(44.)), gpui::Modifiers::none());
     assert_eq!(
         matches(&window, cx),
         Some(2),

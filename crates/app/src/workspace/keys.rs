@@ -30,6 +30,11 @@ pub(crate) fn keybindings() -> Vec<KeyBinding> {
         // The command palette. `ctrl-shift-p` is the shape the user asked for;
         // vim's `:` is bound in the note's own context (see below).
         KeyBinding::new("ctrl-shift-p", CommandPalette, None),
+        // A new tab holding the note in hand (roadmap P3.1). Obsidian's key for the
+        // same thing, and free here: vim's `ctrl-t` is the popup-stack jump, which
+        // Shale has no popup stack for. Tab *pages* stay outside the `ctrl-w` prefix,
+        // which belongs to the window commands a split view will want.
+        KeyBinding::new("ctrl-t", TabNew, None),
         // Moving the keyboard between panels, vim-window style. gpui matches a
         // two-stroke binding natively: `ctrl-w` alone is kept as pending input
         // and replayed if the next key does not finish the chord.

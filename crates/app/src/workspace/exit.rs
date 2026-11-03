@@ -62,9 +62,9 @@ impl Workspace {
     /// difference between this and dying where told is that it goes having tried, and
     /// the log says what could not be written.
     pub(crate) fn finish_termination(&mut self, cx: &mut Context<Self>) {
-        if self.editor.read_with(cx, |editor, _cx| editor.is_dirty()) {
-            self.write_note(cx);
-        }
+        // Every tab, not the one on screen: a signal ends the session, and the
+        // session is the notes on the tab bar.
+        self.write_all_tabs(cx);
         self.leave(cx);
     }
 
@@ -90,7 +90,7 @@ impl Workspace {
     /// `:q!` leaves them queued; the window manager's close and a signal are not
     /// refused, because an exit the user did not type never argues with them.
     pub(super) fn quit(&mut self, _: &Quit, _window: &mut Window, cx: &mut Context<Self>) {
-        let dirty = self.editor.read_with(cx, |editor, _cx| editor.is_dirty());
+        let dirty = self.any_dirty(cx);
         if dirty && !self.config.editor.autosave {
             self.say(
                 "unsaved edits: `:w` to keep them, `:q!` to throw them away",
@@ -99,15 +99,12 @@ impl Workspace {
             cx.notify();
             return;
         }
-        if dirty {
-            self.write_note(cx);
-            // The save said why it failed in the status bar. Quitting now would
-            // throw the note away, so the user gets to see that first.
-            let still = self.editor.read_with(cx, |editor, _cx| editor.is_dirty());
-            if still {
-                cx.notify();
-                return;
-            }
+        // Every tab that is ahead of its note on disk, and the quit is off if any
+        // write failed: the save said why in the status bar, and quitting now would
+        // throw that note away.
+        if dirty && !self.write_all_tabs(cx) {
+            cx.notify();
+            return;
         }
         // Read the queue rather than trusting the last beat: a proposal that landed a
         // moment ago is exactly the one the user is about to walk away from.
@@ -133,17 +130,15 @@ impl Workspace {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.editor.read_with(cx, |editor, _cx| editor.is_dirty()) {
-            // Logged rather than left unsaid: an exit that throws work away should
-            // be findable in the log afterwards.
-            tracing::warn!(
-                path = self
-                    .active
-                    .as_ref()
-                    .map(|path| path.display().to_string())
-                    .unwrap_or_default(),
-                "quit discarded unsaved edits"
-            );
+        // Logged rather than left unsaid: an exit that throws work away should be
+        // findable in the log afterwards, and with tabs open it can be more than one
+        // note being thrown away.
+        for tab in self.tabs.iter() {
+            if let Some(path) = tab.path.as_ref() {
+                if tab.editor.read_with(cx, |editor, _cx| editor.is_dirty()) {
+                    tracing::warn!(path = %path.display(), "quit discarded unsaved edits");
+                }
+            }
         }
         self.leave(cx);
     }
@@ -153,8 +148,8 @@ impl Workspace {
     /// is still dirty the write failed, `write_note` already said why, and the
     /// window stays open with that message in it.
     pub(super) fn write_quit(&mut self, cx: &mut Context<Self>) {
-        self.write_note(cx);
-        if self.editor.read_with(cx, |editor, _cx| editor.is_dirty()) {
+        // Every tab: `:wq` writes the session's notes, not the one under the cursor.
+        if !self.write_all_tabs(cx) {
             cx.notify();
             return;
         }

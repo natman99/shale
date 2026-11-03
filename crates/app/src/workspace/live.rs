@@ -101,11 +101,11 @@ impl Workspace {
         let Some(shared) = &self.live_snapshot else {
             return;
         };
-        let editor = self.editor.read(cx);
+        let editor = self.editor().read(cx);
         let (row, col) = editor.cursor_position();
         let (back, forward) = self.jumps.snapshot();
         let snapshot = Snapshot {
-            note: self.active.as_ref().map(|path| path.display().to_string()),
+            note: self.note().as_ref().map(|path| path.display().to_string()),
             dirty: editor.is_dirty(),
             view: editor.view().word().to_string(),
             mode: mode_word(editor.mode()).to_string(),

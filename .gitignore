@@ -4,7 +4,14 @@ __pycache__/
 # Local-only upstream docs (vim help files, Obsidian help pages). See refs/README.md.
 refs/
 # Shale's own per-vault state: its config, theme files, and (from roadmap P1) the
-# database and cache. The demo vault's config is committed once as a template and
-# then left to the vault, so a theme picked in a running app never dirties the
-# tree.
+# database and cache. A picked theme is rewritten into the config, so a vault's
+# `.shale/` is state the app owns and the tree should not carry.
 .shale/
+# …except the demo vault's config, which is the template and the documentation of
+# every key, so it is tracked. Its sibling state (theme files, the DB, the lock,
+# pending edits) stays ignored, and so does every other vault's `.shale/`. The cost
+# of tracking it: picking a theme in the demo vault rewrites `appearance.theme` and
+# dirties the tree on purpose.
+!examples/demo-vault/.shale/
+examples/demo-vault/.shale/*
+!examples/demo-vault/.shale/config.toml

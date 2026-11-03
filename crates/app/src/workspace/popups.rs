@@ -68,14 +68,14 @@ impl Workspace {
         }
         // Preview mode shows no checker at all: its underlines are not drawn, and
         // every row a panel offers is an edit the view refuses to make.
-        if self.editor.read(cx).view() == View::Preview {
+        if self.editor().read(cx).view() == View::Preview {
             return;
         }
         let offset = self
-            .editor
+            .editor()
             .read_with(cx, |editor, _cx| editor.cursor_offset());
         let line = self
-            .editor
+            .editor()
             .read_with(cx, |editor, _cx| editor.display_position().0);
         self.open_popup_for(offset, line, false, window, cx);
     }
@@ -109,7 +109,7 @@ impl Workspace {
         // pointer brushed a word would be worse than no popup at all. Preview mode
         // is reading: it draws no underlines, so a panel appearing over the word
         // the pointer happens to cross would be a surprise with nothing to offer.
-        if !self.editor.read_with(cx, |editor, _cx| {
+        if !self.editor().read_with(cx, |editor, _cx| {
             editor.is_normal_mode() && editor.view() != View::Preview
         }) {
             return;
@@ -287,7 +287,7 @@ impl Workspace {
         self.popup_fixes.clear();
         let focus = match self.popup_return_focus.take() {
             Some(focus) => focus,
-            None => self.editor.read(cx).focus_handle.clone(),
+            None => self.editor().read(cx).focus_handle.clone(),
         };
         window.focus(&focus, cx);
         cx.notify();
@@ -326,7 +326,7 @@ impl Workspace {
         // what makes the new text come back marked clean).
         if !fix.edits.is_empty() {
             let applied = self
-                .editor
+                .editor()
                 .update(cx, |editor, cx| editor.apply_edits(&fix.edits, cx));
             self.say(
                 if applied {
@@ -390,7 +390,7 @@ impl Workspace {
     /// about is a corridor over empty space.
     pub(crate) fn popup_place(&self, window: &Window, cx: &gpui::App) -> Option<PlacedPopup> {
         let anchor = self.popup_anchor?;
-        let (line, size, visible) = self.editor.read_with(cx, |editor, _cx| {
+        let (line, size, visible) = self.editor().read_with(cx, |editor, _cx| {
             (
                 editor.hit_line_bounds(anchor),
                 editor.font_size(),

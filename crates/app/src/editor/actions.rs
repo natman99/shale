@@ -99,6 +99,10 @@ impl MarkdownEditor {
             // `j`/`k` and the palette reach.
             Outcome::ReviewNext => window.dispatch_action(ReviewNext.boxed_clone(), cx),
             Outcome::ReviewPrev => window.dispatch_action(ReviewPrev.boxed_clone(), cx),
+            // `g t` / `g T`: the window owns the tabs, exactly as it owns the view
+            // chords, and these reach the same commands `:tabnext` and the palette do.
+            Outcome::TabNext => window.dispatch_action(TabNext.boxed_clone(), cx),
+            Outcome::TabPrev => window.dispatch_action(TabPrev.boxed_clone(), cx),
             // `space d`: the window owns the frame, so the chord dispatches the
             // same action the palette does rather than setting a flag of its own.
             Outcome::ToggleFocus => window.dispatch_action(ToggleFocus.boxed_clone(), cx),

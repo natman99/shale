@@ -463,6 +463,57 @@ fn preview_mode_refuses_an_accept(cx: &mut TestAppContext) {
     assert!(say(&window, &mut cx).contains("preview"));
 }
 
+/// The strip stays a strip. A twelve-hunk proposal does not turn it into a panel that
+/// pushes the note off screen: it draws its cap, and `j` slides the drawn window along
+/// the queue while keeping the marked row on it.
+#[gpui::test]
+fn a_long_queue_stays_a_short_strip(cx: &mut TestAppContext) {
+    let note: String = (1..=80).map(|n| format!("line {n}\n")).collect();
+    // Changes seven lines apart, so each is a hunk of its own: the diff merges hunks
+    // whose context touches, at twice the context width.
+    let edited = [2, 9, 16, 23, 30, 37, 44, 51, 58, 65, 72, 79]
+        .into_iter()
+        .fold(note.clone(), |text, n| {
+            text.replace(&format!("line {n}\n"), &format!("CHANGED {n}\n"))
+        });
+    let (dir, window) = vault_with(cx, &[("a.md", note.as_str())]);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show(&mut cx, &window);
+    queue(dir.path(), "a.md", &note, &edited);
+    scan(&window, &mut cx);
+
+    let all = window
+        .update(&mut cx, |ws, _window, cx| ws.review_hunks(cx))
+        .unwrap();
+    assert_eq!(all, 12, "the proposal really is twelve hunks");
+
+    command_line("review", &mut cx);
+    assert!(strip_up(&window, &mut cx));
+    assert_eq!(
+        rows(&window, &mut cx).len(),
+        crate::review::VISIBLE_ROWS,
+        "the strip draws its cap, not the queue"
+    );
+
+    // Walking the whole queue: never more than the cap on screen, and the row the
+    // keyboard is on is always one of them — otherwise `y` would act on a row the
+    // user cannot see.
+    for _ in 0..=12 {
+        let drawn = rows(&window, &mut cx);
+        let marked = marker(&window, &mut cx).expect("a row is marked");
+        let label = format!(
+            "{} hunk {}",
+            marked.0,
+            marked.1.expect("the queue is not collapsed")
+        );
+        assert!(
+            drawn.len() <= crate::review::VISIBLE_ROWS && drawn.contains(&label),
+            "marked {label} is not on a {drawn:?} strip"
+        );
+        cx.simulate_keystrokes("j");
+    }
+}
+
 // ---- the helpers the tests above share -----------------------------------
 
 /// A note long enough that two changes far apart are two hunks rather than one.

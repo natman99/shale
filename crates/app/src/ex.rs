@@ -66,6 +66,21 @@ pub(crate) enum Ex {
     /// itself whenever there is something in the queue; this is how the user gets to
     /// it from the note, and how the quit prompt tells them to.
     Review,
+    /// `tabnew` / `tabedit`: a new tab holding the note in hand, so the same note can
+    /// be read in two places at once, each with its own cursor and undo history
+    /// (roadmap P3.1).
+    TabNew,
+    /// `tabnext` / `tabn`: the next tab, wrapping. The command-line spelling of `g t`.
+    TabNext,
+    /// `tabprev` / `tabp`: the previous tab, wrapping. The spelling of `g T`.
+    TabPrev,
+    /// `tabclose` / `tabc`: close the tab on screen, its note written first.
+    TabClose,
+    /// `tabonly` / `tabo`: close every tab but this one.
+    TabOnly,
+    /// `tabmove <n>`: move this tab to position `n`, 1-based as typed. The one tab
+    /// command with an argument, so it is the one that does not travel as an action.
+    TabMove(usize),
     /// Anything else, with the word that was typed. Nothing runs: an unknown word
     /// is a typo, not something to guess at.
     Unknown(String),
@@ -97,6 +112,12 @@ impl Ex {
             Ex::PasteClipboard => "clipboard.paste",
             Ex::WordCount(_) => "vault.wordcount",
             Ex::Review => "review.focus",
+            Ex::TabNew => "tab.new",
+            Ex::TabNext => "tab.next",
+            Ex::TabPrev => "tab.prev",
+            Ex::TabClose => "tab.close",
+            Ex::TabOnly => "tab.only",
+            Ex::TabMove(_) => "tab.move",
         })
     }
 
@@ -119,7 +140,12 @@ impl Ex {
             | Ex::View(_)
             | Ex::YankClipboard
             | Ex::PasteClipboard
-            | Ex::Review => self.command_id()?,
+            | Ex::Review
+            | Ex::TabNew
+            | Ex::TabNext
+            | Ex::TabPrev
+            | Ex::TabClose
+            | Ex::TabOnly => self.command_id()?,
             _ => return None,
         })
     }
@@ -201,6 +227,23 @@ pub(crate) fn parse(line: &str) -> Ex {
         // The review strip. `pending` is there because that is the word the queue is
         // named by on disk, and the quit prompt says "agent edits are waiting".
         "review" | "pending" => Ex::Review,
+        // The tabs (roadmap P3.1). vim's spellings, abbreviated the way vim allows,
+        // and `:tabmove` is the only one that takes a number.
+        "tabnew" | "tabedit" => Ex::TabNew,
+        "tabnext" | "tabn" => Ex::TabNext,
+        "tabprev" | "tabp" => Ex::TabPrev,
+        "tabclose" | "tabc" => Ex::TabClose,
+        "tabonly" | "tabo" => Ex::TabOnly,
+        // A number that is not a number is a typo, and runs nothing — the same
+        // posture `:theme` takes with a name it cannot find. With no number at all,
+        // vim moves the tab to the end, and that is what this does too.
+        "tabmove" => match rest {
+            "" => Ex::TabMove(usize::MAX),
+            _ => match rest.parse::<usize>() {
+                Ok(n) if n > 0 => Ex::TabMove(n),
+                _ => Ex::Unknown(format!("tabmove {rest}")),
+            },
+        },
         _ => Ex::Unknown(word),
     }
 }

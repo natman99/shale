@@ -708,6 +708,21 @@ into the Phase 3 addendum. **P2.5a landed 2026-11-01, so Phase 2 is closed**
     as a chord. `f`, `l`, `p` and `s` already were; `r` had to be bound (`VimR`)
     even though vim's replace-the-character is not implemented here — the same
     reason `s` is bound. An unbound printable key in normal mode reaches nothing.
+  - **Landed 2026-11-02.** The tab bar (always visible, `×` per tab, a dirty dot on
+    the tab it belongs to), `ctrl-t` / `:tabnew`, `g t` / `g T` (resolved inside the
+    vim engine, not as a two-stroke keymap chord — a chord would swallow the `g`, and
+    `t`/`T` were already bound), `:tabnext|:tabprev|:tabclose|:tabonly|:tabmove [n]`,
+    clicking a row, clicking the `×`, and the session remembering the bar with each
+    tab's view. **The editor belongs to the tab** (`workspace/tabs.rs`), which is what
+    makes per-tab cursor/scroll/folds/view/undo real rather than a second table of
+    per-note state; `Workspace::editor()` is total because the bar never goes empty.
+    Exits owe every tab: `:wq`, a quit with autosave on, a blur and a window close
+    write them all, and `:q` is refused by a dirty background tab when autosave is
+    off. **Deferred, on purpose:** a tab bar that scrolls when the tabs outgrow the
+    width (they share it and ellipsize instead), `3gt` counting to a tab number,
+    per-tab jump chains and per-tab checker answers, and drag-to-reorder (`:tabmove
+    [n]` is the door for now). P1.8's tab half is now landed; its **pane layout** half
+    is still open and belongs to P3.2.
 - **P3.2 Tiling splits** (goal) — same pane model as tabs; `:pin` (note
   pinning, brainstorm ✅) is a pane flag: dimmed, excluded from the jump chain,
   auto-closing.

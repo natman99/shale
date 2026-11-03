@@ -147,6 +147,15 @@ actions!(
         // A split view will grow these into stepping sideways between panes.
         WindowLeft,
         WindowRight,
+        // The tabs (roadmap P3.1). Tab pages live outside the `ctrl-w` prefix, which
+        // is reserved for the window commands a split view will want: these are
+        // `g t`/`g T` in the note, `:tabnext`/`:tabprev`/`:tabclose`/`:tabonly` on the
+        // command line, and the tab bar under the pointer.
+        TabNext,
+        TabPrev,
+        TabNew,
+        TabClose,
+        TabOnly,
         // The keys a one-line field takes that are not printable text. The prompt
         // and every picker bind these in their own context, because the field is
         // the same widget in both.

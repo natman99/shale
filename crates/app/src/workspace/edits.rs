@@ -29,8 +29,8 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let family = self.editor.read(cx).font_family();
-        let size = self.editor.read(cx).font_size();
+        let family = self.editor().read(cx).font_family();
+        let size = self.editor().read(cx).font_size();
         let palette = Rc::clone(&self.palette);
         let prompt =
             cx.new(|cx| prompt::Prompt::new(kind, label, initial, palette, family, size, cx));
@@ -79,7 +79,7 @@ impl Workspace {
         self.prompt = None;
         let focus = match self.prompt_return_focus.take() {
             Some(focus) => focus,
-            None => self.editor.read(cx).focus_handle(cx),
+            None => self.editor().read(cx).focus_handle(cx),
         };
         window.focus(&focus, cx);
         cx.notify();
@@ -171,6 +171,9 @@ impl Workspace {
                 Err(err) => self.say(format!("{err:#}"), cx),
             },
             ex::Ex::WordCount(folder) => self.wordcount(&folder, cx),
+            // The one tab command with an argument. Typed 1-based, like every number
+            // in vim's command line.
+            ex::Ex::TabMove(to) => self.move_tab(to - 1, cx),
             ex::Ex::Unknown(word) => self.say(format!("unknown command: {word}"), cx),
             // Every one of these carries no argument, so `no_arg_command` above
             // already dispatched it as an action.
@@ -185,7 +188,12 @@ impl Workspace {
             | ex::Ex::View(_)
             | ex::Ex::YankClipboard
             | ex::Ex::PasteClipboard
-            | ex::Ex::Review => {
+            | ex::Ex::Review
+            | ex::Ex::TabNew
+            | ex::Ex::TabNext
+            | ex::Ex::TabPrev
+            | ex::Ex::TabClose
+            | ex::Ex::TabOnly => {
                 unreachable!("a command with no argument is dispatched by id")
             }
         }
@@ -200,7 +208,7 @@ impl Workspace {
     /// no command at all: the editor mirrors its register to the clipboard (see
     /// `mirror_register`); this is the copy that *reports*.
     pub(crate) fn copy_text(&mut self, _: &CopyText, _window: &mut Window, cx: &mut Context<Self>) {
-        match self.editor.read(cx).clipboard_candidate() {
+        match self.editor().read(cx).clipboard_candidate() {
             Some(text) => {
                 let chars = text.chars().count();
                 cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
@@ -258,8 +266,13 @@ impl Workspace {
                 // would ever notice them.
                 self.index_renamed(&from, &renamed);
                 self.index_rewrites(&report.written);
-                if self.active.as_deref() == Some(from.as_path()) {
-                    self.active = Some(renamed.clone());
+                // Every tab that was showing the old name now shows the new one.
+                // More than one can be, which is what a tab holding a note while
+                // another tab holds the same note looks like from here.
+                for tab in self.tabs.iter_mut() {
+                    if tab.path.as_deref() == Some(from.as_path()) {
+                        tab.path = Some(renamed.clone());
+                    }
                 }
                 // The jump chain named the old path, and a chain that points at a
                 // note that no longer resolves is a dead end the user has to step
@@ -282,10 +295,16 @@ impl Workspace {
                 } else {
                     self.vault.delete(&target)?;
                 }
-                if self.active.as_deref() == Some(target.as_path()) {
-                    self.active = None;
-                    self.editor
-                        .update(cx, |editor, cx| editor.set_text(String::new(), cx));
+                // Every tab that was showing it becomes an empty tab: the note is
+                // gone, and a tab holding a note that no longer exists is a lie.
+                let mut cleared = false;
+                for index in 0..self.tabs.len() {
+                    if self.tabs[index].path.as_deref() == Some(target.as_path()) {
+                        self.clear_tab(index, cx);
+                        cleared = true;
+                    }
+                }
+                if cleared {
                     self.checker_closed(cx);
                     // The note is gone, and with it every offset the search had.
                     self.clear_search(cx);
@@ -309,7 +328,7 @@ impl Workspace {
     fn prompt_target(&self) -> Result<PathBuf> {
         self.tree_selection
             .clone()
-            .or_else(|| self.active.clone())
+            .or_else(|| self.note())
             .context("nothing is selected")
     }
 
@@ -327,8 +346,8 @@ impl Workspace {
         rewrites: &[LinkRewrite],
         cx: &mut Context<Self>,
     ) -> Result<RewriteReport> {
-        let open = self.active.clone();
-        let dirty = self.editor.read_with(cx, |editor, _cx| editor.is_dirty());
+        let open = self.note();
+        let dirty = self.editor().read_with(cx, |editor, _cx| editor.is_dirty());
         let mut report = RewriteReport::default();
         for rewrite in rewrites {
             // The renamed note is the one file that has already moved.
@@ -349,7 +368,7 @@ impl Workspace {
             report.written.push(path.clone());
             if is_open {
                 let text = rewrite.text.clone();
-                self.editor
+                self.editor()
                     .update(cx, |editor, cx| editor.set_text(text.clone(), cx));
                 // The checker's document moved with the note: its URI is the
                 // note's path, so the old one is dropped and the new one opened
@@ -367,13 +386,19 @@ impl Workspace {
     pub(super) fn refresh_entries(&mut self, cx: &mut Context<Self>) {
         self.entries = self.vault.list_markdown().unwrap_or_default();
         self.dirs = self.vault.list_dirs().unwrap_or_default();
-        let known = note_keys(&self.entries);
-        let attachments = self.vault.list_attachments().unwrap_or_default();
+        self.known = note_keys(&self.entries);
+        self.attachments = self.vault.list_attachments().unwrap_or_default();
         let vault = Rc::clone(&self.vault);
-        self.editor.update(cx, |editor, cx| {
-            editor.set_known_links(known, cx);
-            editor.set_vault(vault, attachments, cx);
-        });
+        // Every tab, not only the one on screen: a wiki-link in a tab nobody is
+        // looking at has to resolve against the disk the same way the moment that
+        // tab comes forward. The two fields are kept on the window for the same
+        // reason, so a tab opened later starts with what is on disk now.
+        for tab in self.tabs.iter() {
+            tab.editor.update(cx, |editor, cx| {
+                editor.set_known_links(self.known.clone(), cx);
+                editor.set_vault(Rc::clone(&vault), self.attachments.clone(), cx);
+            });
+        }
         cx.notify();
     }
 

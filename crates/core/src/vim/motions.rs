@@ -163,6 +163,11 @@ impl Vim {
                 // picker instead — and it is one of the ways in now that `ctrl-o`
                 // belongs to the jump chain.
                 Key::Char('f') => Outcome::QuickOpen,
+                // `g t` / `g T`: the tabs. A count is not honoured (`3gt` is "the
+                // next tab", not "tab three") — the outcome carries no number, and
+                // the tab bar is short enough that walking it is the common case.
+                Key::Char('t') => Outcome::TabNext,
+                Key::Char('T') => Outcome::TabPrev,
                 _ => Outcome::Unhandled,
             };
         }

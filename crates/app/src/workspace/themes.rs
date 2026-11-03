@@ -148,14 +148,20 @@ impl Workspace {
     }
 
     /// Hand a new palette to everything that draws with it: the window (whose
-    /// render reads it for the sidebar, the panels and the status bar), the editor
-    /// (the note and its underlines), and the open picker — which is drawn in the
-    /// theme it is offering, so a preview is not hidden behind the panel showing
-    /// it.
+    /// render reads it for the tab bar, the sidebar, the panels and the status bar),
+    /// **every tab's** editor (the note and its underlines), and the open picker —
+    /// which is drawn in the theme it is offering, so a preview is not hidden behind
+    /// the panel showing it.
+    ///
+    /// Every tab, not just the one on screen: a background tab is drawn the moment
+    /// the user presses `g t`, and a tab that kept the old palette would be a theme
+    /// change the user can un-do by changing the tab.
     fn apply_palette(&mut self, palette: Rc<Palette>, cx: &mut Context<Self>) {
         self.palette = Rc::clone(&palette);
-        self.editor
-            .update(cx, |editor, cx| editor.set_palette(palette.clone(), cx));
+        for tab in self.tabs.iter() {
+            tab.editor
+                .update(cx, |editor, cx| editor.set_palette(Rc::clone(&palette), cx));
+        }
         if let Some(picker) = self.picker.clone() {
             picker.update(cx, |picker, cx| picker.set_palette(palette, cx));
         }

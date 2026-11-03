@@ -109,7 +109,7 @@ impl Workspace {
     /// folder holding the selected note, the folder of the note that is open, or
     /// the vault root.
     pub(super) fn target_dir(&self) -> PathBuf {
-        match self.tree_selection.as_ref().or(self.active.as_ref()) {
+        match self.tree_selection.as_ref().or(self.note().as_ref()) {
             Some(path) if self.is_dir(path) => path.clone(),
             Some(path) => path.parent().map(Path::to_path_buf).unwrap_or_default(),
             None => PathBuf::new(),
@@ -192,10 +192,7 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         if self.tree_selection.is_none() {
-            self.tree_selection = self
-                .active
-                .clone()
-                .or_else(|| self.tree_rows.first().cloned());
+            self.tree_selection = self.note().or_else(|| self.tree_rows.first().cloned());
         }
         window.focus(&self.tree_focus, cx);
         cx.notify();
@@ -208,7 +205,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let focus = self.editor.read(cx).focus_handle(cx);
+        let focus = self.editor().read(cx).focus_handle(cx);
         window.focus(&focus, cx);
         cx.notify();
     }

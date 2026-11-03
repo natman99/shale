@@ -564,6 +564,67 @@ const ALL: &[Command] = &[
         in_palette: false,
         action: Some(|| Box::new(ReviewCollapse)),
     },
+    // ---- tabs (roadmap P3.1) -----------------------------------------------
+    // The tab bar answers to the pointer, `g t`/`g T` answer in the note, and the
+    // command line has vim's spellings. Only the ways to get a tab and lose one are
+    // palette rows: `tab.next`/`tab.prev`/`tab.only` are things the user is already
+    // doing with a key or a word, and a palette row for each would be noise.
+    Command {
+        id: "tab.new",
+        label: "Open this note in a new tab",
+        keys: "ctrl-t",
+        ex: &["tabnew", "tabedit"],
+        args: "",
+        in_palette: true,
+        action: Some(|| Box::new(TabNew)),
+    },
+    Command {
+        id: "tab.next",
+        label: "Go to the next tab",
+        keys: "gt",
+        ex: &["tabnext", "tabn"],
+        args: "",
+        in_palette: false,
+        action: Some(|| Box::new(TabNext)),
+    },
+    Command {
+        id: "tab.prev",
+        label: "Go to the previous tab",
+        keys: "gT",
+        ex: &["tabprev", "tabp"],
+        args: "",
+        in_palette: false,
+        action: Some(|| Box::new(TabPrev)),
+    },
+    Command {
+        id: "tab.close",
+        label: "Close this tab, writing its note first",
+        keys: "the tab's ×",
+        ex: &["tabclose", "tabc"],
+        args: "",
+        in_palette: true,
+        action: Some(|| Box::new(TabClose)),
+    },
+    Command {
+        id: "tab.only",
+        label: "Close every tab but this one",
+        keys: "",
+        ex: &["tabonly", "tabo"],
+        args: "",
+        in_palette: false,
+        action: Some(|| Box::new(TabOnly)),
+    },
+    // The one tab command with an argument, so it has no action to carry one: the
+    // command line calls the window directly, the way `:theme <name>` does.
+    Command {
+        id: "tab.move",
+        label: "Move this tab to a position",
+        keys: "",
+        ex: &["tabmove"],
+        args: "<n>",
+        in_palette: false,
+        action: None,
+    },
 ];
 
 #[cfg(test)]

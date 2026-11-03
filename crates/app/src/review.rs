@@ -46,8 +46,11 @@ const PAD: Pixels = px(4.);
 ///
 /// More than that and the strip is a panel that pushes the note off screen, which is
 /// the opposite of what a command-area-style strip is for. [`crate::list::window`]
-/// slides the window to keep the marker on it.
-const VISIBLE_ROWS: usize = 6;
+/// slides the window to keep the marker on it, which is the strip's scrolling: a
+/// twelve-hunk proposal is still six rows, and `j` walks it.
+///
+/// `pub(crate)` so the tests can assert against the cap rather than a copy of it.
+pub(crate) const VISIBLE_ROWS: usize = 6;
 
 /// One row of the strip: one hunk, or one collapsed edit shown as a single row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

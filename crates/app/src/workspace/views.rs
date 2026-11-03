@@ -61,7 +61,7 @@ impl Workspace {
         if view == View::Preview {
             self.close_popup(window, cx);
         }
-        self.editor
+        self.editor()
             .update(cx, |editor, cx| editor.set_view(view, cx));
         cx.notify();
     }
@@ -70,26 +70,26 @@ impl Workspace {
     /// this is what the tests ask.
     #[cfg(test)]
     pub(crate) fn view(&self, cx: &gpui::App) -> View {
-        self.editor.read(cx).view()
+        self.editor().read(cx).view()
     }
 
     /// Whether focus mode is on, and how far it reaches. The badge reads the
     /// editor directly; these are for the tests.
     #[cfg(test)]
     pub(crate) fn focus_mode(&self, cx: &gpui::App) -> bool {
-        self.editor.read(cx).focus_mode()
+        self.editor().read(cx).focus_mode()
     }
 
     /// The scope focus mode lights: `"block"` or `"section"`.
     #[cfg(test)]
     pub(crate) fn focus_scope(&self, cx: &gpui::App) -> String {
-        self.editor.read(cx).focus_scope().word().to_string()
+        self.editor().read(cx).focus_scope().word().to_string()
     }
 
     /// Whether typewriter scroll is on.
     #[cfg(test)]
     pub(crate) fn typewriter(&self, cx: &gpui::App) -> bool {
-        self.editor.read(cx).typewriter()
+        self.editor().read(cx).typewriter()
     }
 
     // ----- focus mode and typewriter scroll -------------------------------
@@ -107,7 +107,7 @@ impl Workspace {
 
     /// Focus mode, told rather than toggled: `:focus on|off`.
     pub(crate) fn set_focus(&mut self, on: bool, cx: &mut Context<Self>) {
-        self.editor
+        self.editor()
             .update(cx, |editor, cx| editor.set_focus_mode(on, cx));
         // The status bar's badge is the only place the mode is reported, so the
         // command line says nothing: `:focus on` next to a badge saying `focus
@@ -117,7 +117,7 @@ impl Workspace {
 
     /// Focus mode, asked rather than told: a bare `:focus`.
     pub(crate) fn flip_focus(&mut self, cx: &mut Context<Self>) {
-        let on = !self.editor.read(cx).focus_mode();
+        let on = !self.editor().read(cx).focus_mode();
         self.set_focus(on, cx);
     }
 
@@ -127,7 +127,7 @@ impl Workspace {
     /// the badge that would otherwise say it only appears while the mode is on.
     pub(crate) fn set_focus_scope(&mut self, word: &str, cx: &mut Context<Self>) {
         let scope = dim::Scope::from_word(word);
-        self.editor
+        self.editor()
             .update(cx, |editor, cx| editor.set_focus_scope(scope, cx));
         // `sentence` is named on the roadmap and not built, and `from_word` answers
         // it with `block`. Saying so is the difference between a command that did
@@ -154,7 +154,7 @@ impl Workspace {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let on = !self.editor.read(cx).typewriter();
+        let on = !self.editor().read(cx).typewriter();
         self.set_typewriter(on, cx);
     }
 
@@ -162,8 +162,8 @@ impl Workspace {
     /// about it is visible in the text — so the status line is the only place it
     /// can be reported, and the command line reports it there.
     pub(crate) fn set_typewriter(&mut self, on: bool, cx: &mut Context<Self>) {
-        let was = self.editor.read(cx).typewriter();
-        self.editor
+        let was = self.editor().read(cx).typewriter();
+        self.editor()
             .update(cx, |editor, cx| editor.set_typewriter(on, cx));
         self.say(
             if was == on {

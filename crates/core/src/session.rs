@@ -34,12 +34,24 @@ pub struct Jump {
     pub cursor: usize,
 }
 
+/// One open tab, as the session remembers it (roadmap P3.1).
+///
+/// The view is per tab because a tab keeps its own: leaving one note in raw mode to
+/// read another in preview is the whole point of having both.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Tab {
+    /// Vault-relative path of the note the tab holds.
+    pub path: PathBuf,
+    /// Which of the three views that tab was in: `raw`, `live` or `preview`.
+    pub view: String,
+}
+
 /// What the next window should look like.
 ///
 /// Deliberately *not* saved: anything the user edits by hand (that is the
-/// config's job), and anything derived (the index, the checker's notes). The
-/// tab and pane layout will extend this file when P3.1/P3.2 land — same file,
-/// more fields, same defaults.
+/// config's job), and anything derived (the index, the checker's notes). The pane
+/// layout will extend this file when P3.2 lands — same file, more fields, same
+/// defaults.
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Session {
@@ -70,6 +82,13 @@ pub struct Session {
     pub jumps_back: Vec<Jump>,
     /// The forward half of the chain.
     pub jumps_forward: Vec<Jump>,
+    /// The open tabs, left to right on the tab bar (roadmap P3.1). Empty means the
+    /// file predates tabs, and [`Session::open_note`] is the whole of it — which is
+    /// what keeps an old session file restoring exactly one note.
+    pub tabs: Vec<Tab>,
+    /// Which of [`Session::tabs`] had the keyboard. Out of range is clamped at
+    /// restore, because a tab closed since the file was written is not an error.
+    pub active_tab: Option<usize>,
 }
 
 impl Session {
@@ -118,6 +137,17 @@ mod tests {
                 cursor: 7,
             }],
             jumps_forward: vec![],
+            tabs: vec![
+                Tab {
+                    path: PathBuf::from("Welcome.md"),
+                    view: "live".into(),
+                },
+                Tab {
+                    path: PathBuf::from("notes/idea.md"),
+                    view: "raw".into(),
+                },
+            ],
+            active_tab: Some(1),
         };
         session.save(dir.path())?;
         assert_eq!(

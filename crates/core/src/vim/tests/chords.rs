@@ -53,6 +53,30 @@ fn upper_k_in_a_table_moves_a_row_instead() {
     );
 }
 
+/// `g t` / `g T` (roadmap P3.1): the engine owns the chord because `t` and `T` are
+/// already the find motions, so the keymap needs no new binding — and the chord has
+/// to be resolved here rather than as a two-stroke keymap binding, which would
+/// swallow the `g`.
+#[test]
+fn g_t_and_upper_t_ask_for_the_next_and_previous_tab() {
+    let mut vim = Vim::new();
+    let mut b = buf();
+    b.set_cursor(2);
+    vim.handle_normal_key(Key::Char('g'), &mut b);
+    assert_eq!(
+        vim.handle_normal_key(Key::Char('t'), &mut b),
+        Outcome::TabNext
+    );
+    vim.handle_normal_key(Key::Char('g'), &mut b);
+    assert_eq!(
+        vim.handle_normal_key(Key::Char('T'), &mut b),
+        Outcome::TabPrev
+    );
+    // Neither moves the cursor: the window decides what tab is on screen.
+    assert_eq!(b.cursor(), 2);
+    assert_eq!(vim.mode(), Mode::Normal);
+}
+
 #[test]
 fn za_folds_and_unfolds_the_section_the_cursor_is_in() {
     let mut vim = Vim::new();
