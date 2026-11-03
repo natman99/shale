@@ -231,8 +231,8 @@ impl Render for Workspace {
                             .id(("tab-close", id))
                             .text_color(gpui::rgb(self.palette.ui_dim))
                             .cursor(gpui::CursorStyle::PointingHand)
-                            .child("\u{00d7}")
-                            // The `\u{00d7}` is the tab's own click. Without stopping
+                            .child(crate::style::GLYPH_CLOSE)
+                            // The close mark is the tab's own click. Without stopping
                             // the propagation the row behind it would take the same
                             // click and switch to the tab it is closing.
                             .on_mouse_down(MouseButton::Left, |_, _, cx| {

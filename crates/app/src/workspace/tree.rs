@@ -15,7 +15,7 @@ use gpui::{
 use shale_core::theme::Palette;
 
 use crate::acts::*;
-use crate::style::CHIP_RADIUS;
+use crate::style::{CHIP_RADIUS, GLYPH_COLLAPSED, GLYPH_EXPANDED};
 use crate::tree;
 
 use super::Workspace;
@@ -54,9 +54,9 @@ pub(super) fn push_node(
         "{} {}",
         if is_dir {
             if is_open {
-                "▾"
+                GLYPH_EXPANDED
             } else {
-                "▸"
+                GLYPH_COLLAPSED
             }
         } else {
             " "

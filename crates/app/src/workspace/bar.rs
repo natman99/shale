@@ -23,7 +23,7 @@ pub(crate) const STATUS_TTL: Duration = Duration::from_secs(8);
 /// looking for it.
 pub(crate) fn save_indicator(dirty: bool) -> &'static str {
     if dirty {
-        "●"
+        crate::style::GLYPH_DIRTY
     } else {
         ""
     }

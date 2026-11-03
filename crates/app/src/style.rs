@@ -21,6 +21,18 @@
 //! row and would come out as a stack of pills. Rounding a block's *ends* needs the
 //! block to know which of its rows is first and last, which the layout pass does not
 //! say today.
+//!
+//! The `GLYPH_*` set is the chrome's marks, named so they stop being characters
+//! each widget picks for itself (`design-language.md` §8). Shale is a text-first
+//! app: its marks are unicode the note's own face can draw, not icons, and the set
+//! is the whole set -- a new mark is added here before it is used, and the only
+//! exception is a surface that paints its own vector mark, which today is a
+//! callout's bar, a graph node's kind and the agent's presence mark.
+//!
+//! Buffer content is never in that set and never icon-ified. A task box, a heading
+//! marker, a list bullet, a table pipe and a link's brackets stay visible text:
+//! that is what Raw mode is *for*, and iconing them would mean WYSIWYG, which is a
+//! different product.
 
 /// The corner radius the window's chips are drawn with: a tab, a file-tree row, a
 /// picker row, and the picker's panel.
@@ -56,3 +68,43 @@ pub(crate) const SPACE_3: gpui::Pixels = gpui::px(12.);
 /// the chrome it is written as gpui's `gap_4`, which is the same quarter-rems.
 #[allow(dead_code)]
 pub(crate) const SPACE_4: gpui::Pixels = gpui::px(16.);
+
+/// The chrome's motion tokens, and the contract they arrive with.
+///
+/// **The chrome does not animate, except toasts** (`design-language.md` §7): no
+/// fade on a tab switch, no sliding panel, no easing on a resize. That is true
+/// today because nothing in the chrome animates at all -- the only motion in the
+/// window is the graph's idle layout, which has its own ruled budget (M5a) and
+/// is not chrome.
+///
+/// The tokens are for the exception. A toast is the one thing allowed to move,
+/// and when it does it takes one of these two and a reason in the commit
+/// message; a third duration, or an easing invented at a paint site, is the
+/// drift this section exists to stop. gpui's `Animation` takes a
+/// [`std::time::Duration`] and an easing function, and its `ease_in_out` is the
+/// one to reach for unless there is a reason not to.
+///
+/// A surface that wants to animate something else is amending §7, not writing a
+/// line of code.
+#[allow(dead_code)]
+pub(crate) const MOTION_FAST: std::time::Duration = std::time::Duration::from_millis(120);
+
+/// How long something that travels across the window takes: 240 ms. See
+/// [`MOTION_FAST`] for what may use it.
+#[allow(dead_code)]
+pub(crate) const MOTION_SLOW: std::time::Duration = std::time::Duration::from_millis(240);
+
+/// A folder the file tree has closed.
+pub(crate) const GLYPH_COLLAPSED: &str = "▸";
+
+/// A folder the file tree has opened.
+pub(crate) const GLYPH_EXPANDED: &str = "▾";
+
+/// A note whose buffer holds edits the disk does not.
+///
+/// Drawn in `Palette::accent`, so the state is carried twice, by the mark and by
+/// the colour (`design-language.md` §10).
+pub(crate) const GLYPH_DIRTY: &str = "●";
+
+/// Closing one tab.
+pub(crate) const GLYPH_CLOSE: &str = "×";
