@@ -139,6 +139,10 @@ pub(crate) struct Workspace {
     /// and it stops by itself, because a settled graph that keeps asking for frames is
     /// the idling rule broken.
     graph_beat: Option<Task<()>>,
+    /// What the graph is showing. The window owns it rather than the view, because the
+    /// mask it produces decides which nodes the **simulation** contains as well as which
+    /// ones get painted, and the session file records it beside the camera.
+    graph_filter: shale_core::graph::filter::GraphFilter,
     expanded: HashSet<PathBuf>,
     /// The open tabs, left to right on the tab bar. **Never empty**: closing the last
     /// one clears it rather than removing it, which is what a window over an empty
@@ -373,6 +377,8 @@ impl Workspace {
             graph: None,
             graph_sim: None,
             graph_beat: None,
+            // Everything on, which is Obsidian's default graph and core's.
+            graph_filter: shale_core::graph::filter::GraphFilter::default(),
             expanded,
             // The window starts with no tabs and gets its first one below, which is
             // the same door `ctrl-t` uses: one place decides what a new tab's editor

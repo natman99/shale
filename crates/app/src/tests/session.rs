@@ -64,6 +64,7 @@ fn a_session_reopens_the_vault_where_the_user_left_it(cx: &mut TestAppContext) {
         // and restoring one must still land on that note.
         tabs: vec![],
         active_tab: None,
+        graph_filter: None,
     };
     let (_dir, window) = vault_with_session(
         cx,

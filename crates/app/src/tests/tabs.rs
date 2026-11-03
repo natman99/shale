@@ -376,6 +376,7 @@ fn a_session_reopens_every_tab(cx: &mut TestAppContext) {
             },
         ],
         active_tab: Some(1),
+        graph_filter: None,
     };
     let (_dir, window) =
         session::vault_with_session(cx, &[("a.md", "first\n"), ("b.md", "second\n")], &session);
@@ -436,6 +437,7 @@ fn a_session_tab_whose_note_is_gone_is_dropped(cx: &mut TestAppContext) {
             },
         ],
         active_tab: Some(0),
+        graph_filter: None,
     };
     let (_dir, window) = session::vault_with_session(cx, &[("a.md", "first\n")], &session);
     let mut cx = VisualTestContext::from_window(window.into(), cx);

@@ -278,6 +278,25 @@ pub(crate) fn keybindings() -> Vec<KeyBinding> {
         // `enter` opens the chosen node's note, and `f` frames the whole graph again.
         "enter" => GraphOpen,
         "f" => GraphFit,
+        // `/` opens the filter strip, which then takes the keyboard for itself.
+        "/" => GraphFilterOpen,
+    ]);
+    // The filter strip. It is a sibling of the canvas rather than inside its context, so
+    // the graph's `hjkl`, `f`, `+` and `-` are not in the stack while a query is being
+    // typed — which is the whole reason the strip has a context of its own. Printable
+    // letters never reach a keybinding, so what is bound here is the editing and the
+    // three toggles, and the toggles carry `alt` for the same reason.
+    bind!(crate::graph::FILTER_CONTEXT, [
+        "escape" => GraphFilterClose,
+        "enter" => GraphFilterClose,
+        "backspace" => FieldBackspace,
+        "delete" => FieldDelete,
+        "ctrl-backspace" => FieldDeleteWordBack,
+        "left" => FieldLeft,
+        "right" => FieldRight,
+        "alt-o" => GraphFilterOrphans,
+        "alt-x" => GraphFilterMissing,
+        "alt-t" => GraphFilterTags,
     ]);
     // The camera and selection keys carry their step, so they are pushed one by one as
     // the popup's row numbers are. `+` and `-` are literal keys — shift+`=` reaches us

@@ -740,8 +740,14 @@ into the Phase 3 addendum. **P2.5a landed 2026-11-01, so Phase 2 is closed**
   the raw paint API. **Task 7 landed the same day**: the tab takes the pointer (hover,
   background pan, node drag with pin-on-shift, click to open) and the keyboard (`+`/`-`,
   arrows and shift-arrows, `hjkl` to pick a node, `enter` to open it, `f` to frame it
-  again), with the hit test on a grid the frame carries. Task 8 (the filter panel)
-  remains.
+  again), with the hit test on a grid the frame carries. **Task 8 landed the same day,
+  and with it M1b is done**: `/` opens a filter strip in the tab — three chips (`orphans`,
+  `missing`, `tags`) and a search line that filters as it is typed — and the mask the
+  filter produces gates the **simulation** as well as the paint, so a hidden note takes
+  part in neither and the layout closes up. The counts row describes the screen rather
+  than the vault, the filter is session state beside the camera rather than config, and
+  the strip has a `graph-filter` key context of its own so the graph's `hjkl`, `f`, `+`
+  and `-` stay out of a query.
 - **P3.5 Graph M2–M5** in the plan's order: local graph + projected 3D →
   constellations + static mode → heatmap/groups/arrows → signature features
   (thread, pulses+glow, MST star-lines, nebulae, hjkl + f-jump, illumination,

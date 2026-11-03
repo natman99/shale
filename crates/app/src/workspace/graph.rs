@@ -94,30 +94,86 @@ impl Workspace {
         index
     }
 
-    /// The counts the graph panel shows, read off the window's index. `None` when the
-    /// index has never been built.
-    fn graph_summary(&self) -> Option<crate::graph::GraphSummary> {
+    /// The nodes the filter lets through, as core's mask indexed by petgraph's node
+    /// index. Everything the graph shows — the counts, the physics, the picture — is
+    /// computed from this, so a hidden node is absent from all three rather than drawn
+    /// in a faint colour.
+    fn graph_visibility(&self) -> Vec<bool> {
+        self.graph
+            .as_ref()
+            .map(|index| shale_core::graph::filter::apply(index, &self.graph_filter))
+            .unwrap_or_default()
+    }
+
+    /// The counts the graph panel shows, read off the window's index and the filter's
+    /// mask: they describe what is on screen, not what the vault holds, because a row
+    /// that says "12 notes" above a picture of four is a row nobody believes.
+    /// `None` when the index has never been built.
+    fn graph_summary(&self, visible: &[bool]) -> Option<crate::graph::GraphSummary> {
         use shale_core::graph::NodeKind;
         let index = self.graph.as_ref()?;
         let (mut notes, mut ghosts, mut tags) = (0usize, 0usize, 0usize);
         for node in index.graph().node_indices() {
+            if !visible.get(node.index()).copied().unwrap_or(true) {
+                continue;
+            }
             match index.meta(node).kind {
                 NodeKind::Note | NodeKind::Attachment => notes += 1,
                 NodeKind::Ghost => ghosts += 1,
                 NodeKind::Tag => tags += 1,
             }
         }
+        // The graph is undirected and never holds parallel edges, so this is already
+        // "A→B and B→A counted once"; an edge counts when both ends are visible, which
+        // is the same rule the renderer and the simulation use. `edge_endpoints` rather
+        // than `edge_references`, because the latter needs petgraph's `EdgeRef` trait
+        // and this crate does not speak petgraph.
+        let links = index
+            .graph()
+            .edge_indices()
+            .filter_map(|edge| index.graph().edge_endpoints(edge))
+            .filter(|(from, to)| {
+                visible.get(from.index()).copied().unwrap_or(true)
+                    && visible.get(to.index()).copied().unwrap_or(true)
+            })
+            .count();
         Some(crate::graph::GraphSummary {
             notes,
             ghosts,
             tags,
-            // The graph is undirected and never holds parallel edges, so this is
-            // already "A→B and B→A counted once".
-            links: index.graph().edge_count(),
+            links,
         })
     }
 
-    /// Re-send the graph to the view: the counts, and the picture.
+    /// The window's half of a refresh: re-slot the sim from the index and the filter's
+    /// mask, and recount what is on screen. `None` while the index has never been built.
+    ///
+    /// Split from [`Workspace::refresh_graph`] because the filter strip asks from inside a
+    /// handler that already holds the view's borrow, so the result cannot be pushed into
+    /// the view the usual way: that caller takes the counts and the picture back instead.
+    fn rebuild_graph(
+        &mut self,
+    ) -> Option<(crate::graph::GraphSummary, Rc<crate::graph::GraphFrame>)> {
+        let visible = self.graph_visibility();
+        let summary = self.graph_summary(&visible)?;
+        let previous = self.graph_sim.take();
+        if let Some(index) = self.graph.as_ref() {
+            self.graph_sim = Some(crate::graph::GraphSim::build(
+                index,
+                previous.as_ref(),
+                &visible,
+            ));
+        }
+        let frame = self
+            .graph_sim
+            .as_ref()
+            .map(|sim| Rc::new(sim.frame()))
+            .unwrap_or_else(|| Rc::new(crate::graph::GraphFrame::empty()));
+        Some((summary, frame))
+    }
+
+    /// Re-send the graph to the view: the counts, the picture, and the filter its chips
+    /// are drawn from.
     ///
     /// Called when the index is built and whenever a note moves under it. The sim is
     /// re-slotted here rather than at every index call site, because "the graph
@@ -125,26 +181,39 @@ impl Workspace {
     /// what decides whether that means a re-heat or nothing at all (a prose edit that
     /// changes no links moves nothing).
     pub(crate) fn refresh_graph(&mut self, cx: &mut Context<Self>) {
-        let Some(summary) = self.graph_summary() else {
-            return;
-        };
+        // With no graph tab on screen there is nothing to send to, and re-slotting a
+        // simulation nobody is looking at is work for no one: the next `:graph` builds it.
         let Some(view) = self.graph_view().cloned() else {
             return;
         };
-        let previous = self.graph_sim.take();
-        if let Some(index) = self.graph.as_ref() {
-            self.graph_sim = Some(crate::graph::GraphSim::build(index, previous.as_ref()));
-        }
-        let frame = self
-            .graph_sim
-            .as_ref()
-            .map(|sim| Rc::new(sim.frame()))
-            .unwrap_or_else(|| Rc::new(crate::graph::GraphFrame::empty()));
+        let Some((summary, frame)) = self.rebuild_graph() else {
+            return;
+        };
+        let filter = self.graph_filter.clone();
         view.update(cx, |view, cx| {
             view.set_summary(summary, cx);
             view.set_frame(frame, cx);
+            view.set_filter(filter, cx);
         });
         self.pump_graph(cx);
+    }
+
+    /// A new filter, from the strip: remember it on the window and re-make the picture.
+    ///
+    /// The window owns the filter rather than the view, because the mask it produces
+    /// decides what the **simulation** contains: a hidden node takes part in neither the
+    /// physics nor the paint, and the window is the only thing holding the sim. The strip
+    /// asks from inside the view's own handler, so — like the other doors the view calls —
+    /// this one never touches the view: the counts and the picture go back to the caller.
+    pub(crate) fn graph_set_filter(
+        &mut self,
+        filter: shale_core::graph::filter::GraphFilter,
+        cx: &mut Context<Self>,
+    ) -> Option<(crate::graph::GraphSummary, Rc<crate::graph::GraphFrame>)> {
+        self.graph_filter = filter;
+        let built = self.rebuild_graph();
+        self.pump_graph(cx);
+        built
     }
 
     /// Start the sim's beat if it has work to do.

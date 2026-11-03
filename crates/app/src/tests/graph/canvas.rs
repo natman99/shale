@@ -2,41 +2,6 @@
 /// session's memory of it (roadmap P3.4 Task 6).
 use super::*;
 
-/// The round things the last frame painted. A quad that is square with its corners
-/// rounded to half its width is a disc, which is how a node is drawn — and the only
-/// discs in a window that is showing the graph are the graph's. The tolerances are
-/// loose because a painted quad is recorded in *scaled* pixels, which rounds: a node
-/// drawn 43.25 px wide at a 2x scale factor comes back as 87 by 86.
-fn circles(cx: &mut VisualTestContext, window: &WindowHandle<Workspace>) -> Vec<gpui::Quad> {
-    window
-        .update(cx, |_ws, window, _cx| {
-            window
-                .painted_quads()
-                .into_iter()
-                .filter(|quad| {
-                    let w = quad.bounds.size.width.as_f32();
-                    let h = quad.bounds.size.height.as_f32();
-                    w > 0.0
-                        && (w - h).abs() <= 1.0
-                        && (quad.corner_radii.top_left.as_f32() * 2.0 - w).abs() <= 2.0
-                })
-                .collect()
-        })
-        .unwrap()
-}
-
-/// How many of the painted discs were filled with one of `colors`.
-fn filled(quads: &[gpui::Quad], colors: &[u32]) -> usize {
-    let wanted: Vec<gpui::Background> = colors
-        .iter()
-        .map(|color| gpui::Background::from(gpui::rgb(*color)))
-        .collect();
-    quads
-        .iter()
-        .filter(|quad| wanted.contains(&quad.background))
-        .count()
-}
-
 /// The graph is drawn, not described: every node is a disc, and the kinds are told
 /// apart by colour — a tag takes the colour a `#tag` has in prose, and a link to a note
 /// that is not there is a dim disc rather than nothing at all.

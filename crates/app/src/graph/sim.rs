@@ -101,7 +101,13 @@ pub(crate) struct GraphSim {
 }
 
 impl GraphSim {
-    /// Build the sim for `index`, carrying over whatever layout `previous` had.
+    /// Build the sim for the nodes of `index` that `visible` lets through, carrying
+    /// over whatever layout `previous` had.
+    ///
+    /// `visible` is core's filter mask, indexed by petgraph's node index — the same one
+    /// `filter::apply` returns. A filtered-out node is in neither the physics nor the
+    /// picture, which is the integration contract's rule: a hidden node that still
+    /// pushed on its neighbours would leave their layout moving for no visible reason.
     ///
     /// Three cases, and the difference between them is what the user sees:
     /// - **No previous**: a fresh layout at full heat (the phyllotaxis spiral,
@@ -110,16 +116,22 @@ impl GraphSim {
     ///   prose edit that changes no links produces: the old positions, velocities
     ///   and heat are copied across, so the graph does not move at all.
     /// - **Changed shape**: surviving nodes keep their positions and the sim
-    ///   re-heats gently, so the new ones find a place without the rest jumping.
-    pub(crate) fn build(index: &GraphIndex, previous: Option<&GraphSim>) -> Self {
+    ///   re-heats gently, so the new or moved nodes find a place without the rest
+    ///   jumping. A filter change lands here, which is what the plan's "filters
+    ///   re-heat the sim" line asks for.
+    pub(crate) fn build(index: &GraphIndex, previous: Option<&GraphSim>, visible: &[bool]) -> Self {
         let graph = index.graph();
-        let nodes: Vec<_> = graph.node_indices().collect();
+        let nodes: Vec<_> = graph
+            .node_indices()
+            .filter(|node| visible.get(node.index()).copied().unwrap_or(true))
+            .collect();
         let count = nodes.len();
 
         // `slot_of` maps a petgraph index to its slot. The arena is rebuilt fresh
         // on every change, so the two are usually identical — but "usually" is not
-        // a thing to build a layout on, and this costs one vector.
-        let mut slot_of = vec![u32::MAX; count];
+        // a thing to build a layout on, and this costs one vector. A filtered-out
+        // node keeps `u32::MAX`, which is what drops its edges below.
+        let mut slot_of = vec![u32::MAX; graph.node_count()];
         let mut slots = Vec::with_capacity(count);
         for (slot, node) in nodes.iter().enumerate() {
             slot_of[node.index()] = slot as u32;
@@ -142,6 +154,9 @@ impl GraphSim {
                     .edge_endpoints(edge)
                     .map(|(from, to)| [slot_of[from.index()], slot_of[to.index()]])
             })
+            // An edge is drawn, and pulled on, exactly when both ends are: that is how
+            // a ghost's links disappear with the ghost.
+            .filter(|[from, to]| *from != u32::MAX && *to != u32::MAX)
             .collect();
 
         let mut sim = Sim::<2>::new(count, &edges, SimParams::default(), SEED);

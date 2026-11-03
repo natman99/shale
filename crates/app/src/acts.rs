@@ -213,6 +213,19 @@ actions!(
         // would be eight names for two gestures.
         GraphOpen,
         GraphFit,
+        // The graph tab's filter strip (`/` in the graph, roadmap P3.4 Task 8). `escape`
+        // and `enter` are one action: the filter took effect as it was typed, so there is
+        // nothing for `enter` to accept that `escape` would be undoing. Closing the strip
+        // is its own action rather than `note.focus-editor` because the first `escape`
+        // closes the strip and only a second one leaves the tab.
+        GraphFilterOpen,
+        GraphFilterClose,
+        // The three chips, also reachable from the keyboard as `alt-o`/`alt-x`/`alt-t`.
+        // They are `alt`-modified because the strip holds a text field, and every bare
+        // letter this context receives is a letter of the query.
+        GraphFilterOrphans,
+        GraphFilterMissing,
+        GraphFilterTags,
     ]
 );
 

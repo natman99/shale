@@ -223,6 +223,30 @@ impl Workspace {
     pub(crate) fn graph_built(&self) -> bool {
         self.graph.is_some()
     }
+    /// The filter the window is working with: what the chips are answering about, and
+    /// what the session file has to remember.
+    #[cfg(test)]
+    pub(crate) fn graph_filter(&self) -> shale_core::graph::filter::GraphFilter {
+        self.graph_filter.clone()
+    }
+    /// Whether the filter strip is showing and what its search line holds. The strip is
+    /// the view's, not the window's, so this asks the view.
+    #[cfg(test)]
+    pub(crate) fn graph_panel(&self, cx: &gpui::App) -> (bool, String) {
+        self.graph_view()
+            .map(|view| {
+                let view = view.read(cx);
+                (view.panel_open(), view.query().to_string())
+            })
+            .unwrap_or((false, String::new()))
+    }
+    /// What the session file would be written as right now, for the tests that check a
+    /// decision made inside a window survives a restart. Writing it is the beats'
+    /// business; this is only what they would write.
+    #[cfg(test)]
+    pub(crate) fn session_snapshot(&self, cx: &mut Context<Self>) -> shale_core::Session {
+        self.capture_session(cx)
+    }
     /// The positions the graph tab is painting, in slot order. A test uses these to
     /// tell "the layout moved" from "the layout was carried over", which is the
     /// difference between a re-heat and a graph that saw no reason to move.

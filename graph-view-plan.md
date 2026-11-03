@@ -335,6 +335,36 @@ layout rests); the niri eyeball is still owed to the user.
 
 Small popover (reuse popup styling) with the four v1 toggles + a fuzzy search line (reuse `picker.rs` input). Changes flip the bitmask and re-heat. Persist filter state in **`session.json`** beside the camera (see Task 6's landed note — not `[graph]` in the config). **Verify:** toggling orphans off removes degree-0 quads (headless quad count).
 
+**Landed 2026-11-02, with four deliberate departures.** (1) **A strip in the tab, not a
+popover.** The popup slot is single and the checker owns it — the same ruling that left
+Task 7 without a right-click menu — so the filter is a row between the counts and the
+canvas: in the layout while open, nothing to anchor, nothing that can stack. The four v1
+toggles are three chips (`orphans`, `missing`, `tags`); `folder` is M3's constellation
+scope and has no way to be set yet. The search line is the shared `field::FieldElement`
+the prompt and the pickers draw, so it edits by character and takes IME like they do.
+(2) **The filter lives on the window, and its mask gates the simulation.** `GraphSim::build
+(index, previous, visible)` slots only the nodes the mask allows and drops an edge whose
+ends are not both slotted, so a hidden note takes part in neither the physics nor the
+paint and the layout closes up around it — a filter, not a dimming. The mask is computed
+once per change (`graph_visibility`) and feeds the sim and the counts, which therefore
+describe **the screen** rather than the vault. (3) **The strip has a key context of its
+own, which moved the graph's off the tab's root.** gpui's context stack is the focused
+element's ancestors, so a field inside the `graph` context could never contain an `h`, a
+`j`, an `f` or a `+`: `key_context("graph")` and `track_focus` moved to the canvas
+wrapper, and the strip is a sibling with `graph-filter` and its own focus handle. Handlers
+stay on the root, because a dispatched action bubbles from the focused node up. The chip
+toggles are `alt-o`/`alt-x`/`alt-t` for the same reason — a bare letter in that context
+belongs to the query. (4) **The filter door returns rather than pushes.** It is called
+from inside the view's own handler, where the entity is already borrowed, so
+`graph_set_filter` re-slots the sim, recounts, starts the beat and hands `(summary,
+frame)` back to the caller; `refresh_graph` is split so the note-change path can still
+push. Verified headlessly (7 tests: `/` opens and `escape`/`enter` close without leaving
+the tab, a query is typed as letters rather than moving the graph's selection, each chip
+takes its kind out of both the disc count and the counts row, the search line narrows and
+`ctrl-backspace` widens, and the filter goes into and out of the session file — with
+everything-on written as an *absent* field, so an old session file restores a whole
+graph).
+
 ## Milestones M2–M4 (later, in order)
 
 - **M2 Local graph + 3D.** Local graph = BFS depth-N subgraph from the active note (depth slider). 3D = same sim in `[f32;3]`, rotation via drag, perspective divide, painter's sort; `+`/`-`/arrows unchanged.

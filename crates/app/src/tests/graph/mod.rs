@@ -1,6 +1,7 @@
-//! The graph tab's tests (roadmap P3.4), in three files: `tab.rs` for the tab *kind*
-//! (Task 5), `canvas.rs` for the picture and the layout under it (Task 6), and
-//! `interactions.rs` for the pointer and the keyboard (Task 7).
+//! The graph tab's tests (roadmap P3.4), in four files: `tab.rs` for the tab *kind*
+//! (Task 5), `canvas.rs` for the picture and the layout under it (Task 6),
+//! `interactions.rs` for the pointer and the keyboard (Task 7), and `filter.rs` for the
+//! strip that decides what the picture holds (Task 8).
 //!
 //! What these pin is the shape the integration contract chose: the graph is a **tab
 //! kind**, not a note the window pretends to have, and there is **one per window**
@@ -117,6 +118,45 @@ fn paint(cx: &mut VisualTestContext, window: &WindowHandle<Workspace>) {
         cx.update(|window, cx| window.draw(cx).clear(cx));
     }
 }
+
+/// The round things the last frame painted. A quad that is square with its corners
+/// rounded to half its width is a disc, which is how a node is drawn — and the only
+/// discs in a window that is showing the graph are the graph's. The tolerances are
+/// loose because a painted quad is recorded in *scaled* pixels, which rounds: a node
+/// drawn 43.25 px wide at a 2x scale factor comes back as 87 by 86.
+///
+/// Shared by the canvas and the filter tests, which is why it lives here: a helper in
+/// one of the child modules is invisible to the others, and a name imported through
+/// `use super::*` would collide with the module of the same name.
+fn circles(cx: &mut VisualTestContext, window: &WindowHandle<Workspace>) -> Vec<gpui::Quad> {
+    window
+        .update(cx, |_ws, window, _cx| {
+            window
+                .painted_quads()
+                .into_iter()
+                .filter(|quad| {
+                    let w = quad.bounds.size.width.as_f32();
+                    let h = quad.bounds.size.height.as_f32();
+                    w > 0.0
+                        && (w - h).abs() <= 1.0
+                        && (quad.corner_radii.top_left.as_f32() * 2.0 - w).abs() <= 2.0
+                })
+                .collect()
+        })
+        .unwrap()
+}
+
+/// How many of the painted discs were filled with one of `colors`.
+fn filled(quads: &[gpui::Quad], colors: &[u32]) -> usize {
+    let wanted: Vec<gpui::Background> = colors
+        .iter()
+        .map(|color| gpui::Background::from(gpui::rgb(*color)))
+        .collect();
+    quads
+        .iter()
+        .filter(|quad| wanted.contains(&quad.background))
+        .count()
+}
 /// The positions the graph tab is painting, in slot order. What they are is the sim's
 /// business; what matters here is whether they *moved*.
 fn positions(cx: &mut VisualTestContext, window: &WindowHandle<Workspace>) -> Vec<[f32; 2]> {
@@ -133,5 +173,6 @@ fn sim_positions(cx: &mut VisualTestContext, window: &WindowHandle<Workspace>) -
 }
 
 mod canvas;
+mod filter;
 mod interactions;
 mod tab;

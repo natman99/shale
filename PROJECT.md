@@ -391,8 +391,16 @@ Workspace layout:
   else the **most recently used note tab** (tracked by tab id), else a new tab.
   Closing the graph tab leaves a place to write: the tab is converted in place into
   an empty note tab under the same id. The session file keeps the graph tab's seat.
-  The tab shows the vault's counts (notes, ghosts, tags, links) over an empty canvas
-  slot for now — painting is Task 6.
+  The tab is a canvas: the counts row (notes, links, tags, missing — the ones **on
+  screen**, not the ones the vault holds) over the picture the window's one force
+  simulation lays out and the raw paint API draws. The pointer hovers, pans, drags a node
+  (shift leaves it pinned) and clicks one to open it; the keyboard pans with the arrows,
+  zooms with `+`/`-`, picks a node with `hjkl`, opens it with `enter`, and re-frames with
+  `f`. `/` opens the **filter strip**: three chips (`orphans`, `missing`, `tags`) and a
+  search line that narrows the picture as it is typed — a filtered node leaves the
+  simulation as well as the paint, so the layout closes up around it. `escape` closes the
+  strip and a second `escape` leaves the tab; both the camera and the filter come back
+  with the session.
   the last tab leaves an empty tab rather than an empty window, which is what lets
   every part of the window ask for "the note" and get an answer. An exit owes every
   tab: `:wq`, a quit with autosave on, a blur and a window-manager close write them
@@ -485,25 +493,28 @@ Workspace layout:
   `notes.rs` (opening a note into a tab and writing it back: the find-or-open rule,
   the jump record, the save, and the per-tab autosave countdown),
   `graph.rs` (the window's half of the graph: building the index and keeping it current,
-  the one simulation and its beat, and the doors the graph view calls back through when
-  the pointer drags a node or clicks one),
+  the one simulation and its beat, the filter's visibility mask and the counts that
+  describe the screen rather than the vault, and the doors the graph view calls back
+  through when the pointer drags a node, clicks one, or changes the filter),
   `render.rs` the frame, `testhooks.rs` the accessors only the tests call),
   `tree.rs` (turning the vault's entries
   into rows), `views.rs` (the three views, focus mode and typewriter scroll),
   `graph/` (roadmap P3.4: `mod.rs` the `GraphView` entity — a focus handle with a
   `graph` keymap context, the counts row, the camera, and the pointer's three jobs
-  (hover, drag, click) and the keyboard's (zoom, pan, pick, open); `frame.rs` the owned
-  snapshot the window ships to the tab, with the spatial grid built over it; `sim.rs`
-  the window's one force simulation and the identity-keyed slot map that carries a
-  layout across an arena rebuild; `render.rs` the raw paint pass — links, the chosen
-  node's links, node discs and their ring, labels — the only place in Shale that draws
-  with the paint API instead of laying out divs) and
+  (hover, drag, click) and the keyboard's (zoom, pan, pick, open); `panel.rs` the filter
+  strip — three chips and a search line in a `graph-filter` context of its own, so the
+  graph's `hjkl`/`f`/`+`/`-` are not in the stack while a query is being typed; `frame.rs`
+  the owned snapshot the window ships to the tab, with the spatial grid built over it;
+  `sim.rs` the window's one force simulation and the identity-keyed slot map that carries
+  a layout across an arena rebuild, slotted from the filter's mask; `render.rs` the raw
+  paint pass — links, the chosen node's links, node discs and their ring, labels — the
+  only place in Shale that draws with the paint API instead of laying out divs) and
   its headless tests in `tests/` (`keys.rs`, `motions.rs`,
   `blocks.rs`, `paint.rs`, `tree.rs`, `picker.rs`, `commands.rs`, `search.rs`,
   `autosave.rs`, `exit.rs`, `session.rs`, `spell.rs`, `focus.rs`, `tabs.rs` (the
   bar itself: `ctrl-t`, `g t`/`g T`, `:tab*`, a tab keeping its own cursor and undo
   history, opening an open note finding its tab, and what a quit and a blur owe a
-  note that is not on screen), `graph/` (the graph tab in three files — `tab.rs`: `space
+  note that is not on screen), `graph/` (the graph tab in four files — `tab.rs`: `space
   g` opening it, one tab per window, `escape` going back to the note, the bar reporting
   no note state over it, a note opening without converting it, closing it leaving a
   place to write, the counts row, the index following the vault, and a session
@@ -512,7 +523,11 @@ Workspace layout:
   the old positions, and where the camera goes in and out of the session file;
   `interactions.rs`: the wheel zooming around the cursor, a background drag panning, a
   node drag pinning and letting go, a shift-drag leaving a node pinned, a click and
-  `enter` opening a note, the arrows and `hjkl`, and `f` framing the graph again),
+  `enter` opening a note, the arrows and `hjkl`, and `f` framing the graph again;
+  `filter.rs`: `/` opening the strip and `escape` closing it without leaving the tab, a
+  query typed as letters rather than graph commands, each chip taking its kind out of the
+  discs and the counts, the search line narrowing and `ctrl-backspace` widening, and the
+  filter going into and out of the session file),
   `live.rs` (the
   channel turned on: the lock it leaves, what the port answers about the note, and
   the beat that keeps it current), `review.rs` (the queue discovered at startup, the
@@ -643,13 +658,13 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
 - Run the test binaries under `ulimit -v` when working on anything that scans
   text (a scanner bug can allocate until the OOM killer takes the editor down —
   see the table postmortem).
-  Current peak RSS of the test binaries (2026-11-02, app 346 / core 439 with 10
+  Current peak RSS of the test binaries (2026-11-02, app 370 / core 439 with 10
   ignored / mcp 35 tests — core's `db::` tests cost it nothing worth mentioning: 12.5
-  MB to 16 MB, and the app's 79 MB to 93 MB is the eight `tests::index` windows that
+  MB to 16 MB, and the app's 79 MB to 96 MB is the eight `tests::index` windows that
   each open a real DB plus one headless window per test, which is nowhere near the
   200 MB line worth investigating):
-  core 16.2 MB, app 91.2 MB,
-  mcp 5.7 MB. The
+  core 15.9 MB, app 96.2 MB,
+  mcp 5.4 MB. The
   app binary's *address space* (not RSS) is far larger because of gpui/wgpu
   reservations, and it now needs **4 GB or more** — a 1 GB cap makes it die in an
   80-byte allocation. Build with `cargo test --workspace --no-run`, then run each
@@ -2341,6 +2356,20 @@ Largest files now (2026-10-30, after Phase 0's module splits; what the DB spine
   **137** (the shared fixtures), `tab.rs` **349**, `canvas.rs` **241**, `interactions.rs`
   **429**. `workspace/testhooks.rs` is at **419** and `graph/mod.rs` at **658** are the
   two to watch next; `editor/mod.rs` is still **993**.
+  **P3.4 Task 8 (2026-11-02):** the filter strip. `graph/mod.rs` 658 → **1046** with it,
+  which is over the rule, so the strip became `graph/panel.rs` **383** (the context name,
+  the chips, the strip's handlers, the `FieldOwner` and `EntityInputHandler` impls, and
+  the field itself), leaving `mod.rs` at **698** with the state the strip draws from.
+  `graph/sim.rs` 286 → **301** (`build` takes the visibility mask), `workspace/graph.rs`
+  345 → **414** (`graph_visibility`, the filtered counts, `rebuild_graph` /
+  `graph_set_filter`), `workspace/session.rs` 245 → **285** (the seat's two halves),
+  `workspace/testhooks.rs` 419 → **443**, `workspace/keys.rs` 319 → **342**, `acts.rs`
+  **255** (five actions), core `session.rs` 234 → **275** (`GraphFilterSeat`),
+  `workspace/mod.rs` 760 → **767** (the filter field). `tests/graph/` grew `filter.rs`
+  **307** and moved the disc-counting helpers up into `mod.rs` **178** (a helper in one
+  child module is invisible to the others, and importing it by name would collide with the
+  module of the same name), with `canvas.rs` down to **206**. `editor/mod.rs` is still
+  **993**, and `graph/mod.rs` at **698** has room.
 
 System dependency (Linux): `libxkbcommon-x11-devel` (plus fontconfig, freetype,
 x11, xcb, wayland dev packages) and a working Vulkan driver (the Linux renderer
@@ -3584,6 +3613,60 @@ Next steps, roughly in order:
       hovered node's links — that needs a colour per link, and one path per colour is
       the deal this renderer made — and the filter panel (Task 8), which will make the
       hit test pass its visibility mask to the grid.
+37. **A filter the window owns: the graph's strip, and where a key context may sit** —
+    P3.4 Task 8 (2026-11-02).
+    - **The filter belongs to the window, not the tab, because its mask gates the
+      physics.** Core's `filter::apply` answers with a bitmask over `NodeIndex::index()`,
+      and `GraphSim::build(index, previous, visible)` slots only the nodes that mask
+      allows and drops any edge whose ends are not both slotted. That is the difference
+      between a filter and a dimming: a hidden note takes part in neither the forces nor
+      the paint, so the layout it left behind closes up. It also means the mask has to be
+      computed once per change and fed to both the sim and the counts, which is what
+      `graph_visibility` is for.
+    - **The counts row describes the screen, not the vault.** `graph_summary` counts the
+      nodes the mask lets through and the edges whose both ends are visible, so "2 notes"
+      sits above a picture of two discs. A row that reported the vault while the picture
+      showed a filtered corner is a row nobody believes.
+    - **gpui's key context is the focused element's ancestors, so the strip is a sibling
+      of the canvas.** `key_context("graph")` and `track_focus` used to be on the tab's
+      root div; they are now on the canvas wrapper, and the strip is a separate div with
+      `key_context("graph-filter")` and its own `FocusHandle`. A nested context would have
+      put `hjkl`, `f`, `+` and `-` in the stack under the search field, and a query could
+      not have contained a single one of those letters. The test that pins this types
+      `aj` into the field and asserts the picture went empty rather than a node being
+      chosen. Action handlers stay on the root div — gpui bubbles a dispatched action from
+      the focused node up through its ancestors — so the graph's own handlers still see
+      everything while the canvas has the keyboard.
+    - **Chips and a field cannot share bare letters.** The three toggles are mouse chips
+      and, for the keyboard, `alt-o` / `alt-x` / `alt-t`. A bare `o`/`t`/`x` in the
+      `graph-filter` context would be unreachable anyway — printable keys go to the input
+      handler, not the keymap — but binding them would also have made them impossible to
+      type. The chip labels say what is *shown*, so "missing" on is core's
+      `existing_only` off.
+    - **The filter door returns instead of pushing.** `graph_set_filter` is called from
+      the view's own handler, where the `GraphView` entity is already borrowed, so it
+      cannot `view.update(…)` the way `refresh_graph` does. It re-slots the sim, recounts,
+      starts the beat, and hands `(summary, frame)` back to the caller, which stores them
+      itself. `refresh_graph` is split in two for exactly this: `rebuild_graph` is the
+      window's half, and only the note-change path pushes into the view.
+    - **The filter is session state, not config.** Same ruling as the camera: a decision
+      made inside a window is not a setting to edit by hand. `GraphFilterSeat` is written
+      only when it differs from everything-on, so an absent field means the default and a
+      session file written before the strip existed restores a whole graph. `folder` is
+      M3's scope and is in neither the seat nor the panel yet.
+    - **A search line is a filter, not a command.** Every path that edits the field — the
+      input handler, `backspace`, `delete`, `ctrl-backspace` — ends in `sync_search`, which
+      pushes the query and re-heats, so the picture narrows as it is typed. `enter` and
+      `escape` are one action (`GraphFilterClose`) because there is nothing for `enter` to
+      accept that `escape` would undo; the query stays in force either way, and reopening
+      the strip shows what is filtering. An empty line filters nothing, which is core's
+      own rule, so clearing the field brings the whole graph back.
+    - **Deferred on purpose:** folder scope (M3), colouring *notes* by tag (core's
+      `TagHues` is ready; it belongs to a colour-by-tag option), illumination mode (M5f —
+      the same fuzzy match, drawn dim rather than removed), and a chip that can be dragged
+      to reorder the strip. The chips' click path is exercised only through the same state
+      the keys drive; a headless click on a chip needs its painted bounds, which is more
+      test machinery than the assertion is worth.
 
 ## Parked threads (agreed 2026-10-28; not being worked now)
 

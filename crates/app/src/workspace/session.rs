@@ -2,9 +2,11 @@
 //!
 //! The shape is the config's, applied to window state: an incremental JSON file
 //! in `.shale/`, every field optional, written atomically. What goes in it is
+//! What goes in it is
 //! what the *user chose inside a window* and no other place remembers — the
 //! open note and where they stood in it, the tree's open folders, the view,
-//! focus mode and its scope, typewriter scroll, the jump chain. What stays out
+//! focus mode and its scope, typewriter scroll, the jump chain, and the graph
+//! tab's camera and filter. What stays out
 //! is what the config owns (settings edited by hand) and what the index owns
 //! (anything derived from the notes).
 //!
@@ -16,16 +18,42 @@
 //! forgotten state is sad, a window that will not open is worse.
 
 use gpui::Context;
-use shale_core::session::{Jump as CoreJump, Tab as CoreTab};
+use shale_core::graph::filter::GraphFilter;
+use shale_core::session::{GraphFilterSeat, Jump as CoreJump, Tab as CoreTab};
 use shale_core::Session;
 
 use super::Workspace;
 use crate::dim;
 use crate::editor::View;
 
+/// The window's graph filter as a session seat, or `None` while it is the default.
+///
+/// Absent is the same answer as everything-on, so writing the seat only when it
+/// differs keeps the file incremental — and it is what lets a session written before
+/// the filter panel exist restore a graph with everything on. `folder` is left out of
+/// both directions: it is M3's scope, nothing sets it yet, and a seat that cannot be
+/// produced should not be one that can be read.
+fn filter_seat(filter: &GraphFilter) -> Option<GraphFilterSeat> {
+    let seat = GraphFilterSeat {
+        orphans: filter.orphans,
+        existing_only: filter.existing_only,
+        tags: filter.tags,
+        // A field the user opened and left empty is not a filter, and a session file
+        // that says `"search": ""` reads like one that does.
+        search: filter
+            .search
+            .clone()
+            .filter(|query| !query.trim().is_empty()),
+    };
+    (seat != GraphFilterSeat::default()).then_some(seat)
+}
+
 impl Workspace {
     /// Everything the next window should know, as of this frame.
-    fn capture_session(&self, cx: &mut Context<Self>) -> Session {
+    ///
+    /// `pub(super)` rather than private so the test-only surface can report what a
+    /// window would write; writing it stays this module's business.
+    pub(super) fn capture_session(&self, cx: &mut Context<Self>) -> Session {
         // The seat: where the user was in the note on screen. The graph tab has no
         // buffer, so every one of these stays absent rather than remembering the
         // place in a note that was not on screen.
@@ -84,6 +112,7 @@ impl Workspace {
                 .collect(),
             tabs,
             active_tab: Some(self.tab),
+            graph_filter: filter_seat(&self.graph_filter),
         }
     }
 
@@ -117,6 +146,19 @@ impl Workspace {
         }
 
         self.expanded = session.expanded.into_iter().collect();
+
+        // The graph filter, before any tab is opened: the graph tab's first frame is
+        // built from the window's filter, so a seat that arrives afterwards would be
+        // restored into a picture that had already been laid out without it.
+        if let Some(seat) = session.graph_filter.as_ref() {
+            self.graph_filter = GraphFilter {
+                orphans: seat.orphans,
+                existing_only: seat.existing_only,
+                tags: seat.tags,
+                search: seat.search.clone(),
+                folder: None,
+            };
+        }
 
         // The tabs, left to right (roadmap P3.1). A session file written before tabs
         // have none, and the `open_note` branch below is that case — which is also

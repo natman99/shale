@@ -79,6 +79,37 @@ fn is_false(value: &bool) -> bool {
     !*value
 }
 
+/// What the graph tab was showing, as the session remembers it.
+///
+/// The three toggles and the search line, and nothing else: `folder` is M3's
+/// constellation scope and has no way to be set yet, so it has no business in the
+/// file. Like the camera, this is a decision made inside a window rather than a
+/// setting to edit by hand, which is why it is here and not in the config.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GraphFilterSeat {
+    /// Whether notes that link nothing were shown.
+    pub orphans: bool,
+    /// Whether links to files that do not exist were hidden.
+    pub existing_only: bool,
+    /// Whether `#tag` nodes were shown.
+    pub tags: bool,
+    /// What was typed in the search line, if anything.
+    pub search: Option<String>,
+}
+
+impl Default for GraphFilterSeat {
+    /// The same defaults as the filter itself: everything on.
+    fn default() -> Self {
+        Self {
+            orphans: true,
+            existing_only: false,
+            tags: true,
+            search: None,
+        }
+    }
+}
+
 /// What the next window should look like.
 ///
 /// Deliberately *not* saved: anything the user edits by hand (that is the
@@ -122,6 +153,10 @@ pub struct Session {
     /// Which of [`Session::tabs`] had the keyboard. Out of range is clamped at
     /// restore, because a tab closed since the file was written is not an error.
     pub active_tab: Option<usize>,
+    /// What the graph tab was showing (roadmap P3.4 Task 8). `None` is the default
+    /// filter rather than "no graph", so a session file that predates the filter panel
+    /// restores a graph with everything on.
+    pub graph_filter: Option<GraphFilterSeat>,
 }
 
 impl Session {
@@ -185,6 +220,12 @@ mod tests {
                 },
             ],
             active_tab: Some(1),
+            graph_filter: Some(GraphFilterSeat {
+                orphans: false,
+                existing_only: true,
+                tags: true,
+                search: Some("idea".into()),
+            }),
         };
         session.save(dir.path())?;
         assert_eq!(

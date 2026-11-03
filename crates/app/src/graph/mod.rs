@@ -1,4 +1,4 @@
-//! The graph tab (roadmap P3.4, `graph-view-plan.md` M1b Tasks 5–7).
+//! The graph tab (roadmap P3.4, `graph-view-plan.md` M1b Tasks 5–8).
 //!
 //! **A view, not a graph.** The window owns the one [`shale_core::graph::GraphIndex`]
 //! and the one force simulation ([`GraphSim`]); this entity is what the user is
@@ -9,9 +9,12 @@
 //!
 //! What is here is the tab made real: a focusable panel with its own key context, the
 //! pointer's three jobs (hover, drag, click), and the keyboard's (pan, zoom, pick a
-//! node, open it). The filter panel is Task 8.
+//! node, open it). The filter strip that decides what the picture holds is `panel.rs`;
+//! the fields it draws from are here, because the strip and the canvas are two halves
+//! of one tab.
 
 mod frame;
+mod panel;
 mod render;
 mod sim;
 
@@ -23,13 +26,16 @@ use gpui::{
     MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, ScrollDelta,
     ScrollWheelEvent, SharedString, WeakEntity, Window,
 };
+use shale_core::graph::filter::GraphFilter;
 use shale_core::graph::geom::{Camera, MIN_ZOOM, ZOOM_STEP};
 use shale_core::theme::Palette;
 
 use crate::acts::{GraphFit, GraphOpen, GraphPan, GraphSelect, GraphZoom};
+use crate::field::Field;
 use crate::workspace::Workspace;
 
 pub(crate) use frame::GraphFrame;
+pub(crate) use panel::FILTER_CONTEXT;
 pub(crate) use sim::GraphSim;
 
 /// The key context the graph's bindings live in. It is a context of its own for the
@@ -143,6 +149,19 @@ pub(crate) struct GraphView {
     selected: Option<usize>,
     /// What a held left button is doing, if anything.
     drag: Option<Drag>,
+    /// Whether the filter strip is showing. `/` opens it, `escape` and `enter` close it,
+    /// and it is the only thing in the tab with a text field, so it is also the only
+    /// thing that takes the keyboard away from the graph.
+    panel: bool,
+    /// What the strip's chips show. The window owns the filter that does the work — its
+    /// mask decides what the simulation holds — and this is the copy the chips are drawn
+    /// from, pushed back on every refresh.
+    filter: GraphFilter,
+    /// The search line's text and caret.
+    filter_field: Field,
+    /// The strip's keyboard, so the `graph-filter` context can be the active one and the
+    /// field can receive the letters a query is made of.
+    panel_focus: FocusHandle,
     /// The window, because the simulation and the notes are its, not the view's: a
     /// node drag and a click both go through it. Weak — the window owns this view, and
     /// a strong handle back would be a cycle.
@@ -170,6 +189,12 @@ impl GraphView {
             hover: None,
             selected: None,
             drag: None,
+            panel: false,
+            // Everything on, which is what the window's default filter is and what an
+            // empty strip with no query says.
+            filter: GraphFilter::default(),
+            filter_field: Field::new(""),
+            panel_focus: cx.focus_handle(),
             workspace,
         }
     }
@@ -204,6 +229,13 @@ impl GraphView {
     /// is not the one that went in — so the pointer's and the keyboard's node are
     /// dropped rather than left pointing at whatever now occupies their index.
     pub(crate) fn set_frame(&mut self, frame: Rc<GraphFrame>, cx: &mut Context<Self>) {
+        self.store_frame(frame);
+        cx.notify();
+    }
+
+    /// The part of [`Self::set_frame`] that needs no context, so a frame that came back
+    /// from the window inside one of the view's own handlers can be stored the same way.
+    fn store_frame(&mut self, frame: Rc<GraphFrame>) {
         let same_size = self
             .frame
             .as_ref()
@@ -214,7 +246,6 @@ impl GraphView {
             self.drag = None;
         }
         self.frame = Some(frame);
-        cx.notify();
     }
 
     /// Where the view is looking, for the session file: the user's camera if they set
@@ -561,16 +592,22 @@ impl Render for GraphView {
                 .child(stat(&palette, counts.tags, "tags"))
                 .child(stat(&palette, counts.ghosts, "missing")),
         };
+        // The strip is built before the row below, because the field it holds needs this
+        // entity to be registered with the input handler during this frame's paint.
+        let panel = self.filter_panel(cx);
         div()
-            .key_context(CONTEXT)
-            .track_focus(&self.focus_handle)
-            // The graph's own keys, which are live only while the graph has the
-            // keyboard — which is what the `graph` context is for.
+            // The graph's own keys are *handled* here, but their context lives on the
+            // canvas below. gpui's context stack is the focused element's ancestors, so a
+            // `graph` context on this div would sit under the search field too, and a
+            // query could not contain a single one of `hjkl`, `f`, `+` or `-`.
             .on_action(cx.listener(Self::zoom))
             .on_action(cx.listener(Self::pan))
             .on_action(cx.listener(Self::select))
             .on_action(cx.listener(Self::open))
             .on_action(cx.listener(Self::fit))
+            // `/` is handled on the window rather than on the canvas because the strip it
+            // opens is a sibling of the canvas, and the handler is the same either way.
+            .on_action(cx.listener(Self::open_panel))
             .size_full()
             .flex()
             .flex_col()
@@ -587,16 +624,21 @@ impl Render for GraphView {
                     .child("Graph"),
             )
             .child(body)
+            .when(self.panel, |d| d.child(panel))
             // The canvas: the graph itself, drawn with the paint API rather than laid
             // out as divs. The wrapper occludes, so a picker or popup over the graph
             // cannot be hovered through, and it is the wrapper that holds the pointer:
             // the canvas element paints and takes no events. The canvas carries the
             // border that makes the frame visible even in an empty vault.
             //
-            // Read before the closures below, which take the palette with them.
+            // It is also what carries the `graph` key context and the tab's focus, for
+            // the reason above: the filter strip is a sibling, and its field has to be
+            // able to type the letters this context would otherwise swallow.
             .child({
                 let border = gpui::rgb(palette.ui_border);
                 div()
+                    .key_context(CONTEXT)
+                    .track_focus(&self.focus_handle)
                     .flex_1()
                     .min_h_0()
                     .occlude()
