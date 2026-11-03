@@ -26,6 +26,8 @@ pub const PALETTE: Palette = Palette {
     heading: 0xf8f8f2,
     quote: 0x6272a4,
     accent: 0xff79c6,
+    // the family's pink, which is also its structural accent
+    agent: 0xff79c6,
     tag: 0x50fa7b,
     spell: 0xff5555,
     code_bg: 0x44475a,
@@ -47,6 +49,8 @@ pub const PALETTE: Palette = Palette {
     ui_bg: 0x282a36,
     ui_fg: 0xf8f8f2,
     ui_dim: 0x96a1bf, // Comment lifted 35% toward Foreground
+    // Comment, the palette's quietest colour
+    ui_disabled: 0x6272a4,
     ui_status_bg: 0x44475a,
     ui_border: 0x3f4762, // comment #6272a4 at 40% over #282a36
     ui_active_border: 0xff79c6,
@@ -62,6 +66,13 @@ pub const PALETTE: Palette = Palette {
     graph_node_active: 0xffb86c,
     graph_edge: 0x3f4762, // comment #6272a4 at 40% over #282a36
     graph_text: 0x6272a4,
+    graph_ghost: 0x96a1bf,
+    graph_tag: 0x50fa7b,
+    // cyan: its teal is its green, which is already a tag's colour
+    graph_attachment: 0x8be9fd,
+    diff_add: 0x50fa7b,
+    diff_delete: 0xff5555,
+    diff_changed: 0xf1fa8c,
     callout_note: 0x8be9fd,
     callout_teal: 0x50fa7b,
     callout_question: 0xbd93f9,

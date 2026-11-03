@@ -30,6 +30,10 @@ impl Palette {
         heading: 0xe8e8e8,
         quote: 0x9aa0a6,
         accent: 0x7aa6f0,
+        // The family's purple rather than its accent, which is its link blue and
+        // so the colour every note node is already drawn in: an agent ring in
+        // that colour would be invisible in the graph.
+        agent: 0xc586c0,
         tag: 0x8fbf7f,
         // The palette's error red: the checker's squiggle is the only thing
         // that has to be red in a note, and only because it means "wrong".
@@ -60,6 +64,10 @@ impl Palette {
         ui_bg: 0x1e1e1e,
         ui_fg: 0xd4d4d4,
         ui_dim: 0x9aa0a6,
+        // The palette's other grey, which is a third quieter than `ui_dim`: a
+        // control you cannot use has to read as turned off rather than as a
+        // label.
+        ui_disabled: 0x6b7280,
         ui_status_bg: 0x252526,
         ui_border: 0x3c3c3c,
         ui_active_border: 0x7aa6f0,
@@ -77,6 +85,15 @@ impl Palette {
         graph_node_active: 0xe0a55e,
         graph_edge: 0x3f3f46,
         graph_text: 0x9aa0a6,
+        graph_ghost: 0x9aa0a6,
+        graph_tag: 0x8fbf7f,
+        graph_attachment: 0x6fc7c2,
+        // The review strip's triple, taken from accents this palette already
+        // carries: a proposed change is not an error, so `diff_delete` is the
+        // palette's red rather than a louder one.
+        diff_add: 0x8fbf7f,
+        diff_delete: 0xe05e5e,
+        diff_changed: 0xe0a55e,
         callout_note: 0x8ca0b3,
         callout_teal: 0x6fc7c2,
         callout_question: 0xc586c0,
@@ -100,6 +117,9 @@ impl Palette {
         heading: 0x1f1f23,
         quote: 0x545960,
         accent: 0x17497c,
+        // The light palette's purple, for the same reason `dark`'s is: its accent
+        // is its link blue.
+        agent: 0x9b4fa0,
         tag: 0x245824,
         spell: 0xc03c3c,
         code_bg: 0xe8e8e8,
@@ -125,6 +145,9 @@ impl Palette {
         ui_bg: 0xf0f0f2,
         ui_fg: 0x222228,
         ui_dim: 0x686d76,
+        // This palette's two greys are the same colour, so there is no quieter
+        // one to borrow: a lighter grey cut between `ui_dim` and the window.
+        ui_disabled: 0x8b9099,
         ui_status_bg: 0xe6e6e9,
         ui_border: 0xcfcfd4,
         ui_active_border: 0x17497c,
@@ -142,6 +165,12 @@ impl Palette {
         graph_node_active: 0x7a4d00,
         graph_edge: 0xc9c9cf,
         graph_text: 0x545960,
+        graph_ghost: 0x686d76,
+        graph_tag: 0x245824,
+        graph_attachment: 0x2f8f89,
+        diff_add: 0x245824,
+        diff_delete: 0xc03c3c,
+        diff_changed: 0xb07a22,
         callout_note: 0x5b7590,
         callout_teal: 0x2f8f89,
         callout_question: 0x9b4fa0,

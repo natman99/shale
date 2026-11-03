@@ -300,12 +300,14 @@ pub(crate) fn paint_hover_links(
     }
 }
 
-/// The nodes, grouped by fill so the paint calls come in runs. Notes and attachments
-/// share a colour; a ghost is deliberately dimmer, because it is a hole in the vault
-/// rather than a note. A tag takes the colour a `#tag` has in prose, which is what makes
-/// the graph and the note agree about what a tag is. (Colouring *notes* by their tags is
-/// the colour-by-tag option, and it comes with the filter panel; the hues for it are
-/// already in core.)
+/// The nodes, grouped by fill so the paint calls come in runs. Each kind takes its own
+/// palette role: a ghost is quieter than a note, because it is a hole in the vault rather
+/// than a note, and an attachment is quieter in a different way, because it is a file you
+/// cannot open as a note. A tag takes `graph_tag`, which is a theme's own answer rather
+/// than the colour a `#tag` has in prose -- in several built-in families those are the same
+/// colour every note node already is, which would make a tag invisible. (Colouring *notes*
+/// by their tags is the colour-by-tag option, and it comes with the filter panel; the hues
+/// for it are already in core.)
 ///
 /// The chosen node gets a ring: a disc a little larger than its own, painted first so the
 /// node's fill covers the middle of it.
@@ -347,9 +349,10 @@ pub(crate) fn paint_nodes(
         NodeKind::Ghost,
     ] {
         let fill = match kind {
-            NodeKind::Note | NodeKind::Attachment => gpui::rgb(palette.graph_node),
-            NodeKind::Tag => gpui::rgb(palette.tag),
-            NodeKind::Ghost => gpui::rgb(palette.ui_dim),
+            NodeKind::Note => gpui::rgb(palette.graph_node),
+            NodeKind::Attachment => gpui::rgb(palette.graph_attachment),
+            NodeKind::Tag => gpui::rgb(palette.graph_tag),
+            NodeKind::Ghost => gpui::rgb(palette.graph_ghost),
         };
         for node in frame.nodes.iter().filter(|node| node.kind == kind) {
             if !view.holds(node, CULL_MARGIN) {

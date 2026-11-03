@@ -238,6 +238,46 @@ fn the_built_in_palettes_are_readable() {
             ),
             ("a graph edge", p.graph_edge, "the note", p.bg, 1.1),
             ("a node label", p.graph_text, "the note", p.bg, 2.5),
+            ("a ghost node", p.graph_ghost, "the note", p.bg, 1.5),
+            ("a tag node", p.graph_tag, "the note", p.bg, 1.5),
+            (
+                "an attachment node",
+                p.graph_attachment,
+                "the note",
+                p.bg,
+                1.5,
+            ),
+            ("the agent's mark", p.agent, "the window", p.ui_bg, 2.0),
+            (
+                "a disabled control",
+                p.ui_disabled,
+                "the window",
+                p.ui_bg,
+                1.5,
+            ),
+            // The review strip is chrome, so its three line colours are judged
+            // on the window rather than on the note they describe.
+            (
+                "a proposed addition",
+                p.diff_add,
+                "the window",
+                p.ui_bg,
+                2.0,
+            ),
+            (
+                "a proposed deletion",
+                p.diff_delete,
+                "the window",
+                p.ui_bg,
+                2.0,
+            ),
+            (
+                "a proposed change",
+                p.diff_changed,
+                "the window",
+                p.ui_bg,
+                2.0,
+            ),
         ]
     };
     // A background role and the text role drawn on it, with the floor that
@@ -321,6 +361,32 @@ fn the_built_in_palettes_are_readable() {
         }
     }
     assert_ne!(Palette::DARK.bg, Palette::LIGHT.bg);
+    for (name, palette) in Palette::BUILT_INS {
+        // A node's kind is told by its colour, so the four kinds have to be
+        // four colours: a tag that is the colour of every note node is not
+        // a tag.
+        let kinds = [
+            ("a note", palette.graph_node),
+            ("a ghost", palette.graph_ghost),
+            ("a tag", palette.graph_tag),
+            ("an attachment", palette.graph_attachment),
+        ];
+        for (i, (what, colour)) in kinds.iter().enumerate() {
+            for (other, other_colour) in &kinds[i + 1..] {
+                assert_ne!(
+                    *colour, *other_colour,
+                    "{name}: {what} and {other} are the same colour in the graph",
+                );
+            }
+        }
+        // "You cannot have this" must never read as more important than a
+        // label: a disabled control is at most as prominent as quiet text.
+        assert!(
+            contrast(palette.ui_bg, palette.ui_disabled)
+                <= contrast(palette.ui_bg, palette.ui_dim) + 0.001,
+            "{name}: a disabled control is louder than a label",
+        );
+    }
     // Every callout role reads off the palette it was given, so a theme can
     // retune one type without touching the others.
     let dark = Palette::DARK;

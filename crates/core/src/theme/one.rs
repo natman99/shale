@@ -20,38 +20,42 @@ use super::Palette;
 /// `@syntax-cursor-color` names as the caret. The callout accents are the
 /// theme's own git colours: renamed, added, modified and removed.
 pub const DARK: Palette = Palette {
-    bg: 0x282c34,               // hsl(220, 13%, 18%)
-    fg: 0xabb2bf,               // mono-1: hsl(220, 14%, 71%)
-    cursor: 0x528bff,           // @syntax-accent, the theme's caret colour
-    cursor_line_bg: 0x353b45,   // the note background one step off: a band
-    selection: 0x3e4451,        // the selection shade the theme derives
-    link: 0x61afef,             // blue
-    link_unresolved: 0x636d83,  // @syntax-gutter
-    dim: 0x5c6370,              // mono-3, the comment colour
-    heading: 0xe5e7eb,          // @text-color-highlight
-    quote: 0x828997,            // mono-2
-    accent: 0x528bff,           // the theme's accent, which it also uses as the caret
-    tag: 0x98c379,              // green
-    spell: 0xe06c75,            // red
-    code_bg: 0x3a3f4b,          // one step off the note background
-    code_block_bg: 0x21252b,    // the app-level pane shade
-    code_text: 0xabb2bf,        // mono-1
-    code_comment: 0x5c6370,     // mono-3, the comment colour
-    code_keyword: 0xc678dd,     // purple
-    code_string: 0x98c379,      // green
-    code_number: 0xd19a66,      // orange
-    code_function: 0x61afef,    // blue
-    code_type: 0xe0c285,        // the theme's modified colour
-    code_const: 0xe5c07b,       // orange's lighter twin
-    code_operator: 0x56b6c2,    // cyan
-    highlight_bg: 0x575146,     // #e5c07b at 25% over the background
-    match_text: 0xe0c285,       // the theme's modified colour
-    table_line: 0x3c4049,       // the 15% foreground fade the theme uses for guides
-    table_header_bg: 0x31363f,  // the raised panel shade
-    callout_bg: 0x31363f,       // the raised panel shade
-    ui_bg: 0x21252b,            // the app background
-    ui_fg: 0xabb2bf,            // mono-1
-    ui_dim: 0x828997,           // mono-2
+    bg: 0x282c34,              // hsl(220, 13%, 18%)
+    fg: 0xabb2bf,              // mono-1: hsl(220, 14%, 71%)
+    cursor: 0x528bff,          // @syntax-accent, the theme's caret colour
+    cursor_line_bg: 0x353b45,  // the note background one step off: a band
+    selection: 0x3e4451,       // the selection shade the theme derives
+    link: 0x61afef,            // blue
+    link_unresolved: 0x636d83, // @syntax-gutter
+    dim: 0x5c6370,             // mono-3, the comment colour
+    heading: 0xe5e7eb,         // @text-color-highlight
+    quote: 0x828997,           // mono-2
+    accent: 0x528bff,          // the theme's accent, which it also uses as the caret
+    // the theme's accent
+    agent: 0x528bff,
+    tag: 0x98c379,             // green
+    spell: 0xe06c75,           // red
+    code_bg: 0x3a3f4b,         // one step off the note background
+    code_block_bg: 0x21252b,   // the app-level pane shade
+    code_text: 0xabb2bf,       // mono-1
+    code_comment: 0x5c6370,    // mono-3, the comment colour
+    code_keyword: 0xc678dd,    // purple
+    code_string: 0x98c379,     // green
+    code_number: 0xd19a66,     // orange
+    code_function: 0x61afef,   // blue
+    code_type: 0xe0c285,       // the theme's modified colour
+    code_const: 0xe5c07b,      // orange's lighter twin
+    code_operator: 0x56b6c2,   // cyan
+    highlight_bg: 0x575146,    // #e5c07b at 25% over the background
+    match_text: 0xe0c285,      // the theme's modified colour
+    table_line: 0x3c4049,      // the 15% foreground fade the theme uses for guides
+    table_header_bg: 0x31363f, // the raised panel shade
+    callout_bg: 0x31363f,      // the raised panel shade
+    ui_bg: 0x21252b,           // the app background
+    ui_fg: 0xabb2bf,           // mono-1
+    ui_dim: 0x828997,          // mono-2
+    // mono-3, the comment colour
+    ui_disabled: 0x5c6370,
     ui_status_bg: 0x21252b,     // the app background
     ui_border: 0x3c4049,        // a rule is what the theme draws as a guide
     ui_active_border: 0x528bff, // the theme's accent
@@ -67,12 +71,20 @@ pub const DARK: Palette = Palette {
     graph_node_active: 0xe0c285, // the theme's modified colour
     graph_edge: 0x3c4049,        // a rule is what the theme draws as a guide
     graph_text: 0xabb2bf,        // mono-1
-    callout_note: 0x33a0ff,      // the theme's renamed colour
-    callout_teal: 0x43d08a,      // the theme's added colour
-    callout_question: 0xc678dd,  // purple
-    callout_warning: 0xe0c285,   // the theme's modified colour
-    callout_failure: 0xd19a66,   // orange
-    callout_danger: 0xe06c75,    // red
+    graph_ghost: 0x828997,
+    graph_tag: 0x98c379,
+    // cyan: its teal is too near its green, which is a tag's colour
+    graph_attachment: 0x56b6c2,
+    diff_add: 0x98c379,
+    diff_delete: 0xe06c75,
+    // the theme's modified colour
+    diff_changed: 0xe0c285,
+    callout_note: 0x33a0ff,     // the theme's renamed colour
+    callout_teal: 0x43d08a,     // the theme's added colour
+    callout_question: 0xc678dd, // purple
+    callout_warning: 0xe0c285,  // the theme's modified colour
+    callout_failure: 0xd19a66,  // orange
+    callout_danger: 0xe06c75,   // red
 };
 
 /// One Light: the same definitions inverted, on `hsl(230, 1%, 98%)`.
@@ -80,38 +92,42 @@ pub const DARK: Palette = Palette {
 /// LESS cannot lighten a 98%-light background, so where the dark UI lifts a
 /// surface the light one lowers it; every other value is the formula.
 pub const LIGHT: Palette = Palette {
-    bg: 0xfafafa,               // hsl(230, 1%, 98%)
-    fg: 0x383a42,               // mono-1: hsl(230, 8%, 24%)
-    cursor: 0x526eff,           // @syntax-accent, the theme's caret colour
-    cursor_line_bg: 0xededed,   // the note background one step off: a band
-    selection: 0xe5e5e6,        // the selection shade the theme derives
-    link: 0x4078f2,             // blue
-    link_unresolved: 0x9d9d9f,  // @syntax-gutter
-    dim: 0xa0a1a7,              // mono-3, the comment colour
-    heading: 0x1c1d21,          // @text-color-highlight
-    quote: 0x696c77,            // mono-2
-    accent: 0x526eff,           // the theme's accent, which it also uses as the caret
-    tag: 0x50a14f,              // green
-    spell: 0xe45649,            // red
-    code_bg: 0xe5e5e6,          // one step off the note background
-    code_block_bg: 0xeaeaeb,    // the app-level pane shade
-    code_text: 0x383a42,        // mono-1
-    code_comment: 0xa0a1a7,     // mono-3, the comment colour
-    code_keyword: 0xa626a4,     // purple
-    code_string: 0x50a14f,      // green
-    code_number: 0x986801,      // orange
-    code_function: 0x4078f2,    // blue
-    code_type: 0x986801,        // orange
-    code_const: 0xc18401,       // orange's lighter twin
-    code_operator: 0x0184bc,    // cyan
-    highlight_bg: 0xecdcbc,     // #c18401 at 25% over the background
-    match_text: 0x986801,       // orange
-    table_line: 0xd3d4d5,       // the 20% foreground fade the theme uses for guides
-    table_header_bg: 0xf0f0f0,  // the raised panel shade
-    callout_bg: 0xf0f0f0,       // the raised panel shade
-    ui_bg: 0xeaeaeb,            // the app background
-    ui_fg: 0x383a42,            // mono-1
-    ui_dim: 0x696c77,           // mono-2
+    bg: 0xfafafa,              // hsl(230, 1%, 98%)
+    fg: 0x383a42,              // mono-1: hsl(230, 8%, 24%)
+    cursor: 0x526eff,          // @syntax-accent, the theme's caret colour
+    cursor_line_bg: 0xededed,  // the note background one step off: a band
+    selection: 0xe5e5e6,       // the selection shade the theme derives
+    link: 0x4078f2,            // blue
+    link_unresolved: 0x9d9d9f, // @syntax-gutter
+    dim: 0xa0a1a7,             // mono-3, the comment colour
+    heading: 0x1c1d21,         // @text-color-highlight
+    quote: 0x696c77,           // mono-2
+    accent: 0x526eff,          // the theme's accent, which it also uses as the caret
+    // the theme's accent
+    agent: 0x526eff,
+    tag: 0x50a14f,             // green
+    spell: 0xe45649,           // red
+    code_bg: 0xe5e5e6,         // one step off the note background
+    code_block_bg: 0xeaeaeb,   // the app-level pane shade
+    code_text: 0x383a42,       // mono-1
+    code_comment: 0xa0a1a7,    // mono-3, the comment colour
+    code_keyword: 0xa626a4,    // purple
+    code_string: 0x50a14f,     // green
+    code_number: 0x986801,     // orange
+    code_function: 0x4078f2,   // blue
+    code_type: 0x986801,       // orange
+    code_const: 0xc18401,      // orange's lighter twin
+    code_operator: 0x0184bc,   // cyan
+    highlight_bg: 0xecdcbc,    // #c18401 at 25% over the background
+    match_text: 0x986801,      // orange
+    table_line: 0xd3d4d5,      // the 20% foreground fade the theme uses for guides
+    table_header_bg: 0xf0f0f0, // the raised panel shade
+    callout_bg: 0xf0f0f0,      // the raised panel shade
+    ui_bg: 0xeaeaeb,           // the app background
+    ui_fg: 0x383a42,           // mono-1
+    ui_dim: 0x696c77,          // mono-2
+    // mono-3, the comment colour
+    ui_disabled: 0xa0a1a7,
     ui_status_bg: 0xeaeaeb,     // the app background
     ui_border: 0xd3d4d5,        // a rule is what the theme draws as a guide
     ui_active_border: 0x526eff, // the theme's accent
@@ -127,10 +143,17 @@ pub const LIGHT: Palette = Palette {
     graph_node_active: 0x986801, // orange
     graph_edge: 0xd3d4d5,        // a rule is what the theme draws as a guide
     graph_text: 0x383a42,        // mono-1
-    callout_note: 0x52aeff,      // the theme's renamed colour
-    callout_teal: 0x2db448,      // the theme's added colour
-    callout_question: 0xa626a4,  // purple
-    callout_warning: 0xf2a60d,   // the theme's modified colour
-    callout_failure: 0x986801,   // orange
-    callout_danger: 0xe45649,    // red
+    graph_ghost: 0x696c77,
+    graph_tag: 0x50a14f,
+    // cyan: its teal is too near its green, which is a tag's colour
+    graph_attachment: 0x0184bc,
+    diff_add: 0x50a14f,
+    diff_delete: 0xe45649,
+    diff_changed: 0x986801, // the darker orange: its modified colour is 1.7:1 on its own chrome
+    callout_note: 0x52aeff, // the theme's renamed colour
+    callout_teal: 0x2db448, // the theme's added colour
+    callout_question: 0xa626a4, // purple
+    callout_warning: 0xf2a60d, // the theme's modified colour
+    callout_failure: 0x986801, // orange
+    callout_danger: 0xe45649, // red
 };

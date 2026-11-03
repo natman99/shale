@@ -289,8 +289,8 @@ impl Workspace {
     pub(crate) fn graph_colors(&self) -> (u32, u32, u32) {
         (
             self.palette.graph_node,
-            self.palette.tag,
-            self.palette.ui_dim,
+            self.palette.graph_tag,
+            self.palette.graph_ghost,
         )
     }
     /// Whether the note editor on screen holds the keyboard. The graph tab has no

@@ -33,6 +33,8 @@ pub const MAIN: Palette = Palette {
     heading: 0xe0def4,
     quote: 0x908caa,
     accent: 0xeb6f92,
+    // iris: rose-pine's accent is its danger red
+    agent: 0xc4a7e7,
     tag: 0xc4a7e7,
     spell: 0xeb6f92,
     code_bg: 0x26233a,
@@ -54,6 +56,8 @@ pub const MAIN: Palette = Palette {
     ui_bg: 0x1f1d2e,
     ui_fg: 0xe0def4,
     ui_dim: 0x908caa,
+    // Faint, the palette's quietest grey
+    ui_disabled: 0x6e6a86,
     ui_status_bg: 0x26233a,
     ui_border: 0x26233a,
     ui_active_border: 0xebbcba,
@@ -69,6 +73,14 @@ pub const MAIN: Palette = Palette {
     graph_node_active: 0xf6c177,
     graph_edge: 0x26233a,
     graph_text: 0x908caa,
+    graph_ghost: 0x908caa,
+    // pine: its `tag` is iris, the colour of every note node
+    graph_tag: 0x31748f,
+    graph_attachment: 0x9ccfd8,
+    // foam: the family has no green
+    diff_add: 0x9ccfd8,
+    diff_delete: 0xeb6f92,
+    diff_changed: 0xf6c177,
     callout_note: 0x31748f,
     callout_teal: 0x9ccfd8,
     callout_question: 0xc4a7e7,
@@ -91,6 +103,8 @@ pub const MOON: Palette = Palette {
     heading: 0xe0def4,
     quote: 0x908caa,
     accent: 0xeb6f92,
+    // iris: rose-pine's accent is its danger red
+    agent: 0xc4a7e7,
     tag: 0xc4a7e7,
     spell: 0xeb6f92,
     code_bg: 0x393552,
@@ -112,6 +126,8 @@ pub const MOON: Palette = Palette {
     ui_bg: 0x2a273f,
     ui_fg: 0xe0def4,
     ui_dim: 0x908caa,
+    // Faint, the palette's quietest grey
+    ui_disabled: 0x6e6a86,
     ui_status_bg: 0x393552,
     ui_border: 0x393552,
     ui_active_border: 0xea9a97,
@@ -127,6 +143,14 @@ pub const MOON: Palette = Palette {
     graph_node_active: 0xf6c177,
     graph_edge: 0x393552,
     graph_text: 0x908caa,
+    graph_ghost: 0x908caa,
+    // pine: its `tag` is iris, the colour of every note node
+    graph_tag: 0x3e8fb0,
+    graph_attachment: 0x9ccfd8,
+    // foam: the family has no green
+    diff_add: 0x9ccfd8,
+    diff_delete: 0xeb6f92,
+    diff_changed: 0xf6c177,
     callout_note: 0x3e8fb0,
     callout_teal: 0x9ccfd8,
     callout_question: 0xc4a7e7,
@@ -153,6 +177,8 @@ pub const DAWN: Palette = Palette {
     heading: 0x464261,
     quote: 0x797593,
     accent: 0xb4637a,
+    // iris: rose-pine's accent is its danger red
+    agent: 0x907aa9,
     tag: 0x907aa9,
     spell: 0xb4637a,
     code_bg: 0xf2e9e1,
@@ -174,6 +200,8 @@ pub const DAWN: Palette = Palette {
     ui_bg: 0xfffaf3,
     ui_fg: 0x464261,
     ui_dim: 0x797593,
+    // Subtle, the palette's quietest grey
+    ui_disabled: 0x9893a5,
     ui_status_bg: 0xf2e9e1,
     ui_border: 0xf2e9e1,
     ui_active_border: 0xd7827e,
@@ -189,6 +217,14 @@ pub const DAWN: Palette = Palette {
     graph_node_active: 0xea9d34,
     graph_edge: 0xd8d0ce, // text #464261 at 15% over #f2e9e1
     graph_text: 0x797593,
+    graph_ghost: 0x797593,
+    // pine: its `tag` is iris, the colour of every note node
+    graph_tag: 0x286983,
+    graph_attachment: 0x56949f,
+    // foam: the family has no green
+    diff_add: 0x56949f,
+    diff_delete: 0xb4637a,
+    diff_changed: 0xea9d34,
     callout_note: 0x286983,
     callout_teal: 0x56949f,
     callout_question: 0x907aa9,

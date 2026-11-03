@@ -34,6 +34,8 @@ pub const NIGHT: Palette = Palette {
     heading: 0xc0caf5,
     quote: 0xa9b1d6,
     accent: 0xbb9af7,
+    // the theme's purple
+    agent: 0xbb9af7,
     tag: 0x9ece6a,
     spell: 0xf7768e,
     code_bg: 0x292e42,
@@ -55,6 +57,8 @@ pub const NIGHT: Palette = Palette {
     ui_bg: 0x16161e,
     ui_fg: 0xc0caf5,
     ui_dim: 0xa9b1d6,
+    // the theme's comment colour
+    ui_disabled: 0x565f89,
     ui_status_bg: 0x0c0e14, // `bg_dark1`, the palette's deepest pane
     ui_border: 0x3b4261,
     ui_active_border: 0x7aa2f7,
@@ -70,6 +74,14 @@ pub const NIGHT: Palette = Palette {
     graph_node_active: 0x7dcfff,
     graph_edge: 0x3b4261,
     graph_text: 0xa9b1d6,
+    graph_ghost: 0xa9b1d6,
+    graph_tag: 0x9ece6a,
+    // teal
+    graph_attachment: 0x1abc9c,
+    diff_add: 0x9ece6a,
+    // its red
+    diff_delete: 0xf7768e,
+    diff_changed: 0xe0af68,
     callout_note: 0x7aa2f7,
     callout_teal: 0x1abc9c,
     callout_question: 0x9d7cd8,
@@ -95,6 +107,8 @@ pub const STORM: Palette = Palette {
     heading: 0xc0caf5,
     quote: 0xa9b1d6,
     accent: 0xbb9af7,
+    // the theme's purple
+    agent: 0xbb9af7,
     tag: 0x9ece6a,
     spell: 0xf7768e,
     code_bg: 0x292e42,
@@ -116,6 +130,8 @@ pub const STORM: Palette = Palette {
     ui_bg: 0x1f2335,
     ui_fg: 0xc0caf5,
     ui_dim: 0xa9b1d6,
+    // the theme's comment colour
+    ui_disabled: 0x565f89,
     ui_status_bg: 0x1b1e2d, // `bg_dark1`, the palette's deepest pane
     ui_border: 0x3b4261,
     ui_active_border: 0x7aa2f7,
@@ -131,6 +147,14 @@ pub const STORM: Palette = Palette {
     graph_node_active: 0x7dcfff,
     graph_edge: 0x3b4261,
     graph_text: 0xa9b1d6,
+    graph_ghost: 0xa9b1d6,
+    graph_tag: 0x9ece6a,
+    // teal
+    graph_attachment: 0x1abc9c,
+    diff_add: 0x9ece6a,
+    // its red
+    diff_delete: 0xf7768e,
+    diff_changed: 0xe0af68,
     callout_note: 0x7aa2f7,
     callout_teal: 0x1abc9c,
     callout_question: 0x9d7cd8,
@@ -157,6 +181,8 @@ pub const LIGHT: Palette = Palette {
     heading: 0x363c4d,
     quote: 0x4e5579,
     accent: 0x65359d,
+    // the theme's purple
+    agent: 0x65359d,
     tag: 0x385f0d, // the light theme's green: a tag is not a link here
     spell: 0x942f2f,
     code_bg: 0xdadce3,
@@ -178,6 +204,8 @@ pub const LIGHT: Palette = Palette {
     ui_bg: 0xd6d8df,
     ui_fg: 0x363c4d,
     ui_dim: 0x707280,
+    // the theme's comment colour
+    ui_disabled: 0x888b94,
     ui_status_bg: 0xc1c2c7, // the deepest shade of the theme's chrome
     ui_border: 0xc1c2c7,
     ui_active_border: 0x2959aa,
@@ -193,6 +221,14 @@ pub const LIGHT: Palette = Palette {
     graph_node_active: 0x0f4b6e,
     graph_edge: 0x9da0ab,
     graph_text: 0x4e5579,
+    graph_ghost: 0x707280,
+    graph_tag: 0x385f0d,
+    // teal
+    graph_attachment: 0x33635c,
+    diff_add: 0x385f0d,
+    // its red
+    diff_delete: 0x942f2f,
+    diff_changed: 0x8f5e15,
     callout_note: 0x0f4b6e,
     callout_teal: 0x33635c,
     callout_question: 0x65359d,

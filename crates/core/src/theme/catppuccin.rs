@@ -7,7 +7,7 @@
 //! so the hexes may be copied into this Apache-2.0 crate), so a Shale note
 //! matches the rest of a user's Catppuccin setup.
 //!
-//! The palette's 26 named colours do not line up one-to-one with Shale's 53
+//! The palette's 26 named colours do not line up one-to-one with Shale's 61
 //! roles, so each role is filled from the flavour by the mapping in Catppuccin's
 //! own style guide (https://github.com/catppuccin/catppuccin/blob/main/docs/style-guide.md,
 //! kept at `refs/catppuccin/style-guide.md`), with the hexes from
@@ -23,8 +23,10 @@
 //! | `link`, `tag`, `ui_*_border`| Blue / Overlay 0 (see below)         |
 //! | `link_unresolved`          | Overlay 0 (subtle, not an error red)  |
 //! | `dim`                      | Overlay 1 ("subtle", line numbers)    |
-//! | `quote`, `ui_dim`          | Subtext 0 (sub-headlines and labels)  |
+//! | `quote`, `ui_dim`          | Subtext 0 (sub-headlines and labels)   |
+//! | `ui_disabled`              | Overlay 1 (the flavour's quietest grey) |
 //! | `accent`                   | Mauve                                 |
+//! | `agent`                    | Mauve                                 |
 //! | `spell`                    | Red ("errors")                        |
 //! | `code_bg`                  | Surface 1                             |
 //! | `code_block_bg`            | Mantle (a secondary pane)             |
@@ -52,7 +54,10 @@
 //! | `popup_border`             | Overlay 0                             |
 //! | `popup_hover_bg`           | Surface 0 with Text, 12%              |
 //! | `graph_node`, `graph_node_active` | Blue, Sky (a link, and a link on hover) |
-//! | `graph_text`               | Subtext 0                             |
+//! | `graph_text`, `graph_ghost` | Subtext 0                             |
+//! | `graph_tag`                | Mauve (Blue is already every note node) |
+//! | `graph_attachment`         | Teal                                  |
+//! | `diff_add`, `diff_delete`, `diff_changed` | Green, Red, Yellow (the guide's success, error and warning) |
 //! | `callout_note`             | Blue                                  |
 //! | `callout_teal`             | Teal                                  |
 //! | `callout_question`         | Mauve                                 |
@@ -95,6 +100,7 @@ pub const LATTE: Palette = Palette {
     heading: 0x4c4f69,
     quote: 0x6c6f85,
     accent: 0x8839ef,
+    agent: 0x8839ef,
     tag: 0x1e66f5,
     // Red: the guide's colour for errors, which is what a checker's squiggle is.
     spell: 0xd20f39,
@@ -128,6 +134,9 @@ pub const LATTE: Palette = Palette {
     ui_active_bg: 0xbcc0cc,
     ui_fg: 0x4c4f69,
     ui_dim: 0x6c6f85,
+    // Overlay 1, the flavour's quietest grey: quieter than Subtext 0, which is
+    // what a control you cannot use has to read as.
+    ui_disabled: 0x8c8fa1,
     ui_field_bg: 0xccd0da,
     ui_active_border: 0x7287fd,
     ui_tab_bg: 0xccd0da,
@@ -141,6 +150,15 @@ pub const LATTE: Palette = Palette {
     graph_node_active: 0x04a5e5,
     graph_edge: 0x9ca0b0,
     graph_text: 0x6c6f85,
+    graph_ghost: 0x6c6f85,
+    // Not `tag`, which is Blue here -- the colour every note node is already
+    // drawn in. Mauve is the flavour's other link-ish hue and stays
+    // distinguishable from a note.
+    graph_tag: 0x8839ef,
+    graph_attachment: 0x179299,
+    diff_add: 0x40a02b,
+    diff_delete: 0xd20f39,
+    diff_changed: 0xdf8e1d,
     callout_note: 0x1e66f5,
     callout_teal: 0x179299,
     callout_question: 0x8839ef,
@@ -164,6 +182,7 @@ pub const FRAPPE: Palette = Palette {
     heading: 0xc6d0f5,
     quote: 0xa5adce,
     accent: 0xca9ee6,
+    agent: 0xca9ee6,
     tag: 0x8caaee,
     spell: 0xe78284,
     code_bg: 0x51576d,
@@ -194,6 +213,8 @@ pub const FRAPPE: Palette = Palette {
     ui_active_bg: 0x51576d,
     ui_fg: 0xc6d0f5,
     ui_dim: 0xa5adce,
+    // Overlay 1, the flavour's quietest grey.
+    ui_disabled: 0x838ba7,
     ui_field_bg: 0x414559,
     ui_active_border: 0xbabbf1,
     ui_tab_bg: 0x414559,
@@ -206,6 +227,12 @@ pub const FRAPPE: Palette = Palette {
     graph_node_active: 0x99d1db,
     graph_edge: 0x737994,
     graph_text: 0xa5adce,
+    graph_ghost: 0xa5adce,
+    graph_tag: 0xca9ee6,
+    graph_attachment: 0x81c8be,
+    diff_add: 0xa6d189,
+    diff_delete: 0xe78284,
+    diff_changed: 0xe5c890,
     callout_note: 0x8caaee,
     callout_teal: 0x81c8be,
     callout_question: 0xca9ee6,
@@ -229,6 +256,7 @@ pub const MACCHIATO: Palette = Palette {
     heading: 0xcad3f5,
     quote: 0xa5adcb,
     accent: 0xc6a0f6,
+    agent: 0xc6a0f6,
     tag: 0x8aadf4,
     spell: 0xed8796,
     code_bg: 0x494d64,
@@ -257,6 +285,8 @@ pub const MACCHIATO: Palette = Palette {
     ui_active_bg: 0x494d64,
     ui_fg: 0xcad3f5,
     ui_dim: 0xa5adcb,
+    // Overlay 1, the flavour's quietest grey.
+    ui_disabled: 0x8087a2,
     ui_field_bg: 0x363a4f,
     ui_active_border: 0xb7bdf8,
     ui_tab_bg: 0x363a4f,
@@ -269,6 +299,12 @@ pub const MACCHIATO: Palette = Palette {
     graph_node_active: 0x91d7e3,
     graph_edge: 0x6e738d,
     graph_text: 0xa5adcb,
+    graph_ghost: 0xa5adcb,
+    graph_tag: 0xc6a0f6,
+    graph_attachment: 0x8bd5ca,
+    diff_add: 0xa6da95,
+    diff_delete: 0xed8796,
+    diff_changed: 0xeed49f,
     callout_note: 0x8aadf4,
     callout_teal: 0x8bd5ca,
     callout_question: 0xc6a0f6,
@@ -293,6 +329,7 @@ pub const MOCHA: Palette = Palette {
     heading: 0xcdd6f4,
     quote: 0xa6adc8,
     accent: 0xcba6f7,
+    agent: 0xcba6f7,
     tag: 0x89b4fa,
     spell: 0xf38ba8,
     code_bg: 0x45475a,
@@ -321,6 +358,8 @@ pub const MOCHA: Palette = Palette {
     ui_active_bg: 0x45475a,
     ui_fg: 0xcdd6f4,
     ui_dim: 0xa6adc8,
+    // Overlay 1, the flavour's quietest grey.
+    ui_disabled: 0x7f849c,
     ui_field_bg: 0x313244,
     ui_active_border: 0xb4befe,
     ui_tab_bg: 0x313244,
@@ -333,6 +372,12 @@ pub const MOCHA: Palette = Palette {
     graph_node_active: 0x89dceb,
     graph_edge: 0x6c7086,
     graph_text: 0xa6adc8,
+    graph_ghost: 0xa6adc8,
+    graph_tag: 0xcba6f7,
+    graph_attachment: 0x94e2d5,
+    diff_add: 0xa6e3a1,
+    diff_delete: 0xf38ba8,
+    diff_changed: 0xf9e2af,
     callout_note: 0x89b4fa,
     callout_teal: 0x94e2d5,
     callout_question: 0xcba6f7,

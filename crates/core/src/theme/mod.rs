@@ -83,6 +83,16 @@ pub struct Palette {
     pub quote: u32,
     /// List bullets, task boxes and other structural accents.
     pub accent: u32,
+    /// The agent's colour: review badges, edit provenance, a graph node the agent
+    /// touched. One hue for the whole presence cluster, so "the agent was here"
+    /// reads the same in every surface without a theme having to agree to it
+    /// three times (`design-language.md` §1, §8).
+    ///
+    /// A theme that does not name it inherits whatever its base palette gives
+    /// it, which is [`Self::accent`] in every built-in but rose-pine (whose
+    /// accent is its danger red). Naming it is therefore the only way a user
+    /// theme opts in to a presence hue of its own.
+    pub agent: u32,
     /// A `#tag`.
     pub tag: u32,
     /// The wavy underline the spell and grammar checker marks a word with.
@@ -147,6 +157,15 @@ pub struct Palette {
     /// Quiet text on a window surface: a picker's hint line, a field's
     /// placeholder, a panel's source label. The chrome's [`Self::dim`].
     pub ui_dim: u32,
+    /// A control that is there but cannot be used: a keybind with no binding
+    /// behind it, a chip the current filter turns off.
+    ///
+    /// Quieter than [`Self::ui_dim`] wherever a family has a grey quiet enough
+    /// to spare, because "you cannot have this" must not read as "this is a
+    /// label". Where the family has no such grey it equals `ui_dim`, and the
+    /// role still earns its place by being the one place a theme can say
+    /// otherwise.
+    pub ui_disabled: u32,
     /// Background of the text field a picker or the `:` prompt types into.
     ///
     /// Not [`Self::code_block_bg`], which it used to borrow: a field is a
@@ -178,6 +197,28 @@ pub struct Palette {
     pub graph_edge: u32,
     /// A node's label in the graph.
     pub graph_text: u32,
+    /// A node that stands for a link to a note that does not exist: a hole in
+    /// the vault, drawn quieter than a note so the missing thing reads as
+    /// missing. What [`Self::ui_dim`] was doing here by borrowing.
+    pub graph_ghost: u32,
+    /// A `#tag` node. Named rather than borrowed from [`Self::tag`] so a graph
+    /// can quiet its tags without moving every tag in every note.
+    pub graph_tag: u32,
+    /// An attachment node: a file in the vault that is not a note. Distinct from
+    /// [`Self::graph_node`] so a picture does not read as a note you can open.
+    pub graph_attachment: u32,
+    /// A line the review strip proposes to add, and one it proposes to remove or
+    /// change (roadmap P2.5a renders hunks against these three).
+    ///
+    /// Roles rather than "the diff's green and red", because a theme's error red
+    /// is not necessarily the red it wants for a deletion: a deletion is not a
+    /// mistake. Every built-in names these from accents it already carries, so a
+    /// theme that predates them inherits a sensible triple from its base.
+    pub diff_add: u32,
+    /// A line the review strip proposes to remove.
+    pub diff_delete: u32,
+    /// A line the review strip proposes to change.
+    pub diff_changed: u32,
     /// Callout accents: the left bar and title of a box, by callout type.
     pub callout_note: u32,
     /// Abstract and example callouts.
@@ -232,6 +273,7 @@ impl Palette {
             heading,
             quote,
             accent,
+            agent,
             tag,
             spell,
             code_bg,
@@ -253,6 +295,7 @@ impl Palette {
             ui_bg,
             ui_fg,
             ui_dim,
+            ui_disabled,
             ui_status_bg,
             ui_border,
             ui_active_border,
@@ -268,6 +311,12 @@ impl Palette {
             graph_node_active,
             graph_edge,
             graph_text,
+            graph_ghost,
+            graph_tag,
+            graph_attachment,
+            diff_add,
+            diff_delete,
+            diff_changed,
             callout_note,
             callout_teal,
             callout_question,
@@ -288,6 +337,7 @@ impl Palette {
             (&mut out.heading, heading),
             (&mut out.quote, quote),
             (&mut out.accent, accent),
+            (&mut out.agent, agent),
             (&mut out.tag, tag),
             (&mut out.spell, spell),
             (&mut out.code_bg, code_bg),
@@ -309,6 +359,7 @@ impl Palette {
             (&mut out.ui_bg, ui_bg),
             (&mut out.ui_fg, ui_fg),
             (&mut out.ui_dim, ui_dim),
+            (&mut out.ui_disabled, ui_disabled),
             (&mut out.ui_status_bg, ui_status_bg),
             (&mut out.ui_border, ui_border),
             (&mut out.ui_active_border, ui_active_border),
@@ -324,6 +375,12 @@ impl Palette {
             (&mut out.graph_node_active, graph_node_active),
             (&mut out.graph_edge, graph_edge),
             (&mut out.graph_text, graph_text),
+            (&mut out.graph_ghost, graph_ghost),
+            (&mut out.graph_tag, graph_tag),
+            (&mut out.graph_attachment, graph_attachment),
+            (&mut out.diff_add, diff_add),
+            (&mut out.diff_delete, diff_delete),
+            (&mut out.diff_changed, diff_changed),
             (&mut out.callout_note, callout_note),
             (&mut out.callout_teal, callout_teal),
             (&mut out.callout_question, callout_question),
@@ -401,6 +458,9 @@ pub struct ThemeFile {
     /// List bullets, task boxes and other structural accents.
     #[serde(default, deserialize_with = "deserialize_color")]
     pub accent: Option<u32>,
+    /// The agent's colour across the presence cluster. Defaults to `accent`.
+    #[serde(default, deserialize_with = "deserialize_color")]
+    pub agent: Option<u32>,
     /// A `#tag`.
     #[serde(default, deserialize_with = "deserialize_color")]
     pub tag: Option<u32>,
@@ -476,6 +536,9 @@ pub struct ThemeFile {
     /// Quiet text on a window surface.
     #[serde(default, deserialize_with = "deserialize_color")]
     pub ui_dim: Option<u32>,
+    /// A control that is there but cannot be used.
+    #[serde(default, deserialize_with = "deserialize_color")]
+    pub ui_disabled: Option<u32>,
     /// Background of a picker's or the prompt's text field.
     #[serde(default, deserialize_with = "deserialize_color")]
     pub ui_field_bg: Option<u32>,
@@ -509,6 +572,24 @@ pub struct ThemeFile {
     /// A graph node's label.
     #[serde(default, deserialize_with = "deserialize_color")]
     pub graph_text: Option<u32>,
+    /// A graph node for a link to a note that does not exist.
+    #[serde(default, deserialize_with = "deserialize_color")]
+    pub graph_ghost: Option<u32>,
+    /// A `#tag` node in the graph view.
+    #[serde(default, deserialize_with = "deserialize_color")]
+    pub graph_tag: Option<u32>,
+    /// An attachment node in the graph view.
+    #[serde(default, deserialize_with = "deserialize_color")]
+    pub graph_attachment: Option<u32>,
+    /// A review-strip line the agent proposes to add.
+    #[serde(default, deserialize_with = "deserialize_color")]
+    pub diff_add: Option<u32>,
+    /// A review-strip line the agent proposes to remove.
+    #[serde(default, deserialize_with = "deserialize_color")]
+    pub diff_delete: Option<u32>,
+    /// A review-strip line the agent proposes to change.
+    #[serde(default, deserialize_with = "deserialize_color")]
+    pub diff_changed: Option<u32>,
     /// Note callout accent.
     #[serde(default, deserialize_with = "deserialize_color")]
     pub callout_note: Option<u32>,

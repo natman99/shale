@@ -3,7 +3,7 @@
 use super::*;
 
 /// The graph is drawn, not described: every node is a disc, and the kinds are told
-/// apart by colour — a tag takes the colour a `#tag` has in prose, and a link to a note
+/// apart by colour — a tag takes the graph's own tag colour, and a link to a note
 /// that is not there is a dim disc rather than nothing at all.
 #[gpui::test]
 fn the_graph_paints_a_dot_for_every_node(cx: &mut TestAppContext) {

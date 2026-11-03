@@ -26,6 +26,8 @@ pub const PALETTE: Palette = Palette {
     heading: 0xeceff4,
     quote: 0x8b93a3, // nord3 lifted 45% toward nord4: too faint alone for a paragraph
     accent: 0x88c0d0,
+    // nord purple: its accent is the colour every note node is drawn in
+    agent: 0xb48ead,
     tag: 0xa3be8c,
     spell: 0xbf616a,
     code_bg: 0x434c5e,
@@ -46,7 +48,9 @@ pub const PALETTE: Palette = Palette {
     callout_bg: 0x3b4252,
     ui_bg: 0x3b4252,
     ui_fg: 0xd8dee9,
-    ui_dim: 0x8b93a3,       // nord4 #d8dee9 at 45% over #4c566a
+    ui_dim: 0x8b93a3, // nord4 #d8dee9 at 45% over #4c566a
+    // nord3, quieter than the chrome's grey
+    ui_disabled: 0x7d8696,
     ui_status_bg: 0x3b4252, // Nord has no pane deeper than nord1
     ui_border: 0x4c566a,
     ui_active_border: 0x88c0d0,
@@ -62,6 +66,13 @@ pub const PALETTE: Palette = Palette {
     graph_node_active: 0xebcb8b,
     graph_edge: 0x434c5e,
     graph_text: 0x8b93a3, // nord4 #d8dee9 at 45% over #4c566a
+    graph_ghost: 0x8b93a3,
+    graph_tag: 0xa3be8c,
+    // gold: nord's teal is a hair off the blue every note node is
+    graph_attachment: 0xebcb8b,
+    diff_add: 0xa3be8c,
+    diff_delete: 0xbf616a,
+    diff_changed: 0xebcb8b,
     callout_note: 0x81a1c1,
     callout_teal: 0x8fbcbb,
     callout_question: 0xb48ead,

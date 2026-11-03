@@ -35,6 +35,8 @@ pub const DARK: Palette = Palette {
     heading: 0x93a1a1,
     quote: 0x657b83,
     accent: 0xd33682,
+    // magenta, the family's accent
+    agent: 0xd33682,
     tag: 0x859900,
     spell: 0xdc322f,
     code_bg: 0x1b444f, // base02 with base01 lifted into it; base02 alone is the code block
@@ -56,6 +58,8 @@ pub const DARK: Palette = Palette {
     ui_bg: 0x073642,
     ui_fg: 0x93a1a1,
     ui_dim: 0x586e75,
+    // base01: the family has one grey, so a disabled control is as quiet as a label
+    ui_disabled: 0x586e75,
     ui_status_bg: 0x002b36,
     ui_border: 0x586e75,
     ui_active_border: 0x268bd2,
@@ -71,6 +75,12 @@ pub const DARK: Palette = Palette {
     graph_node_active: 0xcb4b16,
     graph_edge: 0x586e75,
     graph_text: 0x657b83,
+    graph_ghost: 0x586e75,
+    graph_tag: 0x859900,
+    graph_attachment: 0x2aa198,
+    diff_add: 0x859900,
+    diff_delete: 0xdc322f,
+    diff_changed: 0xb58900,
     callout_note: 0x268bd2,
     callout_teal: 0x2aa198,
     callout_question: 0x6c71c4,
@@ -97,6 +107,8 @@ pub const LIGHT: Palette = Palette {
     heading: 0x073642,
     quote: 0x657b83,
     accent: 0xd33682,
+    // magenta, the family's accent
+    agent: 0xd33682,
     tag: 0x268bd2,
     spell: 0xdc322f,
     code_bg: 0xeee8d5,
@@ -118,6 +130,8 @@ pub const LIGHT: Palette = Palette {
     ui_bg: 0xeee8d5,
     ui_fg: 0x073642,
     ui_dim: 0x93a1a1,
+    // base01: the family has one grey, so a disabled control is as quiet as a label
+    ui_disabled: 0x93a1a1,
     ui_status_bg: 0xfdf6e3,
     ui_border: 0x93a1a1,
     ui_active_border: 0x268bd2,
@@ -133,6 +147,14 @@ pub const LIGHT: Palette = Palette {
     graph_node_active: 0xcb4b16,
     graph_edge: 0x93a1a1,
     graph_text: 0x657b83,
+    graph_ghost: 0x93a1a1,
+    // the family's other green: its `tag` is Blue, the colour of every note node
+    graph_tag: 0x859900,
+    graph_attachment: 0x2aa198,
+    // cyan, its code-string colour: its green is a tag's
+    diff_add: 0x2aa198,
+    diff_delete: 0xdc322f,
+    diff_changed: 0xb58900,
     callout_note: 0x268bd2,
     callout_teal: 0x2aa198,
     callout_question: 0x6c71c4,
