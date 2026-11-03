@@ -9,10 +9,10 @@ bug.
 
 Status legend: ✅ ruled · ❄️ parked · ⏳ implementation owed.
 
-> Writeback note: this round was ruled while the app-track agent was mid-flight,
-> so it lives only here for now. The brainstorm.md/roadmap.md hooks (P6.9
-> fold-in, the new palette roles feeding P2.5a, the glyph policy) are listed in
-> §14 and owed once those files are free to touch.
+> Writeback note: these rounds were ruled while the app-track agent was
+> mid-flight, so they live only here for now. The brainstorm.md/roadmap.md
+> hooks (P6.9 fold-in, the new palette roles feeding P2.5a, the glyph policy)
+> are listed in §16 and owed once those files are free to touch.
 
 ## 1. Color — the Palette is the only source
 
@@ -180,7 +180,47 @@ warns rather than rejects.
   screen, no mascot, no startup animation. The chrome-doesn't-animate
   contract (§7) already implies the last one; these settle the rest.
 
-## 14. ❄️ Parked, and the hooks owed elsewhere
+## 15. Theme system — ruled 2026-11-03 (third round)
+
+The spine is kept as-is: data palette, `<vault>/.shale/themes/<name>.toml`
+partial overrides, `deny_unknown_fields` loud validation, picker preview that
+never writes config.
+
+- **✅ Deeper inheritance.** `base` may name another user theme, not just a
+  built-in — resolved through the same path as `appearance.theme`, with a
+  cycle guard that errors naming the cycle. (⏳)
+- **✅ `mode` metadata + follow-the-system.** Theme files may declare
+  `mode = "dark" | "light"`; absent, it's inferred from `bg` luminance.
+  Unset `appearance.theme` follows the **system** theme: XDG Desktop Portal
+  (`org.freedesktop.portal.Settings`, `org.freedesktop.appearance` →
+  `color-scheme`) on Linux/Wayland, the `AppsUseLightTheme` registry value on
+  Windows; **unreadable → dark**. The auto mapping: dark → `mocha` (today's
+  default), light → `latte`. An explicit theme name never follows anything.
+  (⏳) *(the auto mapping pair is the doc author's extension — veto it and
+  pick other defaults)*
+- **✅ Role vocabulary grows with §1.** The new roles (`diff_*`, `agent`,
+  `ui_disabled`, `graph_ghost/tag/attachment`) land as `Option` fields in
+  `ThemeFile` in the same commit as the Palette roles — 53 → 61 overridable
+  keys, same optional-with-fallback rule.
+- **✅ `theme export`.** Dump the *resolved* palette to a TOML file so
+  tweaking a theme starts from what's on screen, not from 53 blank hexes.
+  Command grammar per §13: `theme.export <name>` (registry id), `:theme
+  export <name>` at the `:` line. (⏳)
+- **✅ Layering policy (written rule, no code):** **theme = color;
+  appearance = fonts/size; geometry (spacing, radius, motion) is not
+  themeable.** Fonts stay in `config.toml` because they are machine-dependent
+  (installed families; the mono-fallback resolver) and ergonomic, not mood.
+  If one-click "full looks" are ever wanted, the shape is an *appearance
+  preset* referencing theme + font + size — never font fields inside the
+  theme file.
+- **❄️ Computed colors** (`lighten(base.bg, 5%)`, alpha in the palette) —
+  frozen; `base` + `theme export` cover the authoring burden. Door open if
+  theme authors actually hit it.
+- **✅ Contrast warnings on user themes.** The §10 guard's logic runs against
+  a user theme at load and **warns** (status bar + `tracing::warn!`), never
+  rejects — the logic already exists for built-ins; this is one call site.
+
+## 16. ❄️ Parked, and the hooks owed elsewhere
 
 - **Density/scale setting** (chrome-wide rem scaling): parked — real slog
   across custom painters, no demand yet. Door open: `style.rs` constants make
