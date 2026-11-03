@@ -261,3 +261,17 @@ measured.
   `bench_tick` averaging the settle into the "mid-drag" number; benched
   glam vs native projection and rejected glam (tables above). glam is a
   dev-dep for the bench only.
+- 2026-11-02 (spread tuning, user ask: nodes too clustered): `SimParams`
+  `repel` -90 → **-200** (the only default changed). Measured with a
+  temporary `probe_spread` (mean nearest-neighbor distance + RMS radius
+  from centroid, `pa_edges` at n=500/2000, settled layouts):
+  repel -90 → nn 25.3/24.2, rms_r 301/597; -150 → 31.8/30.7, 387/763;
+  -200 → 36.4/35.0, 442/877; -260 → 40.2/40.6, 497/996 (n=500/2000).
+  `link_distance` 34→44 moved nn only +2% and `center` 0.02→0.01 +2% —
+  repulsion is the spread lever, spread scales ~sqrt(|repel|), settle
+  time unchanged (300 ticks everywhere). Chose -200 (+44% nn, +47%
+  radius): labels were colliding at -90, -260 sprawls too much. Probe
+  removed after measuring; all 61 graph tests green. The app passes
+  `SimParams::default()` verbatim (`crates/app/src/graph/sim.rs`), so
+  the core default is the single lever — a Forces panel (settings)
+  would expose these four numbers 1:1.

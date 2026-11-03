@@ -57,7 +57,13 @@ pub struct SimParams {
 impl Default for SimParams {
     fn default() -> Self {
         Self {
-            repel: -90.0,
+            // -200, not d3's -30-scaled -90: measured 2026-11-02
+            // (probe_spread history, PROGRESS.md) — repulsion is the only
+            // real spread lever (link_distance and center move nearest-
+            // neighbor distance by ~2%), and -200 buys +44% nearest-
+            // neighbor spacing (+47% layout radius) at the same settle
+            // time. Nodes were too crowded for labels at -90.
+            repel: -200.0,
             link_strength: 0.7,
             link_distance: 34.0,
             center: 0.02,
