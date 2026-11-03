@@ -12,7 +12,7 @@ Status legend: ✅ ruled · ❄️ parked · ⏳ implementation owed.
 > Writeback note: this round was ruled while the app-track agent was mid-flight,
 > so it lives only here for now. The brainstorm.md/roadmap.md hooks (P6.9
 > fold-in, the new palette roles feeding P2.5a, the glyph policy) are listed in
-> §12 and owed once those files are free to touch.
+> §14 and owed once those files are free to touch.
 
 ## 1. Color — the Palette is the only source
 
@@ -142,7 +142,45 @@ warns rather than rejects.
 6. **Glyph formalization** (§8 set) — trivial; then the drawn marks
    (callouts, graph kinds, agent) as each surface needs them.
 
-## 12. ❄️ Parked, and the hooks owed elsewhere
+## 13. Identity beyond pixels — ruled 2026-11-03 (second round)
+
+- **✅ Actor vocabulary.** One word for the agent everywhere: UI strings, MCP
+  tool names, filters (`you / agent / both`), provenance copy (`edited by
+  agent · 3m ago`), the review strip. Never "AI", "assistant", "bot". The
+  agent-native identity is linguistic before it is visual; this is the parent
+  rule for every future string.
+- **✅ Keybinding taxonomy.** The mnemonic system is written down as grammar:
+  `space <letter>` leaders for views/modes (`space g` graph), `g`-prefixed
+  motion pairs (`gx` follow link), vim-native verbs kept verbatim (`za` fold).
+  New features pick keys by this rule so they are predictable before they are
+  learned. (Full enumeration lives with the keymap; this section rules that
+  the taxonomy exists and new keys must obey it.)
+- **✅ Units and relative time.** One format everywhere: `3m ago`, `N words`,
+  `2 hunks`; dates short and unambiguous. Any new number in the UI takes the
+  existing format, not a new one.
+- **✅ Empty states.** Every empty surface gets exactly one line in the
+  status bar's voice (`the vault holds no notes yet` is the register). No
+  illustrations, no tip-splatter, no second line.
+- **✅ Linux window identity.** WM_CLASS, `.desktop` entry, and a window icon
+  — a simple strata mark (stacked bedding lines) drawn once, reused by the
+  wordmark rule below. (⏳)
+- **✅ Cursor shape per vim mode** — spike what gpui exposes (block/line/
+  underline); half mode-legibility, half identity. (⏳ spike)
+- **✅ Command-name grammar** — ruled before the registry grows: bare nouns
+  for views (`:graph`), verbs for actions, dotted ids in the registry
+  (`note.save`, `theme.change`). New commands follow it at P2.7/P6.3.
+- **🔭 Strata-named palettes** (`shale`, `slate`, `silt`…) — the idea where
+  the name finally pays rent; flavor, not scheduled. Door open: §1's additive
+  roles make a new built-in family cheap.
+- **❄️ Wordmark system** — one mark, three places (window icon, `:about`,
+  README). Drawn once, after the window icon (§13) gives it a first home.
+- **❄️ First-run experience** — empty-vault moment + discoverability path;
+  waits for tabs/graph to settle.
+- **❌ Scope guards (parent rules, do not re-pitch):** no sounds, no splash
+  screen, no mascot, no startup animation. The chrome-doesn't-animate
+  contract (§7) already implies the last one; these settle the rest.
+
+## 14. ❄️ Parked, and the hooks owed elsewhere
 
 - **Density/scale setting** (chrome-wide rem scaling): parked — real slog
   across custom painters, no demand yet. Door open: `style.rs` constants make
