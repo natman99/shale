@@ -4322,10 +4322,25 @@ Next steps, roughly in order:
     compiled out — the tests that keep the raster and `shale.svg` in step are the same tests on
     every platform.
 
-    **Not run**: Wine 11.20 Staging is installed, but `wineboot --init` stalls at `rundll32
-    setupapi,InstallHinfSection DefaultInstall` (the prefix's driver install), so no Windows test
-    has been executed and nothing about Windows *behaviour* is verified. A Windows build would
-    still need the console handler that raises the termination flag.
+    **Run under Wine, 2026-11-03**: Wine 11.20 Staging here is a WoW64-only build
+    (`/usr/lib64/wine-wow64`), and its first `wineboot --init` spins forever in `rundll32
+    setupapi,InstallHinfSection DefaultInstall` (220 s of CPU when we looked) and again in
+    `Wow64Install`. Killing each step as it appears lets init finish; the prefix at
+    `target/wine-prefix` is reusable and `target/winefix.sh` is the loop that got there. The
+    `shale-core` test binary then runs: **437 passed, 7 failed, 10 ignored**. The app's window
+    tests were not run — `gpui_windows` needs a desktop, and Wine's `explorer.exe /desktop` is
+    part of what hangs on the way in. A Windows build would still need the console handler that
+    raises the termination flag.
+
+    The 7 failures are one bug, not seven: a vault-relative path is a `PathBuf`, and its *string*
+    form uses `\` on Windows. A ghost's label comes out `notes\Another Note.md`
+    (`graph/index.rs`), a `folder:` scope compares a `/`-written prefix against that string
+    (`graph/filter.rs`), `Vault::resolve_attachment` never matches a `/`-written query, and three
+    `db::index` counts follow from the same thing. `vault::tests::names_a_vault_cannot_hold_are_refused`
+    is a second and sharper bug: `create_note` refuses a name containing `/` but not one
+    containing `\`, and on Windows `\` *is* a separator, so `back\slash.md` is accepted and writes
+    into a subfolder. Neither is fixed: the first is a decision about how core spells
+    vault-relative paths (15 places in `core` stringify one), not a test fix.
 
     ### Not built
     - **Live following** (reacting when the desktop flips dark↔light mid-session). The one-shot
