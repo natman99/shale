@@ -7,6 +7,7 @@ use gpui::{anchored, div, prelude::*, px, AnchoredPositionMode, Context, MouseBu
 use crate::acts::*;
 use crate::editor::View;
 use crate::prompt;
+use crate::style::CHIP_RADIUS;
 use crate::tree;
 
 use super::bar::{mode_label, save_indicator, word_badge};
@@ -17,9 +18,12 @@ use super::Workspace;
 /// the status bar because it is something the pointer aims at, not something it
 /// reads.
 const TAB_BAR: gpui::Pixels = gpui::px(28.);
-/// One tab's height inside the bar, leaving a line of the bar's colour above and
-/// below it.
-const TAB_ROW: gpui::Pixels = gpui::px(22.);
+/// One tab's height inside the bar. The four pixels of bar colour above and below it
+/// are the point: with one tab open, a chip that fills the bar reads as the bar, and
+/// a chip the bar frames reads as a tab.
+const TAB_ROW: gpui::Pixels = gpui::px(20.);
+/// The bar's own colour left at its ends and between two tabs.
+const TAB_GAP: gpui::Pixels = gpui::px(6.);
 
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -170,6 +174,7 @@ impl Render for Workspace {
                     .min_w_0()
                     .h(TAB_ROW)
                     .px_2()
+                    .rounded(CHIP_RADIUS)
                     .flex()
                     .items_center()
                     .gap_1()
@@ -292,10 +297,10 @@ impl Render for Workspace {
                     .flex_none()
                     .w_full()
                     .h(TAB_BAR)
-                    .px_1()
+                    .px(TAB_GAP)
                     .flex()
                     .items_center()
-                    .gap_1()
+                    .gap(TAB_GAP)
                     .text_xs()
                     .bg(gpui::rgb(self.palette.ui_status_bg))
                     .text_color(gpui::rgb(self.palette.ui_dim))

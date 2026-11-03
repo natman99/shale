@@ -842,6 +842,18 @@ and the DB; "notes the agent modified this week" returns the right set.
   jump-chain breadcrumb (`aria ← session-12 ← hook-rats`, ruled 2026-10-29 —
   status area, not a gutter filament).
 - **P6.8 Lua tier** — only if TOML macros demonstrably hit a wall.
+- **P6.9 A rounding pass over the custom-painted surfaces** (polish; the chrome
+  half landed 2026-11-02 as `crates/app/src/style.rs::CHIP_RADIUS`, one radius the
+  whole window reads). Everything gpui draws from a `Style` already takes it: a tab,
+  a file-tree row, a picker row, the picker's panel, and the text field's box (top
+  corners only — the underline *is* the field's edge, and rounding the bottom would
+  leave it floating). What is left is painted by Shale's own renderer, so it needs a
+  `Corners` handed to `paint_quad` rather than a style method: the line element's row
+  backgrounds (active line, search hit, fold marker, focus-mode dimming), the inline
+  code and code-block backgrounds, the table grid's cell highlight, the checker's
+  wavy underline, the popup panel, the review strip and its badges, the status bar's
+  badges, and the caret. **Not one radius for all of them** — a 2px underline does
+  not want 6px — but one module deciding each.
 
 ---
 

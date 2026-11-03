@@ -36,6 +36,7 @@ use crate::acts::{
     FieldSubmit, PickerDown, PickerUp,
 };
 use crate::field::{approx_char_width, Field, FieldElement, FieldOwner};
+use crate::style::CHIP_RADIUS;
 
 /// The key context the picker's bindings live in. Like the prompt it is drawn as
 /// a *sibling* of the tree and the editor, because gpui enables a context's
@@ -489,8 +490,14 @@ impl<T: Clone + 'static> Render for Picker<T> {
                     .cursor(CursorStyle::PointingHand)
                     .flex()
                     .gap_2()
+                    // Inset from the panel's border, so the highlight is a chip
+                    // inside the panel rather than a band that runs into it, and the
+                    // row's text lines up with the label and the footer above and
+                    // below it.
+                    .mx_1()
                     .px_1()
                     .py_0p5()
+                    .rounded(CHIP_RADIUS)
                     .when(n == self.selected, |d| {
                         d.bg(gpui::rgb(palette.ui_active_bg))
                     })
@@ -571,6 +578,9 @@ impl<T: Clone + 'static> Render for Picker<T> {
             }))
             .border_1()
             .border_color(gpui::rgb(palette.ui_border))
+            // The same corner as every other chip in the window. gpui draws the
+            // border with it, so the panel's outline stays one shape.
+            .rounded(CHIP_RADIUS)
             // Opaque, because the picker *overlays* the note: a panel that lets
             // the text through is unreadable, which is the price of not pushing
             // the note down.

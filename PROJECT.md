@@ -362,7 +362,13 @@ Workspace layout:
   holds goes to that tab instead of putting it on the bar twice. `g t`/`g T` walk
   the bar (wrapping), `:tabnext`/`:tabprev`/`:tabclose`/`:tabonly`/`:tabmove [n]`
   are the command-line doors, and the bar itself is clicked: a tab's row switches
-  to it, its `×` closes it, and a dirty dot sits on the tab it belongs to. Closing
+  to it, its `×` closes it, and a dirty dot sits on the tab it belongs to. A tab is
+  drawn as a rounded chip that the bar's own colour frames (top, bottom and on both
+  ends), which is what makes a one-tab bar read as a tab rather than as a strip of
+  chrome; the file tree's rows, the picker's panel and its rows, and the text
+  field's box (along its top only, because the underline is its edge) are rounded
+  from the same constant, `style.rs::CHIP_RADIUS`. The surfaces Shale paints itself
+  are the rest of that look, and they are roadmap P6.9.
   the last tab leaves an empty tab rather than an empty window, which is what lets
   every part of the window ask for "the note" and get an answer. An exit owes every
   tab: `:wq`, a quit with autosave on, a blur and a window-manager close write them
@@ -409,6 +415,9 @@ Workspace layout:
   command line and the window it opens), `acts.rs` (every action the keymap
   names — the two namespaces its `actions!` calls generate are what the keymap
   and the tests match on, so they are load-bearing, not just namespaces),
+  `style.rs` (the chrome geometry shared across the window: `CHIP_RADIUS`, the one
+  corner radius every chip and panel is drawn with, and the home of the radii the
+  custom-painted surfaces will want — roadmap P6.9),
   `field.rs` (the one-line text field the prompt and the pickers share: the text,
   the caret, the utf-16 translation gpui's input handler speaks, and the element
   that paints it and registers the input handler), `prompt.rs`, `picker.rs` (the

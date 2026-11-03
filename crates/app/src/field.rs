@@ -12,13 +12,15 @@ use std::ops::Range;
 use std::rc::Rc;
 
 use gpui::{
-    fill, font, point, px, relative, rgb, App, Bounds, Element, ElementId, ElementInputHandler,
-    Entity, EntityInputHandler, FocusHandle, GlobalElementId, InspectorElementId, IntoElement,
-    LayoutId, Pixels, ShapedLine, SharedString, Style as ElementStyle, UTF16Selection, Window,
+    fill, font, point, px, relative, rgb, App, Bounds, Corners, Element, ElementId,
+    ElementInputHandler, Entity, EntityInputHandler, FocusHandle, GlobalElementId,
+    InspectorElementId, IntoElement, LayoutId, Pixels, ShapedLine, SharedString,
+    Style as ElementStyle, UTF16Selection, Window,
 };
 use shale_core::buffer::word_back;
 use shale_core::theme::Palette;
 
+use crate::style::CHIP_RADIUS;
 use crate::theme::{self, RunStyle};
 
 /// Padding inside the field, in pixels.
@@ -309,7 +311,18 @@ impl<E: FieldOwner + EntityInputHandler + 'static> Element for FieldElement<E> {
         let palette = Rc::clone(self.owner.read(cx).palette());
         // A field is a control in the window, so it takes the chrome's field
         // role rather than the note's inline-code background.
-        window.paint_quad(fill(bounds, rgb(palette.ui_field_bg)));
+        //
+        // Rounded along the top only, at the radius every other chip in the window
+        // uses: the underline below is the field's edge, and rounding the bottom
+        // corners would pull the fill away from it and leave the line floating.
+        let mut background = fill(bounds, rgb(palette.ui_field_bg));
+        background.corner_radii = Corners {
+            top_left: CHIP_RADIUS,
+            top_right: CHIP_RADIUS,
+            bottom_left: px(0.),
+            bottom_right: px(0.),
+        };
+        window.paint_quad(background);
         window.paint_quad(fill(
             Bounds::from_corners(
                 point(bounds.left(), bounds.bottom() - px(1.)),

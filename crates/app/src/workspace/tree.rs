@@ -15,6 +15,7 @@ use gpui::{
 use shale_core::theme::Palette;
 
 use crate::acts::*;
+use crate::style::CHIP_RADIUS;
 use crate::tree;
 
 use super::Workspace;
@@ -72,6 +73,9 @@ pub(super) fn push_node(
         .pl(indent)
         .pr_1()
         .py_0p5()
+        // The highlight is a chip, not a band: the sidebar pads its rows, so the
+        // rounded corners are visible against the sidebar's own background.
+        .rounded(CHIP_RADIUS)
         .when(is_active, |d| d.bg(gpui::rgb(state.palette.ui_active_bg)))
         .when(is_selected, |d| d.bg(gpui::rgb(state.palette.ui_hover_bg)))
         .hover(|s| s.bg(gpui::rgb(state.palette.ui_hover_bg)))
