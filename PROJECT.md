@@ -11,7 +11,7 @@ Shale is an obsidian-style markdown editor with extra developer focused features
 - [x] Spellcheck and grammar checking using HarperLS. Support for custom language servers.
 - [ ] Near-perfect compatibility with Obsidian vaults
 - [x] Image support in notes using Obsidian style
-- [x] Theming support and support for custom themes. Include light and dark themes.
+- [x] Theming support and support for custom themes. Include light and dark themes. The visual grammar built on top of them (roles, spacing, state, elevation, motion, glyphs, microcopy) is ruled and written in `design-language.md` (graph track, 2026-11-03; its §12 lists the roadmap hooks still owed).
 - [ ] Graph view (planned: graph-view-plan.md + roadmap P3)
 - [ ] Pdf export notes
 - [ ] Tabs
