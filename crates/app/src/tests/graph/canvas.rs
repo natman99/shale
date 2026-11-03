@@ -32,6 +32,42 @@ fn the_graph_paints_a_dot_for_every_node(cx: &mut TestAppContext) {
     );
 }
 
+/// The graph is clipped to its pane. The camera maps world units to window-absolute px,
+/// and a layout is routinely larger than the pane it is fitted into, so before the clip
+/// everything outside it was painted anyway: links across the file tree and the tab bar,
+/// which is what it looks like for a graph to bleed out of its pane.
+#[gpui::test]
+fn the_graph_is_clipped_to_its_pane(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = linked_vault(cx);
+    cx.simulate_keystrokes("space g");
+    paint(&mut cx, &window);
+
+    let canvas = window
+        .update(&mut cx, |ws, _window, cx| ws.graph_canvas(cx))
+        .unwrap()
+        .expect("the canvas has been laid out");
+    let scale = window
+        .update(&mut cx, |_ws, window, _cx| window.scale_factor())
+        .unwrap();
+    let painted = circles(&mut cx, &window);
+    assert!(!painted.is_empty(), "there is a graph to check");
+
+    // A painted quad carries the mask it will be clipped to, in scaled px. The graph's
+    // own primitives must carry the pane's rectangle, not the window's.
+    for disc in &painted {
+        let mask = disc.content_mask.bounds;
+        let (x, y) = (mask.origin.x.as_f32(), mask.origin.y.as_f32());
+        let (w, h) = (mask.size.width.as_f32(), mask.size.height.as_f32());
+        assert!(
+            x >= canvas[0] * scale - 1.0
+                && y >= canvas[1] * scale - 1.0
+                && x + w <= (canvas[0] + canvas[2]) * scale + 1.0
+                && y + h <= (canvas[1] + canvas[3]) * scale + 1.0,
+            "a graph primitive is masked to ({x}, {y}) {w}x{h}, outside the pane at {canvas:?}"
+        );
+    }
+}
+
 /// The layout runs and then stops: a graph that never settles is a window that never
 /// stops asking for frames, which is the idling rule broken.
 #[gpui::test]

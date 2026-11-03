@@ -4861,6 +4861,7 @@ dependencies = [
  "gpui",
  "gpui_platform",
  "libc",
+ "lyon",
  "serde_json",
  "shale-core",
  "signal-hook-registry",

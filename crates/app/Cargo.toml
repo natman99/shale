@@ -19,6 +19,10 @@ gpui_platform.workspace = true
 # in the tree through gpui's Linux backend, so this adds no code to the binary — and
 # neither is a binding to a library beyond the libc every Linux process links.
 libc = "0.2"
+# The graph's links are tessellated by hand (see `graph::render`), which means filling the
+# same vertex buffer gpui's own tessellators fill. lyon is already compiled into the binary
+# through gpui, so this names a crate the build already has rather than adding one.
+lyon = "1.0"
 serde_json.workspace = true
 shale-core.workspace = true
 signal-hook-registry = "1"

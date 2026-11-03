@@ -16,7 +16,7 @@
 mod bench;
 mod frame;
 mod panel;
-mod render;
+pub(crate) mod render;
 mod sim;
 
 use std::cell::RefCell;

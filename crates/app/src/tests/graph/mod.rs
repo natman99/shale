@@ -202,4 +202,6 @@ fn sim_positions(cx: &mut VisualTestContext, window: &WindowHandle<Workspace>) -
 mod canvas;
 mod filter;
 mod interactions;
+// Timing sweeps, every test in it `#[ignore]`d: see the module's own note on how to run.
+mod paint_bench;
 mod tab;
