@@ -298,3 +298,26 @@ measured.
   shrinking the core to an unreadable knot (the user's spread complaint;
   probe showed force tuning alone can't help under a fit camera:
   nn/rms is ~constant across repel/pad/link_distance variants).
+- 2026-11-03 (graph-open delay, core half of PROJECT.md thread 41):
+  `GraphIndex::build` resolved every link with a linear scan over the
+  entry list (`Vault::resolve_link`/`resolve_attachment`), quadratic in
+  vault size. Measured on the 5k fixture (release): build **18.17 s**,
+  of which scan+resolve 18.18 s and file reads only 61 ms — ~0.9 ms per
+  link (19,975 links × 5,000 entries × 2 passes, the stem pass allocating
+  `to_lowercase()` per entry; ghosts pay both passes and miss). Fix:
+  `LinkResolver` in `vault.rs` — four hash tables (exact path, lowercased
+  stem, lowercased full path, lowercased name-or-stem) built once per
+  entry slice, O(1) per lookup; `Vault::resolve_link`/`resolve_attachment`
+  now delegate to it so the Obsidian resolution rules live in exactly one
+  place, and `Vault::backlinks` builds one resolver instead of one scan
+  per link. `GraphIndex::build`/`set_note` build the two resolvers
+  (notes, attachments) once. After: build **89 ms** (scan+resolve 34 ms,
+  reads 94 ms) — ~200x. Drift guard: `link_resolver_ties_suffix_and_
+  attachment_rules` pins the tie rules (shortest path wins, scan order
+  breaks exact ties), the `.md`-suffix fallback, and the attachment
+  name/stem/backslash rules; the existing vault+graph tests cover the
+  rest. Also fixed a latent bug the old scan had: a non-UTF-8 file name
+  bailed out of the whole attachment resolution (`?` inside the loop);
+  the table skips such entries instead. Core 441 tests green; app
+  compiles unchanged (the app half — backgrounding the scan — landed
+  separately in thread 41).

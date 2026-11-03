@@ -3856,6 +3856,14 @@ Next steps, roughly in order:
       that lands a 5k vault still takes seconds to appear — it just no longer takes the
       window with it. `tracing::info!` now logs `nodes` and `took_ms` per scan, so the
       question "how long does my vault take" has an answer in the log.
+      **LANDED core-side (graph track, same day):** `LinkResolver` in `vault.rs` — the
+      resolution rules now live in one table-based place, `Vault::resolve_link`/
+      `resolve_attachment` delegate to it, and `GraphIndex::build` builds the notes and
+      attachments tables once. Measured on the 5k fixture (release): build **18.17 s →
+      89 ms** (scan+resolve 18.18 s → 34 ms; the remaining ~90 ms is the 5k file reads).
+      A 5k vault now appears essentially immediately; `took_ms` in the log should say
+      single-digit hundreds. `Vault::backlinks` got the same one-resolver-per-call shape.
+      Drift guard test: `link_resolver_ties_suffix_and_attachment_rules`.
 
 ## Parked threads (agreed 2026-10-28; not being worked now)
 

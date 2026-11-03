@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::io;
 use std::path::{Component, Path, PathBuf};
@@ -25,6 +25,108 @@ impl VaultEntry {
     /// Display name without extension, e.g. `idea`.
     pub fn stem(&self) -> &str {
         self.path.file_stem().and_then(|s| s.to_str()).unwrap_or("")
+    }
+}
+
+/// Pre-built lookup tables for link resolution: the same rules as
+/// [`Vault::resolve_link`] and [`Vault::resolve_attachment`], but paying
+/// the O(entries) build **once** instead of scanning the whole entry list
+/// per link. The Vault methods delegate here, so the rules live in exactly
+/// one place. Batch callers — the graph index resolves ~20k links per
+/// build, and the old per-link scan froze the UI for 18 seconds on a 5k
+/// vault — build one resolver over their entry slice and resolve in O(1).
+#[derive(Debug, Clone)]
+pub struct LinkResolver {
+    /// Exact vault-relative path -> entry (`resolve_link` step 1,
+    /// `resolve_attachment` step 1's exact half).
+    exact: HashMap<PathBuf, VaultEntry>,
+    /// Lowercased stem -> entry, shortest path winning a tie and the
+    /// first entry in scan order winning an exact tie — `resolve_link`
+    /// step 2.
+    by_stem: HashMap<String, VaultEntry>,
+    /// Lowercased full relative path (backslashes normalized) -> entry —
+    /// `resolve_attachment` step 1's case-insensitive half.
+    by_lower_path: HashMap<String, VaultEntry>,
+    /// Lowercased file name **and** lowercased stem -> entry, shortest
+    /// path winning a tie — `resolve_attachment` step 2. Entries whose
+    /// file name is not valid UTF-8 are skipped; the old scan bailed out
+    /// of the whole resolution on one, which this table does not.
+    by_name: HashMap<String, VaultEntry>,
+}
+
+impl LinkResolver {
+    /// Build the tables over `entries` — O(entries), once.
+    pub fn new(entries: &[VaultEntry]) -> Self {
+        let mut exact = HashMap::with_capacity(entries.len());
+        let mut by_stem = HashMap::with_capacity(entries.len());
+        let mut by_lower_path = HashMap::with_capacity(entries.len());
+        let mut by_name = HashMap::with_capacity(entries.len());
+        for entry in entries {
+            exact.insert(entry.path.clone(), entry.clone());
+            let lossy = entry.path.to_string_lossy();
+            insert_shortest(&mut by_lower_path, lossy.to_lowercase(), entry);
+            let key = entry.stem().to_lowercase();
+            insert_shortest(&mut by_stem, key, entry);
+            if let Some(name) = entry.path.file_name().and_then(|s| s.to_str()) {
+                insert_shortest(&mut by_name, name.to_lowercase(), entry);
+            }
+            // The old scan matched file name *or* stem; both keys live in
+            // this one table, shortest-path-wins.
+            insert_shortest(&mut by_name, entry.stem().to_lowercase(), entry);
+        }
+        Self {
+            exact,
+            by_stem,
+            by_lower_path,
+            by_name,
+        }
+    }
+
+    /// The entry a note link target refers to, with the same rules as
+    /// [`Vault::resolve_link`]: exact path (or `.md` appended), then
+    /// case-insensitive stem with the shortest path winning.
+    pub fn resolve_link(&self, target: &str) -> Option<&VaultEntry> {
+        let target = target.trim();
+        if target.is_empty() {
+            return None;
+        }
+        let as_path = PathBuf::from(target);
+        if let Some(entry) = self.exact.get(&as_path) {
+            return Some(entry);
+        }
+        if let Some(entry) = self.exact.get(&as_path.with_extension("md")) {
+            return Some(entry);
+        }
+        self.by_stem.get(&target.to_lowercase())
+    }
+
+    /// The entry an embed target refers to, with the same rules as
+    /// [`Vault::resolve_attachment`]: exact path, case-insensitive path,
+    /// then case-insensitive file name or stem, shortest path winning.
+    pub fn resolve_attachment(&self, target: &str) -> Option<&VaultEntry> {
+        let target = target.trim();
+        if target.is_empty() {
+            return None;
+        }
+        if let Some(entry) = self.exact.get(&PathBuf::from(target)) {
+            return Some(entry);
+        }
+        let lower_path = target.to_lowercase().replace('\\', "/");
+        if let Some(entry) = self.by_lower_path.get(&lower_path) {
+            return Some(entry);
+        }
+        self.by_name.get(&target.to_lowercase())
+    }
+}
+
+/// Insert `entry` under `key`, keeping the shortest path; an exact tie
+/// goes to whoever was seen first (scan order), matching the old scans.
+fn insert_shortest(map: &mut HashMap<String, VaultEntry>, key: String, entry: &VaultEntry) {
+    match map.get(&key) {
+        Some(cur) if cur.path.components().count() <= entry.path.components().count() => {}
+        _ => {
+            map.insert(key, entry.clone());
+        }
     }
 }
 
@@ -334,35 +436,10 @@ impl Vault {
     ///
     /// `target` is a raw wiki-link target (no alias, no heading anchor).
     pub fn resolve_link(&self, target: &str, entries: &[VaultEntry]) -> Result<Option<VaultEntry>> {
-        let target = target.trim();
-        if target.is_empty() {
-            return Ok(None);
-        }
-
-        // 1. Exact path match.
-        let as_path = PathBuf::from(target);
-        for entry in entries {
-            if entry.path == as_path {
-                return Ok(Some(entry.clone()));
-            }
-            if entry.path == as_path.with_extension("md") {
-                return Ok(Some(entry.clone()));
-            }
-        }
-
-        // 2. Case-insensitive stem match; ambiguous matches resolve to the
-        // shortest path, matching Obsidian's behavior.
-        let lower = target.to_lowercase();
-        let mut best: Option<&VaultEntry> = None;
-        for entry in entries {
-            if entry.stem().to_lowercase() == lower {
-                match best {
-                    Some(b) if b.path.components().count() <= entry.path.components().count() => {}
-                    _ => best = Some(entry),
-                }
-            }
-        }
-        Ok(best.cloned())
+        // The rules live in [`LinkResolver`]; this single-link convenience
+        // builds the tables per call (O(entries), same as the old scan).
+        // Batch callers build one [`LinkResolver`] and resolve in O(1).
+        Ok(LinkResolver::new(entries).resolve_link(target).cloned())
     }
 
     /// Find the attachment an embed target refers to (`![[diagram.png]]`), with
@@ -375,33 +452,11 @@ impl Vault {
     /// Unlike a note link, an attachment keeps its extension, so both a bare
     /// stem and a full file name are worth trying: Obsidian accepts either.
     pub fn resolve_attachment(&self, target: &str, entries: &[VaultEntry]) -> Option<VaultEntry> {
-        let target = target.trim();
-        if target.is_empty() {
-            return None;
-        }
-        let as_path = PathBuf::from(target);
-        let lower_path = target.to_lowercase().replace('\\', "/");
-        for entry in entries {
-            if entry.path == as_path {
-                return Some(entry.clone());
-            }
-            if entry.path.to_string_lossy().to_lowercase() == lower_path {
-                return Some(entry.clone());
-            }
-        }
-        let lower = target.to_lowercase();
-        let mut best: Option<&VaultEntry> = None;
-        for entry in entries {
-            let name = entry.path.file_name().and_then(|s| s.to_str())?;
-            if name.to_lowercase() != lower && entry.stem().to_lowercase() != lower {
-                continue;
-            }
-            match best {
-                Some(b) if b.path.components().count() <= entry.path.components().count() => {}
-                _ => best = Some(entry),
-            }
-        }
-        best.cloned()
+        // Rules in [`LinkResolver`]; see [`Self::resolve_link`] on the
+        // per-call cost and batch callers.
+        LinkResolver::new(entries)
+            .resolve_attachment(target)
+            .cloned()
     }
 
     /// Notes that link to `rel` (backlinks).
@@ -415,6 +470,7 @@ impl Vault {
             return Ok(Vec::new());
         };
         let mut out = Vec::new();
+        let resolver = LinkResolver::new(entries);
         for entry in entries {
             if entry.path == rel {
                 continue;
@@ -422,8 +478,7 @@ impl Vault {
             let text = self.read(&entry.path).unwrap_or_default();
             let links = crate::markdown::extract_wikilinks(&text);
             for link in links {
-                let resolved = self.resolve_link(&link.target, entries)?;
-                if resolved.as_ref() == Some(self_entry) {
+                if resolver.resolve_link(&link.target) == Some(self_entry) {
                     out.push(entry.clone());
                     break;
                 }
@@ -640,6 +695,49 @@ mod tests {
 
         assert!(vault.resolve_link("missing", &entries)?.is_none());
         Ok(())
+    }
+
+    /// The table-based resolver must keep the scan's exact tie and
+    /// fallback rules — this test is the drift guard for the refactor
+    /// that replaced the per-link scans (graph-open delay, 2026-11-03).
+    #[test]
+    fn link_resolver_ties_suffix_and_attachment_rules() {
+        let entries: Vec<VaultEntry> = [
+            "a/Idea.md",
+            "notes/idea.md",
+            "z/b/c/Idea.md",
+            "img/Diagram.PNG",
+        ]
+        .iter()
+        .map(|p| VaultEntry {
+            path: PathBuf::from(p),
+        })
+        .collect();
+        let r = LinkResolver::new(&entries);
+
+        // Stem tie: shortest path wins; among equal lengths, the first
+        // in scan order wins.
+        assert_eq!(r.resolve_link("idea").unwrap().path, PathBuf::from("a/Idea.md"));
+        // Bare path gets `.md` appended (resolve_link step 1's half).
+        assert_eq!(r.resolve_link("z/b/c/Idea").unwrap().path, PathBuf::from("z/b/c/Idea.md"));
+        // Empty and whitespace targets resolve to nothing.
+        assert!(r.resolve_link("  ").is_none());
+        assert!(r.resolve_attachment("").is_none());
+
+        // Attachments: exact path, case-insensitive path, file name, and
+        // bare stem all reach the same entry.
+        for target in ["img/Diagram.PNG", "IMG/diagram.png", "Diagram.PNG", "diagram"] {
+            assert_eq!(
+                r.resolve_attachment(target).unwrap().path,
+                PathBuf::from("img/Diagram.PNG"),
+                "attachment target {target:?}"
+            );
+        }
+        // Backslashes in a target normalize (Obsidian accepts them).
+        assert_eq!(
+            r.resolve_attachment("img\\Diagram.PNG").unwrap().path,
+            PathBuf::from("img/Diagram.PNG")
+        );
     }
 
     #[test]

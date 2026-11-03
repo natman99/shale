@@ -16,7 +16,7 @@ use petgraph::graph::{NodeIndex, UnGraph};
 
 use crate::markdown::extract_wikilinks;
 use crate::mdstyle::{style_spans, Style};
-use crate::vault::{Vault, VaultEntry};
+use crate::vault::{LinkResolver, Vault, VaultEntry};
 
 /// What a graph node represents.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -92,12 +92,17 @@ impl GraphIndex {
     /// the vault's non-note files, used to resolve `![[image.png]]`-style
     /// targets to real nodes instead of ghosts.
     pub fn build(vault: &Vault, notes: &[VaultEntry], attachments: &[VaultEntry]) -> Result<Self> {
+        // Resolution tables built once for the whole vault: per-link
+        // scans over `notes` made this loop quadratic (18 s on a 5k-note
+        // vault, all of it on the UI thread of the first `:graph`).
+        let note_res = LinkResolver::new(notes);
+        let attach_res = LinkResolver::new(attachments);
         let mut note_links = HashMap::new();
         for note in notes {
             let text = vault.read(&note.path)?;
             note_links.insert(
                 note.path.clone(),
-                scan_note_links(&text, vault, notes, attachments),
+                scan_note_links(&text, &note_res, &attach_res),
             );
         }
         let mut index = Self {
@@ -177,13 +182,20 @@ impl GraphIndex {
         &mut self,
         path: impl AsRef<Path>,
         text: &str,
-        vault: &Vault,
+        _vault: &Vault,
         notes: &[VaultEntry],
         attachments: &[VaultEntry],
     ) {
+        // Tables rebuilt per call: one save rescans the entry lists once
+        // (milliseconds at vault scale), which beats caching tables that
+        // go stale the moment a file appears or moves. `_vault` is kept
+        // for call-site compatibility; the resolver replaced the scans
+        // that needed it.
+        let note_res = LinkResolver::new(notes);
+        let attach_res = LinkResolver::new(attachments);
         self.note_links.insert(
             path.as_ref().to_path_buf(),
-            scan_note_links(text, vault, notes, attachments),
+            scan_note_links(text, &note_res, &attach_res),
         );
         self.rebuild();
     }
@@ -328,16 +340,11 @@ impl GraphIndex {
 
 /// Resolve every link target in one note's `text` to a [`Link`], deduped.
 ///
-/// Wiki-links go through [`Vault::resolve_link`] (notes), then
-/// [`Vault::resolve_attachment`] (embeds and `[[file.png]]` links), and what
+/// Wiki-links go through [`LinkResolver::resolve_link`] (notes), then
+/// [`LinkResolver::resolve_attachment`] (embeds and `[[file.png]]` links), and what
 /// resolves to neither becomes a ghost keyed by its raw target. Tags come
 /// from the style scanner, so fences and inline code are already skipped.
-fn scan_note_links(
-    text: &str,
-    vault: &Vault,
-    notes: &[VaultEntry],
-    attachments: &[VaultEntry],
-) -> Vec<Link> {
+fn scan_note_links(text: &str, notes: &LinkResolver, attachments: &LinkResolver) -> Vec<Link> {
     let mut links: Vec<Link> = Vec::new();
     let mut seen: HashSet<(NodeKind, Option<PathBuf>, String)> = HashSet::new();
 
@@ -346,16 +353,16 @@ fn scan_note_links(
         if target.is_empty() {
             continue;
         }
-        let link = if let Some(entry) = vault.resolve_link(target, notes).unwrap_or(None) {
+        let link = if let Some(entry) = notes.resolve_link(target) {
             Link {
                 kind: NodeKind::Note,
-                path: Some(entry.path),
+                path: Some(entry.path.clone()),
                 label: String::new(),
             }
-        } else if let Some(entry) = vault.resolve_attachment(target, attachments) {
+        } else if let Some(entry) = attachments.resolve_attachment(target) {
             Link {
                 kind: NodeKind::Attachment,
-                path: Some(entry.path),
+                path: Some(entry.path.clone()),
                 label: String::new(),
             }
         } else {
