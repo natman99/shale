@@ -1,102 +1,134 @@
 # Graph fixture vaults
 
-Three generated vaults for driving the graph tab (`space g`, `:graph`) at
-different scales. They are **not committed** — thousands of small files is not
-what this tree is for. The generator is the source of truth:
+Six generated vaults for driving the graph tab (`space g`, `:graph`) by eye. They
+are **not committed** — the largest is 5000 tiny files. The generator and this
+file are the source of truth:
 
 ```sh
-python3 tools/graph_vaults.py            # write all three (~2 s, ~35 MB peak RSS)
-python3 tools/graph_vaults.py 5k         # just one
-python3 tools/graph_vaults.py --stats    # report on what is on disk, write nothing
+python3 tools/graph_vaults.py                 # write all six (~4 s, ~39 MB peak RSS)
+python3 tools/graph_vaults.py organic-1k      # just one
+python3 tools/graph_vaults.py --stats         # report on disk, write nothing
+python3 tools/graph_vaults.py --list          # fixture names and shapes
 ```
 
-Each vault has its own seed, so regeneration is byte-identical and the printed
-stats are comparable between runs. Open one like any vault:
+Open one like any vault:
 
 ```sh
-cargo run -p shale-app -- examples/graph/1k     # or target/release/shale examples/graph/5k
+cargo run -p shale-app -- examples/graph/organic-1k    # or target/release/shale …
 ```
 
 Opening a fixture writes its `.shale/` (config, DB) inside the fixture, which
-`.gitignore` already covers.
+`.gitignore` already covers. Each fixture has its own seed, so regeneration is
+byte-identical and `--stats` numbers are comparable across runs and machines.
 
-## The three scales
+## Two shapes, because they test different things
 
-| Fixture | Notes | Undirected edges | Note↔note | Tag | Ghost | Asset | Both ways | Out-degree median / p90 / max | Busiest note | Size |
-|---|--:|--:|--:|--:|--:|--:|--:|---|--:|--:|
-| `100` | 100 | 360 | 266 | 47 | 32 | 15 | 49 | 3 / 11 / 27 | 28 | 432 KB |
-| `1k`  | 1 000 | 3 848 | 3 133 | 221 | 303 | 191 | 268 | 3 / 6 / 31 | 87 | 4 MB |
-| `5k`  | 5 000 | 18 843 | 15 466 | 1 056 | 1 386 | 935 | 1 131 | 3 / 6 / 51 | 171 | 20 MB |
+| Fixture | Notes | Edges (note/tag/ghost/asset) | Out-degree med/p90/max | Busiest note | Busiest node | Groups, size med/max | Components | Orphans |
+|---|--:|---|--:|--:|--:|---|---|--:|
+| `100` | 100 | 360 (266/47/32/15) | 3 / 11 / 27 | 28 | 28 | 10, 9/27 | 1 (100%) | 5 |
+| `1k` | 1 000 | 3 848 (3 133/221/303/191) | 3 / 6 / 31 | 87 | 96 | 20, 60/97 | 1 (100%) | 45 |
+| `5k` | 5 000 | 18 843 (15 466/1 056/1 386/935) | 3 / 6 / 51 | 171 | 468 | 46, 100/300 | 1 (100%) | 241 |
+| `organic-100` | 100 | 171 (119/48/1/3) | 2 / 4 / 10 | 10 | 10 | 30, 2/12 | 7 (75%) | 6 |
+| `organic-1k` | 1 000 | 1 355 (1 030/272/23/30) | 1 / 3 / 10 | 10 | 15 | 276, 2/120 | 83 (57%) | 77 |
+| `organic-5k` | 5 000 | 6 780 (5 145/1 363/136/136) | 1 / 3 / 10 | 10 | 75 | 1 341, 2/600 | 378 (56%) | 374 |
 
-Why these three:
+**`100` / `1k` / `5k` — the hub shape.** Engineered to stress: `MOC` hubs with
+14–40 outgoing links, `star` notes with 10–30 links of their own, one root
+`Welcome` reaching every cluster, a 300-deep `Chain/`, and tags treated as
+global (`#project` on 468 notes of the 5k vault). It settles into **one**
+component with a dense core, which is exactly what makes it good for measuring
+frame cost, Barnes-Hut, label culling, node sizing, and the filters — and what
+makes it useless for judging whether the layout can find groups. `100` is the
+only fixture under `graph::sim::NAIVE_LIMIT` (256), so it is the only run of the
+O(n²) pair loop.
 
-- **`100`** fits on one screen with orphans on, so every *feature* of the graph
-  is checkable by eye in one look. It sits under `graph::sim::NAIVE_LIMIT`
-  (256), so it exercises the O(n²) pair loop.
-- **`1k`** is past that limit: Barnes-Hut, labels hitting their 300-per-frame
-  cap, the first place where culling and label ranking matter.
-- **`5k`** is the sim's real stress — ~19k edges, and the size at which frame
-  time, the spatial hash, and (later) 3D sort start to cost something.
+**`organic-100` / `-1k` / `-5k` — the realistic shape.** A vault shaped like
+someone's actual vault, so natural clustering has something to find:
 
-## The shape, which is the point
+- **Topic folders of 2–9 notes** — `projects/quadtree-work/`,
+  `books/camera-2025/` — where each note links one to three of its siblings.
+  174 of them in the 1k vault, 839 in the 5k, against the hub fixtures' 20 and
+  46 folders of ~60–100 notes each.
+- **Bridges between specific notes, not between hubs.** About one note in ten
+  links outside its folder (11% in `organic-5k`) — but so does roughly one in
+  twelve in the hub shape (8%), so the *rate* is not the point. What matters is
+  which notes carry the bridge. There, every cluster's `MOC` links three other
+  `MOC`s and `Welcome` links all of them, so any note is two hops from any
+  other; here a bridge joins two leaf notes, and nothing structurally joins two
+  folders. That is why the hub shape collapses into one component and this one
+  falls into 378.
+- **Real furniture at realistic degree.** A `Home` and a `reading-list` naming a
+  few clusters each; a `journal/` of dated notes that mostly chain to yesterday,
+  with the gaps a real journal has; an `ideas/` folder of half-written
+  singletons, some tagged, most untouched.
+- **Cluster-local tags, with a spread cap.** Palettes belong to an area
+  (`#wip`, `#fix-it`, `#recommend`), ~31% of notes carry one, and no tag may
+  touch more than 9% of the cluster count — because a tag node is an edge to
+  every note carrying it, and an uncapped `#wip` reached 53 notes in the 1k
+  fixture, quietly gluing a dozen folders together. The current heads are 15
+  notes (1k) and 75 (5k).
 
-All three have the same skeleton, only scaled. Counts below are for `5k`.
+Numbers worth comparing: the hub 5k vault has one component holding 100% of its
+notes, a node of degree 468, and notes with up to 51 outgoing links; `organic-5k`
+has 378 components with the largest holding 56%, a widest node of 75 (a tag),
+and no note over 10 links. Edge density is a third of the hub shape (1.4 edges
+per note vs 3.8).
 
-- **Communities.** 40 clusters, one folder each, sized unevenly (40–200 notes).
-  Each cluster has a `MOC` note that links to up to 40 members and to three
-  other MOCs; members link back to their own MOC about half the time, so hub
-  in-degree is far higher than anything else (busiest note: degree 171).
-- **Skewed out-degree.** Notes take a role — `hub` (the MOCs), `star` (10–30
-  links of their own, ~6% of notes), `bridge` (mostly cross-cluster, ~8%), and
-  `leaf` (1–3 links, the rest). Median out-degree 3, p90 6, max 51; 757 notes
-  have exactly one link and 307 have ten or more. That spread is what makes
-  node sizing, the label degree cap, and `link_strength / min(deg_a, deg_b)`
-  observable side by side.
-- **One connected component.** `Welcome.md` links every MOC, and bridges stitch
-  the clusters, so there is a dense core with sparse arms rather than 40
-  isolated islands. About 7% of note edges go both ways (1 131 of the 5k
-  vault's 15 466), which is roughly what a real vault looks like: links are
-  usually answered, not always.
-- **Depth, not just width.** `Chain/` holds a 300-note chain, `Chain 0001 →
-  Chain 0002 → …`, with a long-range jump to a hub every 20 notes — for
-  local-graph and thread (M5a) work, where hops matter more than counts.
-- **Orphans.** 250 notes in `Orphans/`: three quarters link nothing and are
-  linked by nothing (241 true orphans), the rest carry only tags, which still
-  makes them non-orphan because a tag is an edge. Toggling the orphan filter on
-  and off should visibly add exactly the bare ones.
-- **Ghosts.** 239 ghost nodes: a shared pool (`Missing Page 01…40`, the busiest
-  touched by 45 notes — they must collapse to one node each) plus one-off
-  `Ghost of …` targets. "Existing files only" should hide every one of them.
-- **Attachments.** 8 real 8×8 PNGs in `assets/`, embedded by ~18% of notes.
-  They are real files, so they become attachment nodes and not ghosts.
-- **Tags.** 14 tags including nested ones (`#tech/wgpu`, `#person/mira`,
-  `#archive/2026`, `#area/design`), spread zipf-ish over ~22% of notes:
-  `#project` on 468 down to `#parked` on 12. The tag layer is deliberately
-  kept subordinate to the note layer — with naive zipf sampling the busiest tag
-  touched a quarter of the notes and the communities vanished behind it.
+One honest caveat: **modularity is not the discriminator.** The reporter prints
+`Q` for the planted partition, and both shapes score high (0.89 for `5k`, 0.86
+for `organic-5k`) because the hub fixtures' folders are internally dense too.
+What separates the shapes is degree spread, component count, and group size, so
+read those columns first.
 
-## Correctness checks hidden in the fixtures
+## Ground truth for scoring the layout
 
-Each of these is a note you can open and a thing the graph must get right:
+Each organic fixture carries `.fixture.json`: a map of planted group → member
+notes (topic folders, `journal`, each `ideas/<name>`, and an `index` group). The
+dot-prefix keeps it out of shale's vault walk, and the git-ignore keeps it out of
+the repo. That makes layout clustering measurable rather than eyeballed: take
+screen positions after the sim settles, and check whether a group's members are
+nearest neighbours, or run the usual overlap statistic against these labels. The
+hub fixtures plant no file, so `--stats` falls back to grouping them by
+top-level folder.
 
-| Fixture note | What to check |
+`--stats` per fixture prints: notes, edges by kind, edges written both ways,
+out-degree percentiles, node degree percentiles, notes with exactly one link and
+with ten or more, true orphans, ghost/tag/attachment node counts with the
+busiest of each, and the clustering block (groups and their sizes, the share of
+notes linking outside their group, the share of note edges inside a group, `Q`,
+components and the largest one's share).
+
+## The checks built into the fixtures
+
+Both shapes carry the same traps; each is a thing the graph must get right, with
+notes to open.
+
+| Where | What to check |
 |---|---|
-| `Welcome.md` | Walks the whole feature list; every link form resolves. |
-| `Self Link.md` | Links to itself. `GraphIndex` ignores self-links: no self-edge, and it should not grow its own degree. |
-| `Resolution Probe.md`, `Ambiguous/` | Two notes share the stem `A Double`. A bare link must land on `Ambiguous/A Double.md` (shortest path wins); the nested twin is only reachable by its exact path. |
-| Any note with a `text` fence | `[[A fence is not a link]]` and `[[…]]` inside inline code must never become edges or ghost nodes. An orphan carrying only such a decoy stays invisible until the orphan filter is on. |
-| Cluster MOCs and answered links | ~7% of note edges were written in both directions by two different notes. Those edges, and only those, must carry `EdgeMeta::bidirectional = true` (M4's arrow display depends on it). |
+| `Welcome.md` (hub), `Home.md` (organic) | Every wiki-link form resolves: plain, `[[T\|alias]]`, `[[T#Notes]]`. |
+| `Self Link.md` (hub); organic notes with a "(yes, that link points back at this note)" line | Self-links produce no edge and no self-loop (`GraphIndex` must ignore them). |
+| `Resolution Probe.md` + `Ambiguous/` (hub); `Home.md` + `books/renovation/` and `areas/home/renovation/` (organic) | Two notes share a stem; a bare link must land on the **shortest path**, and only an exact path reaches the nested twin. |
+| Any note with a `text`/`sh` fence, or `[[…]]` in inline code | Must never become an edge or a ghost node. Organic orphans holding only a decoy stay invisible until the orphan filter is on. |
+| `Missing Page NN` (hub), `chickens-follow-up` and friends (organic) | Ghost nodes: shared targets must collapse to one node each; "existing files only" hides them all. |
+| `assets/*.png` | Real files, so embeds are attachment nodes and not ghosts. Hub fixtures have 8, organic 5–12. |
+| Cluster hubs (hub) and `journal/` (organic) | Pairs written from both ends (~7% of note edges in the hub shape, ~23% in organic) must carry `EdgeMeta::bidirectional = true`; the rest must not. |
+| Tags | Toggle `tags` and watch the note structure stay put. Organic tags should only thicken local neighbourhoods; if turning tags on merges the clumps, the spread cap has broken. |
 
-## Notes for whoever generates them
+## For whoever generates them
 
-- `stats` at the end of a run resolves links with a simplification of
-  `markdown::extract_wikilinks` and `Vault::resolve_link` just enough to report
-  honest numbers. It is not a second implementation to test shale against — if
-  the two ever disagree, shale is right and the generator should be fixed.
-- Tuning lives in `SPECS` at the top of the script: note count, cluster count,
-  MOC out-degree, ghost pool, chain length, orphan pool, seed. Changing a seed
-  changes the whole vault, which is why the counts in the table above move with
-  the shape rather than with the seed.
-- Memory and time are nowhere near a problem (2 s and 35 MB RSS for all three),
-  but the 5k fixture is 20 MB of tiny files; `du` it before committing, which is
-  exactly why it is ignored.
+- Shape knobs live at the top of each module: `SPECS` plus `CLUSTER_SIZES`,
+  `AREA_WEIGHTS`, `AREA_TAGS`, `TAGGED_SHARE`, `TAG_SPREAD`, `INDEX_*` in
+  `tools/graph_vault_organic.py`; `hub_links`, `chain`, `orphans` in
+  `tools/graph_vault_hubs.py`. Changing a seed changes the whole vault, so the
+  counts in the tables above follow the shape, not the seed.
+- The hub fixtures are **byte-identical on purpose** — that is what lets someone
+  diff a fixture after a sim tweak and attribute every changed line to the tweak.
+  Their `rng` call order is part of the fixture. Refactors that move code around
+  are safe; reordering loops is not. Organic fixtures make no such promise yet.
+- The reporter's link resolution deliberately approximates
+  `markdown::extract_wikilinks` and `Vault::resolve_link` (exact path, then
+  case-insensitive stem or name, shortest path winning a tie). It exists to
+  report honest numbers, not to be a second implementation — if the two ever
+  disagree, shale is right and the reporter should be fixed.
+- Six vaults regenerate in about four seconds and 39 MB peak RSS; the largest on
+  disk is 20 MB of small files, which is why none of it is committed.

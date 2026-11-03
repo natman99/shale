@@ -69,18 +69,33 @@ Edge semantics:
 - **Drift (M5g) is the only opt-in continuous frame source.** Everything else (sim, ripples, springs, orbit) self-settles or is bounded by an explicit user action. With drift off and the sim settled, Shale must draw zero frames while idle.
 - **Validation:** the Wayland frame loop is observable in logs — `wayland/window.rs` drives `FrameLoop::{Ticking, AwaitingCallback, Scheduled, Parked}`; a settled, unfocused graph tab should reach and stay `Parked`. No screenshot tool exists here, so verify idle behavior by log lines plus `top`/`pidstat` on the Shale process (expect 0.0–0.3% with drift off), and ask the user to eyeball the graph tab for motion when drift is off.
 
-### Fixtures for driving it by eye (added 2026-11-03)
+### Fixtures for driving it by eye (added 2026-11-03, second shape the same day)
 
-`python3 tools/graph_vaults.py` writes three deterministic vaults under
-`examples/graph/{100,1k,5k}` — 100 / 1 000 / 5 000 notes, generated not
-committed, so `git status` stays clean and a checkout can rebuild them. They are
-shaped, not just sized: uneven communities with `MOC` hubs, a power-law mix of
-notes with 1 link and notes with 30, a 300-deep chain, 241 true orphans, hundreds
-of ghosts, real PNG embeds, and 14 tags kept deliberately subordinate to the note
-layer so the structure stays visible. `examples/graph/README.md` lists the exact
-node/edge counts and the correctness checks each fixture embeds (self-links,
-colliding stems, links inside code, edges written both ways). `100` is under
-`sim::NAIVE_LIMIT`, so it is the only one that exercises the O(n²) loop.
+`python3 tools/graph_vaults.py` writes six deterministic vaults under
+`examples/graph/` — generated, never committed, so `git status` stays clean and a
+checkout can rebuild them. Two shapes, because they answer different questions:
+
+- `100`/`1k`/`5k` — the **stress** shape. Uneven communities around `MOC` hubs of
+  14–40 links, star/bridge/leaf link budgets, a 300-deep chain, orphans, ghosts,
+  real PNG embeds, tags global (`#project` on 468 notes). One component, widest
+  node 468: right for frame cost, Barnes-Hut, label culling, and the filters;
+  wrong for judging grouping, since it settles into one blob. `100` is under
+  `sim::NAIVE_LIMIT`, so it is the only run of the O(n²) loop.
+- `organic-100`/`-1k`/`-5k` — the **natural-clustering** shape, built like a real
+  vault: topic folders of 2–9 notes, bridges carried by about one note in ten and
+  only ever between specific notes, an index note that caps out at 10 links, a
+  journal chain with real gaps, `ideas/` singletons, and area-local tags whose
+  fan-in is capped at 9% of the cluster count. `organic-5k`: 839 topic folders
+  (1 341 groups counting journal days and idea singletons), 378 components
+  (largest 56%), widest node 75, 1.4 edges per note. Each carries a
+  `.fixture.json` planted-group map, so layout grouping can be scored — and
+  `--stats` prints modularity, the intra-group edge share, and component counts
+  for every fixture (`README.md` explains why modularity alone does *not*
+  separate the two shapes).
+
+`examples/graph/README.md` holds the counts and the correctness checks each
+fixture embeds (self-links, colliding stems, links inside code, edges written
+both ways).
 
 ---
 
