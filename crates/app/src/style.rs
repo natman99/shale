@@ -34,6 +34,10 @@
 //! that is what Raw mode is *for*, and iconing them would mean WYSIWYG, which is a
 //! different product.
 
+// Needed for the styling and child-adding methods the key-chip treatment below calls;
+// the constants above are plain values and never needed them.
+use gpui::{ParentElement, Styled};
+
 /// The corner radius the window's chips are drawn with: a tab, a file-tree row, a
 /// picker row, and the picker's panel.
 ///
@@ -124,3 +128,63 @@ pub(crate) const GLYPH_DIRTY: &str = "●";
 
 /// Closing one tab.
 pub(crate) const GLYPH_CLOSE: &str = "×";
+
+/// One key-chip: the key in a small boxed rule, then what it does in plain words.
+///
+/// `design-language.md` §9 asks for keymap legends to render as boxed chips rather than
+/// prose wherever they appear, so the key reads as a key and the word beside it reads as
+/// the explanation rather than as more of the key. This is the whole treatment, so a
+/// second legend cannot invent a second look.
+///
+/// The colours are arguments rather than a `Palette` import because this module owns the
+/// *treatment* and never decides which role a surface takes: the caller passes the roles
+/// it already owns, and the chip follows the surface it is drawn on.
+///
+/// A chip is a rule and a corner, not a fill. It delimits text; it does not claim to be
+/// above the surface, so it takes none of §5's elevation and needs no contrast floor of
+/// its own — the key is judged against whatever the chip sits on, exactly as the meaning
+/// beside it already is.
+pub(crate) fn key_chip(
+    key: &str,
+    meaning: &str,
+    rule: u32,
+    key_fg: u32,
+    meaning_fg: u32,
+) -> gpui::Div {
+    gpui::div()
+        .flex()
+        .items_center()
+        .gap(SPACE_1)
+        .child(
+            gpui::div()
+                .px(SPACE_1)
+                .border_1()
+                .border_color(gpui::rgb(rule))
+                // The same corner as every other chip in the window, so a key chip and a
+                // tab and a picker row are one shape language.
+                .rounded(CHIP_RADIUS)
+                .text_color(gpui::rgb(key_fg))
+                .child(key.to_string()),
+        )
+        .child(
+            gpui::div()
+                .text_color(gpui::rgb(meaning_fg))
+                .child(meaning.to_string()),
+        )
+}
+
+/// A whole legend: `(key, meaning)` pairs, each a [`key_chip`], with [`SPACE_2`] between
+/// pairs and [`SPACE_1`] inside one so a chip and its word read as a unit and the pairs
+/// read as a list.
+pub(crate) fn key_legend(
+    legend: &[(&str, &str)],
+    rule: u32,
+    key_fg: u32,
+    meaning_fg: u32,
+) -> gpui::Div {
+    gpui::div().flex().items_center().gap(SPACE_2).children(
+        legend
+            .iter()
+            .map(|(key, meaning)| key_chip(key, meaning, rule, key_fg, meaning_fg)),
+    )
+}

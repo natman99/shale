@@ -163,6 +163,45 @@ fn the_review_strip_paints_the_raised_pair(cx: &mut TestAppContext) {
     );
 }
 
+/// The legend is **boxed chips**, not a run of prose (`design-language.md` §9). Five
+/// key-sized rules are drawn on the strip: that is what makes `j/k` read as a key rather
+/// than as the start of a label, and it is the treatment §9 asks for wherever keys are
+/// Pinned at the size rather than the count, because a chip's width is the key's
+/// width and the strip's own rule is the width of the window. The bounds are **device**
+/// pixels, so the thresholds are comfortably above the ~43 px a chip is at 2× and well
+/// below the 3840 × 100 the strip's own rule is.
+#[gpui::test]
+fn the_strip_legends_its_keys_with_chips(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = one_proposal(cx);
+    for _ in 0..3 {
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+    }
+    let want_border = window
+        .update(&mut cx, |ws, _window, _cx| {
+            gpui::Hsla::from(gpui::rgb(ws.palette().popup_border))
+        })
+        .unwrap();
+    let chips = window
+        .update(&mut cx, |_ws, window, _cx| {
+            window
+                .painted_quads()
+                .into_iter()
+                .filter(|quad| {
+                    quad.border_widths.top.as_f32() > 0.0
+                        && (quad.border_color.h - want_border.h).abs() < 0.001
+                        && (quad.border_color.l - want_border.l).abs() < 0.001
+                        && quad.bounds.size.width.as_f32() < 200.0
+                        && quad.bounds.size.height.as_f32() < 80.0
+                })
+                .count()
+        })
+        .unwrap();
+    assert!(
+        chips >= 5,
+        "the five legend keys are boxed: {chips} chip-sized rules were painted"
+    );
+}
+
 /// `:review` gives the strip the keyboard, which is what the quit prompt points at.
 #[gpui::test]
 fn review_takes_the_keyboard_and_escape_gives_it_back(cx: &mut TestAppContext) {

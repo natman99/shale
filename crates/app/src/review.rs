@@ -356,13 +356,24 @@ impl Render for Review {
                     )
                     // The keys are named where the user is already looking, because
                     // the strip only appears when there is something to review and
-                    // nobody has read the docs by then.
-                    .child(
-                        div()
-                            .text_color(gpui::rgb(palette.ui_dim))
-                            .text_ellipsis()
-                            .child("j/k hop · y accept · x reject · o note · za collapse"),
-                    ),
+                    // nobody has read the docs by then. They are chips rather than a
+                    // run of prose (`design-language.md` §9): the strip is dense, the
+                    // keys are the thing being pointed at, and `j/k` running into the
+                    // word `hop` made the legend read as one long label.
+                    .child(crate::style::key_legend(
+                        &[
+                            ("j/k", "hop"),
+                            ("y", "accept"),
+                            ("x", "reject"),
+                            ("o", "note"),
+                            ("za", "collapse"),
+                        ],
+                        // The strip is raised, so the chips take the panel's rule rather
+                        // than the chrome's -- they follow the surface they are on.
+                        palette.popup_border,
+                        palette.ui_fg,
+                        palette.ui_dim,
+                    )),
             )
             .child(div().children(cells))
     }

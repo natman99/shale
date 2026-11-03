@@ -168,6 +168,18 @@ review`, `the vault holds no notes yet`). Empty states and picker hints use the
 same register. Keymap legends (`j/k hop · y accept · …`) render as boxed
 **key-chips** (a `style.rs` treatment, not prose) wherever they appear.
 
+**Landed 2026-11-03.** `style.rs` gained `key_chip` and `key_legend`: the key in a small
+boxed rule, the meaning beside it in `ui_dim`, [`SPACE_1`] inside a pair and [`SPACE_2`]
+between pairs. The review strip's legend was the only legend in the app and was prose
+(`j/k hop · y accept · x reject · o note · za collapse`), which made `j/k` read as the start
+of a label rather than as a key. A chip is a rule and a corner, **not a fill**: it delimits
+text rather than claiming to sit above the surface, so it takes none of §5's elevation and
+needs no contrast floor of its own — the key is judged against whatever the chip sits on,
+exactly as the word beside it already is. The colours are arguments to the helper rather than
+a `Palette` import, because this module owns the treatment and never decides which role a
+surface takes; the strip is raised, so its chips take `popup_border` and follow the surface
+they are on.
+
 ## 10. Accessibility — color-only information needs a second channel
 
 **✅** Any meaning carried by color alone must gain a mark or shape: node kinds
