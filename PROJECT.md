@@ -2377,6 +2377,19 @@ Largest files now (2026-10-30, after Phase 0's module splits; what the DB spine
   child module is invisible to the others, and importing it by name would collide with the
   module of the same name), with `canvas.rs` down to **206**. `editor/mod.rs` is still
   **993**, and `graph/mod.rs` at **698** has room.
+  **P3.4 polish + the jump chain (2026-11-02):** the graph tab's first run on a real
+  window. The wheel direction, the label opacity, the header's size, the strip's
+  keyboard, and a hit test that missed the nodes on the layout's edge — see open thread
+  38. `graph/mod.rs` 698 → **747** (the frame counter's cell, `focus_target`, the header),
+  new `graph/bench.rs` **90** (a temporary fps / paint-ms readout, its own module so it
+  can be deleted in one file), `graph/frame.rs` 133 → **157** (the layout's bounds, and
+  the hit test that uses them), `graph/sim.rs` 301 → **317**, `graph/render.rs` 275 →
+  **287**, `graph/panel.rs` 383 → **394**. The jump chain became note-or-graph:
+  `workspace/jumps.rs` 229 → **300** (`seat_jump`, and `Jump::path` is optional),
+  core `session.rs` 275 → **281** (same for the file's `Jump`), `tests/graph/interactions.rs`
+  429 → **533** (three new tests: every node is hit where it is drawn, the graph is a
+  stop on the chain, and the session keeps that stop). App **371** tests, core **439**,
+  mcp **35**; clippy unchanged from its baseline.
 
 System dependency (Linux): `libxkbcommon-x11-devel` (plus fontconfig, freetype,
 x11, xcb, wayland dev packages) and a working Vulkan driver (the Linux renderer
@@ -3674,6 +3687,58 @@ Next steps, roughly in order:
       to reorder the strip. The chips' click path is exercised only through the same state
       the keys drive; a headless click on a chip needs its painted bounds, which is more
       test machinery than the assertion is worth.
+
+38. **The graph tab on a real window: five findings, one of them in core** —
+    P3.4 polish (2026-11-02).
+    - **Core's `Grid` has no answer for a query outside the box it was built from, and
+      the graph's own edge nodes are on that box.** `Grid::build` takes the positions'
+      bounding box as its origin and extent, and `cell_of` returns `None` for any cell
+      outside it, so `nearest` answers "nothing" — not "nothing near", but "nothing" —
+      for a point a fraction past the edge. Framing the graph to fit puts its extreme
+      nodes exactly on that edge, and `to_screen` → `to_world` lands a hair outside it,
+      so the bottom-most node could not be hovered, dragged or clicked. Fixed app-side:
+      `GraphFrame` carries the layout's `bounds` (one pass in `sim::frame`) and
+      `node_at` asks again from the nearest point inside them, keeping the distance check
+      against the pointer's real position so a far click still misses. **The better fix
+      is core's:** clamping the cell in `cell_of` (or padding the box by one `cell` in
+      `build`) removes the whole class, and the app's workaround can stay as a belt. This
+      is a request for the graph track, not an edit — `core/src/graph/**` is its file.
+    - **gpui's wheel delta is positive downward.** Its own scrollable div does
+      `scroll_offset.y += delta.y`, and the Wayland backend emits
+      `value120/120 * axis_modifier * SCROLL_LINES`, so a positive `delta.y` is "the wheel
+      went down" on every backend. The graph was negating it, which read as reversed.
+      Ruled: **scrolling down zooms in**, with the zoom still anchored at the cursor. One
+      sign in `canvas_wheel` if the user ever wants it back.
+    - **Multiplying a text colour's alpha into a dark background reads as black.** The
+      labels were `graph_text` (mocha subtext0, `0x6c6f85`) at an alpha ramped by zoom;
+      at 0.3 the blend lands around `0x353648` on the `0x1e1e2e` canvas — a smudge. The
+      fade still decides *whether* labels are drawn (it returns early below 0.02), but
+      `LABEL_ALPHA_FLOOR = 0.6` bounds how quiet the drawn ones get. Worth remembering for
+      every future alpha in the graph: opacity is a *how many* control, not a *how quiet*
+      one.
+    - **A tab with two keyboards has to say which one is live.** `active_focus` handed the
+      graph tab's `focus_handle` to every "give the keyboard back to wherever the user was
+      working" path, so returning to the graph with the mouse left the filter strip drawn
+      and deaf. `GraphView::focus_target` is the one question — strip open or not — and a
+      `on_mouse_down` on the strip's own div takes the field for a press that lands
+      between the chips. (`div().on_click` needs an `.id(…)`; `on_mouse_down` does not.)
+    - **A stop on the jump chain is a place, not a note.** `Jump::path` became
+      `Option<PathBuf>` in both the window and the session file (`None` is the graph),
+      and `seat_jump` is the single question both `record_jump` and `step_jump` ask —
+      `record_jump` used to bail whenever there was no note on screen, which is exactly
+      when leaving the graph happens. `step_jump` answers a graph stop with `open_graph`,
+      which reuses the tab and its camera; the camera is not stored twice. The live
+      channel names the stop `"graph"`, the same word `live_note` reports for `view`.
+      `forget`/`rename` compare `path.as_deref()`, so a deleted note cannot erase the
+      graph's entry.
+    - **The frame counter is temporary and knows it.** `graph/bench.rs` counts the
+      canvas's paint calls over a rolling second and reports fps and mean paint ms in the
+      counts row, so P3.4's exit criteria (≈60 fps while the layout moves, zero frames at
+      rest) can be checked on the new `examples/graph/` fixtures without a profiler. It
+      rolls its window on read too, so an idle graph says `0 fps` rather than the rate it
+      last held; it cannot redraw the number while nothing is drawing, because there is
+      deliberately no timer behind it. **Delete the module** once the criteria are
+      verified on a big vault.
 
 ## Parked threads (agreed 2026-10-28; not being worked now)
 

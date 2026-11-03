@@ -748,6 +748,16 @@ into the Phase 3 addendum. **P2.5a landed 2026-11-01, so Phase 2 is closed**
   than the vault, the filter is session state beside the camera rather than config, and
   the strip has a `graph-filter` key context of its own so the graph's `hjkl`, `f`, `+`
   and `-` stay out of a query.
+  **Polish pass landed the same day** (the tab's first run on a real window): the wheel
+  direction (down = zoom in), a floor under the label fade so small labels stop reading as
+  black, a bigger header, the filter strip keeping the keyboard across a tab change, and a
+  hit test that stops missing the nodes on the layout's bounding-box edge — core's `Grid`
+  answers "nothing" for a query outside the box it was built from, which is where the
+  screen→world round trip puts them (see PROJECT.md thread 38 for the request to the graph
+  track). The jump chain now treats the graph as a place, so `ctrl-o` walks back to it from
+  a note a node click opened. A temporary fps / paint-ms readout sits in the counts row
+  (`graph/bench.rs`) for the exit-criteria check on `examples/graph/`, and comes out once
+  that is verified.
 - **P3.5 Graph M2–M5** in the plan's order: local graph + projected 3D →
   constellations + static mode → heatmap/groups/arrows → signature features
   (thread, pulses+glow, MST star-lines, nebulae, hjkl + f-jump, illumination,
