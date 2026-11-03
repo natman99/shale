@@ -1,6 +1,7 @@
-//! The frame: sidebar rows, the prompt, the note and the status bar.
+//! The frame: sidebar rows, the prompt, the note, the status bar, and the
+//! window's own title.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use gpui::{anchored, div, prelude::*, px, AnchoredPositionMode, Context, MouseButton, Window};
 
@@ -27,6 +28,63 @@ const TAB_ROW: gpui::Pixels = gpui::px(20.);
 /// a tab, so the frame the bar draws around its tabs is the same width on every side.
 const TAB_GAP: gpui::Pixels = crate::style::SPACE_1;
 
+/// The gap between the vault's name and the note's in the window's title. An em
+/// dash with spaces, which is how a title's two parts are set off in prose; a
+/// plain `-` would make `my-vault - Welcome` read as one long hyphenated name,
+/// and vault names are full of hyphens.
+const TITLE_GAP: &str = " — ";
+
+/// The vault's name: the last component of its path, which is what a vault is
+/// called by the person who made it. A path with no last component (`/`) falls
+/// back to the whole path, because an empty name is worse than a long one.
+///
+/// Also what the window is *opened* with, before the first frame has a note to
+/// name, so the window manager never has a moment where the window is called
+/// something else.
+pub(crate) fn vault_title(root: &Path) -> String {
+    root.file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| root.display().to_string())
+}
+
+impl Workspace {
+    /// The window's title: the vault, and the note on screen when there is one --
+    /// `my-vault — Welcome`.
+    ///
+    /// The vault's name rather than its path, because the window list is a list of
+    /// vaults and the path is what the picker already shows. The note's name
+    /// without its `.md`, which is how the tab bar names the same note. A tab with
+    /// no note -- the graph, or the empty tab that closing the last tab leaves --
+    /// leaves the vault name alone: the title says *which* window this is, not
+    /// which view of it happens to be on screen.
+    fn window_title(&self) -> String {
+        let vault = vault_title(self.vault.root());
+        match self.note() {
+            Some(path) => {
+                let note = path.file_stem().unwrap_or_default().to_string_lossy();
+                format!("{vault}{TITLE_GAP}{note}")
+            }
+            None => vault,
+        }
+    }
+
+    /// Give the window its title, if this frame changed it.
+    ///
+    /// Called from `render` rather than from every place a tab opens, closes or
+    /// moves: the title describes the frame, and the frame is the only thing that
+    /// knows what it is showing. The guard is not tidiness -- `set_window_title`
+    /// reaches the window manager, so an unguarded call would be a conversation
+    /// with the desktop every frame.
+    fn sync_window_title(&mut self, window: &mut Window) {
+        let title = self.window_title();
+        if self.last_window_title.as_deref() == Some(title.as_str()) {
+            return;
+        }
+        window.set_window_title(&title);
+        self.last_window_title = Some(title);
+    }
+}
+
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // A tab change that had no window to rehook the hover subscription with gets
@@ -39,6 +97,7 @@ impl Render for Workspace {
         if self.focus_stale {
             cx.on_next_frame(window, |ws, window, cx| ws.focus_active_tab(window, cx));
         }
+        self.sync_window_title(window);
         let tree = tree::build_tree(&self.entries, &self.dirs);
         let active = self.note();
         let selected = self.tree_selection.clone();

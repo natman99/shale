@@ -474,3 +474,69 @@ fn walking_one_tab_says_so(cx: &mut TestAppContext) {
     assert!(say(&window, &mut cx).contains("only one tab"));
     assert_eq!(marker(&window, &mut cx), 0);
 }
+
+/// The title the window manager was given. It is written while the frame is drawn,
+/// so asking for it means drawing a frame first. Unlike the other helpers here it
+/// needs no window handle: the title lives on the test window, not on the workspace.
+fn title(cx: &mut VisualTestContext) -> Option<String> {
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    cx.window_title()
+}
+
+/// The window is titled for its vault and the note on screen, and follows the tab
+/// that is on screen. This is what `alt-tab` and a window list have to say about the
+/// window, so two vaults open at once have to be tellible apart without one.
+#[gpui::test]
+fn the_window_is_titled_for_its_vault_and_note(cx: &mut TestAppContext) {
+    let (dir, window) = vault_with(cx, &[("a.md", "first\n"), ("notes/Deep Note.md", "deep\n")]);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    let vault = dir
+        .path()
+        .file_name()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+    show(&mut cx, &window, "a.md");
+    assert_eq!(
+        title(&mut cx).as_deref(),
+        Some(format!("{vault} — a").as_str()),
+        "the vault, then the note"
+    );
+
+    // The note's own name: not its folder, not its extension, because the title is
+    // not a path and the tab bar names the same note the same way.
+    show(&mut cx, &window, "notes/Deep Note.md");
+    assert_eq!(
+        title(&mut cx).as_deref(),
+        Some(format!("{vault} — Deep Note").as_str())
+    );
+
+    // The graph tab has no note, and the title says *which window this is* rather
+    // than which view of it happens to be up, so it goes back to the vault alone.
+    cx.simulate_keystrokes("space g");
+    assert_eq!(title(&mut cx).as_deref(), Some(vault.as_str()));
+
+    // Walking back to the note brings its name back: the title tracks the tab on
+    // screen, not the last note that was opened. `escape` is the graph's way out,
+    // and it lands on the note tab the frame was last on.
+    cx.simulate_keystrokes("escape");
+    assert_eq!(
+        title(&mut cx).as_deref(),
+        Some(format!("{vault} — Deep Note").as_str())
+    );
+}
+
+/// A window with nothing to name is named for its vault alone: no "no note", and no
+/// program name, which tells anyone with two vaults open nothing.
+#[gpui::test]
+fn an_empty_window_is_titled_for_its_vault(cx: &mut TestAppContext) {
+    let (dir, window) = workspace(cx, &[]);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    let vault = dir
+        .path()
+        .file_name()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+    assert_eq!(title(&mut cx).as_deref(), Some(vault.as_str()));
+}

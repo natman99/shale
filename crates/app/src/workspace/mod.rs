@@ -35,6 +35,7 @@ mod views;
 pub(crate) use bar::STATUS_TTL;
 pub(crate) use keys::keybindings;
 pub(crate) use open::PickerTarget;
+pub(crate) use render::vault_title;
 
 use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
@@ -175,6 +176,10 @@ pub(crate) struct Workspace {
     /// The next tab id. Monotonic, because a tab's *index* moves when another tab
     /// closes and its editor's subscription needs an identity that does not.
     tab_seq: usize,
+    /// The title the window was last given, so a frame that did not change the note
+    /// on screen does not ask the window manager for a new one (see
+    /// [`Workspace::sync_window_title`]).
+    last_window_title: Option<String>,
     /// The sidebar's own focus, so the tree can be driven from the keyboard.
     tree_focus: gpui::FocusHandle,
     /// The tree row the keyboard has selected.
@@ -423,6 +428,9 @@ impl Workspace {
             tab: 0,
             note_mru: None,
             tab_seq: 0,
+            // Nothing has been given to a window that does not exist yet; the
+            // first frame names it.
+            last_window_title: None,
             tree_focus: cx.focus_handle(),
             tree_selection: None,
             tree_rows: Vec::new(),

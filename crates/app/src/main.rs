@@ -38,7 +38,7 @@ use clap::Parser;
 use gpui::{prelude::*, px, size, App, Bounds, TitlebarOptions, WindowBounds, WindowOptions};
 use shale_core::{Config, Vault};
 
-use workspace::{keybindings, start_watcher, Workspace};
+use workspace::{keybindings, start_watcher, vault_title, Workspace};
 
 #[derive(Parser, Debug)]
 #[command(name = "shale", about = "Obsidian-style markdown editor")]
@@ -73,6 +73,10 @@ fn main() -> Result<()> {
     tracing::info!(?source, path = %Config::path(vault.root()).display(), "config");
     let config = Rc::new(config);
     let initial_note = args.note.clone();
+    // The window is named for the vault, not for the program: a window list is a
+    // list of vaults, and "Shale" is no use to anyone with two open. The first
+    // frame extends it to `vault — note` (`workspace::render`).
+    let vault_name = vault_title(vault.root());
 
     // Roadmap P1.5: a termination signal is an exit the user asked for, not a crash.
     // The handler runs in signal context, where the only safe work is an atomic
@@ -114,7 +118,7 @@ fn main() -> Result<()> {
             .open_window(
                 WindowOptions {
                     titlebar: Some(TitlebarOptions {
-                        title: Some("Shale".into()),
+                        title: Some(vault_name.clone().into()),
                         ..Default::default()
                     }),
                     // Filed under its own name rather than under whatever the
