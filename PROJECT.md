@@ -655,6 +655,13 @@ entity), cx)` while painting the current frame. Forget it and every character
 - Manual Wayland checks: `grim` for full-screen, `niri msg action
 screenshot-window --id <id> --write-to-disk true` for a single window, and
 `niri msg --json windows` to find the window id.
+- Graph fixtures: `python3 tools/graph_vaults.py` writes
+`examples/graph/{100,1k,5k}` (100 / 1 000 / 5 000 generated notes, deterministic
+per-vault seeds, never committed). They are shaped as well as sized — communities
+with `MOC` hubs, notes with one link next to notes with thirty, a 300-deep chain,
+true orphans, ghost targets, real PNG embeds, and 14 tags — and each run prints
+the node and edge counts it produced. See `examples/graph/README.md` and
+`graph-view-plan.md` §Fixtures.
 - Run the test binaries under `ulimit -v` when working on anything that scans
   text (a scanner bug can allocate until the OOM killer takes the editor down —
   see the table postmortem).

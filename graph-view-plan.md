@@ -69,6 +69,19 @@ Edge semantics:
 - **Drift (M5g) is the only opt-in continuous frame source.** Everything else (sim, ripples, springs, orbit) self-settles or is bounded by an explicit user action. With drift off and the sim settled, Shale must draw zero frames while idle.
 - **Validation:** the Wayland frame loop is observable in logs — `wayland/window.rs` drives `FrameLoop::{Ticking, AwaitingCallback, Scheduled, Parked}`; a settled, unfocused graph tab should reach and stay `Parked`. No screenshot tool exists here, so verify idle behavior by log lines plus `top`/`pidstat` on the Shale process (expect 0.0–0.3% with drift off), and ask the user to eyeball the graph tab for motion when drift is off.
 
+### Fixtures for driving it by eye (added 2026-11-03)
+
+`python3 tools/graph_vaults.py` writes three deterministic vaults under
+`examples/graph/{100,1k,5k}` — 100 / 1 000 / 5 000 notes, generated not
+committed, so `git status` stays clean and a checkout can rebuild them. They are
+shaped, not just sized: uneven communities with `MOC` hubs, a power-law mix of
+notes with 1 link and notes with 30, a 300-deep chain, 241 true orphans, hundreds
+of ghosts, real PNG embeds, and 14 tags kept deliberately subordinate to the note
+layer so the structure stays visible. `examples/graph/README.md` lists the exact
+node/edge counts and the correctness checks each fixture embeds (self-links,
+colliding stems, links inside code, edges written both ways). `100` is under
+`sim::NAIVE_LIMIT`, so it is the only one that exercises the O(n²) loop.
+
 ---
 
 ## Milestone M1a — core: graph index + simulation (no UI, startable before tabs exist)
