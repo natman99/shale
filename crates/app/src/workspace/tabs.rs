@@ -30,6 +30,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use gpui::{prelude::*, Context, Entity, Focusable, SharedString, Subscription, Task, Window};
+use shale_core::vault::rel_text;
 
 use crate::acts::{TabClose, TabNew, TabNext, TabOnly, TabPrev};
 use crate::editor::{EditorEvent, MarkdownEditor, View};
@@ -316,7 +317,7 @@ impl Workspace {
                 .map(|editor| editor.read_with(cx, |editor, _cx| editor.text()))
                 .unwrap_or_default();
             self.checker_opened(&path, &text, cx);
-            self.say(path.display().to_string(), cx);
+            self.say(rel_text(&path), cx);
         } else {
             self.checker_closed(cx);
             // The graph tab has no note to name, so the bar says what is on screen.

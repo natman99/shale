@@ -23,6 +23,7 @@ use anyhow::Context as _;
 use gpui::{Context, Window};
 use shale_core::config::{self, Value};
 use shale_core::theme::{self, Palette};
+use shale_core::vault::rel_text;
 
 use crate::acts::ChangeTheme;
 use crate::picker::PickerItem;
@@ -121,7 +122,7 @@ impl Workspace {
         anyhow::ensure!(
             !path.exists(),
             "{} is already a theme; delete it to export over it",
-            relative(self.vault.root(), &path).display()
+            rel_text(relative(self.vault.root(), &path))
         );
         let text = self.palette.to_theme_toml()?;
         if let Some(parent) = path.parent() {

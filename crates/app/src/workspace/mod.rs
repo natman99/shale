@@ -46,7 +46,7 @@ use std::time::Duration;
 use gpui::{prelude::*, Context, Entity, SharedString, Subscription, Task, Window};
 use shale_core::db::{Db, Provenance};
 use shale_core::theme::{self, Palette};
-use shale_core::vault::VaultEntry;
+use shale_core::vault::{rel_text, VaultEntry};
 use shale_core::watch::{Stamp, VaultChanges};
 use shale_core::{Config, Vault};
 
@@ -724,7 +724,7 @@ impl Workspace {
                     self.say(
                         format!(
                             "{} deleted from disk; your edits are still here",
-                            path.display()
+                            rel_text(&path)
                         ),
                         cx,
                     );
@@ -733,14 +733,14 @@ impl Workspace {
                     if index == self.tab {
                         self.checker_closed(cx);
                     }
-                    self.say(format!("{} deleted from disk", path.display()), cx);
+                    self.say(format!("{} deleted from disk", rel_text(&path)), cx);
                 }
             } else if changes.was_modified(&path) {
                 if dirty {
                     self.say(
                         format!(
                             "{} changed on disk; ctrl-s will overwrite it",
-                            path.display()
+                            rel_text(&path)
                         ),
                         cx,
                     );
@@ -754,7 +754,7 @@ impl Workspace {
                             if index == self.tab {
                                 self.checker_opened(&path, &text, cx);
                             }
-                            self.say(format!("{} reloaded from disk", path.display()), cx);
+                            self.say(format!("{} reloaded from disk", rel_text(&path)), cx);
                         }
                         Err(err) => {
                             tracing::warn!(path = %path.display(), "re-read failed: {err:#}")

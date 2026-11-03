@@ -31,6 +31,7 @@ use gpui::{
 };
 use shale_core::pending::PendingEdit;
 use shale_core::theme::Palette;
+use shale_core::vault::rel_text;
 
 /// The key context the strip's bare keys live in. Like the tree, the prompt and the
 /// pickers it is a sibling of the note, so the vim contexts cannot swallow the keys
@@ -361,7 +362,7 @@ impl Review {
     /// can be read in one place.
     fn row_text(&self, row: Row) -> (SharedString, SharedString, u32) {
         let edit = &self.edits[row.edit];
-        let note = edit.note.display().to_string();
+        let note = rel_text(&edit.note);
         let Some(index) = row.hunk else {
             // A collapsed edit: the note, who proposed it, and how much is waiting.
             return (

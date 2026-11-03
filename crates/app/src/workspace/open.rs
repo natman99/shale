@@ -9,6 +9,7 @@ use std::rc::Rc;
 
 use gpui::{prelude::*, Context, Focusable, SharedString, Window};
 use shale_core::search::{search, SearchOptions};
+use shale_core::vault::rel_text;
 
 use crate::acts::{CommandPalette, QuickOpen, SearchVault};
 use crate::picker::{self, PickerItem, RowSource};
@@ -66,10 +67,10 @@ impl Workspace {
                             .path
                             .parent()
                             .filter(|p| !p.as_os_str().is_empty())
-                            .map(|p| p.to_string_lossy().to_string())
+                            .map(rel_text)
                             .unwrap_or_default()
                             .into(),
-                        search: entry.path.to_string_lossy().to_string().into(),
+                        search: rel_text(&entry.path).into(),
                     },
                     PickerTarget::Note(entry.path.clone()),
                 )
@@ -150,7 +151,7 @@ impl Workspace {
                             label: line.clone().into(),
                             detail: SharedString::from(format!(
                                 "{}:{}",
-                                hit.path.display(),
+                                rel_text(&hit.path),
                                 hit.line_number
                             )),
                             search: line.into(),

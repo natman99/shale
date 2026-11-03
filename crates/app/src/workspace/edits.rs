@@ -10,6 +10,7 @@ use std::rc::Rc;
 use anyhow::{Context as _, Result};
 use gpui::{prelude::*, Context, Entity, Focusable, Window};
 use shale_core::rename::LinkRewrite;
+use shale_core::vault::rel_text;
 
 use crate::acts::*;
 use crate::ex;
@@ -181,7 +182,7 @@ impl Workspace {
             },
             ex::Ex::WordCount(folder) => self.wordcount(&folder, cx),
             ex::Ex::ThemeExport(name) => match self.export_theme(&name) {
-                Ok(path) => self.say(format!("wrote {}", path.display()), cx),
+                Ok(path) => self.say(format!("wrote {}", rel_text(&path)), cx),
                 Err(err) => self.say(format!("{err:#}"), cx),
             },
             // The one tab command with an argument. Typed 1-based, like every number
@@ -253,7 +254,7 @@ impl Workspace {
                 self.index_created(&created);
                 self.tree_selection = Some(created.clone());
                 self.open_note(&created, cx);
-                self.say(format!("created {}", created.display()), cx);
+                self.say(format!("created {}", rel_text(&created)), cx);
             }
             prompt::PromptKind::NewFolder => {
                 let dir = self.target_dir().join(answer);
@@ -261,7 +262,7 @@ impl Workspace {
                 self.refresh_entries(cx);
                 self.expanded.insert(dir.clone());
                 self.tree_selection = Some(dir.clone());
-                self.say(format!("created {}/", dir.display()), cx);
+                self.say(format!("created {}/", rel_text(&dir)), cx);
             }
             prompt::PromptKind::Rename => {
                 let from = self.prompt_target()?;
@@ -344,7 +345,7 @@ impl Workspace {
                 self.refresh_graph(cx);
                 self.tree_selection = None;
                 self.refresh_entries(cx);
-                self.say(format!("deleted {}", target.display()), cx);
+                self.say(format!("deleted {}", rel_text(&target)), cx);
             }
         }
         // The edit that just happened was ours, so the watcher's next pass has
@@ -443,7 +444,7 @@ impl Workspace {
         let label = if dir.as_os_str().is_empty() {
             "New note in the vault".to_string()
         } else {
-            format!("New note in {}/", dir.display())
+            format!("New note in {}/", rel_text(&dir))
         };
         self.open_prompt(prompt::PromptKind::NewNote, &label, "", window, cx);
     }
@@ -458,7 +459,7 @@ impl Workspace {
         let label = if dir.as_os_str().is_empty() {
             "New folder in the vault".to_string()
         } else {
-            format!("New folder in {}/", dir.display())
+            format!("New folder in {}/", rel_text(&dir))
         };
         self.open_prompt(prompt::PromptKind::NewFolder, &label, "", window, cx);
     }
@@ -492,7 +493,7 @@ impl Workspace {
         };
         self.open_prompt(
             prompt::PromptKind::Rename,
-            &format!("Rename {} to", target.display()),
+            &format!("Rename {} to", rel_text(&target)),
             &initial,
             window,
             cx,
@@ -515,7 +516,7 @@ impl Workspace {
         };
         self.open_prompt(
             prompt::PromptKind::Delete,
-            &format!("Delete {}? Type yes to confirm.", target.display()),
+            &format!("Delete {}? Type yes to confirm.", rel_text(&target)),
             "",
             window,
             cx,
@@ -541,7 +542,7 @@ struct RewriteReport {
 /// them has unsaved edits are named here rather than left for the user to find on
 /// their next save.
 fn rename_status(renamed: &Path, report: &RewriteReport) -> String {
-    let mut status = format!("renamed to {}", renamed.display());
+    let mut status = format!("renamed to {}", rel_text(renamed));
     if report.links > 0 {
         status = format!(
             "{status}; {} links in {} updated",

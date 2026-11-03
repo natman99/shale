@@ -28,6 +28,7 @@ use std::time::Duration;
 use gpui::{Context, Focusable, Window};
 use shale_core::diff::{self, Hunk};
 use shale_core::pending::{self, PendingEdit};
+use shale_core::vault::rel_text;
 
 use crate::acts::*;
 use crate::editor::View;
@@ -219,7 +220,7 @@ impl Workspace {
         };
         let note = self.review.read(cx).edit(&row).note.clone();
         if self.note().as_ref() == Some(&note) {
-            self.say(format!("already showing {}", note.display()), cx);
+            self.say(format!("already showing {}", rel_text(&note)), cx);
             cx.notify();
             return;
         }
@@ -270,7 +271,7 @@ impl Workspace {
                     "accepted {} {} in {}",
                     applied,
                     if applied == 1 { "hunk" } else { "hunks" },
-                    edit.note.display()
+                    rel_text(&edit.note)
                 ),
                 cx,
             );
@@ -279,7 +280,7 @@ impl Workspace {
                 format!(
                     "accepted {applied} of {} hunks in {}: {stale} no longer fits",
                     edit.hunks.len(),
-                    edit.note.display()
+                    rel_text(&edit.note)
                 ),
                 cx,
             );
@@ -313,7 +314,7 @@ impl Workspace {
                         Some(_) => "a hunk",
                         None => "a proposal",
                     },
-                    edit.note.display()
+                    rel_text(&edit.note)
                 ),
                 cx,
             ),
@@ -524,7 +525,7 @@ impl Workspace {
                 };
                 format!(
                     "{}{}{badge}",
-                    edit.note.display(),
+                    rel_text(&edit.note),
                     match row.hunk {
                         Some(h) => format!(" hunk {h}"),
                         None => String::new(),
@@ -547,7 +548,7 @@ impl Workspace {
     pub(crate) fn review_marker(&self, cx: &gpui::App) -> Option<(String, Option<usize>)> {
         let review = self.review.read(cx);
         let row = review.current_row()?;
-        Some((review.edit(&row).note.display().to_string(), row.hunk))
+        Some((rel_text(&review.edit(&row).note), row.hunk))
     }
 }
 

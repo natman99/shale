@@ -17,6 +17,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use gpui::Context;
+use shale_core::vault::rel_text;
 use shale_core::vim::Mode;
 
 use crate::live::{LiveServer, Snapshot};
@@ -52,12 +53,13 @@ fn overlay_word(picker: bool, prompt: bool, popup: bool) -> &'static str {
 }
 
 /// A stop on the jump chain, named the way the live API names places: the note's
-/// vault-relative path, or `"graph"` for the graph tab — the same word `live_note`
-/// reports for `view`, so an agent can tell that a `ctrl-o` will move the window to a
-/// view of the whole vault rather than to a file.
+/// vault-relative path — `/`-joined by [`rel_text`], the same form the note's own links
+/// use — or `"graph"` for the graph tab. It is the same word `live_note` reports for
+/// `view`, so an agent can tell that a `ctrl-o` will move the window to a view of the
+/// whole vault rather than to a file.
 fn jump_word(path: Option<std::path::PathBuf>) -> String {
     match path {
-        Some(path) => path.display().to_string(),
+        Some(path) => rel_text(&path),
         None => "graph".to_string(),
     }
 }
@@ -121,7 +123,7 @@ impl Workspace {
                 let editor = handle.read(cx);
                 let (row, col) = editor.cursor_position();
                 (
-                    self.note().as_ref().map(|path| path.display().to_string()),
+                    self.note().as_ref().map(rel_text),
                     editor.is_dirty(),
                     editor.view().word().to_string(),
                     mode_word(editor.mode()).to_string(),

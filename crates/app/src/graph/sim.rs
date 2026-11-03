@@ -20,6 +20,7 @@ use shale_core::graph::geom::Grid;
 use shale_core::graph::index::{GraphIndex, NodeMeta};
 use shale_core::graph::sim::{Sim, SimParams};
 use shale_core::graph::NodeKind;
+use shale_core::vault::rel_text;
 
 use super::frame::{GraphFrame, GraphNode};
 
@@ -58,7 +59,7 @@ struct Slot {
 /// the kind prefix is what keeps a tag `idea` from matching a ghost `idea`).
 fn key(meta: &NodeMeta) -> String {
     match meta.path.as_deref() {
-        Some(path) => path.display().to_string(),
+        Some(path) => rel_text(path),
         None => match meta.kind {
             NodeKind::Tag => format!("#{}", meta.label),
             NodeKind::Ghost => format!("?{}", meta.label),
@@ -291,7 +292,7 @@ impl GraphSim {
                 path: slot_data
                     .path
                     .as_ref()
-                    .map(|path| SharedString::from(path.display().to_string())),
+                    .map(|path| SharedString::from(rel_text(path))),
             })
             .collect();
         // The box the layout occupies, in one pass over the positions the sim is

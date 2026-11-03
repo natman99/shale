@@ -8,6 +8,7 @@
 
 use super::bar::{mode_label, save_indicator, word_badge};
 use super::*;
+use shale_core::vault::rel_text;
 
 impl Workspace {
     /// The editor entity of the tab on screen. Only the tests ask for it, to look at
@@ -433,8 +434,8 @@ impl Workspace {
             .as_ref()
             .and_then(|picker| picker.read(cx).chosen())
             .map(|target| match target {
-                PickerTarget::Note(path) => path.display().to_string(),
-                PickerTarget::Hit { path, line } => format!("{}:{}", path.display(), line),
+                PickerTarget::Note(path) => rel_text(&path),
+                PickerTarget::Hit { path, line } => format!("{}:{}", rel_text(&path), line),
                 PickerTarget::Command(command) => command.label().to_string(),
                 PickerTarget::Theme(name) => name,
             })

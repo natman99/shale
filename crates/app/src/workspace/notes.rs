@@ -10,6 +10,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use gpui::{Context, Window};
+use shale_core::vault::rel_text;
 
 use crate::acts::Save;
 
@@ -61,7 +62,7 @@ impl Workspace {
                     editor.update(cx, |editor, cx| editor.set_text(text.clone(), cx));
                 }
                 self.checker_opened(path, &text, cx);
-                self.say(path.display().to_string(), cx);
+                self.say(rel_text(path), cx);
                 true
             }
             Err(err) => {
@@ -147,7 +148,7 @@ impl Workspace {
                 // own write.
                 self.graph_note_saved(&path, &text);
                 self.refresh_graph(cx);
-                self.say(format!("saved {}", path.display()), cx);
+                self.say(format!("saved {}", rel_text(&path)), cx);
             }
             Err(err) => {
                 // Logged as well as said: an exit path can fail a save with nobody
