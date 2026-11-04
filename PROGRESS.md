@@ -557,3 +557,46 @@ already keeps them roughly in sync through disk.
 
 Tests: app 438 (new: two windows share one services entry, closing one
 keeps the vault claimed, closing both releases it).
+
+## Per-window sessions + window geometry (2026-11-04)
+
+The last of the multi-window wrinkles: `.shale/session.json` was one room
+remembered for a whole vault, and windows never remembered where they sat.
+
+**The file is now a list of slots.** `shale_core::Sessions { slots:
+Vec<Session> }`; a `Session` grew a `window: Option<WindowGeom>` —
+`{x, y, w, h, maximized}`. A file from the single-window era (a bare
+`Session`, no `slots` key) reads as slot 0, so old vaults migrate by
+themselves.
+
+**The vault's services own the file** (`services.rs`): read once at startup;
+`claim_slot` hands out the lowest slot no live window holds, `release_slot`
+frees it when a window closes — the slot's *memory* stays in the file, so
+the next window to claim it wakes up in that room. `put_session` writes the
+whole file with only that window's slot changed: two windows can no longer
+overwrite each other's room.
+
+**The frame rides along.** render is the one place a `Window` is within
+reach of the save paths, so each painted frame copies `window_bounds()` into
+`last_bounds` (five floats; cheaper than a resize subscription), and
+`save_session` puts it in the slot. On open, `build_window` reads the slot's
+`WindowGeom` back: too-small or off-screen rects (the monitor it lived on is
+gone) are dropped and the window opens centered; `maximized` comes back
+maximized. X11 and Windows honor position and size fully; Wayland honors
+the size hint and lets the compositor place the window — the data is stored
+either way, the platform decides what to obey.
+
+Verified live on niri: legacy session restored, close wrote the slots format
+with the real tiled frame (`w: 2042, h: 1100`; position 0,0 because Wayland
+does not report one).
+
+**Found while verifying (pre-existing, not from this change):** after the
+last window closes, the process can linger — the old build (`41fa3d6`) does
+it too. The session saves and the claim releases; something (likely a
+services background loop) keeps gpui's run loop alive with no windows left.
+Open issue.
+
+Tests: app 439 (new: two windows on one vault keep alpha/beta in separate
+slots, close both, reopen, each wakes in its own room — and the frame is in
+the file), core 457 (new: slots do not overwrite each other; a pre-slots
+file becomes slot 0).

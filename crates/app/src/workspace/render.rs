@@ -322,6 +322,10 @@ impl Workspace {
 
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // The frame the window sits in, kept current: render is the one place
+        // a `Window` is within reach of the session's save paths, and copying
+        // five floats a frame is cheaper than any resize subscription.
+        self.last_bounds = Some(Workspace::geom_of(window));
         // A tab change that had no window to rehook the hover subscription with gets
         // it here, one frame later, rather than never: the pointer can only hover over
         // the note that is drawn, so the subscription has to be the drawn tab's. The

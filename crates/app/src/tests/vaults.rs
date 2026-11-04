@@ -250,6 +250,76 @@ fn picking_here_keeps_the_window(cx: &mut TestAppContext) {
     );
 }
 
+/// The per-window half of the session file. Two windows on one vault each
+/// keep their own room — different notes, different slots — and a save from
+/// one never writes over the other. Close both, reopen, and each window wakes
+/// up where the window that held its slot left it.
+#[gpui::test]
+async fn two_windows_remember_their_own_rooms(cx: &mut TestAppContext) {
+    let store = tempfile::tempdir().unwrap();
+    setup(cx, &store.path().join("recent.json"));
+    let (_dir, vault) = vault_dir("per_window_sessions");
+    std::fs::write(vault.join("alpha.md"), "# Alpha\n").unwrap();
+    std::fs::write(vault.join("beta.md"), "# Beta\n").unwrap();
+
+    let a = cx
+        .update(|cx| vaults::open_vault_window(&vault, OpenOptions::default(), cx))
+        .unwrap();
+    // The second window comes in the way a second window really arrives:
+    // `:new-window`, sharing the vault's services.
+    let b = cx.update(|cx| vaults::open_extra_window(&vault, cx)).unwrap();
+    a.update(cx, |ws, _window, cx| ws.open_note(&PathBuf::from("alpha.md"), cx))
+        .unwrap();
+    b.update(cx, |ws, _window, cx| ws.open_note(&PathBuf::from("beta.md"), cx))
+        .unwrap();
+    // The windows have to be painted once before their sessions carry a
+    // frame: render is where the bounds are noticed.
+    for handle in [a, b] {
+        let mut vcx = VisualTestContext::from_window(handle.into(), cx);
+        for _ in 0..2 {
+            vcx.update(|window, cx| window.draw(cx).clear(cx));
+        }
+    }
+    a.update(cx, |ws, _window, cx| ws.save_session(cx)).unwrap();
+    b.update(cx, |ws, _window, cx| ws.save_session(cx)).unwrap();
+
+    // One file, two slots, and the frame each window sat in rides along.
+    let slot_of = |w: gpui::WindowHandle<crate::workspace::Workspace>,
+                   cx: &mut TestAppContext| {
+        w.update(cx, |ws, _window, _cx| ws.session_slot()).unwrap()
+    };
+    let (sa, sb) = (slot_of(a, cx), slot_of(b, cx));
+    assert_ne!(sa, sb, "two windows, two slots");
+    let sessions = shale_core::Sessions::load(&vault).unwrap();
+    assert_eq!(sessions.slots.len(), sb + 1);
+    assert_eq!(sessions.slots[sa].tabs[0].path, Some(PathBuf::from("alpha.md")));
+    assert_eq!(sessions.slots[sb].tabs[0].path, Some(PathBuf::from("beta.md")));
+    let geom = sessions.slots[sa].window.clone().expect("a frame is saved");
+    assert_eq!((geom.w, geom.h), (1200., 800.));
+
+    // Close both, reopen: slot 0 remembers alpha, slot 1 remembers beta.
+    a.update(cx, |_ws, window, _cx| window.remove_window())
+        .unwrap();
+    b.update(cx, |_ws, window, _cx| window.remove_window())
+        .unwrap();
+    let a2 = cx
+        .update(|cx| vaults::open_vault_window(&vault, OpenOptions::default(), cx))
+        .unwrap();
+    let b2 = cx.update(|cx| vaults::open_extra_window(&vault, cx)).unwrap();
+    let room = |w: gpui::WindowHandle<crate::workspace::Workspace>, cx: &mut TestAppContext| {
+        w.update(cx, |ws, _window, _cx| {
+            ws.pane()
+                .tabs
+                .iter()
+                .map(|t| t.path().map(|p| p.to_path_buf()))
+                .collect::<Vec<_>>()
+        })
+        .unwrap()
+    };
+    assert_eq!(room(a2, cx), vec![Some(PathBuf::from("alpha.md"))]);
+    assert_eq!(room(b2, cx), vec![Some(PathBuf::from("beta.md"))]);
+}
+
 /// Two windows on one vault: two frames, one set of services. The claim
 /// stays single, the watcher walks once, the MCP channel answers once —
 /// which is the whole reason a second *window* is allowed where a second

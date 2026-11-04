@@ -77,6 +77,7 @@ fn a_restored_note_is_revealed_in_the_tree(cx: &mut TestAppContext) {
 #[gpui::test]
 fn a_session_reopens_the_vault_where_the_user_left_it(cx: &mut TestAppContext) {
     let session = Session {
+        window: None,
         open_note: Some(PathBuf::from("notes/b.md")),
         cursor: Some(7),
         scroll_y: None,

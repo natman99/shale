@@ -122,6 +122,24 @@ impl Default for GraphFilterSeat {
 /// config's job), and anything derived (the index, the checker's notes). The pane
 /// layout will extend this file when P3.2 lands — same file, more fields, same
 /// defaults.
+/// Where a window sat and how big it was, in logical pixels.
+///
+/// The app *offers* this and the platform decides how much to honor: X11 and
+/// Windows place the window as asked; Wayland takes the size as a hint and
+/// picks the position itself. A stored rect that lands on no display at all
+/// (an unplugged monitor) is discarded by the reader, not chased.
+#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct WindowGeom {
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
+    /// Whether the window was maximized. The rect is still stored alongside:
+    /// it is the size to restore *to* when the user un-maximizes.
+    pub maximized: bool,
+}
+
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Session {
@@ -163,10 +181,58 @@ pub struct Session {
     /// Which of [`Session::tabs`] had the keyboard. Out of range is clamped at
     /// restore, because a tab closed since the file was written is not an error.
     pub active_tab: Option<usize>,
+    /// The window's frame: size, position, maximized. `None` is "no opinion"
+    /// and the platform places the window. Saved per window slot, since two
+    /// windows on one vault sit in different places.
+    pub window: Option<WindowGeom>,
     /// What the graph tab was showing (roadmap P3.4 Task 8). `None` is the default
     /// filter rather than "no graph", so a session file that predates the filter panel
     /// restores a graph with everything on.
     pub graph_filter: Option<GraphFilterSeat>,
+}
+
+/// The session file: one [`Session`] slot per window that last showed the
+/// vault. A window writes its own slot and only its own; the file is the
+/// union, so two windows closing in either order both land.
+///
+/// The file used to be a single bare [`Session`] object. A file that is not
+/// in slots form is read as slot 0 — one old-format file restores exactly
+/// the one window it remembered — and the next write migrates it.
+#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Sessions {
+    pub slots: Vec<Session>,
+}
+
+impl Sessions {
+    /// Read the whole file. No file is the normal case: empty slots.
+    pub fn load(vault_root: &Path) -> Result<Sessions> {
+        let path = session_path(vault_root);
+        let text = match std::fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(Sessions::default());
+            }
+            Err(err) => return Err(err).with_context(|| format!("reading {}", path.display())),
+        };
+        let value: serde_json::Value =
+            serde_json::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
+        if value.get("slots").is_some() {
+            serde_json::from_value(value).with_context(|| format!("parsing {}", path.display()))
+        } else {
+            // Pre-slots format: one window's Session, now slot 0.
+            let one: Session = serde_json::from_value(value)
+                .with_context(|| format!("parsing {}", path.display()))?;
+            Ok(Sessions { slots: vec![one] })
+        }
+    }
+
+    /// Write the whole file, atomically (module docs).
+    pub fn save(&self, vault_root: &Path) -> Result<()> {
+        let path = session_path(vault_root);
+        let text = serde_json::to_string_pretty(self).context("rendering the session file")?;
+        atomic::write_file(&path, &text)
+    }
 }
 
 impl Session {
@@ -174,23 +240,27 @@ impl Session {
     /// normal case, not an error: it answers [`Session::default`] — nothing to
     /// restore. A file that exists but does not parse is an error, so the
     /// caller can say so in the log rather than silently forgetting a session.
+    ///
+    /// This is slot 0 — the first window's memory — which is also what a
+    /// single-window vault means.
     pub fn load(vault_root: &Path) -> Result<Session> {
-        let path = session_path(vault_root);
-        let text = match std::fs::read_to_string(&path) {
-            Ok(text) => text,
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-                return Ok(Session::default());
-            }
-            Err(err) => return Err(err).with_context(|| format!("reading {}", path.display())),
-        };
-        serde_json::from_str(&text).with_context(|| format!("parsing {}", path.display()))
+        Ok(Sessions::load(vault_root)?
+            .slots
+            .into_iter()
+            .next()
+            .unwrap_or_default())
     }
 
-    /// Write the session for `vault_root`, atomically (module docs).
+    /// Write the session for `vault_root` as slot 0, atomically (module docs).
+    /// Any other slots the file holds are left alone.
     pub fn save(&self, vault_root: &Path) -> Result<()> {
-        let path = session_path(vault_root);
-        let text = serde_json::to_string_pretty(self).context("rendering the session file")?;
-        atomic::write_file(&path, &text)
+        let mut all = Sessions::load(vault_root).unwrap_or_default();
+        if all.slots.is_empty() {
+            all.slots.push(self.clone());
+        } else {
+            all.slots[0] = self.clone();
+        }
+        all.save(vault_root)
     }
 }
 
@@ -202,6 +272,7 @@ mod tests {
     fn a_session_round_trips_through_the_state_directory() -> Result<()> {
         let dir = tempfile::tempdir().unwrap();
         let session = Session {
+            window: None,
             open_note: Some(PathBuf::from("notes/idea.md")),
             cursor: Some(42),
             scroll_y: Some(-640.0),
@@ -284,6 +355,53 @@ mod tests {
         std::fs::write(session_path(dir.path()), "{ not json")?;
         let err = Session::load(dir.path()).unwrap_err();
         assert!(err.to_string().contains("parsing"), "{err}");
+        Ok(())
+    }
+
+    /// The slots are separate memories: writing one leaves the others standing,
+    /// which is what lets two windows on one vault each remember its own room.
+    #[test]
+    fn slots_do_not_overwrite_each_other() -> Result<()> {
+        let dir = tempfile::tempdir().unwrap();
+        let one = Session {
+            open_note: Some(PathBuf::from("one.md")),
+            window: Some(WindowGeom {
+                x: 100.0,
+                y: 50.0,
+                w: 1200.0,
+                h: 800.0,
+                maximized: false,
+            }),
+            ..Session::default()
+        };
+        let two = Session {
+            open_note: Some(PathBuf::from("two.md")),
+            ..Session::default()
+        };
+        let mut sessions = Sessions {
+            slots: vec![one.clone(), two.clone()],
+        };
+        sessions.save(dir.path())?;
+        let back = Sessions::load(dir.path())?;
+        assert_eq!(back.slots, vec![one, two]);
+        Ok(())
+    }
+
+    /// The file a single-window Shale left behind — a bare `Session`, no
+    /// `slots` key — reads as slot 0, so the first window of the multi-window
+    /// era wakes up exactly where the last window of the old era stood.
+    #[test]
+    fn a_pre_slots_session_becomes_slot_zero() -> Result<()> {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join(".shale"))?;
+        std::fs::write(
+            session_path(dir.path()),
+            r#"{ "open_note": "old.md", "cursor": 9 }"#,
+        )?;
+        let sessions = Sessions::load(dir.path())?;
+        assert_eq!(sessions.slots.len(), 1);
+        assert_eq!(sessions.slots[0].open_note.as_deref(), Some(Path::new("old.md")));
+        assert_eq!(sessions.slots[0].cursor, Some(9));
         Ok(())
     }
 }

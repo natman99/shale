@@ -401,6 +401,7 @@ fn the_graph_follows_the_vault(cx: &mut TestAppContext) {
 #[gpui::test]
 fn a_session_reopens_the_graph_tab(cx: &mut TestAppContext) {
     let session = Session {
+        window: None,
         open_note: Some(PathBuf::from("a.md")),
         cursor: None,
         scroll_y: None,

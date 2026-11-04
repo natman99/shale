@@ -351,6 +351,7 @@ fn a_blur_owes_every_tab(cx: &mut TestAppContext) {
 #[gpui::test]
 fn a_session_reopens_every_tab(cx: &mut TestAppContext) {
     let session = Session {
+        window: None,
         open_note: Some(PathBuf::from("b.md")),
         cursor: None,
         scroll_y: None,
@@ -410,6 +411,7 @@ fn a_session_reopens_every_tab(cx: &mut TestAppContext) {
 #[gpui::test]
 fn a_session_tab_whose_note_is_gone_is_dropped(cx: &mut TestAppContext) {
     let session = Session {
+        window: None,
         open_note: Some(PathBuf::from("gone.md")),
         cursor: None,
         scroll_y: None,

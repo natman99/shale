@@ -67,6 +67,12 @@ pub(crate) struct VaultServices {
     /// of the loops on the next tick; the live beat and the watcher fan out
     /// through this list.
     windows: Vec<gpui::WeakEntity<Workspace>>,
+    /// The session file, read once at startup: one slot per window that last
+    /// showed the vault. Windows claim the lowest free slot, so a reopened
+    /// window lands back in the memory of the window that stood there.
+    sessions: shale_core::Sessions,
+    /// Which slots a live window is holding.
+    slots_in_use: std::collections::HashSet<usize>,
 }
 
 impl VaultServices {
@@ -86,6 +92,17 @@ impl VaultServices {
             None
         };
         let db = db.map(Arc::new);
+        // The session file, read once. A file that does not parse is a log
+        // line and a fresh start — the same posture the single-window session
+        // always had: forgotten state is sad, a vault that will not open is
+        // worse.
+        let sessions = match shale_core::Sessions::load(vault.root()) {
+            Ok(sessions) => sessions,
+            Err(err) => {
+                tracing::warn!("the session file was not understood, starting fresh: {err:#}");
+                shale_core::Sessions::default()
+            }
+        };
         let mut services = Self {
             vault,
             config,
@@ -93,6 +110,8 @@ impl VaultServices {
             live: None,
             live_snapshot: None,
             windows: Vec::new(),
+            sessions,
+            slots_in_use: std::collections::HashSet::new(),
         };
         // The one startup pass that catches what other programs did to the vault
         // while Shale was closed. After it, the watcher and the save paths keep the
@@ -110,6 +129,43 @@ impl VaultServices {
     /// a test's `add_window`.
     pub(crate) fn add_window(&mut self, workspace: &Entity<Workspace>) {
         self.windows.push(workspace.downgrade());
+    }
+
+    /// The session bookkeeping, kept here rather than per window so two
+    /// windows on one vault each own a slot of the file and neither writes
+    /// over the other's room.
+
+    /// Claim the lowest session slot no live window is holding.
+    pub(crate) fn claim_slot(&mut self) -> usize {
+        let mut ix = 0;
+        while self.slots_in_use.contains(&ix) {
+            ix += 1;
+        }
+        self.slots_in_use.insert(ix);
+        ix
+    }
+
+    /// Free a slot when its window closes. The slot's *memory* stays in the
+    /// file — the next window to claim it wakes up in that room.
+    pub(crate) fn release_slot(&mut self, ix: usize) {
+        self.slots_in_use.remove(&ix);
+    }
+
+    /// What slot `ix` remembers, if the file has anything for it.
+    pub(crate) fn session_at(&self, ix: usize) -> Option<shale_core::Session> {
+        self.sessions.slots.get(ix).cloned()
+    }
+
+    /// Put slot `ix`'s memory and write the file. Best-effort like every
+    /// other session beat: a shrug tomorrow, not a failed exit today.
+    pub(crate) fn put_session(&mut self, ix: usize, session: shale_core::Session) {
+        if self.sessions.slots.len() <= ix {
+            self.sessions.slots.resize(ix + 1, shale_core::Session::default());
+        }
+        self.sessions.slots[ix] = session;
+        if let Err(err) = self.sessions.save(self.vault.root()) {
+            tracing::warn!("the session was not saved: {err:#}");
+        }
     }
 
     /// The startup reconciliation: read the vault once on a background thread,

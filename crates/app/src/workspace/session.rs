@@ -114,20 +114,45 @@ impl Workspace {
             tabs,
             active_tab: Some(self.pane().active),
             graph_filter: filter_seat(&self.graph_filter),
+            // The frame goes in at save time, from the bounds render keeps
+            // current — capture is about the room, not the window around it.
+            window: None,
         }
     }
 
-    /// Write the session file. Best-effort like everything that is not the
-    /// notes: a session that did not reach the disk is tomorrow's shrug, not a
-    /// reason to fail the save or the exit that triggered it.
-    pub(super) fn save_session(&self, cx: &mut Context<Self>) {
-        if let Err(err) = self.capture_session(cx).save(self.vault.root()) {
-            tracing::warn!("the session was not saved: {err:#}");
+    /// Write this window's slot of the session file. Best-effort like
+    /// everything that is not the notes: a session that did not reach the disk
+    /// is tomorrow's shrug, not a reason to fail the save or the exit that
+    /// triggered it. The other windows' slots ride along untouched — the
+    /// vault's services own the file, each window only ever writes its own
+    /// room, and the frame it sat in goes in with it.
+    pub(crate) fn save_session(&self, cx: &mut Context<Self>) {
+        let mut session = self.capture_session(cx);
+        session.window = self.last_bounds.clone();
+        self._services
+            .update(cx, |s, _| s.put_session(self.session_slot, session));
+    }
+
+    /// The window's frame as the session stores it: the rect, and whether it
+    /// was maximized (whose rect is the restore size, which is exactly what
+    /// the platform wants back).
+    pub(crate) fn geom_of(window: &gpui::Window) -> shale_core::session::WindowGeom {
+        let (bounds, maximized) = match window.window_bounds() {
+            gpui::WindowBounds::Windowed(b) => (b, false),
+            gpui::WindowBounds::Maximized(b) | gpui::WindowBounds::Fullscreen(b) => (b, true),
+        };
+        shale_core::session::WindowGeom {
+            x: f32::from(bounds.origin.x),
+            y: f32::from(bounds.origin.y),
+            w: f32::from(bounds.size.width),
+            h: f32::from(bounds.size.height),
+            maximized,
         }
     }
 
-    /// Put the window back the way the last one left it, if a session file
-    /// says how. Called once from [`Workspace::new`].
+    /// Put the window back the way the window that stood in this slot left
+    /// it, if the session file says how. Called once from
+    /// [`Workspace::from_services`], after the slot is claimed.
     ///
     /// The order is the note first (its buffer has to exist before a cursor, a
     /// scroll or the read-only half of preview can mean anything), then the
@@ -135,13 +160,12 @@ impl Workspace {
     /// `load_note`, not `open_note`, because restoring a seat is not a jump and
     /// must not push the restored chain around.
     pub(super) fn restore_session(&mut self, cx: &mut Context<Self>) {
-        let session = match Session::load(self.vault.root()) {
-            Ok(session) => session,
-            Err(err) => {
-                tracing::warn!("the session file was not understood, starting fresh: {err:#}");
-                return;
-            }
-        };
+        // The services read the file once at startup; a slot past the end (or
+        // a fresh vault) is simply nothing to restore.
+        let session = self
+            ._services
+            .read_with(cx, |s, _| s.session_at(self.session_slot))
+            .unwrap_or_default();
         if session == Session::default() {
             return;
         }

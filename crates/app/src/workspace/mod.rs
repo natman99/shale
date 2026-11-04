@@ -63,6 +63,15 @@ use crate::prompt;
 pub(crate) struct Workspace {
     focus_handle: gpui::FocusHandle,
     vault: Rc<Vault>,
+    /// Which session slot this window owns: its own slice of
+    /// `.shale/session.json`, so two windows on one vault remember different
+    /// rooms and neither overwrites the other. Claimed from the vault's
+    /// services at creation; freed when the window closes.
+    session_slot: usize,
+    /// The window's frame as of the last painted frame — render is where a
+    /// `Window` is within reach, so the bounds are copied here rather than
+    /// chased through every save path. Goes into the session on save.
+    last_bounds: Option<shale_core::session::WindowGeom>,
     /// This workspace's own window, set by `vaults::open_vault_window` right
     /// after the window opens. `None` until then (and in tests that build a
     /// workspace without the registry), where an exit falls back to quitting
@@ -295,6 +304,11 @@ impl Workspace {
         self.vault.root()
     }
 
+    /// Which slice of the session file this window owns.
+    pub(crate) fn session_slot(&self) -> usize {
+        self.session_slot
+    }
+
     /// The window this workspace is drawn in, once it exists. One process can
     /// hold several windows, so an exit closes *this* one rather than quitting
     /// the app; the run ends on its own when the last window goes.
@@ -337,6 +351,10 @@ impl Workspace {
         // the watcher fan-out and the live beat reach it.
         let me = cx.entity();
         services.update(cx, |s, _| s.add_window(&me));
+        // This window's slice of the session file: the lowest slot no window
+        // is holding, so a reopened window lands back in the memory of the
+        // window that used to stand here.
+        let session_slot = services.update(cx, |s, _| s.claim_slot());
         let entries = vault.list_markdown().unwrap_or_default();
         let dirs = vault.list_dirs().unwrap_or_default();
         let signature = vault.signature().unwrap_or_default();
@@ -430,6 +448,8 @@ impl Workspace {
         let mut workspace = Self {
             focus_handle: cx.focus_handle(),
             vault,
+            session_slot,
+            last_bounds: None,
             self_window: None,
             config,
             palette,

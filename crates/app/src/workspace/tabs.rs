@@ -148,7 +148,7 @@ impl Pane {
 impl Workspace {
     /// The pane with the keyboard. Every tab operation reads and writes through
     /// this; with one pane (all panes today) it is the only pane.
-    pub(super) fn pane(&self) -> &Pane {
+    pub(crate) fn pane(&self) -> &Pane {
         &self.panes[self.active_pane]
     }
 
@@ -265,7 +265,7 @@ impl Workspace {
     /// closing the last tab does to a graph tab: the subscriptions that captured the id
     /// keep pointing at the same tab.
     fn note_content(&self, id: usize, view: View, cx: &mut Context<Self>) -> TabContent {
-        let editor = cx.new(|cx| MarkdownEditor::new(cx));
+        let editor = cx.new(MarkdownEditor::new);
         // Everything the window knows that an editor cannot discover for itself —
         // the vault, the attachments, the link names, the font, the palette — is
         // applied here, so a tab opened at any point in the session starts with the

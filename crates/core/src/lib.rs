@@ -29,7 +29,7 @@ pub use db::{now_epoch, word_count, Db, EventKind, Provenance, SyncReport, SCHEM
 pub use fuzzy::{fuzzy_match, ranked, FuzzyMatch};
 pub use live::{Lock, Status, LIVE_TOOLS};
 pub use recent::RecentVaults;
-pub use session::Session;
+pub use session::{Session, Sessions};
 pub use theme::Palette;
 pub use vault::Vault;
 pub use watch::{Stamp, VaultChanges};

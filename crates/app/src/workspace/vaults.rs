@@ -273,6 +273,22 @@ fn build_window(
         (g.first, g.terminating.clone())
     };
 
+    // Where this window sat last time it held this session slot. The window
+    // has already claimed its slot (inside `new_with`), so the answer is in
+    // the file the services read at startup; a slot with no memory, or one
+    // whose rect lands on no display at all, opens centered like any first
+    // window.
+    let slot = workspace.read_with(cx, |ws, _cx| ws.session_slot());
+    let remembered = services
+        .read_with(cx, |s, _cx| s.session_at(slot))
+        .and_then(|session| session.window);
+    let window_bounds = remembered
+        .as_ref()
+        .and_then(|geom| restored_bounds(geom, cx))
+        .unwrap_or_else(|| {
+            WindowBounds::Windowed(Bounds::centered(None, size(px(1200.), px(800.)), cx))
+        });
+
     let initial_note = options.note.clone();
     let vault_name = vault_title(root);
     let window = cx
@@ -293,11 +309,7 @@ fn build_window(
                 // `.desktop` entry instead.
                 #[cfg(target_os = "linux")]
                 icon: Some(identity::window_icon(64)),
-                window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
-                    None,
-                    size(px(1200.), px(800.)),
-                    cx,
-                ))),
+                window_bounds: Some(window_bounds),
                 ..Default::default()
             },
             move |window, cx| {
@@ -354,7 +366,13 @@ fn build_window(
     // `:q` — the registry forgets *this* window. The vault's services and the
     // claim file go only with the last one (see [`forget_window`]).
     cx.observe_release(&workspace, |ws, cx| {
-        forget_window(ws.vault_root(), ws.self_window, cx)
+        // The slot frees for the next window — its memory stays in the file,
+        // so the next claimant wakes up in this room.
+        let root = ws.vault_root().to_path_buf();
+        if let Some(services) = cx.global::<VaultWindows>().services.get(&root).cloned() {
+            services.update(cx, |s, _cx| s.release_slot(ws.session_slot));
+        }
+        forget_window(&root, ws.self_window, cx)
     })
     .detach();
     Ok(window)
@@ -367,6 +385,33 @@ pub(crate) fn seed_claim(root: PathBuf, claim: Option<File>, cx: &mut App) {
             g._claims.insert(root, claim);
         });
     }
+}
+
+/// The stored frame, turned back into a `WindowBounds` — if it is worth
+/// honoring. A rect too small to be a real window, or one that intersects no
+/// display (the monitor it lived on is gone), is dropped: the window opens
+/// centered rather than unreachable. `maximized` keeps its rect as the
+/// restore size, which is what the platforms want back.
+fn restored_bounds(geom: &shale_core::session::WindowGeom, cx: &App) -> Option<WindowBounds> {
+    if geom.w < 200. || geom.h < 150. {
+        return None;
+    }
+    let bounds = Bounds {
+        origin: gpui::point(px(geom.x), px(geom.y)),
+        size: size(px(geom.w), px(geom.h)),
+    };
+    let on_screen = cx
+        .displays()
+        .iter()
+        .any(|d| d.bounds().intersects(&bounds));
+    if !on_screen {
+        return None;
+    }
+    Some(if geom.maximized {
+        WindowBounds::Maximized(bounds)
+    } else {
+        WindowBounds::Windowed(bounds)
+    })
 }
 
 /// Forget one window when it closes. The vault's services and the claim
