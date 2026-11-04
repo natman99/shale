@@ -33,9 +33,13 @@ pub(super) struct RowStyle {
     /// The row is a thematic break (`---`, `***`, `___`), which is drawn as a
     /// rule across the editor instead of as its dashes.
     pub(super) rule: bool,
-    /// The row is part of an Obsidian callout (`> [!note]`), whose box the line
+    /// The row is part of an Obsidian callout (`> [!type]`), whose box the line
     /// element paints behind the text. The kind decides the accent colour.
     pub(super) callout: Option<CalloutKind>,
+    /// The row is a callout's **header** — the `> [!type]` line, which the scanner
+    /// marks with `Style::CalloutTitle`. The callout mark is drawn once, here, rather
+    /// than on every row of the box, or the gutter would become a stripe of glyphs.
+    pub(super) callout_head: bool,
 }
 
 /// Which line wrapper a row needs: one per heading level, regular and wide face.
@@ -200,6 +204,10 @@ impl MarkdownEditor {
                 Style::Callout { kind } => Some(kind),
                 _ => None,
             };
+            // The title span is the header line: `[!` and `]` are punctuation and the
+            // type name and any custom title are `CalloutTitle`, so a row carrying that
+            // span is the one row the callout mark belongs to.
+            let callout_head = matches!(span.style, Style::CalloutTitle { .. });
             let mut r = row;
             while r < line_count && self.buffer.line_start(r) < span.end {
                 let row = &mut rows[r];
@@ -210,6 +218,7 @@ impl MarkdownEditor {
                 if callout.is_some() {
                     row.callout = callout;
                 }
+                row.callout_head |= callout_head;
                 r += 1;
             }
         }

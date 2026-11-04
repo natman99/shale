@@ -637,6 +637,21 @@ impl MarkdownEditor {
             .collect()
     }
 
+    /// The display lines that drew a callout's kind mark.
+    ///
+    /// The companion to [`Editor::painted_callouts`], and the whole point of it is the
+    /// difference between the two lists: a box of four rows paints four boxes and exactly
+    /// one mark, on the header row's first display line.
+    #[cfg(test)]
+    pub fn painted_callout_marks(&self) -> Vec<usize> {
+        self.hit_lines
+            .iter()
+            .enumerate()
+            .filter(|(_, hit)| hit.callout_mark)
+            .map(|(index, _)| index)
+            .collect()
+    }
+
     /// The fold markers the last paint drew, as (display line, label). A marker
     /// is not buffer text, so it is not part of `painted_text`; this is how the
     /// paint tests see it.

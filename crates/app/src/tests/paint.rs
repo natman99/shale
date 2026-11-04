@@ -504,9 +504,13 @@ fn a_callout_is_painted_as_a_box(cx: &mut TestAppContext) {
 
     // The cursor starts on the title row, whose syntax stays visible so it can
     // be edited, while the body row is already painted as its reader sees it.
-    let (painted, boxes) = editor
+    let (painted, boxes, marks) = editor
         .read_with(cx, |editor, _cx| {
-            (editor.painted_text(), editor.painted_callouts())
+            (
+                editor.painted_text(),
+                editor.painted_callouts(),
+                editor.painted_callout_marks(),
+            )
         })
         .unwrap();
     assert_eq!(painted[0], "> [!warning] Watch out");
@@ -516,13 +520,22 @@ fn a_callout_is_painted_as_a_box(cx: &mut TestAppContext) {
         vec![0, 1],
         "both rows of the block get the box, and no row outside it"
     );
+    assert_eq!(
+        marks,
+        vec![0],
+        "the box gets one kind mark, on its header row — not one per row"
+    );
 
     // With the cursor below the block, the header's brackets are hidden but the
     // type name is kept: it is the box's title.
     cx.simulate_keystrokes("j j");
-    let (painted, boxes) = editor
+    let (painted, boxes, marks) = editor
         .read_with(cx, |editor, _cx| {
-            (editor.painted_text(), editor.painted_callouts())
+            (
+                editor.painted_text(),
+                editor.painted_callouts(),
+                editor.painted_callout_marks(),
+            )
         })
         .unwrap();
     assert_eq!(
@@ -530,6 +543,73 @@ fn a_callout_is_painted_as_a_box(cx: &mut TestAppContext) {
         "the quote markers and the header's brackets are hidden"
     );
     assert_eq!(boxes, vec![0, 1]);
+    assert_eq!(
+        marks,
+        vec![0],
+        "the mark stays on the box's header row with the cursor elsewhere, and the body \
+         row still gets no mark"
+    );
+}
+
+/// Every kind's mark is drawn, and none of them fails to build.
+///
+/// The shapes are hand-built polygons, and a malformed one draws *nothing at all* rather
+/// than erroring — gpui has no fallback for a path lyon could not tessellate. So the
+/// failure mode of a typo in `line::marks` is a callout that quietly loses its glyph,
+/// which no amount of looking at a screenshot of one callout would catch. This paints a
+/// box of every kind, including one Obsidian does not know, and the `debug_assert` in
+/// [`crate::line::marks`] turns an unbuilt path into a test failure.
+#[gpui::test]
+fn every_callout_kind_draws_a_mark(cx: &mut TestAppContext) {
+    let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+    let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+    let kinds = [
+        "note",
+        "abstract",
+        "info",
+        "todo",
+        "tip",
+        "success",
+        "question",
+        "warning",
+        "failure",
+        "danger",
+        "bug",
+        "example",
+        "quote",
+        "a type nobody knows",
+    ];
+    let text = kinds
+        .iter()
+        .map(|kind| format!("> [!{kind}]\n> body\n\n"))
+        .collect::<String>();
+    editor
+        .update(cx, |editor, window, cx| {
+            editor.set_text(text, cx);
+            let focus = editor.focus_handle(cx);
+            window.focus(&focus, cx);
+        })
+        .unwrap();
+    for _ in 0..2 {
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+    }
+
+    let (boxes, marks) = editor
+        .read_with(cx, |editor, _cx| {
+            (editor.painted_callouts(), editor.painted_callout_marks())
+        })
+        .unwrap();
+    // How many boxes are on screen at all depends on the test window's height, so the
+    // expectation is read off what was painted rather than fixed at fourteen: a box starts
+    // where the callout rows stop being consecutive, and each one gets exactly one mark.
+    let expected: Vec<usize> = boxes
+        .iter()
+        .enumerate()
+        .filter(|(i, row)| *i == 0 || **row - 1 != boxes[*i - 1])
+        .map(|(_, row)| *row)
+        .collect();
+    assert!(!boxes.is_empty(), "some callout boxes are painted");
+    assert_eq!(marks, expected, "one mark per box, on the box's header row");
 }
 
 /// A click on a row whose markers are hidden has to land on the visible

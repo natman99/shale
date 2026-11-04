@@ -25,6 +25,7 @@
 //! notes and search matches into the styled [`gpui::TextRun`]s a line is painted
 //! from — lives in [`runs`].
 
+mod marks;
 mod runs;
 #[cfg(test)]
 mod tests;
@@ -104,6 +105,11 @@ pub(crate) struct HitLine {
     /// check.
     #[allow(dead_code)]
     pub(crate) callout: bool,
+    /// Whether the line drew its callout's kind mark. Only the header row's first
+    /// display line does, which is exactly what the preview tests need to be able to
+    /// check: one mark per box, not one per row.
+    #[allow(dead_code)]
+    pub(crate) callout_mark: bool,
     /// How much of the line's colour survived the dimming system: 1.0 is the
     /// palette's own. Recorded so the focus-mode tests can see what the frame
     /// actually drew rather than what the model was asked for.
@@ -231,6 +237,13 @@ pub(crate) struct LineElement {
     /// box behind the line and an accent bar on its left edge, in the colour
     /// that matches the callout's type.
     pub(crate) callout: Option<CalloutKind>,
+    /// Draw the callout's kind mark on this display line.
+    ///
+    /// True for the first display line of a callout's **header** row (the `> [!type]`
+    /// line). Not simply "the header row": a wrapped header is several display lines at
+    /// the same left edge, and a mark on each would be a stripe of the same glyph down
+    /// the gutter. The mark belongs to the box, so it is drawn once.
+    pub(crate) callout_mark: bool,
     /// Set when this row is a table row: the grid to paint instead of the raw
     /// markdown, whose pipes are then left out because they are not cell
     /// content.
@@ -610,6 +623,21 @@ impl Element for LineElement {
                     self.dim,
                 )),
             ));
+            // The kind's mark, hung in the gutter to the left of the box.
+            //
+            // Colour alone cannot carry this: the palette gives fourteen kinds ten
+            // colours, and `info`/`todo`, `abstract`/`example`, `tip`/`success` and
+            // `danger`/`bug` share one outright ([`marks`]). With live preview hiding the
+            // `[!type]` header there is nothing else left saying which kind it is, so the
+            // shape is the second channel `design-language.md` §8 asks for.
+            if self.callout_mark {
+                marks::paint_mark(
+                    marks::mark_for(kind),
+                    marks::mark_box(bounds.left(), bounds.top(), bounds.size.height),
+                    fade(self.palette.callout_accent(kind), self.palette.bg, self.dim),
+                    window,
+                );
+            }
         }
 
         // A thematic break is a rule across the editor, not the dashes the file
@@ -767,6 +795,7 @@ impl Element for LineElement {
                 bounds,
                 rule: self.rule,
                 callout: self.callout.is_some(),
+                callout_mark: self.callout.is_some() && self.callout_mark,
                 dim: self.dim,
                 fold_marker,
             });

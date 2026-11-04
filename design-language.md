@@ -157,13 +157,32 @@ for the exception, and they are `#[allow(dead_code)]` until a toast uses one.
   a named set in `style.rs` so they stop being per-site characters: `▸`/`▾` (tree disclosure),
   `●` (dirty, drawn in `accent`), `×` (close). New chrome marks come from this set or propose
   an addition.
-- **Drawn-glyph exception class (⏳)** — custom-painted surfaces may draw simple vector marks
+- **Drawn-glyph exception class (⏳ callout marks landed 2026-11-03; graph node kinds and the
+  agent mark still owed)** — custom-painted surfaces may draw simple vector marks
   where unicode is weak or color-only information needs a second channel: **callout types** (a
   mark on the left bar), **graph node kinds** (shape/glyph per kind so ghost/tag/attachment read
   without color), and the **agent presence mark** (one glyph carrying `agent` color across
   review badges, provenance, and graph rings). The set landed; these stay owed, and §11 puts the
   set first so each mark arrives with the surface that needs it. The graph's four node kinds are
   at least four *colours* now, which `contrast::audit` enforces.
+
+  **Callout marks (landed 2026-11-03).** The second channel turned out to be load-bearing rather
+  than nice: the palette maps fourteen callout kinds onto ten colours, and four pairs share one
+  outright (`info`/`todo`, `abstract`/`example`, `tip`/`success`, `danger`/`bug`) — with live
+  preview hiding the `[!type]` header, a reader who cannot separate those two colours has no way
+  at all to tell a `warning` from a `failure`. So the invariant is stated in code, not just here:
+  **kinds that share a palette colour never share a mark**, tested against both built-ins because
+  the two palettes do not collide in the same places. One pair is exempt by design — `other` is
+  drawn as a `note`, title text and all.
+
+  The mark is **hung in the gutter**, in the note column's left padding, not on the bar: the bar
+  is 2 px and carries nothing, and widening it would cost the callout's text 12 px and reach into
+  the wrap model. A mark just outside a box reads as a label *for* the box. It is drawn once, on
+  the box's header row, and the size is pinned against the gutter it has to fit (8 px glyph, 4 px
+  gap, 16 px padding — 4 px of air on either side). Shapes are Lucide's vocabulary
+  (`triangle-alert`, `octagon`, `quote`) reduced to what survives at 8 px: Lucide's 24 px line art
+  with a 2 px stroke is under a pixel at that size and gpui's stroker has no round caps, so these
+  are filled where Lucide outlines, and outlined only where the outline *is* the distinction.
 - **Permanent exclusion** — buffer content is never icon-ified: task boxes,
   heading markers, list bullets, table pipes, link brackets stay visible text.
   That is the Raw-mode posture, not an oversight; iconing them means WYSIWYG,

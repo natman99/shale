@@ -1,6 +1,7 @@
 //! The run builder's own tests: that the styled runs tile the painted text
 //! exactly, that the annotations win in the right order, and that a table cell's
-//! ranges re-base onto the cell's painted text.
+//! ranges re-base onto the cell's painted text. The callout marks live here too:
+//! the shape table is checked against the palette rather than against a picture.
 
 use super::*;
 use crate::line::runs::{build_runs, cell_styles, LineStyles};
@@ -204,5 +205,64 @@ fn a_search_match_is_a_background() {
         background_at(&runs, 7),
         None,
         "text between matches is left alone"
+    );
+}
+
+/// Kinds that share a palette colour must not share a mark.
+///
+/// This is the whole reason the marks exist: the palette gives fourteen kinds ten
+/// colours, and four pairs are the same colour outright (`info`/`todo`,
+/// `abstract`/`example`, `tip`/`success`, `danger`/`bug`). Where colour cannot tell two
+/// kinds apart, the shape has to — and a later palette edit that merges two callout
+/// colours has to trip this test rather than quietly make a callout unreadable. Both
+/// built-ins are checked, because the two palettes do not share their collisions.
+///
+/// One pair is exempt by design: `other` is drawn as a `note`, mark and all, and its
+/// visible title is the reader's clue (`CalloutKind::Other`).
+#[test]
+fn kinds_that_share_a_colour_never_share_a_mark() {
+    use shale_core::mdstyle::CalloutKind::*;
+    use shale_core::theme::Palette;
+    const KINDS: [shale_core::mdstyle::CalloutKind; 14] = [
+        Note, Abstract, Info, Todo, Tip, Success, Question, Warning, Failure, Danger, Bug, Example,
+        Quote, Other,
+    ];
+    for palette in [Palette::DARK, Palette::LIGHT] {
+        for (i, a) in KINDS.iter().enumerate() {
+            for b in &KINDS[i + 1..] {
+                if palette.callout_accent(*a) != palette.callout_accent(*b) {
+                    continue;
+                }
+                if matches!((*a, *b), (Note, Other) | (Other, Note)) {
+                    continue;
+                }
+                assert_ne!(
+                    marks::mark_for(*a),
+                    marks::mark_for(*b),
+                    "{a:?} and {b:?} are the same colour in `{}` and would be \
+                     indistinguishable",
+                    if palette == Palette::DARK {
+                        "dark"
+                    } else {
+                        "light"
+                    }
+                );
+            }
+        }
+    }
+}
+
+/// The mark is hung in the note column's left padding, so it has to fit there without
+/// eating the gutter: the column pads itself by 16 px (`px_4` in `workspace::render`),
+/// and the mark plus its gap must leave real air on both sides rather than crowding the
+/// box it labels.
+#[test]
+fn the_mark_fits_the_gutter_it_is_hung_in() {
+    const GUTTER: f32 = 16.0;
+    let used = f32::from(marks::MARK_SIZE) + f32::from(marks::MARK_GAP);
+    assert!(
+        GUTTER - used >= 4.0,
+        "the mark takes {used} px of a {GUTTER} px gutter, leaving {} px of air",
+        GUTTER - used
     );
 }

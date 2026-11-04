@@ -566,6 +566,15 @@ impl Render for MarkdownEditor {
                         // colour of its type; the markers stay visible on the row the
                         // cursor is on, exactly as with other markdown syntax.
                         let callout = row_styles.get(dl.row).copied().unwrap_or_default().callout;
+                        // The callout's mark belongs to the box, not to every line of it:
+                        // the header row's first display line, so a wrapped header still
+                        // gets one mark rather than one per segment.
+                        let callout_mark = row_styles
+                            .get(dl.row)
+                            .copied()
+                            .unwrap_or_default()
+                            .callout_head
+                            && dl.start == self.buffer.line_start(dl.row);
                         // How much of this line's colour survives. A row the
                         // dimming system does not mention is drawn in full.
                         let dim = alphas.get(dl.row).copied().unwrap_or(1.0);
@@ -614,6 +623,7 @@ impl Render for MarkdownEditor {
                                 block,
                                 rule,
                                 callout,
+                                callout_mark,
                                 table,
                                 image,
                                 char_width,

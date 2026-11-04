@@ -4644,3 +4644,20 @@ conversation. Roughly in order of what they have said they want.
     that bypasses the review path. It also re-checks the note on disk afterwards and fails
     loudly if the sentence landed in the file, because a harness that quietly *can* write
     is worse than no harness.
+14. **Callout marks (§8's drawn-glyph exception, first one landed)** — 2026-11-03.
+    `crates/app/src/line/marks.rs` holds the shape table and the painting; the header row
+    is identified by `Style::CalloutTitle` (`RowStyle::callout_head`), and the mark is
+    drawn once per box in the gutter, not on every row. **The finding worth keeping:**
+    the palette gives fourteen callout kinds ten colours, and four pairs share one
+    outright — with live preview hiding `[!type]`, those pairs are unreadable today, so
+    the mark is a second channel and not decoration. The invariant (kinds sharing a colour
+    never share a mark, checked against both built-ins) is a test, and it was confirmed to
+    fail when two kinds were given the same shape. **Not verified visually:** the shapes
+    have never been seen by a human. A headless screenshot was attempted and failed —
+    shale runs under Xvfb but gpui creates no X window there, so `scripts/screenshot.py`
+    finds nothing. The paint test proves every kind reaches gpui's painter without a
+    tessellation failure (which would draw *nothing at all*, hence the `debug_assert` in
+    `marks::paint`), but it cannot say the glyph looks right. **Open:** whether
+    `CalloutKind::Other` should take `callout_note`'s colour as its own doc claims — it
+    currently takes `accent`, which is `link`'s blue, so an unknown type reads as `info`.
+    The mark already assumes the note; the colour is one line behind it.
