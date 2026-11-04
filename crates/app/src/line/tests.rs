@@ -252,17 +252,39 @@ fn kinds_that_share_a_colour_never_share_a_mark() {
     }
 }
 
-/// The mark is hung in the note column's left padding, so it has to fit there without
-/// eating the gutter: the column pads itself by 16 px (`px_4` in `workspace::render`),
-/// and the mark plus its gap must leave real air on both sides rather than crowding the
-/// box it labels.
+/// The gutter has to be wide enough for what is hung in it, with air on both sides.
+///
+/// This is the boundary between the layout that reserves the gutter
+/// (`crate::style::GUTTER`, applied as the scroller's left padding) and the painting that
+/// uses it. They are one number now, so the failure this catches is a mark growing past
+/// its column — or a later gutter feature (a fold marker, a line number) being added
+/// without anyone noticing there was never room for two things in it.
 #[test]
-fn the_mark_fits_the_gutter_it_is_hung_in() {
-    const GUTTER: f32 = 16.0;
-    let used = f32::from(marks::MARK_SIZE) + f32::from(marks::MARK_GAP);
+fn the_gutter_holds_what_is_hung_in_it() {
+    let spare = f32::from(crate::style::GUTTER)
+        - f32::from(crate::style::MARK_SIZE)
+        - f32::from(crate::style::MARK_GUT);
     assert!(
-        GUTTER - used >= 4.0,
-        "the mark takes {used} px of a {GUTTER} px gutter, leaving {} px of air",
-        GUTTER - used
+        spare >= 0.,
+        "a {} px mark keeping {} px clear of the text does not fit a {} px gutter",
+        f32::from(crate::style::MARK_SIZE),
+        f32::from(crate::style::MARK_GUT),
+        f32::from(crate::style::GUTTER),
+    );
+}
+
+/// A mark placed in the gutter stays inside it: never over the text, never out past the
+/// column the layout reserved. This is the contract the next gutter feature inherits —
+/// position from the gutter's left edge and the column holds you.
+#[test]
+fn a_gutter_mark_stays_inside_the_gutter() {
+    let gutter_left = px(100.);
+    let box_ = marks::mark_box(gutter_left, px(0.), px(20.));
+    assert!(
+        box_.origin.x >= gutter_left && box_.right() <= gutter_left + crate::style::GUTTER,
+        "the mark spans {:?}..{:?}, outside the {} px column at {gutter_left:?}",
+        box_.origin.x,
+        box_.right(),
+        f32::from(crate::style::GUTTER),
     );
 }

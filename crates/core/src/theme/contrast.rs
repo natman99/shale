@@ -280,6 +280,61 @@ fn roles(p: &Palette) -> Vec<(&'static str, u32, &'static str, u32, f32)> {
 /// Solarized's own tone table rates body text on its secondary background as
 /// less than optimal reading, which is why the cursor's line is held to 4.0
 /// rather than 4.5.
+/// The callout colours, judged on both surfaces they are drawn on.
+///
+/// A callout's type is carried by colour and a small mark, and the palette answers
+/// fourteen kinds with ten colours — so for pairs like `warning`/`failure` these roles are
+/// close to the whole signal. Nothing audited them at all until now, which is how that
+/// stayed unnoticed.
+///
+/// Each colour is judged twice: the 2 px bar against the box it is painted on, and the
+/// kind mark against the note, because the mark hangs in the gutter outside the box.
+///
+/// Walked from [`Palette::callout_accent`] rather than written out by hand, so a new
+/// callout kind is audited the moment it exists and a palette edit that re-points a kind
+/// is judged on the colour it actually uses.
+fn callouts(p: &Palette) -> Vec<(&'static str, u32, &'static str, u32, f32)> {
+    use crate::mdstyle::CalloutKind;
+    const KINDS: &[(CalloutKind, &str)] = &[
+        (CalloutKind::Note, "a note callout"),
+        (CalloutKind::Info, "an info callout"),
+        (CalloutKind::Todo, "a todo callout"),
+        (CalloutKind::Abstract, "an abstract callout"),
+        (CalloutKind::Example, "an example callout"),
+        (CalloutKind::Tip, "a tip callout"),
+        (CalloutKind::Success, "a success callout"),
+        (CalloutKind::Question, "a question callout"),
+        (CalloutKind::Warning, "a warning callout"),
+        (CalloutKind::Failure, "a failure callout"),
+        (CalloutKind::Danger, "a danger callout"),
+        (CalloutKind::Bug, "a bug callout"),
+        (CalloutKind::Quote, "a quote callout"),
+        (CalloutKind::Other, "an unknown-type callout"),
+    ];
+    // A 2 px rule and an 8 px glyph are both thin marks, so they are held to the same bar
+    // a graph node's kind is: visible without shouting over the text beside them.
+    let surfaces = [
+        ("a callout's background", p.callout_bg, 1.5),
+        ("the note", p.bg, 1.5),
+    ];
+    let mut out: Vec<(&'static str, u32, &'static str, u32, f32)> = Vec::new();
+    for (kind, name) in KINDS {
+        let colour = p.callout_accent(*kind);
+        for (on, against, floor) in surfaces {
+            // Several kinds share one colour on purpose; the flag should name one of them
+            // rather than repeat itself four times on the same pair.
+            if out
+                .iter()
+                .any(|(_, seen, seen_on, _, _)| *seen == colour && *seen_on == on)
+            {
+                continue;
+            }
+            out.push((name, colour, on, against, floor));
+        }
+    }
+    out
+}
+
 fn pairs(p: &Palette) -> Vec<(&'static str, u32, &'static str, u32, f32)> {
     vec![
         (
@@ -355,7 +410,11 @@ fn pairs(p: &Palette) -> Vec<(&'static str, u32, &'static str, u32, f32)> {
 /// once per theme load, not per frame.
 pub fn audit(palette: &Palette) -> Vec<Flag> {
     let mut flags = Vec::new();
-    for (what, colour, on, against, floor) in roles(palette).into_iter().chain(pairs(palette)) {
+    for (what, colour, on, against, floor) in roles(palette)
+        .into_iter()
+        .chain(callouts(palette))
+        .chain(pairs(palette))
+    {
         let ratio = contrast(against, colour);
         if ratio <= floor {
             flags.push(Flag::TooFaint {

@@ -633,7 +633,14 @@ impl Element for LineElement {
             if self.callout_mark {
                 marks::paint_mark(
                     marks::mark_for(kind),
-                    marks::mark_box(bounds.left(), bounds.top(), bounds.size.height),
+                    // The gutter is the strip of scroller padding immediately left of this
+                    // line's content, so it is measured back from here rather than from the
+                    // box: one number, shared with the layout that reserved it.
+                    marks::mark_box(
+                        bounds.left() - crate::style::GUTTER,
+                        bounds.top(),
+                        bounds.size.height,
+                    ),
                     fade(self.palette.callout_accent(kind), self.palette.bg, self.dim),
                     window,
                 );

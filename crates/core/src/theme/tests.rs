@@ -209,7 +209,40 @@ fn the_built_in_palettes_are_readable() {
         dark.callout_warning
     );
     assert_eq!(dark.callout_accent(CalloutKind::Quote), dark.quote);
-    assert_eq!(dark.callout_accent(CalloutKind::Other), dark.accent);
+    // An unknown type is drawn as a note, which is what `CalloutKind::Other` has always
+    // claimed. It used to answer `accent`, and in both built-ins `accent` is `link`'s
+    // colour — so a vault's own `> [!shiplog]` wore the blue of an `info`, a claim the app
+    // cannot make about a type it does not know.
+    assert_eq!(dark.callout_accent(CalloutKind::Other), dark.callout_note);
+}
+
+/// The callout colours are audited, and the audit bites.
+///
+/// They were not audited at all until the kind marks made it obvious that the palette
+/// answers fourteen kinds with ten colours — so a theme could put a callout's bar the same
+/// colour as its own box and nothing said so. This is the pair that test.
+#[test]
+fn the_auditor_flags_a_callout_whose_bar_matches_its_box() {
+    let mut palette = Palette::DARK;
+    palette.callout_warning = palette.callout_bg;
+    let flags = contrast::audit(&palette);
+    assert!(
+        flags
+            .iter()
+            .any(|flag| format!("{flag:?}").contains("a warning callout")),
+        "a warning bar painted in its own box's colour should be flagged, got {flags:?}"
+    );
+    // And the mark, which hangs in the gutter on the note rather than on the box, is
+    // judged against the note: a colour that clears the box can still vanish on the page.
+    let mut palette = Palette::DARK;
+    palette.callout_danger = palette.bg;
+    let flags = contrast::audit(&palette);
+    assert!(
+        flags
+            .iter()
+            .any(|flag| format!("{flag:?}").contains("a danger callout")),
+        "a danger mark painted in the note's own colour should be flagged, got {flags:?}"
+    );
 }
 
 /// The auditor is what the app runs against a vault's own theme file, so it

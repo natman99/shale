@@ -46,6 +46,35 @@ use gpui::{ParentElement, Styled};
 /// ceiling before it becomes a capsule.
 pub(crate) const CHIP_RADIUS: gpui::Pixels = gpui::px(6.);
 
+/// The note's left gutter: a column of blank note, inside the editor's scroll clip,
+/// reserved for drawn marks that belong to a line rather than to its text.
+///
+/// It lives on the editor's scroller and not on the workspace's note column for one
+/// hard reason: `overflow_scroll` clips to the scroller's own bounds, so a mark painted
+/// left of the scroller's content edge is outside the mask and never appears. Padding is
+/// inside that mask (gpui subtracts only borders), so padding on the scroller is what
+/// makes the gutter paintable at all.
+///
+/// **This is a shared column, not the callout mark's slot.** A callout's kind mark sits
+/// in it today ([`crate::line::marks`]); fold markers, line numbers, a changed-line rule
+/// and an agent's provenance mark all want the same place, and each of them would
+/// otherwise have to rediscover the clipping rule and re-pick a width. Anything placed
+/// here is positioned from [`GUTTER`] so it cannot drift out of the space the layout
+/// actually reserved — the test in `line::tests` holds that boundary.
+pub(crate) const GUTTER: gpui::Pixels = gpui::px(16.);
+
+/// The side of the square a gutter mark is drawn in.
+///
+/// Square so several marks can share the column on one row without overlapping, and small
+/// enough that [`GUTTER`] leaves real air on both sides rather than crowding the text.
+pub(crate) const MARK_SIZE: gpui::Pixels = gpui::px(8.);
+
+/// The least air a gutter mark keeps between itself and the text column.
+///
+/// A mark that touches the first glyph reads as part of the word rather than as a label
+/// for the line.
+pub(crate) const MARK_GUT: gpui::Pixels = gpui::px(4.);
+
 /// How heavy a chip's rule is.
 ///
 /// Heavier than the window's other 1 px rules on purpose: a chip is a box around two

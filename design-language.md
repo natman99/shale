@@ -175,14 +175,28 @@ for the exception, and they are `#[allow(dead_code)]` until a toast uses one.
   the two palettes do not collide in the same places. One pair is exempt by design — `other` is
   drawn as a `note`, title text and all.
 
-  The mark is **hung in the gutter**, in the note column's left padding, not on the bar: the bar
-  is 2 px and carries nothing, and widening it would cost the callout's text 12 px and reach into
-  the wrap model. A mark just outside a box reads as a label *for* the box. It is drawn once, on
-  the box's header row, and the size is pinned against the gutter it has to fit (8 px glyph, 4 px
-  gap, 16 px padding — 4 px of air on either side). Shapes are Lucide's vocabulary
-  (`triangle-alert`, `octagon`, `quote`) reduced to what survives at 8 px: Lucide's 24 px line art
-  with a 2 px stroke is under a pixel at that size and gpui's stroker has no round caps, so these
-  are filled where Lucide outlines, and outlined only where the outline *is* the distinction.
+  The mark is **hung in the note's gutter**, not on the bar: the bar is 2 px and carries
+  nothing, and widening it would cost the callout's text 12 px and reach into the wrap model.
+  The gutter is `style::GUTTER` — a named column, applied as the editor scroller's left
+  padding, because `overflow_scroll` clips to the scroller's own bounds and padding on an
+  ancestor is outside the mask. **It is a shared column, not the callout mark's slot:** fold
+  markers, line numbers, a changed-line rule and provenance marks all want this place, and
+  each would otherwise rediscover the clipping rule and re-pick a width. A mark keeps
+  `MARK_GUT` clear of the text; the size against the column is a test, not a hope. It is drawn
+  once, on the box's header row.
+
+  Shapes are Lucide's vocabulary (`triangle-alert`, `octagon`, `quote`) reduced to what survives
+  at 8 px: Lucide's 24 px line art with a 2 px stroke is under a pixel at that size and gpui's
+  stroker has no round caps, so these are filled where Lucide outlines, and outlined only where
+  the outline *is* the distinction.
+
+  **Palette follow-ups from the same finding.** `CalloutKind::Other` is now coloured
+  `callout_note`, which is what its own doc always claimed; it had been taking `accent`, which in
+  both built-ins is `link`'s colour, so a vault's `> [!shiplog]` wore the blue of an `info`. And
+  `contrast::audit` now judges every callout accent twice — the bar against the box, the mark
+  against the note — walked from `callout_accent` so a new kind is audited the moment it exists.
+  Nothing audited callout colours before, which is how ten colours for fourteen kinds sat
+  unnoticed.
 - **Permanent exclusion** — buffer content is never icon-ified: task boxes,
   heading markers, list bullets, table pipes, link brackets stay visible text.
   That is the Raw-mode posture, not an oversight; iconing them means WYSIWYG,

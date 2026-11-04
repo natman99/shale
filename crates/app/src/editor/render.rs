@@ -451,6 +451,14 @@ impl Render for MarkdownEditor {
                     .id("editor-scroll")
                     .size_full()
                     .overflow_scroll()
+                    // The note's gutter, and it has to be *here* rather than on the
+                    // workspace's note column: `overflow_scroll` clips to this div's own
+                    // bounds, so anything a line paints left of its content edge — a
+                    // callout's kind mark today, fold markers and line numbers after it —
+                    // is outside the mask and simply never appears. Padding is inside the
+                    // mask (gpui subtracts only borders), so padding on the scroller is
+                    // what makes the gutter paintable at all. See `style::GUTTER`.
+                    .pl(crate::style::GUTTER)
                     .track_scroll(&self.scroll_handle)
                     .font_family(self.font_family.clone())
                     .text_size(px(self.font_size))

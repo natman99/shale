@@ -430,7 +430,11 @@ impl Palette {
             CalloutKind::Failure => self.callout_failure,
             CalloutKind::Danger | CalloutKind::Bug => self.callout_danger,
             CalloutKind::Quote => self.quote,
-            CalloutKind::Other => self.accent,
+            // An unrecognised type is drawn as a note, exactly as `CalloutKind::Other`
+            // says. It used to take `accent`, which in both built-ins is the same colour as
+            // `link` — so a vault's own `> [!shiplog]` wore the blue of an `info`, which is
+            // a claim the app cannot make about a type it does not know.
+            CalloutKind::Other => self.callout_note,
         }
     }
 

@@ -15,3 +15,7 @@ refs/
 !examples/demo-vault/.shale/
 examples/demo-vault/.shale/*
 !examples/demo-vault/.shale/config.toml
+
+# Vendored icon reference clone (ISC-licensed), used as the vocabulary for the
+# callout marks. Not part of the build, and 4040 files is a lot to catch by accident.
+lucide/

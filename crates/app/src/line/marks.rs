@@ -9,12 +9,11 @@
 //! a `failure` or a `todo` from an `info`. The mark is the second channel, and the
 //! invariant the tests hold is that **kinds sharing a colour never share a mark**.
 //!
-//! **The mark lives in the gutter**, in the note column's left padding, outside the box
-//! rather than inside it. The alternative was widening the 2px bar to carry the glyph,
-//! which costs the callout's text 12px and reaches into the wrap model; the gutter is
-//! already there, and a mark floating just outside a box reads as a label *for* the box.
-//! It is drawn once, on the box's header row, because a mark on every row would be a
-//! stripe of glyphs down the margin.
+//! **The mark lives in the note's gutter** — [`crate::style::GUTTER`], a column of blank
+//! note inside the editor's scroll clip — rather than on the callout's 2 px bar, which
+//! carries nothing, or outside the clip, where gpui would crop it. A mark floating just
+//! left of a box reads as a label *for* the box. It is drawn once, on the box's header
+//! row, because a mark on every row would be a stripe of glyphs down the margin.
 //!
 //! The shapes are Lucide's vocabulary (`triangle-alert`, `circle-check`, `octagon`,
 //! `quote`) reduced to what survives at [`MARK_SIZE`]. Lucide draws 24px line art with a
@@ -28,18 +27,11 @@
 use gpui::{point, px, rgb, Bounds, PathBuilder, Pixels, Point, Size, Window};
 use shale_core::mdstyle::CalloutKind;
 
-/// The side of the square a mark is drawn in.
-///
-/// Sized for the gutter it has to fit: the note column pads itself by 16 px, and
-/// [`MARK_SIZE`] plus [`MARK_GAP`] is 12 px of that, leaving 4 px before the text
-/// column's edge. Going much larger eats the padding and the mark starts crowding the
-/// box it is labelling.
-pub(crate) const MARK_SIZE: Pixels = px(8.);
-/// How far the mark sits from the callout box's left edge.
-///
-/// Enough that the mark reads as belonging to the box without touching it, and small
-/// enough that the pair still fits in the gutter (see [`MARK_SIZE`]).
-pub(crate) const MARK_GAP: Pixels = px(4.);
+/// The side of the square a mark is drawn in, and the air it keeps from the text, both
+/// from [`crate::style`] — the gutter is a shared column, so its dimensions are not this
+/// module's to invent.
+use crate::style::{GUTTER, MARK_GUT, MARK_SIZE};
+
 /// The weight of an outlined mark's rule.
 ///
 /// Heavier than the window's hairlines for the same reason the key chips are
@@ -107,16 +99,17 @@ pub(crate) fn mark_for(kind: CalloutKind) -> Mark {
     }
 }
 
-/// Where the mark goes, given the box it labels.
+/// Where a gutter mark goes, given the **gutter's** left edge rather than the text's.
 ///
-/// Centred vertically in the header row and hung in the gutter to the left of
-/// `box_left`. The gutter is the note column's own padding, so this reaches outside the
-/// line element's bounds on purpose — the padding is inside the editor's scroll clip, so
-/// nothing crops it.
-pub(crate) fn mark_box(box_left: Pixels, row_top: Pixels, row_height: Pixels) -> Bounds<Pixels> {
+/// Centred vertically in the row and hung on the **text side** of the column, keeping
+/// [`crate::style::MARK_GUT`] clear of the first glyph. Everything else placed in the
+/// gutter later — a fold marker, a line number, a changed-line rule — takes the same
+/// reference point, so nothing here is measured against the callout box and the layout
+/// and the painting cannot drift apart.
+pub(crate) fn mark_box(gutter_left: Pixels, row_top: Pixels, row_height: Pixels) -> Bounds<Pixels> {
     Bounds {
         origin: Point {
-            x: box_left - MARK_GAP - MARK_SIZE,
+            x: gutter_left + GUTTER - MARK_GUT - MARK_SIZE,
             y: row_top + (row_height - MARK_SIZE) / 2.,
         },
         size: Size {

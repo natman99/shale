@@ -600,6 +600,14 @@ Workspace layout:
 
 ### GPUI gotchas (learned the hard way — re-read before touching the UI)
 
+- **`overflow_scroll` clips to the scroller's own bounds, minus borders only.** Padding is
+  *inside* the mask (`Style::overflow_mask` subtracts `border_widths` and nothing else), so
+  anything an element paints outside its content box is only drawn if the padding that
+  reserves the space is on the **scroller itself**, not on an ancestor. This cost a whole
+  feature: the callout kind marks were painted 12 px left of the line's bounds, the note's
+  `px_4()` lived on the workspace's note column, and the marks simply never appeared — no
+  error, no test failure, just an empty gutter in a screenshot. The note's gutter is
+  `style::GUTTER` applied as `editor-scroll`'s left padding for exactly this reason.
 - **Never use crates.io `gpui` 0.2.2.** Its Wayland backend requests a
   `wl_surface` frame callback exactly once (at first configure) and then depends
   on the compositor's callback chain; under niri that chain stalls, so the app
@@ -4652,12 +4660,21 @@ conversation. Roughly in order of what they have said they want.
     outright — with live preview hiding `[!type]`, those pairs are unreadable today, so
     the mark is a second channel and not decoration. The invariant (kinds sharing a colour
     never share a mark, checked against both built-ins) is a test, and it was confirmed to
-    fail when two kinds were given the same shape. **Not verified visually:** the shapes
-    have never been seen by a human. A headless screenshot was attempted and failed —
-    shale runs under Xvfb but gpui creates no X window there, so `scripts/screenshot.py`
-    finds nothing. The paint test proves every kind reaches gpui's painter without a
-    tessellation failure (which would draw *nothing at all*, hence the `debug_assert` in
-    `marks::paint`), but it cannot say the glyph looks right. **Open:** whether
-    `CalloutKind::Other` should take `callout_note`'s colour as its own doc claims — it
-    currently takes `accent`, which is `link`'s blue, so an unknown type reads as `info`.
-    The mark already assumes the note; the colour is one line behind it.
+    fail when two kinds were given the same shape. **They did not render at first, and the
+    reason is the gotcha now at the top of the GPUI list:** `overflow_scroll` clips to the
+    scroller's own bounds minus borders, and the note's `px_4()` lived on the workspace's
+    column, so the marks were painted outside the mask — silently, with no test failure.
+    The note's gutter is now `style::GUTTER`, applied as `editor-scroll`'s left padding, and
+    it is a **named shared column** rather than padding sized to one glyph: fold markers,
+    line numbers, a changed-line rule and provenance marks all want it, and the mark's
+    position is derived from `GUTTER`/`MARK_GUT` so layout and painting cannot drift.
+    **Still not verified visually:** a headless screenshot was attempted and failed — shale
+    runs under Xvfb but gpui creates no X window there, so `scripts/screenshot.py` finds
+    nothing. The paint test proves every kind reaches gpui's painter without a tessellation
+    failure (which would draw *nothing at all*, hence the `debug_assert` in `marks::paint`),
+    but it cannot say the glyph looks right.
+    **Done since:** `CalloutKind::Other` takes `callout_note` as its doc always claimed (it
+    had been wearing `link`'s blue, so an unknown type read as `info`), and `contrast::audit`
+    now judges every callout accent against both the box and the note, walked from
+    `callout_accent` so a new kind is audited automatically. An existing test pinned the old
+    `Other => accent` behaviour and had to be corrected, not just extended.
