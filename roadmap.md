@@ -29,13 +29,20 @@ palettes + `.shale/themes/*.toml`), file watching, spellcheck/grammar via
 harper-ls with the popup + code actions, image embeds, MCP stdio server
 (list/read/write/search/backlinks), headless gpui test harness.
 
-**Unbuilt from the original Goals list** (refreshed 2026-11-01): Tabs, Tiling
-splits, Graph view (the `core` math — M1a/M2 — is in flight on the graph
-track; the app-side tab waits on P3.1), Database tables/Obsidian-bases
-(P4.3 `.shq`), PDF export, Templates, tree-sitter code highlighting.
-**Shipped since this section was written (2026-10-28):** the Database (P1),
-"Raw" mode (P0.6), and `/` search (P0.5), plus all of Phases 0–1 and
-P2.1–P2.4.
+**Where the phases stand** (refreshed 2026-11-04, replacing the 2026-10-28
+list that still called tabs and the graph unbuilt): **Phases 0, 1 and 2 are
+closed** — the one Phase 2 remainder is **P2.5b**, the inline review overlay.
+**Phase 3:** P3.1 tabs done; P3.2 splits landed (a + b) with pane resize,
+move/exchange/rotate, the pane-tree half of the session and `:pin` still open;
+P3.3/P3.4 graph M1a + M1b done and measured (a whole 5k-note frame paints in
+2.3–2.6 ms at whole-vault zoom, the sim beat self-stops, idle CPU ~1%). The
+multi-window arc landed since: `VaultServices` (one index, watcher, backup loop
+and live MCP per vault), per-window session slots, and remembered window frames
+(`784e56f`). **There is no open process-lifetime issue** — the reported
+"process lingers after the last window closes" was a `pgrep -f` artifact; every
+exit path was re-measured clean (PROGRESS.md, 2026-11-04). Still unbuilt from
+the original Goals list: Database tables/Obsidian-bases (P4.3 `.shq`), PDF
+export, Templates, tree-sitter code highlighting.
 
 **Parked threads** (PROJECT.md, the other agent's list): `/` search, scrolling
 popup panel, scrolling picker list, hover-capability check, live grammar fixes,
@@ -801,6 +808,9 @@ into the Phase 3 addendum. **P2.5a landed 2026-11-01, so Phase 2 is closed**
   constellations + static mode → heatmap/groups/arrows → signature features
   (thread, pulses+glow, MST star-lines, nebulae, hjkl + f-jump, illumination,
   drift, orbit focus, link-age, minimap).
+  **Re-striped 2026-11-04:** M2 splits into **M2a projected 3D** (its own item
+  below, P3.6, pulled ahead of everything else in this phase) and **M2b local
+  graph**, which follows it.
   **Brainstorm rulings that feed M5 (2026-10-29):** typed edges as an edge
   layer + kind filter (P1.2 `edges` table; display registry with inverse
   labels; no layout springs in v1), hook→payoff dashed arcs, region
@@ -808,6 +818,33 @@ into the Phase 3 addendum. **P2.5a landed 2026-11-01, so Phase 2 is closed**
   graph tab's active filter only while that tab has focus).
   Note: **glow, link-age, and the heatmap all need P1** — schedule them after
   Phase 1 lands even though the graph itself doesn't.
+- **P3.6 Projected 3D as a mode** (ruled ✅ 2026-11-04; the plan's M2a).
+  **The core half is already built** — `bd04fd8` landed the dimension-generic
+  sim (`Sim<2>`/`Sim<3>`, quadtree → octree, seeded in both dimensions) and
+  `crates/core/src/graph/proj.rs`: `Cam3` with `orbit_by`, `zoom_at`,
+  `project_all`, `painter_order`, `fit` and `screen_to_world_at_depth`, plus
+  the hit-test recipe. The work is app-side: `GraphSim` runs `Sim<3>` in 3D
+  mode, the frame carries `[f32;3]`, and paint, hit test and camera gain a
+  projected branch. **Binding rules are in PROJECT.md "2D / 3D mode rules"**
+  (mode not replacement, 2D default; no re-seed on a mode switch; the session
+  remembers orientation and re-fits position; a camera showing nothing falls
+  back to fit; links stay under depth-sorted nodes in v1; the hit-test grid
+  uses projected bounds). The hard parts, stated honestly: the settled-frame
+  link cache assumes a static camera, so orbiting pays a rebuild (key the cache
+  on camera change); true depth interleaving of links and nodes would undo the
+  one-layer-per-phase batching win (thread 43), so v1 approximates.
+  **Gate:** the 2D numbers in thread 43 must not move, and the 3D frame is
+  benched (`crates/app/src/tests/graph/paint_bench.rs`) and idle-park-checked
+  before the mode is called done.
+
+**Sequencing ruling (2026-11-04):** P3.6 goes **before** P3.2's leftovers and
+before the addendum. The rule it breaks, named plainly: *each phase's exit
+criteria pass before the next phase starts* — Phase 3's splits half is still
+open. What it costs: nothing structural. None of the deferred items gates
+anything downstream, and Canvas C1 is specced as graph-renderer reuse that
+*should follow* the graph milestones, so graph-first feeds it rather than
+delaying it. P3.2's leftovers remain part of this phase's exit criteria and are
+the next thing after P3.6.
 
 **Exit criteria:** tabs and splits fully keyboard-driven; graph tab opens on a
 2k-note synthetic vault at 60 fps with the sim settling then sleeping (verify
@@ -824,6 +861,10 @@ callback, a follow-up thread if wanted. **Tabs half met** (P3.1); **splits
 half awaits P3.2.**
 
 ### Phase 3 addendum — the deferred Phase 2 remainder (route 3, 2026-11-01)
+
+**Re-sequenced 2026-11-04:** the whole addendum now follows **P3.6** (projected
+3D as a mode). Nothing in it gates that work, and Canvas C1 benefits from the
+graph renderer settling first.
 
 P2.6 (quick capture), P2.7 (`:Gsub`), and P2.8 (agent presence) keep their
 full specs above under Phase 2 and land inside Phase 3 once tabs + the graph

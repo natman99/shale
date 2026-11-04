@@ -205,6 +205,19 @@ The full design (with verified gpui file:line references) is in `graph-view-plan
 - **Platform frame loops differ — don't fight them in app code.** Wayland (`gpui_linux`) parks on a `wl_callback` when idle: true 0% CPU. Windows (`gpui_windows`) has a `VSyncProvider` thread that `DwmFlush()`es and invalidates every visible window each refresh; a settled idle window still takes a ~60 Hz wakeup + dirty-check (sub-1% CPU, no scene rebuild, no present). Minimized windows are skipped.
 - **Verify idle behavior** by watching the `FrameLoop::{Ticking, AwaitingCallback, Scheduled, Parked}` log lines in `gpui_linux`'s `wayland/window.rs` plus `top`/`pidstat` (expect 0.0–0.3% with drift off); ask the user to eyeball the graph tab for unwanted motion.
 
+#### 2D / 3D mode rules (binding, ruled 2026-11-04)
+
+Rationale and the full milestone live in `graph-view-plan.md` (M2); these are the rules a 3D implementation must obey.
+
+- **Mode, not replacement.** The graph tab has a 2D mode and a 3D mode. 2D stays the default and keeps its measured numbers. The mode is **session state** (it rides beside the camera), not config.
+- **The sim is seeded and stays seeded.** `SEED` is a fixed constant (`crates/app/src/graph/sim.rs:29`); core's initial placement is a phyllotaxis spiral in 2D and a Fibonacci sphere in 3D, so the same vault lays out byte-identically across launches (core tests `same_seed_gives_the_same_layout` / `..._3d`). **Switching mode must not re-seed or rebuild the layout** — the user turns the same graph, they do not get a new one.
+- **The camera memory is orientation, not position.** The session stores the mode and yaw/pitch; pan and zoom are re-derived by `Cam3::fit` on the current layout. A remembered pan/zoom in 3D can point at empty sky once the layout re-heats or the vault grows, and a remembered pitch near the ±85° clamp reads as a flat line.
+- **A camera that shows nothing is not a memory.** On restore, if the restored frame contains no node, fall back to fit — in 2D as well as 3D.
+- **Painter's algorithm, v1 approximation.** Nodes sort far→near by `Projected::view_z`, with radius and alpha scaled by `Projected::scale`. Links stay in their own layer **under** the nodes rather than interleaving with them by depth: gpui orders primitives inside one layer by *kind*, so interleaving would undo the one-layer-per-phase batching win (PROJECT.md thread 43).
+- **The settled-frame cache is keyed on the camera.** Rotating invalidates the replayed link batch; a still camera does not pay the rebuild.
+- **The hit-test grid is built from the projected bounds**, never the layout bounds — otherwise the miss-a-node-on-the-bounding-box-edge bug (thread 38) returns in a new costume. Hit test = project, then `Grid` over the projected points with radii scaled by `Projected::scale`.
+- **Exit gate:** the 2D numbers in thread 43 must not move, and the 3D frame is benched (`crates/app/src/tests/graph/paint_bench.rs`) and idle-park-checked before the mode is called done.
+
 ### Database 
 Persist metadata about notes to a local sqlite DB. This, along with other vault metadata, should be kept in a `.shale` directory in the vault. Store modification and creation date, tags, names, and whatever else is relevant as the project continues. When Obsidian properties are added, these should be stored as well. Use incremental updating of the DB. When the app is launched, a background thread should go and check for modified files that weren't persisted (due to an external editor, etc) and update the vault in the background. This background thread should then end and further updates will be done as notes are updated.
 
