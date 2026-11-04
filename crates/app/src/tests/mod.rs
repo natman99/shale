@@ -7,8 +7,14 @@
 
 use super::*;
 use crate::editor::MarkdownEditor;
+// The slimmed `main.rs` no longer imports what the tests build windows from;
+// they say so themselves now.
+use shale_core::{Config, Vault};
+use std::rc::Rc;
 use crate::workspace::{keybindings, Workspace};
-use gpui::{BackgroundExecutor, Focusable, TestAppContext, VisualTestContext, WindowHandle};
+use gpui::{
+    px, BackgroundExecutor, Focusable, TestAppContext, VisualTestContext, WindowHandle,
+};
 use std::path::Path;
 use std::time::Duration;
 
@@ -35,6 +41,7 @@ mod spell;
 mod status;
 mod tabs;
 mod tree;
+mod vaults;
 mod views;
 
 /// The simulated clock, taken from the `TestAppContext` before a window context

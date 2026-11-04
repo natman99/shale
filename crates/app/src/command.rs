@@ -355,6 +355,15 @@ const ALL: &[Command] = &[
         action: Some(|| Box::new(ChangeTheme)),
     },
     Command {
+        id: "vault.switch",
+        label: "Switch vault",
+        keys: "",
+        ex: &["vault"],
+        args: "",
+        in_palette: true,
+        action: Some(|| Box::new(ChangeVault)),
+    },
+    Command {
         id: "theme.export",
         label: "Write the palette on screen to a theme file",
         keys: "",

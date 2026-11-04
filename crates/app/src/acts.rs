@@ -143,6 +143,10 @@ actions!(
         RunCommandLine,
         // Pick a palette and see it straight away (`theme`, or the palette).
         ChangeTheme,
+        // Pick another vault: the list this app remembers, or a folder from the
+        // file dialog. The chosen vault opens in this process; this window
+        // closes once it has (`:vault`, or the palette).
+        ChangeVault,
         // Starting and stopping the spell and grammar checker (`harper on|off`).
         CheckerOn,
         CheckerOff,

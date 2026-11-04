@@ -266,7 +266,7 @@ impl Workspace {
     /// The notes of one pane's tab bar, in order: `None` is the empty tab,
     /// `Some("")` would be a graph tab's missing path.
     #[cfg(test)]
-    pub(crate) fn pane_tab_paths(&self, pix: usize, cx: &gpui::App) -> Vec<Option<PathBuf>> {
+    pub(crate) fn pane_tab_paths(&self, pix: usize, _cx: &gpui::App) -> Vec<Option<PathBuf>> {
         self.panes[pix]
             .tabs
             .iter()
@@ -521,6 +521,8 @@ impl Workspace {
                 PickerTarget::Hit { path, line } => format!("{}:{}", rel_text(&path), line),
                 PickerTarget::Command(command) => command.label().to_string(),
                 PickerTarget::Theme(name) => name,
+                PickerTarget::Vault(path) => path.display().to_string(),
+                PickerTarget::VaultPrompt => "prompt".into(),
             })
     }
     /// Where the note's first display line sits, in window coordinates: how a

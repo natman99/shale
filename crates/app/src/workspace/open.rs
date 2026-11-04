@@ -34,6 +34,10 @@ pub(crate) enum PickerTarget {
     /// A palette to draw the window with, named the way `appearance.theme` names
     /// one: a built-in or the stem of a `<vault>/.shale/themes/<name>.toml`.
     Theme(String),
+    /// A vault to open in this process — the window's vault closes when it does.
+    Vault(std::path::PathBuf),
+    /// The file dialog that adds a vault the app has never seen.
+    VaultPrompt,
 }
 
 /// How many search hits to offer. A keystroke reads the vault, so the walk stops
@@ -284,6 +288,8 @@ impl Workspace {
                 self.say(command.label(), cx);
                 window.dispatch_action(command.action(), cx);
             }
+            PickerTarget::Vault(path) => self.switch_vault(&path, window, cx),
+            PickerTarget::VaultPrompt => self.prompt_for_vault(window, cx),
         }
     }
 

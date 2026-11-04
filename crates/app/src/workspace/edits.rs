@@ -201,6 +201,7 @@ impl Workspace {
             | ex::Ex::Typewriter(None)
             | ex::Ex::Tree(None)
             | ex::Ex::ThemePicker
+            | ex::Ex::VaultPicker
             | ex::Ex::View(_)
             | ex::Ex::YankClipboard
             | ex::Ex::PasteClipboard

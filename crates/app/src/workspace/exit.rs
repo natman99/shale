@@ -168,11 +168,23 @@ impl Workspace {
     /// `shale-mcp` finds no port and no lock rather than a stale hint. P2.5a's part is
     /// the last: stopping the beat, because the queue itself is *meant* to outlive the
     /// window — the files stay, and the next launch reads them again.
-    fn leave(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn leave(&mut self, cx: &mut Context<Self>) {
         self.flush_index();
         self.save_session(cx);
         self.stop_live();
         self.stop_pending_watch();
-        cx.quit();
+        // One process can hold several vault windows: leaving closes *this*
+        // window, and the run ends on its own when the last one goes. The
+        // close is deferred because `leave` often runs from inside this very
+        // window's update — a signal handler, a picker's answer — and gpui
+        // refuses to yank the window out from under its own frame. A
+        // workspace that never learned its window (a test built without the
+        // registry) quits the app the way a single-window Shale always did.
+        match self.self_window {
+            Some(handle) => cx.defer(move |cx| {
+                let _ = handle.update(cx, |_ws, window, _cx| window.remove_window());
+            }),
+            None => cx.quit(),
+        }
     }
 }

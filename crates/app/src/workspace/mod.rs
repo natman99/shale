@@ -31,6 +31,7 @@ mod tabs;
 mod testhooks;
 mod themes;
 mod tree;
+pub(crate) mod vaults;
 mod views;
 
 pub(crate) use bar::STATUS_TTL;
@@ -62,6 +63,11 @@ use crate::prompt;
 pub(crate) struct Workspace {
     focus_handle: gpui::FocusHandle,
     vault: Rc<Vault>,
+    /// This workspace's own window, set by `vaults::open_vault_window` right
+    /// after the window opens. `None` until then (and in tests that build a
+    /// workspace without the registry), where an exit falls back to quitting
+    /// the app the way a single-window Shale always did.
+    self_window: Option<gpui::WindowHandle<Workspace>>,
     /// What the user asked for in `<vault>/.shale/config.toml`. The window reads
     /// it when it starts the checker, which `:harper on` does at any time, and
     /// replaces it when it writes one of its own settings back into that file.
@@ -292,6 +298,18 @@ pub(crate) struct Workspace {
 }
 
 impl Workspace {
+    /// The vault this window reads and writes.
+    pub(crate) fn vault_root(&self) -> &std::path::Path {
+        self.vault.root()
+    }
+
+    /// The window this workspace is drawn in, once it exists. One process can
+    /// hold several windows, so an exit closes *this* one rather than quitting
+    /// the app; the run ends on its own when the last window goes.
+    pub(crate) fn set_self_window(&mut self, window: gpui::WindowHandle<Workspace>) {
+        self.self_window = Some(window);
+    }
+
     pub(crate) fn new(vault: Rc<Vault>, config: Rc<Config>, cx: &mut Context<Self>) -> Self {
         let entries = vault.list_markdown().unwrap_or_default();
         let dirs = vault.list_dirs().unwrap_or_default();
@@ -401,6 +419,7 @@ impl Workspace {
         let mut workspace = Self {
             focus_handle: cx.focus_handle(),
             vault,
+            self_window: None,
             config,
             palette,
             theme_name: theme_name.clone(),

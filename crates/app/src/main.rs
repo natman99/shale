@@ -29,22 +29,22 @@ mod tree;
 mod workspace;
 
 use std::path::PathBuf;
-use std::rc::Rc;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use anyhow::{Context as _, Result};
 use clap::Parser;
-use gpui::{prelude::*, px, size, App, Bounds, TitlebarOptions, WindowBounds, WindowOptions};
-use shale_core::{Config, Vault};
+use gpui::App;
+use shale_core::RecentVaults;
 
-use workspace::{keybindings, start_watcher, vault_title, Workspace};
+use workspace::{keybindings, vaults};
 
 #[derive(Parser, Debug)]
 #[command(name = "shale", about = "Obsidian-style markdown editor")]
 struct Args {
-    /// Path to the vault directory.
-    vault: PathBuf,
+    /// Path to the vault directory. With none given, Shale opens the vault it
+    /// opened last (`:vault` and the picker are how that list grows).
+    vault: Option<PathBuf>,
 
     /// Open this note on startup (vault-relative).
     #[arg(long)]
@@ -75,19 +75,14 @@ fn main() -> Result<()> {
         )
         .with_writer(std::io::stderr)
         .init();
-    let vault = Rc::new(Vault::open(&args.vault).context("opening vault")?);
-    // The vault's own `.shale/config.toml`: written from the starter when the
-    // vault has no config yet, and moved out of the vault root when it is still
-    // the old root-level `shale.toml`.
-    let (config, source) = Config::load_or_create(vault.root()).context("loading config")?;
-    tracing::info!(?source, path = %Config::path(vault.root()).display(), "config");
-    let config = Rc::new(config);
-    let initial_note = args.note.clone();
-    let graph_at_start = args.graph;
-    // The window is named for the vault, not for the program: a window list is a
-    // list of vaults, and "Shale" is no use to anyone with two open. The first
-    // frame extends it to `vault — note` (`workspace::render`).
-    let vault_name = vault_title(vault.root());
+    // Which vault: the command line first (kept for testing and for muscle
+    // memory), then the vault this app opened last.
+    let vault_path = args
+        .vault
+        .clone()
+        .or_else(|| RecentVaults::load().startup_vault())
+        .context("no vault: name one on the command line, or open one from \
+                  another vault's `:vault` picker first")?;
 
     // Roadmap P1.5: a termination signal is an exit the user asked for, not a crash.
     // The handler runs in signal context, where the only safe work is an atomic
@@ -117,91 +112,37 @@ fn main() -> Result<()> {
         .collect::<std::result::Result<Vec<_>, _>>()
         .context("installing the termination handlers")?;
 
+    // Claim the vault before the GUI exists. A vault owned by another Shale
+    // is then a message and an exit code, not a window; gpui's loop has no
+    // clean way to end before its first window, so the refusal has to happen
+    // out here where `return` still means something.
+    let root = vault_path
+        .canonicalize()
+        .with_context(|| format!("{} is not a vault", vault_path.display()))?;
+    let claim = vaults::claim_vault(&root)?;
+
+    let options = vaults::OpenOptions {
+        note: args.note.clone(),
+        graph: args.graph,
+        split: args.split,
+        open_after: args.open_after,
+    };
     let app = gpui_platform::application();
     app.run(move |cx: &mut App| {
         cx.bind_keys(keybindings());
-
-        let workspace = cx.new(|cx| Workspace::new(vault.clone(), config.clone(), cx));
-        let note = initial_note.clone();
-        let ws_for_build = workspace.clone();
-
-        let window = cx
-            .open_window(
-                WindowOptions {
-                    titlebar: Some(TitlebarOptions {
-                        title: Some(vault_name.clone().into()),
-                        ..Default::default()
-                    }),
-                    // Filed under its own name rather than under whatever the
-                    // window manager guesses: X11 reads this as WM_CLASS, Wayland
-                    // as the xdg app_id, and `assets/shale.desktop` repeats it in
-                    // StartupWMClass so the desktop can find the entry, and
-                    // through it the mark (§13).
-                    app_id: Some(identity::APP_ID.into()),
-                    // The mark itself, for the one toolkit that takes it from the
-                    // program. A Wayland desktop gets the same mark from the
-                    // `.desktop` entry instead.
-                    #[cfg(target_os = "linux")]
-                    icon: Some(identity::window_icon(64)),
-                    window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
-                        None,
-                        size(px(1200.), px(800.)),
-                        cx,
-                    ))),
-                    ..Default::default()
-                },
-                move |window, cx| {
-                    cx.activate(true);
-                    // The pointer's position over the note can open a popup, and a
-                    // popup taking the keyboard is a focus change, so that part of
-                    // the window is wired up here, where there is a window.
-                    ws_for_build.update(cx, |ws, cx| ws.attach_window(window, cx));
-                    if let Some(note) = note.clone() {
-                        ws_for_build.update(cx, |ws, cx| ws.open_note(&note, cx));
-                    }
-                    if graph_at_start {
-                        ws_for_build.update(cx, |ws, cx| ws.open_graph(cx));
-                    }
-                    ws_for_build
-                },
-            )
-            .unwrap();
-        // Whatever the window came up on holds the keyboard from the first frame, so
-        // the very first keystroke after launch is an edit and not an ignored key. Not
-        // `focus_editor`: a session that ended on the graph tab comes back to the graph
-        // tab, and the keyboard has to be where the frame is.
-        window
-            .update(cx, |ws, window, cx| {
-                if args.split {
-                    ws.split_pane(workspace::panes::SplitDir::Row, false, window, cx);
-                }
-                ws.focus_active_tab(window, cx)
-            })
-            .unwrap();
-
-        // The vault can change while Shale is open — Obsidian, git, another
-        // terminal — so the tree and the open note follow the disk.
-        start_watcher(&workspace, cx);
-
-        // ...and a `kill` is answered the same way a quit is: the note to the disk,
-        // the index checkpointed, then the window.
-        workspace.update(cx, |ws, cx| {
-            ws.watch_for_termination(terminating.clone(), cx)
-        });
-
-        if let Some(secs) = args.open_after {
-            let ws = workspace.clone();
-            let note = args
-                .note
-                .clone()
-                .unwrap_or_else(|| PathBuf::from("Welcome.md"));
-            cx.spawn(async move |cx| {
-                cx.background_executor()
-                    .timer(std::time::Duration::from_secs(secs))
-                    .await;
-                _ = ws.update(cx, |ws, cx| ws.open_note(&note, cx));
-            })
-            .detach();
+        // The registry of vaults this process has windows for, and the claim
+        // files that hold them. One Shale, one window per vault; the vault
+        // switcher (`:vault`) adds windows to this rather than starting a
+        // second copy of everything.
+        cx.set_global(vaults::VaultWindows::new(terminating.clone()));
+        vaults::seed_claim(root, claim, cx);
+        if let Err(e) = vaults::open_vault_window(&vault_path, options, cx) {
+            // The window is the app: no window, no app. The reason goes to
+            // the terminal the command came from. `quit` cannot end a run
+            // that never opened a window, so the process ends directly —
+            // nothing is open to clean up.
+            eprintln!("shale: {e:#}");
+            std::process::exit(1);
         }
     });
     Ok(())
