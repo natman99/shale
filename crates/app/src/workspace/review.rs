@@ -136,7 +136,7 @@ impl Workspace {
         // is holding, not against the file, or it would be called stale for a change
         // the user can see.
         if let Some(index) = self.tab_for_path(note) {
-            self.tabs[index]
+            self.pane().tabs[index]
                 .editor()
                 .map(|editor| editor.read_with(cx, |editor, _cx| editor.text()))
                 .unwrap_or_default()
@@ -447,7 +447,7 @@ impl Workspace {
         let Some((start, end, text)) = diff::region(current, hunk) else {
             return false;
         };
-        let Some(editor) = self.tabs[index].editor().cloned() else {
+        let Some(editor) = self.pane().tabs[index].editor().cloned() else {
             // A graph tab never holds a note, so this is only the compiler's company.
             return false;
         };
@@ -499,7 +499,7 @@ impl Workspace {
     /// it, since a background tab is still a tab the user will bring forward.
     fn note_is_preview(&self, note: &Path, cx: &gpui::App) -> bool {
         self.tab_for_path(note).is_some_and(|index| {
-            self.tabs[index].editor().is_some_and(|editor| {
+            self.pane().tabs[index].editor().is_some_and(|editor| {
                 editor.read_with(cx, |editor, _cx| editor.view()) == View::Preview
             })
         })

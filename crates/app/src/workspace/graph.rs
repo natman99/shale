@@ -75,7 +75,7 @@ impl Workspace {
     /// The window's graph view, if any tab holds one. There is at most one graph tab
     /// per window (see [`TabContent::Graph`]), so this is a search rather than a table.
     pub(super) fn graph_view(&self) -> Option<&Entity<crate::graph::GraphView>> {
-        self.tabs.iter().find_map(|tab| match &tab.content {
+        self.pane().tabs.iter().find_map(|tab| match &tab.content {
             TabContent::Graph(view) => Some(view),
             TabContent::Note { .. } => None,
         })
@@ -89,7 +89,7 @@ impl Workspace {
     /// slot asked the question window-wide, so a graph tab sitting on the bar painted
     /// its links over the note that was actually open.
     pub(super) fn active_graph_view(&self) -> Option<&Entity<crate::graph::GraphView>> {
-        match &self.tabs[self.tab].content {
+        match &self.pane().active_tab().content {
             TabContent::Graph(view) => Some(view),
             TabContent::Note { .. } => None,
         }
@@ -113,12 +113,12 @@ impl Workspace {
         let view = cx.new(|cx| {
             crate::graph::GraphView::new(window, Rc::clone(&self.palette), family, size, cx)
         });
-        let index = if self.tabs.is_empty() {
+        let index = if self.pane().tabs.is_empty() {
             0
         } else {
-            self.tab + 1
+            self.pane().active + 1
         };
-        self.tabs.insert(
+        self.pane_mut().tabs.insert(
             index,
             Tab {
                 id,
@@ -127,7 +127,7 @@ impl Workspace {
                 _autosave: None,
             },
         );
-        self.tab = index;
+        self.pane_mut().active = index;
         // The graph takes the pointer's subscription away: there is no note under it
         // to hover, and the keyboard has to land on the graph's own key context.
         self.hover_stale = true;
@@ -287,7 +287,7 @@ impl Workspace {
     /// One beat of the layout: tick the sim, ship the new picture, and say whether
     /// anything moved (which is whether another beat is owed).
     fn graph_tick(&mut self, cx: &mut Context<Self>) -> bool {
-        if !self.tabs.iter().any(|tab| tab.is_graph()) {
+        if !self.pane().tabs.iter().any(|tab| tab.is_graph()) {
             self.graph_beat = None;
             return false;
         }
@@ -428,7 +428,7 @@ impl Workspace {
     /// building it reads every note in the vault and a window that never opens the
     /// graph should never pay for it.
     pub(crate) fn open_graph(&mut self, cx: &mut Context<Self>) {
-        if let Some(index) = self.tabs.iter().position(|tab| tab.is_graph()) {
+        if let Some(index) = self.pane().tabs.iter().position(|tab| tab.is_graph()) {
             self.show_tab(index, cx);
             return;
         }

@@ -170,7 +170,7 @@ impl Workspace {
     /// the graph tab. `None` is a tab that holds neither — the empty tab a window
     /// starts with, or one whose note was deleted.
     fn seat_jump(&self, cx: &mut Context<Self>) -> Option<Jump> {
-        if self.tabs[self.tab].is_graph() {
+        if self.pane().active_tab().is_graph() {
             return Some(Jump {
                 path: None,
                 cursor: 0,
@@ -191,7 +191,7 @@ impl Workspace {
     pub(super) fn record_jump(&mut self, going_to: &Path, cx: &mut Context<Self>) {
         // The graph tab is a stop on the chain even though it is not a note: a note
         // opened by a click on a node has to be able to walk back to the graph.
-        if self.tabs[self.tab].is_graph() {
+        if self.pane().active_tab().is_graph() {
             self.jumps.record(Jump {
                 path: None,
                 cursor: 0,

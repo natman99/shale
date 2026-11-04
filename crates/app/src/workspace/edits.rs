@@ -298,7 +298,7 @@ impl Workspace {
                 // Every tab that was showing the old name now shows the new one.
                 // More than one can be, which is what a tab holding a note while
                 // another tab holds the same note looks like from here.
-                for tab in self.tabs.iter_mut() {
+                for tab in self.pane_mut().tabs.iter_mut() {
                     if let TabContent::Note { path, .. } = &mut tab.content {
                         if path.as_deref() == Some(from.as_path()) {
                             *path = Some(renamed.clone());
@@ -329,8 +329,8 @@ impl Workspace {
                 // Every tab that was showing it becomes an empty tab: the note is
                 // gone, and a tab holding a note that no longer exists is a lie.
                 let mut cleared = false;
-                for index in 0..self.tabs.len() {
-                    if self.tabs[index].path() == Some(target.as_path()) {
+                for index in 0..self.pane().tabs.len() {
+                    if self.pane().tabs[index].path() == Some(target.as_path()) {
                         self.clear_tab(index, cx);
                         cleared = true;
                     }
@@ -429,7 +429,7 @@ impl Workspace {
         // looking at has to resolve against the disk the same way the moment that
         // tab comes forward. The two fields are kept on the window for the same
         // reason, so a tab opened later starts with what is on disk now.
-        for tab in self.tabs.iter() {
+        for tab in self.pane().tabs.iter() {
             let Some(editor) = tab.editor() else {
                 continue;
             };

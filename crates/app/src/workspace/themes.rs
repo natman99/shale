@@ -247,7 +247,7 @@ impl Workspace {
         // The graph's labels are drawn in the note's face, so a theme that changes the
         // font changes them with it.
         let (family, size) = self.note_font(cx);
-        for tab in self.tabs.iter() {
+        for tab in self.pane().tabs.iter() {
             match &tab.content {
                 TabContent::Note { editor, .. } => {
                     editor.update(cx, |editor, cx| editor.set_palette(Rc::clone(&palette), cx))

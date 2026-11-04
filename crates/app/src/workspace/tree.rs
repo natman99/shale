@@ -293,8 +293,8 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.tabs[self.tab].is_graph() {
-            if let Some(index) = self.note_mru.and_then(|id| self.tab_for_id(id)) {
+        if self.pane().active_tab().is_graph() {
+            if let Some(index) = self.pane().note_mru.and_then(|id| self.tab_for_id(id)) {
                 self.show_tab(index, cx);
             }
         }

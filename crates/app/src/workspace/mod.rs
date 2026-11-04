@@ -162,19 +162,20 @@ pub(crate) struct Workspace {
     /// ones get painted, and the session file records it beside the camera.
     graph_filter: shale_core::graph::filter::GraphFilter,
     expanded: HashSet<PathBuf>,
-    /// The open tabs, left to right on the tab bar. **Never empty**: closing the last
-    /// one clears it rather than removing it, which is what a window over an empty
-    /// vault starts with too (see [`tabs`]).
-    tabs: Vec<tabs::Tab>,
-    /// Which tab is on screen: the note, the keyboard, the checker's answers and the
-    /// status bar's numbers all mean "this tab".
-    tab: usize,
-    /// The id of the note tab the frame was last on. Only the graph tab has no note to
-    /// open into, and this is what decides where a note goes instead of it (see
-    /// [`Workspace::note_tab`]).
-    note_mru: Option<usize>,
+    /// The window's panes. **One today** — P3.2a introduced the pane as the
+    /// owner of a tab row before P3.2b adds the split commands that make more
+    /// than one exist. The invariants that matter per pane (never an empty tab
+    /// row, the keyboard follows the frame) live in [`tabs`]; the window adds
+    /// only which pane is active, and every tab operation below reaches its
+    /// tabs through [`Workspace::pane`] / [`Workspace::pane_mut`].
+    panes: Vec<tabs::Pane>,
+    /// Which pane has the keyboard. With one pane this never moves; a split
+    /// will make `ctrl-w h/j/k/l` mean something.
+    active_pane: usize,
     /// The next tab id. Monotonic, because a tab's *index* moves when another tab
     /// closes and its editor's subscription needs an identity that does not.
+    /// Window-level, not per pane: ids are how subscriptions find a tab wherever
+    /// it ended up.
     tab_seq: usize,
     /// The title the window was last given, so a frame that did not change the note
     /// on screen does not ask the window manager for a new one (see
@@ -426,10 +427,9 @@ impl Workspace {
             expanded,
             // The window starts with no tabs and gets its first one below, which is
             // the same door `ctrl-t` uses: one place decides what a new tab's editor
-            // is wired up with.
-            tabs: Vec::new(),
-            tab: 0,
-            note_mru: None,
+            // is wired up with. One pane today; see the field docs.
+            panes: vec![tabs::Pane::new(Vec::new())],
+            active_pane: 0,
             tab_seq: 0,
             // Nothing has been given to a window that does not exist yet; the
             // first frame names it.
@@ -582,7 +582,7 @@ impl Workspace {
         // The graph tab has no note to hover, so its subscription is simply dropped:
         // leaving the previous tab's in place would let a panel open for a note that is
         // no longer on screen.
-        let Some(editor) = self.tabs[self.tab].editor().cloned() else {
+        let Some(editor) = self.pane().active_tab().editor().cloned() else {
             self._hover_events = None;
             self.hover_stale = false;
             return;
@@ -717,11 +717,11 @@ impl Workspace {
         // Every tab whose note moved on disk, not only the one on screen: a note in
         // the tab bar is a note the user is one key away from, and a buffer holding a
         // copy of something that is no longer true is the same trap either way.
-        for index in 0..self.tabs.len() {
-            let Some(path) = self.tabs[index].path().map(|path| path.to_path_buf()) else {
+        for index in 0..self.pane().tabs.len() {
+            let Some(path) = self.pane().tabs[index].path().map(|path| path.to_path_buf()) else {
                 continue;
             };
-            let Some(editor) = self.tabs[index].editor().cloned() else {
+            let Some(editor) = self.pane().tabs[index].editor().cloned() else {
                 continue;
             };
             let dirty = editor.read_with(cx, |editor, _cx| editor.is_dirty());
@@ -736,7 +736,7 @@ impl Workspace {
                     );
                 } else {
                     self.clear_tab(index, cx);
-                    if index == self.tab {
+                    if index == self.pane().active {
                         self.checker_closed(cx);
                     }
                     self.say(format!("{} deleted from disk", rel_text(&path)), cx);
@@ -757,7 +757,7 @@ impl Workspace {
                     match self.vault.read(&path) {
                         Ok(text) => {
                             editor.update(cx, |editor, cx| editor.set_text(text.clone(), cx));
-                            if index == self.tab {
+                            if index == self.pane().active {
                                 self.checker_opened(&path, &text, cx);
                             }
                             self.say(format!("{} reloaded from disk", rel_text(&path)), cx);

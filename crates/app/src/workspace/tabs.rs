@@ -100,13 +100,69 @@ impl Tab {
     }
 }
 
+/// One pane: a row of tabs, and the one on screen (roadmap P3.2).
+///
+/// **The pane owns the tab bar.** P3.1 made the editor belong to the tab; P3.2
+/// makes the tabs belong to a pane. Today every window has exactly one pane,
+/// and every tab rule — always at least one tab, closing the last clears it,
+/// the keyboard follows the frame — is a rule about *that pane*. Splitting the
+/// window adds panes, not new tab rules: each pane keeps its own row, its own
+/// frame, and its own note-most-recently-shown, and the window adds exactly one
+/// idea of its own: which pane has the keyboard.
+///
+/// The split is deliberately at the data level first: the tab operations still
+/// live on the `Workspace` (they reach the checker, the jumps, the review
+/// strip), and they reach the tabs through [`Workspace::pane`] /
+/// [`Workspace::pane_mut`]. That keeps P3.2a a pure refactor — one pane, the
+/// exact behaviour P3.1 shipped — so the split commands land on a green suite.
+pub(crate) struct Pane {
+    /// The open tabs, left to right on this pane's bar. **Never empty** (the
+    /// [`super`] module's invariant): closing the last one clears it.
+    pub(crate) tabs: Vec<Tab>,
+    /// Which tab is on screen in this pane: the note, the keyboard, the
+    /// checker's answers and the status bar's numbers all mean "this tab".
+    pub(crate) active: usize,
+    /// The id of the note tab this pane was last on. Only the graph tab has no
+    /// note to open into, and this is what decides where a note goes instead of
+    /// it (see [`Workspace::note_tab`]). Per pane, because each pane decides
+    /// its own "instead of".
+    pub(crate) note_mru: Option<usize>,
+}
+
+impl Pane {
+    /// A pane holding `tabs` with the first one on screen.
+    pub(crate) fn new(tabs: Vec<Tab>) -> Self {
+        Self {
+            tabs,
+            active: 0,
+            note_mru: None,
+        }
+    }
+
+    /// The tab on screen. The never-empty invariant makes this total.
+    pub(crate) fn active_tab(&self) -> &Tab {
+        &self.tabs[self.active]
+    }
+}
+
 impl Workspace {
+    /// The pane with the keyboard. Every tab operation reads and writes through
+    /// this; with one pane (all panes today) it is the only pane.
+    pub(super) fn pane(&self) -> &Pane {
+        &self.panes[self.active_pane]
+    }
+
+    /// The pane with the keyboard, for writing. See [`Workspace::pane`].
+    pub(super) fn pane_mut(&mut self) -> &mut Pane {
+        &mut self.panes[self.active_pane]
+    }
+
     /// The editor of the tab on screen, or `None` when that tab is the graph. Every
     /// part of the window that talks to the note goes through this rather than holding
     /// an editor of its own, which is what keeps "the note" meaning "the note in this
     /// tab" everywhere at once — and what lets a graph tab simply have no answer.
     pub(crate) fn editor(&self) -> Option<&Entity<MarkdownEditor>> {
-        self.tabs[self.tab].editor()
+        self.pane().active_tab().editor()
     }
 
     /// The face the note is drawn in, which every panel that types text matches so a
@@ -141,18 +197,18 @@ impl Workspace {
 
     /// The note the tab on screen holds, or `None` for an empty tab or the graph.
     pub(crate) fn note(&self) -> Option<PathBuf> {
-        self.tabs[self.tab].path().map(|path| path.to_path_buf())
+        self.pane().active_tab().path().map(|path| path.to_path_buf())
     }
 
     /// Which tab holds `path`, if one does. This is what makes opening a note that is
     /// already open a tab change rather than a second copy of the note.
     pub(super) fn tab_for_path(&self, path: &Path) -> Option<usize> {
-        self.tabs.iter().position(|tab| tab.path() == Some(path))
+        self.pane().tabs.iter().position(|tab| tab.path() == Some(path))
     }
 
     /// Which tab has this id, for the subscriptions that captured one.
     pub(super) fn tab_for_id(&self, id: usize) -> Option<usize> {
-        self.tabs.iter().position(|tab| tab.id == id)
+        self.pane().tabs.iter().position(|tab| tab.id == id)
     }
 
     /// Add a tab after the one on screen and make it the active one. The editor is
@@ -164,19 +220,18 @@ impl Workspace {
         // The view the user is working in, which is what a tab opened from a note in
         // raw mode is opened in. There is no tab to ask yet only at startup, where
         // the editor's own default is the right answer.
-        let view = self
-            .tabs
-            .get(self.tab)
+        let view = self.pane().tabs
+            .get(self.pane().active)
             .and_then(|tab| tab.editor())
             .map(|editor| editor.read(cx).view())
             .unwrap_or(View::Live);
         let content = self.note_content(id, view, cx);
-        let index = if self.tabs.is_empty() {
+        let index = if self.pane().tabs.is_empty() {
             0
         } else {
-            self.tab + 1
+            self.pane().active + 1
         };
-        self.tabs.insert(
+        self.pane_mut().tabs.insert(
             index,
             Tab {
                 id,
@@ -185,7 +240,7 @@ impl Workspace {
                 _autosave: None,
             },
         );
-        self.tab = index;
+        self.pane_mut().active = index;
         self.mark_note_mru();
         // The new tab is the drawn one, so both the pointer's subscription and the
         // keyboard have to come here; neither path has a window, so the next frame is
@@ -227,10 +282,10 @@ impl Workspace {
 
     /// Records which note tab the frame is on, which is what the graph tab's "where
     /// does a note open instead?" rule needs (see [`Workspace::note_tab`]). Called
-    /// wherever `self.tab` is assigned.
+    /// wherever `self.pane().active` is assigned.
     pub(super) fn mark_note_mru(&mut self) {
-        if !self.tabs[self.tab].is_graph() {
-            self.note_mru = Some(self.tabs[self.tab].id);
+        if !self.pane().active_tab().is_graph() {
+            self.pane_mut().note_mru = Some(self.pane().active_tab().id);
         }
     }
 
@@ -242,11 +297,10 @@ impl Workspace {
     /// most recently on, and to a new tab when the window holds none (integration
     /// contract, `graph-view-plan.md`).
     pub(super) fn note_tab(&mut self, cx: &mut Context<Self>) -> usize {
-        if !self.tabs[self.tab].is_graph() {
-            return self.tab;
+        if !self.pane().active_tab().is_graph() {
+            return self.pane().active;
         }
-        let index = self
-            .note_mru
+        let index = self.pane().note_mru
             .and_then(|id| self.tab_for_id(id))
             .unwrap_or_else(|| self.add_tab(cx));
         self.show_tab(index, cx);
@@ -263,7 +317,7 @@ impl Workspace {
             // editor is on its way out with the tab.
             return;
         };
-        let active = index == self.tab;
+        let active = index == self.pane().active;
         match event {
             EditorEvent::FollowLink { target } => {
                 // Only the tab on screen can be clicked or `gx`-ed, but a link
@@ -294,12 +348,12 @@ impl Workspace {
     /// what a per-tab editor means — so what a tab change owes is the same cleanup
     /// opening a note does: a popup and a search belong to the note they were made on.
     pub(super) fn show_tab(&mut self, index: usize, cx: &mut Context<Self>) {
-        if index == self.tab || index >= self.tabs.len() {
+        if index == self.pane().active || index >= self.pane().tabs.len() {
             return;
         }
         self.drop_popup(cx);
         self.clear_search(cx);
-        self.tab = index;
+        self.pane_mut().active = index;
         self.mark_note_mru();
         // The pointer can only hover over the note that is drawn, so the hover
         // subscription has to move with the frame. It needs a window, and this path
@@ -321,7 +375,7 @@ impl Workspace {
         } else {
             self.checker_closed(cx);
             // The graph tab has no note to name, so the bar says what is on screen.
-            if self.tabs[index].is_graph() {
+            if self.pane().tabs[index].is_graph() {
                 self.say("graph", cx);
             }
         }
@@ -345,7 +399,7 @@ impl Workspace {
     /// view. Every path that owes the keyboard to "wherever the user was working" asks
     /// for this rather than assuming it was the note.
     pub(super) fn active_focus(&self, cx: &mut Context<Self>) -> gpui::FocusHandle {
-        match &self.tabs[self.tab].content {
+        match &self.pane().active_tab().content {
             TabContent::Note { editor, .. } => editor.read(cx).focus_handle(cx),
             // The graph's strip has its own keyboard while it is open, and the view is
             // the one that knows which of its two handles the user is working in.
@@ -357,12 +411,12 @@ impl Workspace {
     /// handful of tabs, and wrapping beats counting them. `gt`/`gT` and
     /// `:tabnext`/`:tabprev` all come here.
     pub(super) fn select_tab(&mut self, by: isize, cx: &mut Context<Self>) {
-        if self.tabs.len() < 2 {
+        if self.pane().tabs.len() < 2 {
             self.say("only one tab", cx);
             cx.notify();
             return;
         }
-        let next = (self.tab as isize + by).rem_euclid(self.tabs.len() as isize) as usize;
+        let next = (self.pane().active as isize + by).rem_euclid(self.pane().tabs.len() as isize) as usize;
         self.show_tab(next, cx);
     }
 
@@ -374,18 +428,18 @@ impl Workspace {
     /// status bar, and a tab that closes on a failed write is work that vanished
     /// because of it.
     pub(super) fn close_tab(&mut self, index: usize, cx: &mut Context<Self>) -> bool {
-        if index >= self.tabs.len() {
+        if index >= self.pane().tabs.len() {
             return false;
         }
         // A tab holding a note writes it before it goes; an empty tab has nothing to
         // write, and nothing to fail at writing. The graph tab has no note either.
-        if self.tabs[index].path().is_some()
-            && self.tabs[index]
+        if self.pane().tabs[index].path().is_some()
+            && self.pane().tabs[index]
                 .editor()
                 .is_some_and(|editor| editor.read_with(cx, |editor, _cx| editor.is_dirty()))
         {
             self.write_tab(index, cx);
-            if self.tabs[index]
+            if self.pane().tabs[index]
                 .editor()
                 .is_some_and(|editor| editor.read_with(cx, |editor, _cx| editor.is_dirty()))
             {
@@ -393,7 +447,7 @@ impl Workspace {
                 return false;
             }
         }
-        if self.tabs.len() == 1 {
+        if self.pane().tabs.len() == 1 {
             // The last tab: cleared rather than removed, so the window keeps its
             // invariant and the user keeps a place to type. Closing the graph tab
             // leaves an empty *note* tab, because the thing to fall back to is a place
@@ -402,9 +456,9 @@ impl Workspace {
             self.checker_closed(cx);
             self.say("no note open", cx);
         } else {
-            self.tabs.remove(index);
+            self.pane_mut().tabs.remove(index);
             // The tab to the left, which is where the eye already is.
-            self.tab = index.min(self.tabs.len() - 1);
+            self.pane_mut().active = index.min(self.pane().tabs.len() - 1);
             self.mark_note_mru();
             self.hover_stale = true;
             self.focus_stale = true;
@@ -416,7 +470,7 @@ impl Workspace {
                     .map(|editor| editor.read_with(cx, |editor, _cx| editor.text()))
                     .unwrap_or_default();
                 self.checker_opened(&path, &text, cx);
-            } else if !self.tabs[self.tab].is_graph() {
+            } else if !self.pane().active_tab().is_graph() {
                 self.checker_closed(cx);
             }
         }
@@ -429,26 +483,26 @@ impl Workspace {
     /// with nothing in it — so it becomes a fresh empty *note* tab under the same id,
     /// which is the place to write the invariant asks for.
     pub(super) fn clear_tab(&mut self, index: usize, cx: &mut Context<Self>) {
-        if self.tabs[index].is_graph() {
-            let id = self.tabs[index].id;
+        if self.pane().tabs[index].is_graph() {
+            let id = self.pane().tabs[index].id;
             let content = self.note_content(id, View::Live, cx);
-            let tab = &mut self.tabs[index];
+            let tab = &mut self.pane_mut().tabs[index];
             tab.content = content;
             tab.autosave_seq = 0;
             tab._autosave = None;
             return;
         }
         // The editor is taken out of the borrow before it is written to: the autosave
-        // subscription lives on the same tab, and `self.tabs` cannot be borrowed twice
+        // subscription lives on the same tab, and `self.pane().tabs` cannot be borrowed twice
         // to clear both.
-        let editor = match &mut self.tabs[index].content {
+        let editor = match &mut self.pane_mut().tabs[index].content {
             TabContent::Note { path, editor, .. } => {
                 *path = None;
                 editor.clone()
             }
             TabContent::Graph(_) => return,
         };
-        self.tabs[index]._autosave = None;
+        self.pane_mut().tabs[index]._autosave = None;
         editor.update(cx, |editor, cx| editor.set_text(String::new(), cx));
     }
 
@@ -463,7 +517,7 @@ impl Workspace {
                 Ok(text) => {
                     if let TabContent::Note {
                         path: slot, editor, ..
-                    } = &mut self.tabs[index].content
+                    } = &mut self.pane_mut().tabs[index].content
                     {
                         *slot = Some(path.clone());
                         editor.update(cx, |editor, cx| editor.set_text(text, cx));
@@ -481,7 +535,7 @@ impl Workspace {
                 }
             }
         }
-        self.say(format!("{} tabs", self.tabs.len()), cx);
+        self.say(format!("{} tabs", self.pane().tabs.len()), cx);
         // The keyboard comes here now rather than waiting for the next frame: this is
         // a keystroke the editor made, and the node it belongs to is the new tab's.
         self.focus_active_tab(window, cx);
@@ -505,15 +559,15 @@ impl Workspace {
     /// same promise a quit makes with autosave on — a tab the user closes is not a
     /// wish to lose the note.
     pub(super) fn tab_close(&mut self, _: &TabClose, window: &mut Window, cx: &mut Context<Self>) {
-        self.close_tab(self.tab, cx);
+        self.close_tab(self.pane().active, cx);
         self.focus_active_tab(window, cx);
     }
 
     /// `:tabonly`: close every tab but this one. The others' notes are written by the
     /// same rule `:tabclose` follows, and a tab whose write fails stays open.
     pub(super) fn tab_only(&mut self, _: &TabOnly, window: &mut Window, cx: &mut Context<Self>) {
-        let keep = self.tab;
-        let others: Vec<usize> = (0..self.tabs.len()).filter(|n| *n != keep).collect();
+        let keep = self.pane().active;
+        let others: Vec<usize> = (0..self.pane().tabs.len()).filter(|n| *n != keep).collect();
         let mut closed = 0;
         for index in others.into_iter().rev() {
             if self.close_tab(index, cx) {
@@ -532,16 +586,16 @@ impl Workspace {
     /// a number in it, so it calls this directly rather than through an action — the
     /// same posture `:theme <name>` keeps.
     pub(super) fn move_tab(&mut self, to: usize, cx: &mut Context<Self>) {
-        let from = self.tab;
-        let to = to.min(self.tabs.len() - 1);
+        let from = self.pane().active;
+        let to = to.min(self.pane().tabs.len() - 1);
         if from == to {
-            self.say(format!("tab {} of {}", from + 1, self.tabs.len()), cx);
+            self.say(format!("tab {} of {}", from + 1, self.pane().tabs.len()), cx);
             return;
         }
-        let tab = self.tabs.remove(from);
-        self.tabs.insert(to, tab);
-        self.tab = to;
-        self.say(format!("tab {} of {}", to + 1, self.tabs.len()), cx);
+        let tab = self.pane_mut().tabs.remove(from);
+        self.pane_mut().tabs.insert(to, tab);
+        self.pane_mut().active = to;
+        self.say(format!("tab {} of {}", to + 1, self.pane().tabs.len()), cx);
         cx.notify();
     }
 
@@ -578,15 +632,15 @@ impl Workspace {
     /// may happen.
     pub(super) fn write_all_tabs(&mut self, cx: &mut Context<Self>) -> bool {
         let mut clean = true;
-        for index in 0..self.tabs.len() {
-            if !self.tabs[index]
+        for index in 0..self.pane().tabs.len() {
+            if !self.pane().tabs[index]
                 .editor()
                 .is_some_and(|editor| editor.read_with(cx, |editor, _cx| editor.is_dirty()))
             {
                 continue;
             }
             self.write_tab(index, cx);
-            if self.tabs[index]
+            if self.pane().tabs[index]
                 .editor()
                 .is_some_and(|editor| editor.read_with(cx, |editor, _cx| editor.is_dirty()))
             {
@@ -600,7 +654,7 @@ impl Workspace {
     /// autosave off, and what the tab bar's dots show. The graph tab is never dirty:
     /// it has no note to be ahead of.
     pub(super) fn any_dirty(&self, cx: &gpui::App) -> bool {
-        self.tabs.iter().any(|tab| {
+        self.pane().tabs.iter().any(|tab| {
             tab.editor()
                 .is_some_and(|editor| editor.read_with(cx, |editor, _cx| editor.is_dirty()))
         })
@@ -611,7 +665,7 @@ impl Workspace {
     /// in. A graph tab has no path, no dirty state and no view, which is what the tab
     /// bar and the session both read as "this one is the graph".
     pub(crate) fn tab_state(&self, cx: &gpui::App) -> Vec<TabState> {
-        self.tabs
+        self.pane().tabs
             .iter()
             .map(|tab| TabState {
                 id: tab.id,

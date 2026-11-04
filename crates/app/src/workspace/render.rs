@@ -257,7 +257,7 @@ impl Render for Workspace {
                 let entity = cx.entity().clone();
                 let close = cx.entity().clone();
                 let id = tab.id;
-                let active = index == self.tab;
+                let active = index == self.pane().active;
                 div()
                     .id(("tab", id))
                     .flex_1()

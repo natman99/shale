@@ -133,7 +133,7 @@ impl Workspace {
         // Logged rather than left unsaid: an exit that throws work away should be
         // findable in the log afterwards, and with tabs open it can be more than one
         // note being thrown away.
-        for tab in self.tabs.iter() {
+        for tab in self.pane().tabs.iter() {
             if let Some(path) = tab.path() {
                 if tab
                     .editor()

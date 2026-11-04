@@ -25,7 +25,7 @@ impl Workspace {
         // note that is already on screen re-reads it, which is what a reload from
         // disk asks for.
         if let Some(index) = self.tab_for_path(path) {
-            if index != self.tab {
+            if index != self.pane().active {
                 self.record_jump(path, cx);
                 self.show_tab(index, cx);
                 return;
@@ -56,7 +56,7 @@ impl Workspace {
                 tracing::debug!(path = %path.display(), bytes = text.len(), "opened note");
                 if let TabContent::Note {
                     path: slot, editor, ..
-                } = &mut self.tabs[index].content
+                } = &mut self.pane_mut().tabs[index].content
                 {
                     *slot = Some(path.clone());
                     editor.update(cx, |editor, cx| editor.set_text(text.clone(), cx));
@@ -117,7 +117,7 @@ impl Workspace {
     /// exits use, because with tabs open a quit owes every note on the bar, not just
     /// the one under the cursor.
     fn write_note(&mut self, cx: &mut Context<Self>) {
-        let tab = self.tab;
+        let tab = self.pane().active;
         self.write_tab(tab, cx);
     }
 
@@ -126,13 +126,13 @@ impl Workspace {
     /// has a frame to report through afterwards, and closing a tab writes its note
     /// whether or not that tab is the one on screen.
     pub(super) fn write_tab(&mut self, index: usize, cx: &mut Context<Self>) {
-        let Some(path) = self.tabs[index].path().map(|path| path.to_path_buf()) else {
+        let Some(path) = self.pane().tabs[index].path().map(|path| path.to_path_buf()) else {
             self.say("no file open", cx);
             return;
         };
-        // The handle is taken out of `self.tabs` first: the write below reports through
+        // The handle is taken out of `self.pane().tabs` first: the write below reports through
         // `say`, which needs `self` mutably.
-        let Some(editor) = self.tabs[index].editor().cloned() else {
+        let Some(editor) = self.pane().tabs[index].editor().cloned() else {
             return;
         };
         let text = editor.read_with(cx, |editor, _cx| editor.text());
@@ -178,11 +178,13 @@ impl Workspace {
         if !self.config.editor.autosave {
             return;
         }
-        let tab = &mut self.tabs[index];
+        // The delay is read before the tab is borrowed: `pane_mut` borrows the
+        // whole window, and `self.config` has to be reachable to build it.
+        let delay = Duration::from_millis(self.config.editor.autosave_after_ms);
+        let tab = &mut self.pane_mut().tabs[index];
         tab.autosave_seq += 1;
         let seq = tab.autosave_seq;
         let id = tab.id;
-        let delay = Duration::from_millis(self.config.editor.autosave_after_ms);
         tab._autosave = Some(cx.spawn(async move |ws, cx| {
             cx.background_executor().timer(delay).await;
             // The weak handle is what stops a timer outliving its window, the id is
@@ -190,9 +192,9 @@ impl Workspace {
             // the sequence number is what stops it writing a note that has been
             // edited again since it was parked.
             let _ = ws.update(cx, |ws, cx| {
-                let found = ws.tabs.iter().position(|tab| tab.id == id);
+                let found = ws.pane().tabs.iter().position(|tab| tab.id == id);
                 if let Some(index) = found {
-                    if ws.tabs[index].autosave_seq == seq {
+                    if ws.pane().tabs[index].autosave_seq == seq {
                         ws.autosave(index, cx);
                     }
                 }
@@ -219,13 +221,13 @@ impl Workspace {
         if !self.config.editor.autosave {
             return;
         }
-        let Some(editor) = self.tabs[index].editor().cloned() else {
+        let Some(editor) = self.pane().tabs[index].editor().cloned() else {
             return;
         };
         if !editor.read_with(cx, |editor, _cx| editor.is_dirty()) {
             return;
         }
-        let Some(path) = self.tabs[index].path().map(|path| path.to_path_buf()) else {
+        let Some(path) = self.pane().tabs[index].path().map(|path| path.to_path_buf()) else {
             return;
         };
         let text = editor.read_with(cx, |editor, _cx| editor.text());
@@ -256,7 +258,7 @@ impl Workspace {
     /// with notes ahead of the disk, and which tab they were looking at is beside the
     /// point.
     pub(super) fn autosave_all(&mut self, cx: &mut Context<Self>) {
-        for index in 0..self.tabs.len() {
+        for index in 0..self.pane().tabs.len() {
             self.autosave(index, cx);
         }
     }

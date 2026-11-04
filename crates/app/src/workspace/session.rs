@@ -112,7 +112,7 @@ impl Workspace {
                 })
                 .collect(),
             tabs,
-            active_tab: Some(self.tab),
+            active_tab: Some(self.pane().active),
             graph_filter: filter_seat(&self.graph_filter),
         }
     }
@@ -212,12 +212,12 @@ impl Workspace {
             // A note deleted since last time is not a session, it is a memory, so its
             // tab goes — and with it the empty tab the window started with. The window
             // keeps the at-least-one-tab invariant either way.
-            self.tabs
+            self.pane_mut().tabs
                 .retain(|tab| tab.path().is_some() || tab.is_graph());
-            if self.tabs.is_empty() {
+            if self.pane().tabs.is_empty() {
                 self.add_tab(cx);
             }
-            self.tab = session.active_tab.unwrap_or(0).min(self.tabs.len() - 1);
+            self.pane_mut().active = session.active_tab.unwrap_or(0).min(self.pane().tabs.len() - 1);
             self.mark_note_mru();
             // The cursor and scroll belong to the tab that had the keyboard: the
             // session remembers one seat, the one the user was looking at. With the

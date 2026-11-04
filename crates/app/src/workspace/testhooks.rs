@@ -83,7 +83,7 @@ impl Workspace {
     /// with autosave off.
     #[cfg(test)]
     pub(crate) fn autosave_now(&mut self, cx: &mut Context<Self>) {
-        let tab = self.tab;
+        let tab = self.pane().active;
         self.autosave(tab, cx);
     }
     /// Turn autosave on or off in the window's own config, for the tests that check
@@ -210,18 +210,18 @@ impl Workspace {
     /// Which tab is on screen, by index.
     #[cfg(test)]
     pub(crate) fn tab_index(&self) -> usize {
-        self.tab
+        self.pane().active
     }
     /// How many graph tabs the window holds. The one-per-window rule is what a test
     /// checks, and `:graph` twice is how it would break.
     #[cfg(test)]
     pub(crate) fn graph_tabs(&self) -> usize {
-        self.tabs.iter().filter(|tab| tab.is_graph()).count()
+        self.pane().tabs.iter().filter(|tab| tab.is_graph()).count()
     }
     /// Whether the tab on screen is the graph.
     #[cfg(test)]
     pub(crate) fn showing_graph(&self) -> bool {
-        self.tabs[self.tab].is_graph()
+        self.pane().active_tab().is_graph()
     }
     /// The counts the graph panel was last told: how a test checks the panel is
     /// showing the vault rather than a placeholder.
@@ -402,7 +402,7 @@ impl Workspace {
     /// hear.
     #[cfg(test)]
     pub(crate) fn close_active_tab(&mut self, cx: &mut Context<Self>) -> bool {
-        let index = self.tab;
+        let index = self.pane().active;
         self.close_tab(index, cx)
     }
     /// Move the frame to tab `index`, for the same reason: a test that needs the
