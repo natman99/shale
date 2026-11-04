@@ -174,6 +174,12 @@ fn preview_takes_no_edits(cx: &mut TestAppContext) {
     let (editor, mut cx) = painted_editor(cx);
     let cx = &mut cx;
     set_view(&editor, cx, View::Preview);
+    // A buffer taller than the viewport, so the scroll assertions below have
+    // somewhere to go.
+    let _ = editor.update(cx, |editor, _window, cx| {
+        editor.set_text("line\n".repeat(100), cx);
+        editor.mark_clean();
+    });
 
     cx.simulate_keystrokes("i");
     cx.simulate_input("typed");
@@ -182,18 +188,24 @@ fn preview_takes_no_edits(cx: &mut TestAppContext) {
     let (note, dirty) = editor
         .read_with(cx, |editor, _cx| (editor.text(), editor.is_dirty()))
         .unwrap();
-    assert_eq!(note, NOTE, "nothing typed or deleted or undone landed");
+    assert_eq!(note, "line\n".repeat(100).as_str(), "nothing typed, deleted or undone landed");
     assert!(
         !dirty,
         "and a keystroke that changed nothing did not mark the note dirty"
     );
 
-    // The keyboard still belongs to the note: the cursor moves.
-    cx.simulate_keystrokes("j");
+    // The keyboard still belongs to the view — but preview scrolls rather than
+    // moves: `j` steps the view down and the caret (hidden, and the reason the
+    // old caret-through-hidden-syntax behavior read as a bug) stays put.
+    cx.simulate_keystrokes("j j j");
     let (row, _) = editor
         .read_with(cx, |editor, _cx| editor.cursor_position())
         .unwrap();
-    assert_eq!(row, 1, "a motion still moves the cursor");
+    assert_eq!(row, 0, "a motion does not move the caret in preview");
+    let scrolled = editor
+        .read_with(cx, |editor, _cx| editor.scroll_probe())
+        .unwrap();
+    assert!(scrolled.0 < 0., "and the motion scrolled the view instead ({scrolled:?})");
 }
 
 /// Raw mode still edits, because it is a view of the source rather than a lock
@@ -345,13 +357,13 @@ fn the_space_leader_moves_between_views(cx: &mut TestAppContext) {
     );
 }
 
-/// A read-only note still answers the keys that are not edits. The scope letter of
-/// a text object (`#`, `*`, the backtick) is not in the keymap, so it arrives as
-/// typed text — and a preview buffer that refused all typed text would swallow the
-/// argument of `y i #`, the very command that copies a section out of a note the
-/// user is only reading. `f#` is the same route with a result the test can see.
+/// Preview answers exactly the keys a reader keeps: the leader chords (so
+/// `space r` and `space l` still leave the view), search and its repeats, and
+/// `g`/`G` jumping the view's ends. Caret motions and operators — `f`, `0`,
+/// `w`, yank, delete — are disabled: preview scrolls, it does not move, and a
+/// caret that could land on hidden syntax or an image is the bug this closes.
 #[gpui::test]
-fn preview_still_answers_keys_that_are_not_edits(cx: &mut TestAppContext) {
+fn preview_answers_only_the_reader_keys(cx: &mut TestAppContext) {
     let (_dir, window) = vault_with(
         cx,
         &[("a.md", "# One\nintro with a # tag\n\n# Two\nother\n")],
@@ -361,9 +373,8 @@ fn preview_still_answers_keys_that_are_not_edits(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("space p");
     assert_eq!(view(&window, cx), View::Preview, "read the note");
 
-    // `f#` is the same route as `i#`'s scope letter: an unbound character, fed to
-    // the engine as typed text. `f` only searches its own row, hence the `j`.
-    cx.simulate_keystrokes("j 0 f #");
+    // The caret motions are off: none of them moves anything.
+    cx.simulate_keystrokes("0 f # w $");
     assert_eq!(
         window
             .update(cx, |ws, _window, cx| {
@@ -372,14 +383,11 @@ fn preview_still_answers_keys_that_are_not_edits(cx: &mut TestAppContext) {
                     .read_with(cx, |editor, _cx| editor.cursor_position())
             })
             .unwrap(),
-        (1, 13),
-        "the `#` reached the engine, and the cursor jumped to the tag"
+        (0, 0),
+        "the disabled motions moved nothing"
     );
 
-    cx.simulate_keystrokes("d a #");
-    assert_eq!(
-        note_text(&window, cx),
-        "# One\nintro with a # tag\n\n# Two\nother\n",
-        "and the delete that follows it changed nothing"
-    );
+    // The leader chord still reaches the engine from inside preview.
+    cx.simulate_keystrokes("space r");
+    assert_eq!(view(&window, cx), View::Raw, "`space r` still leaves preview");
 }

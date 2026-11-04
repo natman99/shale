@@ -9,7 +9,7 @@ use shale_core::vim::{Key, Mode, Outcome};
 
 use crate::acts::*;
 
-use super::MarkdownEditor;
+use super::{MarkdownEditor, View};
 
 impl MarkdownEditor {
     /// Status-bar hint for a half-typed command, e.g. `3d`, `2` or `df`.
@@ -32,6 +32,38 @@ impl MarkdownEditor {
         }
     }
     pub(super) fn normal(&mut self, key: Key, window: &mut Window, cx: &mut Context<Self>) {
+        // Preview is a reading view: the cursor is hidden and the buffer is
+        // read-only, so motions that would move the caret are pointless — and
+        // worse than pointless, because the caret would wander through the
+        // markdown syntax the view hides. Here they scroll instead: `j`/`k`
+        // step the view, `gg`/`G` jump its ends. Motions that cannot scroll
+        // (`w`, `f`, operators, mode switches) are swallowed. The keys that
+        // still reach the vim engine are the ones that do not move the caret
+        // at all: the leader chords, search and its repeats, and `enter`
+        // following a link.
+        if self.view == View::Preview && !self.vim.awaiting_chord() {
+            match key {
+                Key::Char('j') => {
+                    self.preview_scroll(self.line_height_px(), cx);
+                    return;
+                }
+                Key::Char('k') => {
+                    self.preview_scroll(-self.line_height_px(), cx);
+                    return;
+                }
+                // The keys a reader keeps. `g` and `G` stay with the engine:
+                // they move the (hidden) caret to the buffer's ends and the
+                // reveal scrolls the view there — the jump preview wants —
+                // while `g t`/`g T` keep changing tabs and `g f` keeps
+                // following links. Space is the leader, `/` searches, `n` and
+                // `N` repeat it, and escape is escape.
+                Key::Char(' ') | Key::Char('/') | Key::Char('g') | Key::Char('G')
+                | Key::Char('n') | Key::Char('N') | Key::Escape => {}
+                // Everything else — caret motions, operators, counts, mode
+                // switches — is disabled: preview scrolls, it does not move.
+                _ => return,
+            }
+        }
         // The clipboard mirror, part 1: a `p` typed after a copy made in another
         // program pastes *that* rather than Shale's last yank. The read happens
         // only on the keys that are about to paste — reading the clipboard is a
@@ -298,6 +330,10 @@ impl MarkdownEditor {
     }
 
     pub(super) fn on_move_up(&mut self, _: &MoveUp, _window: &mut Window, cx: &mut Context<Self>) {
+        if self.view == View::Preview {
+            self.preview_scroll(-self.line_height_px(), cx);
+            return;
+        }
         self.buffer.move_up();
         self.ensure_cursor_visible();
         cx.notify();
@@ -309,8 +345,30 @@ impl MarkdownEditor {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.view == View::Preview {
+            self.preview_scroll(self.line_height_px(), cx);
+            return;
+        }
         self.buffer.move_down();
         self.ensure_cursor_visible();
+        cx.notify();
+    }
+
+    /// The height of one display line in pixels — the step `j`/`k` scroll the
+    /// preview by.
+    fn line_height_px(&self) -> gpui::Pixels {
+        gpui::px(crate::theme::line_height(self.font_size))
+    }
+
+    /// Scroll the preview view by `dy` pixels (positive = down), clamped to the
+    /// scrollable range. The caret does not move: preview has none to move.
+    fn preview_scroll(&mut self, dy: gpui::Pixels, cx: &mut Context<Self>) {
+        let off = self.scroll_handle.offset();
+        // `offset()` runs from 0 down to `-max_offset()`: the handle reports
+        // the scrollable distance as a positive magnitude.
+        let max = self.scroll_handle.max_offset();
+        let y = (off.y - dy).min(gpui::px(0.)).max(-max.y);
+        self.scroll_handle.set_offset(gpui::point(off.x, y));
         cx.notify();
     }
 

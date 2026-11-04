@@ -527,8 +527,12 @@ impl Render for MarkdownEditor {
                         // bar; normal mode highlights the char under it). The
                         // cursor's own row always keeps its markers, so the index
                         // lands on a real character.
-                        let cursor_col =
-                            (cursor_display == index).then(|| layout.map.index_for_offset(cursor));
+                        // Preview is a reading view: no caret. The block sat
+                        // on hidden syntax and images and read as a bug; the
+                        // view scrolls instead of moving, so there is nothing
+                        // for a caret to point at.
+                        let cursor_col = (cursor_display == index && self.view != View::Preview)
+                            .then(|| layout.map.index_for_offset(cursor));
 
                         // Wiki-link spans overlapping this display line, as
                         // absolute buffer offsets, with whether they resolve to an

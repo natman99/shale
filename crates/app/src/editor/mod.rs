@@ -516,6 +516,22 @@ impl MarkdownEditor {
     /// bounds from the previous frame. A pane whose column collapsed under its
     /// tab bar shows up here as zero (the P3.2 split-render bug).
     #[cfg(test)]
+    #[cfg(test)]
+    pub(crate) fn scroll_handle(&self) -> &gpui::ScrollHandle {
+        &self.scroll_handle
+    }
+
+    #[cfg(test)]
+    pub(crate) fn scroll_probe(&self) -> (f32, f32, f32, f32) {
+        let b = self.scroll_handle.bounds();
+        (
+            f32::from(self.scroll_handle.offset().y),
+            f32::from(self.scroll_handle.max_offset().y),
+            f32::from(b.size.height),
+            f32::from(self.wrap_height()),
+        )
+    }
+
     pub fn wrap_height(&self) -> Pixels {
         self.scroll_handle.bounds().size.height
     }
