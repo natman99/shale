@@ -26,7 +26,7 @@ autosave_after_ms = 2000
 #   One          "one-dark" "one-light"
 #   Rose Pine    "rose-pine" "rose-pine-moon" "rose-pine-dawn"
 # Picking a theme in the app rewrites this line, so the choice survives a restart.
-theme = "mocha"
+theme = "dark"
 # Body text size in points; headings and line heights are scaled from it.
 font_size = 14.0
 # Empty means "pick a monospace family that is actually installed".

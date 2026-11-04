@@ -24,7 +24,21 @@ Live-preview styling, one construct per line. Links: [[Welcome]], [[Another Note
 > The quote markers and the `[!info]` header are hidden, and the box
 > spans every line of the block.
 
+> [!shiplog] dad
+
 > [!warning]- A folded callout shows its type name as its title.
+
+> [!error] and
+
+> [!abstract] and
+
+> [!tip] and
+
+> [!example] and
+
+> [!question] and
+
+> [!note] and
 
 ## Image
 
@@ -38,7 +52,6 @@ Live-preview styling, one construct per line. Links: [[Welcome]], [[Another Note
 | [[Another Note]] | #tags |
 
 ---
-
 A thematic break above, and a code block below:
 
 ```rust
