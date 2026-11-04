@@ -432,3 +432,15 @@ layout height (`wrap_height()` via `pane_editor_height`): reverting the fix
 makes the test fail with "pane 0's editor was given 0px of height". Paint
 evidence from a previous frame is not evidence about the current layout.
 428 app + 449 core green.
+
+## Focused-pane rule (`a04881b`)
+
+The palette's `ui_active_border` was documented as "the rule around
+whatever the window currently has the keyboard: the focused pane of a
+split" but splits never drew it. Tiled windows now frame the keyboard's
+pane with it and the others with `ui_border`; single panes draw no frame.
+Verified live via `--split` screenshot. Note on the sidebar: its row
+highlight follows the note *on screen* (the active pane's note), so pane
+switches move it — intended, not a keybinding leak; the tree's keyboard
+selection is a separate bordered row that exists only while the tree has
+focus.
