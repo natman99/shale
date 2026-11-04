@@ -295,6 +295,10 @@ pub(crate) fn keybindings() -> Vec<KeyBinding> {
     // the same request `ctrl-w l` makes: put the keyboard on the note. With the graph on
     // screen that means moving the frame back to the note tab the user was last on.
     bind!(crate::graph::CONTEXT, [
+        // vim's command line, from the graph too: the ex bar is the workspace's,
+        // not the note's, so `:tabnext`, `:only` and friends are the way out of
+        // a graph tab that `escape` alone does not give.
+        ":" => RunCommandLine,
         "escape" => FocusEditor,
         // `enter` opens the chosen node's note, and `f` frames the whole graph again.
         "enter" => GraphOpen,

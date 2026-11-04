@@ -500,3 +500,27 @@ one set of threads per vault.
 
 Tests: app 435, core 455. Live-verified: second instance refused in 4ms with
 holder pid; reopen after close succeeds. Windows claim is `LockFileEx` TODO.
+
+## Switcher follow-ups (uncommitted)
+
+Three UX bites from using the switcher:
+
+- **Stuck `j` after a switch.** gpui_linux runs key repeat itself: the timer
+  fires into *whatever window holds keyboard focus now*, not the window the
+  key went down in. Confirming the picker with a `j`-repeat in flight closed
+  the asking window, focus moved, and the repeats migrated to the new
+  window — it scrolled until the next keystroke bumped the repeat id. Fixed
+  at the shale level by not closing the asking window (below); the gpui
+  behavior stands (a window closed under a held key can still hand its
+  repeats to the next focus).
+- **Switching keeps the old window.** `switch_vault` no longer dispatches
+  `Quit` on the asking window, and the folder-dialog path no longer calls
+  `leave()`: the new vault opens beside the old, and closing the old one is
+  the user's call.
+- **`:` from the graph tab.** The graph key context had no colon binding, so
+  the ex bar — `:only`, `:tabnext`, `:q` — was unreachable while the graph
+  had the keyboard. Bound `:` → `RunCommandLine` in the graph context; the
+  ex bar belongs to the workspace, not the note.
+
+Tests: app 436 (switch test now asserts both windows stay open; new graph
+test asserts the ex bar opens from the graph tab).

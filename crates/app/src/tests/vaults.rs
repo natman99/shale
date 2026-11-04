@@ -206,19 +206,18 @@ fn the_vault_picker_switches_to_a_recent_vault(cx: &mut TestAppContext) {
 
     vcx.simulate_input("beta");
     vcx.simulate_keystrokes("enter");
-    // The switch closed the window this context was riding, so the context
-    // goes before the assertions do.
+    // The asking window stays open — closing it is the user's call — so
+    // the new vault's window simply opens beside it.
     drop(vcx);
 
-    let opened = cx.update(|cx| vaults::open_vaults(cx));
-    assert_eq!(
-        opened,
-        vec![b.canonicalize().unwrap()],
-        "the chosen vault is the one open now"
-    );
+    let mut opened = cx.update(|cx| vaults::open_vaults(cx));
+    opened.sort();
+    let mut both = vec![a.canonicalize().unwrap(), b.canonicalize().unwrap()];
+    both.sort();
+    assert_eq!(opened, both, "both vaults have windows now");
     assert!(
-        wa.read_with(cx, |_ws, _cx| ()).is_err(),
-        "and the window that asked closed"
+        wa.read_with(cx, |_ws, _cx| ()).is_ok(),
+        "the window that asked stays"
     );
 }
 

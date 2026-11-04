@@ -24,9 +24,9 @@ use gpui::{
 };
 use shale_core::{Config, RecentVaults, Vault};
 
-use gpui::{Action as _, Context, PathPromptOptions, Window};
+use gpui::{Context, PathPromptOptions, Window};
 
-use crate::acts::{ChangeVault, Quit};
+use crate::acts::ChangeVault;
 use crate::identity;
 use crate::picker::PickerItem;
 
@@ -271,7 +271,7 @@ pub(crate) fn open_vault_window(
                 cx.background_executor()
                     .timer(std::time::Duration::from_secs(secs))
                     .await;
-                let _ = ws.update(cx, |ws, cx| ws.open_note(&note, cx));
+                ws.update(cx, |ws, cx| ws.open_note(&note, cx));
             })
             .detach();
         }
@@ -371,34 +371,20 @@ impl Workspace {
         self.open_picker("Switch vault", rows, window, cx);
     }
 
-    /// A named vault: open its window, and let this one go the way `:q`
-    /// sends it — guards and all, so unsaved edits refuse to be switched
-    /// away rather than lose themselves.
+    /// A named vault: open its window. The asking window stays open — the
+    /// user closes it if they want it gone — which is also what keeps the
+    /// keyboard honest: gpui's key-repeat timer follows focus, and closing
+    /// the window under a half-finished keystroke hands that keystroke's
+    /// repeats to the new window.
     pub(crate) fn switch_vault(
         &mut self,
         path: &std::path::Path,
-        window: &mut Window,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        match open_vault_window(path, OpenOptions::default(), cx) {
-            Ok(_opened) => {
-                // The window that asked closes once the answer is open —
-                // unless the answer was this window itself, which is what
-                // picking `here` means. The vault on screen answers by its
-                // own root, already canonical; the registry opened (or
-                // focused) a window for the picked path, so comparing the
-                // two paths says whether this window is that one.
-                let here = path
-                    .canonicalize()
-                    .is_ok_and(|picked| picked == self.vault_root());
-                if !here {
-                    window.dispatch_action(Quit.boxed_clone(), cx);
-                }
-            }
-            Err(e) => {
-                self.say(format!("{e:#}"), cx);
-                cx.notify();
-            }
+        if let Err(e) = open_vault_window(path, OpenOptions::default(), cx) {
+            self.say(format!("{e:#}"), cx);
+            cx.notify();
         }
     }
 
@@ -422,9 +408,12 @@ impl Workspace {
             let Some(path) = paths.into_iter().next() else {
                 return;
             };
-            let opened = cx.update(|cx| open_vault_window(&path, OpenOptions::default(), cx));
-            if opened.is_ok() {
-                let _ = ws.update(cx, |ws, cx| ws.leave(cx));
+            // The asking window stays: the new vault opens beside it, and
+            // closing the old one is the user's call, not this flow's.
+            if let Err(e) =
+                cx.update(|cx| open_vault_window(&path, OpenOptions::default(), cx))
+            {
+                let _ = ws.update(cx, |ws, cx| ws.say(format!("{e:#}"), cx));
             }
         })
         .detach();

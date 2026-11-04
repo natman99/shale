@@ -463,3 +463,20 @@ fn a_session_reopens_the_graph_tab(cx: &mut TestAppContext) {
         "from the notes on disk"
     );
 }
+
+/// `:` works from the graph tab too. The ex bar belongs to the workspace,
+/// not to the note, so `:only`, `:tabnext` and `:q` stay reachable while the
+/// graph has the keyboard — `escape` moves focus, but the ex bar is the way
+/// out of the tab itself.
+#[gpui::test]
+fn the_command_line_opens_from_the_graph_tab(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = linked_vault(cx);
+    cx.simulate_keystrokes("space g");
+    assert!(graph(&window, &mut cx), "the graph has the keyboard");
+
+    cx.simulate_keystrokes(":");
+    let text = window
+        .update(&mut cx, |ws, _window, cx| ws.prompt_text(cx))
+        .unwrap();
+    assert_eq!(text.as_deref(), Some(""), "the ex bar opened anyway");
+}
