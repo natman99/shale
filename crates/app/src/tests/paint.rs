@@ -654,7 +654,8 @@ fn a_click_lands_on_visible_text(cx: &mut TestAppContext) {
 }
 
 /// A folded heading carries a marker saying how many rows it hides, and clicking
-/// the marker opens the section again instead of moving the cursor.
+/// either half of it — the glyph in the gutter or the count after the text — opens
+/// the section again instead of moving the cursor.
 #[gpui::test]
 fn a_folded_heading_is_marked_and_clickable(cx: &mut TestAppContext) {
     cx.update(|cx| cx.bind_keys(keybindings()));
@@ -680,17 +681,19 @@ fn a_folded_heading_is_marked_and_clickable(cx: &mut TestAppContext) {
         .unwrap();
     assert_eq!(
         markers,
-        vec![(0, " ⋯ 2 more lines".to_string())],
+        vec![(0, " 2 more lines".to_string())],
         "the heading row carries the count"
     );
     // The marker is not buffer text, so it is painted beside the row rather than
     // spliced into it: the painted line is still exactly the row.
     assert_eq!(painted[0], "# Top");
 
+    // Entry 1 is the count after the row's text; the gutter's glyph is tested on its
+    // own in `a_fold_is_clickable_in_the_gutter`.
     let (index, x0, x1) = editor
         .read_with(cx, |editor, _cx| editor.fold_marker_bounds())
         .unwrap()
-        .remove(0);
+        .remove(1);
     assert_eq!(index, 0);
     assert!(x1 > x0, "the marker is wide enough to click");
     let (top, bottom) = editor
@@ -706,6 +709,79 @@ fn a_folded_heading_is_marked_and_clickable(cx: &mut TestAppContext) {
         .read_with(cx, |editor, _cx| editor.display_line_count())
         .unwrap();
     assert_eq!(lines, 4, "clicking the marker opened the section");
+}
+
+/// A fold has two click targets, and the gutter's really is in the gutter.
+///
+/// The gutter is a 16 px column and the clip that makes it paintable at all ends at
+/// its left edge, so a mark wider than the column is cropped in silence. Holding the
+/// glyph inside the column is what lets the next gutter feature inherit the same
+/// placement without checking it again.
+#[gpui::test]
+fn a_fold_is_clickable_in_the_gutter(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.bind_keys(keybindings()));
+
+    let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+    let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+    editor
+        .update(cx, |editor, window, cx| {
+            editor.set_text("# Top\none\ntwo\n# Other".to_string(), cx);
+            let focus = editor.focus_handle(cx);
+            window.focus(&focus, cx);
+        })
+        .unwrap();
+    for _ in 0..2 {
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+    }
+
+    cx.simulate_keystrokes("z a");
+    let (targets, text_left) = editor
+        .read_with(cx, |editor, _cx| {
+            (
+                editor.fold_marker_bounds(),
+                editor.hit_line_x(0).map(|(left, _)| left),
+            )
+        })
+        .unwrap();
+    let text_left = text_left.unwrap();
+    assert_eq!(
+        targets.len(),
+        2,
+        "a fold is clickable in the gutter and after the row's text"
+    );
+    let (_, gutter_x0, gutter_x1) = targets[0];
+    let (_, label_x0, label_x1) = targets[1];
+    assert!(
+        gutter_x0 >= text_left - crate::style::GUTTER,
+        "the fold glyph spans {:?}..{:?}, past the {} px gutter that ends at {:?}",
+        f32::from(gutter_x0),
+        f32::from(gutter_x1),
+        f32::from(crate::style::GUTTER),
+        f32::from(text_left - crate::style::GUTTER),
+    );
+    assert!(
+        gutter_x1 <= text_left,
+        "the fold glyph sits in the gutter, not over the text"
+    );
+    assert!(
+        label_x0 > text_left && label_x1 > label_x0,
+        "the count follows the row's text"
+    );
+
+    let (top, bottom) = editor
+        .read_with(cx, |editor, _cx| editor.hit_line_edges(0))
+        .unwrap()
+        .unwrap();
+    // A click left of the line's content edge still resolves to that line, because the
+    // hit lines are selected by y: the gutter is part of the editor, not a gap.
+    cx.simulate_click(
+        gpui::point((gutter_x0 + gutter_x1) / 2., (top + bottom) / 2.),
+        gpui::Modifiers::none(),
+    );
+    let lines = editor
+        .read_with(cx, |editor, _cx| editor.display_line_count())
+        .unwrap();
+    assert_eq!(lines, 4, "clicking the gutter glyph opened the section");
 }
 
 /// Live markdown styling must not disturb the wrap model. Rows painted with

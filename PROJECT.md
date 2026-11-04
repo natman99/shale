@@ -608,6 +608,12 @@ Workspace layout:
   `px_4()` lived on the workspace's note column, and the marks simply never appeared — no
   error, no test failure, just an empty gutter in a screenshot. The note's gutter is
   `style::GUTTER` applied as `editor-scroll`'s left padding for exactly this reason.
+- **A mark painted in the gutter must be sized to the column, not to the row.** The clip
+  crops at the column's edge in silence, and a *shaped* glyph's width follows its font
+  size: `▸` at a level-one heading's 22 px shapes 13.2 px wide, past `GUTTER` minus
+  `MARK_GUT`, so the fold marker was cropped on one side. Shape gutter glyphs at
+  `style::GUTTER_GLYPH_SIZE` and assert the shaped range against the column in a paint
+  test — a unit test cannot know a font's advance width.
 - **Never use crates.io `gpui` 0.2.2.** Its Wayland backend requests a
   `wl_surface` frame callback exactly once (at first configure) and then depends
   on the compositor's callback chain; under niri that chain stalls, so the app
@@ -4678,3 +4684,30 @@ conversation. Roughly in order of what they have said they want.
     now judges every callout accent against both the box and the note, walked from
     `callout_accent` so a new kind is audited automatically. An existing test pinned the old
     `Other => accent` behaviour and had to be corrected, not just extended.
+15. **The fold marker moved into the gutter** — 2026-11-03. A folded heading now carries
+    `style::GLYPH_COLLAPSED` (`▸`, the file tree's own disclosure glyph) in the gutter and
+    the hidden count inline after its text; the `⋯` that used to lead the label is gone,
+    because the affordance and the information want different places — the gutter is 16 px
+    and "2 more lines" is not. `FoldMarker` holds `ranges: Vec<(Pixels, Pixels)>` rather
+    than one `x`, measured from the line's left edge, so the gutter's range is
+    **negative** and `editor/input.rs` asks whether the click is inside *any* range. A
+    `Vec` and not two named fields on purpose: the gutter is a shared column and "one
+    click range per thing drawn in it" is the shape that grows. `line::marks::glyph_x` is
+    now the single place a gutter mark is positioned from, path or glyph — `mark_box` calls
+    it, so the callout mark and the fold glyph cannot drift apart.
+    **The finding worth keeping:** a shaped gutter mark has to pick a font size, and the
+    row's size is wrong. Folds live on headings, a level-one heading is 22 px, and `▸` at
+    22 px shapes 13.2 px wide — wider than `GUTTER` minus `MARK_GUT`, so gpui cropped it at
+    the column's left edge with no error and no failing test. The paint test that asserts
+    the range stays inside the column caught it on the first run. `style::GUTTER_GLYPH_SIZE`
+    (the body size) is what every shaped mark in the column is drawn at, capped by the row's
+    size so a note set below the body size still has a mark that fits its line
+    (`LineElement::gutter_glyph_size`); path marks were already fixed-size, so the rule was
+    always there, just unstated.
+    **Tests:** `tests::paint::a_fold_is_clickable_in_the_gutter` (both ranges, the gutter
+    one inside the column, and a click left of the line's content edge still toggling the
+    fold — hit lines are chosen by y, so a gutter click resolves to the row with a negative
+    `local_x`) and `line::tests::a_gutter_mark_of_any_width_stays_inside_the_gutter`.
+    App 413 passed / 4 ignored, core 449 / 10, mcp 35, clippy still exactly the 7. One new
+    `#[allow(dead_code)]` on `FoldMarker::line`, which only the paint tests read now that
+    the click test uses ranges.

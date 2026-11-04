@@ -257,8 +257,8 @@ fn kinds_that_share_a_colour_never_share_a_mark() {
 /// This is the boundary between the layout that reserves the gutter
 /// (`crate::style::GUTTER`, applied as the scroller's left padding) and the painting that
 /// uses it. They are one number now, so the failure this catches is a mark growing past
-/// its column — or a later gutter feature (a fold marker, a line number) being added
-/// without anyone noticing there was never room for two things in it.
+/// its column — or a later gutter feature (a line number, a changed-line rule) being
+/// added without anyone noticing there was never room for two things in it.
 #[test]
 fn the_gutter_holds_what_is_hung_in_it() {
     let spare = f32::from(crate::style::GUTTER)
@@ -287,4 +287,24 @@ fn a_gutter_mark_stays_inside_the_gutter() {
         box_.right(),
         f32::from(crate::style::GUTTER),
     );
+}
+
+/// The helper that places a mark in the column, not the callout box, is what keeps it
+/// there: anything no wider than the gutter minus its air fits, whatever it is drawn
+/// with. A folded heading's disclosure glyph is shaped text rather than a path, so it
+/// goes through `marks::glyph_x` with its own measured width and inherits this bound —
+/// and the paint test that can see the shaped width catches a font that draws the glyph
+/// wider than the column, which gpui would crop without an error.
+#[test]
+fn a_gutter_mark_of_any_width_stays_inside_the_gutter() {
+    let gutter_left = px(100.);
+    let usable = crate::style::GUTTER - crate::style::MARK_GUT;
+    for width in [1., 4., 8., f32::from(usable)] {
+        let x = marks::glyph_x(gutter_left, px(width));
+        assert!(
+            x >= gutter_left && x + px(width) <= gutter_left + crate::style::GUTTER,
+            "a {width} px mark at {x:?} is outside the {} px column at {gutter_left:?}",
+            f32::from(crate::style::GUTTER),
+        );
+    }
 }

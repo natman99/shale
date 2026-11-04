@@ -36,12 +36,15 @@ impl MarkdownEditor {
         if let Some(hit) = best {
             let local_x = x - hit.bounds.left();
             // A click on a folded heading's marker opens the section again (or
-            // closes it while it is open) instead of moving the cursor.
-            if hit
-                .fold_marker
-                .as_ref()
-                .is_some_and(|m| m.x <= local_x && local_x <= m.x + m.line.width())
-            {
+            // closes it while it is open) instead of moving the cursor. The marker is
+            // in two places — the gutter, left of the line's content edge, and after
+            // its text — and `local_x` is negative in the gutter, which is why the
+            // ranges are stored relative to the line rather than as one span.
+            if hit.fold_marker.as_ref().is_some_and(|m| {
+                m.ranges
+                    .iter()
+                    .any(|(x0, x1)| *x0 <= local_x && local_x <= *x1)
+            }) {
                 let row = self.buffer.row_col(hit.start).0;
                 self.buffer.fold_toggle_at(row);
                 self.ensure_cursor_visible();

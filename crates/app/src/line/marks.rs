@@ -15,6 +15,12 @@
 //! left of a box reads as a label *for* the box. It is drawn once, on the box's header
 //! row, because a mark on every row would be a stripe of glyphs down the margin.
 //!
+//! This module is therefore also the gutter's placement layer: [`glyph_x`] is where
+//! anything hung there is positioned from, and the folded heading's disclosure glyph
+//! ([`crate::style::GLYPH_COLLAPSED`], the file tree's own) is painted through it. A
+//! later gutter feature takes the same reference point instead of measuring against the
+//! text, and the gutter tests in `line::tests` hold the column's bounds for all of them.
+//!
 //! The shapes are Lucide's vocabulary (`triangle-alert`, `circle-check`, `octagon`,
 //! `quote`) reduced to what survives at [`MARK_SIZE`]. Lucide draws 24px line art with a
 //! 2px stroke; at 8px that stroke is under a pixel and gpui's stroker has no round caps
@@ -99,17 +105,29 @@ pub(crate) fn mark_for(kind: CalloutKind) -> Mark {
     }
 }
 
+/// The x a gutter mark of `width` starts at, given the **gutter's** left edge rather
+/// than the text's.
+///
+/// Hung on the **text side** of the column, keeping [`crate::style::MARK_GUT`] clear of
+/// the first glyph. Every mark in the gutter — a callout's kind glyph, a folded
+/// heading's disclosure, a line number or a changed-line rule added later — is placed
+/// from here, so nothing is measured against the box it labels and the layout and the
+/// painting cannot drift apart.
+///
+/// A mark wider than [`GUTTER`] minus [`MARK_GUT`] reaches past the column's left edge,
+/// which is the editor's own clip boundary: gpui crops it there without an error.
+pub(crate) fn glyph_x(gutter_left: Pixels, width: Pixels) -> Pixels {
+    gutter_left + GUTTER - MARK_GUT - width
+}
+
 /// Where a gutter mark goes, given the **gutter's** left edge rather than the text's.
 ///
-/// Centred vertically in the row and hung on the **text side** of the column, keeping
-/// [`crate::style::MARK_GUT`] clear of the first glyph. Everything else placed in the
-/// gutter later — a fold marker, a line number, a changed-line rule — takes the same
-/// reference point, so nothing here is measured against the callout box and the layout
-/// and the painting cannot drift apart.
+/// Centred vertically in the row and, horizontally, exactly where [`glyph_x`] puts a
+/// mark [`MARK_SIZE`] wide.
 pub(crate) fn mark_box(gutter_left: Pixels, row_top: Pixels, row_height: Pixels) -> Bounds<Pixels> {
     Bounds {
         origin: Point {
-            x: gutter_left + GUTTER - MARK_GUT - MARK_SIZE,
+            x: glyph_x(gutter_left, MARK_SIZE),
             y: row_top + (row_height - MARK_SIZE) / 2.,
         },
         size: Size {

@@ -667,16 +667,19 @@ impl MarkdownEditor {
             .collect()
     }
 
-    /// Where a line's fold marker was painted, as (display line, first x, last
-    /// x) in window coordinates: what a click has to land on to toggle the fold.
+    /// Where a line's fold markers were painted, as (display line, first x, last x) in
+    /// window coordinates: what a click has to land on to toggle the fold. One entry
+    /// per range, so a folded heading appears twice — the gutter's glyph, whose x's are
+    /// left of the line's text, and the count that follows it.
     #[cfg(test)]
     pub fn fold_marker_bounds(&self) -> Vec<(usize, Pixels, Pixels)> {
         self.hit_lines
             .iter()
-            .filter_map(|hit| {
-                hit.fold_marker.as_ref().map(|marker| {
-                    let left = hit.bounds.left() + marker.x;
-                    (hit.index, left, left + marker.line.width())
+            .flat_map(|hit| {
+                hit.fold_marker.iter().flat_map(move |marker| {
+                    marker.ranges.iter().map(move |(x0, x1)| {
+                        (hit.index, hit.bounds.left() + *x0, hit.bounds.left() + *x1)
+                    })
                 })
             })
             .collect()

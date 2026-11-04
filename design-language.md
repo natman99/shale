@@ -179,11 +179,27 @@ for the exception, and they are `#[allow(dead_code)]` until a toast uses one.
   nothing, and widening it would cost the callout's text 12 px and reach into the wrap model.
   The gutter is `style::GUTTER` — a named column, applied as the editor scroller's left
   padding, because `overflow_scroll` clips to the scroller's own bounds and padding on an
-  ancestor is outside the mask. **It is a shared column, not the callout mark's slot:** fold
-  markers, line numbers, a changed-line rule and provenance marks all want this place, and
-  each would otherwise rediscover the clipping rule and re-pick a width. A mark keeps
-  `MARK_GUT` clear of the text; the size against the column is a test, not a hope. It is drawn
-  once, on the box's header row.
+  ancestor is outside the mask. **It is a shared column, not the callout mark's slot:** a
+  folded heading's glyph shares it today; line numbers, a changed-line rule and provenance
+  marks all want this place, and each would otherwise rediscover the clipping rule and
+  re-pick a width. A mark keeps `MARK_GUT` clear of the text; the size against the column is
+  a test, not a hope. It is drawn once, on the box's header row.
+
+  **Fold markers (landed 2026-11-03).** A folded heading carries `▸` in the gutter —
+  `style::GLYPH_COLLAPSED`, the file tree's own disclosure glyph, so a fold speaks the
+  language the app already has instead of inventing a second one — and the count it hides
+  stays **inline** after the row's text, because "2 more lines" does not fit a 16 px column.
+  Affordance in the gutter, information beside the text. Both halves are click targets that
+  toggle the fold, and both are positioned from one place, `line::marks::glyph_x`.
+
+  The column's width is what forced that split, and it caught a second thing on the way: a
+  *shaped* mark has to be shaped at a font size, and the row's size is not it. A level-one
+  heading is 22 px, and its `▸` shapes 13.2 px wide — wider than `GUTTER` minus `MARK_GUT`,
+  so gpui crops it at the column's left edge with no error, no warning and no failing test.
+  `style::GUTTER_GLYPH_SIZE` is now the size every shaped mark in the column is drawn at,
+  or the row's size if the row is smaller (`LineElement::gutter_glyph_size`); path marks
+  already had a fixed size, so this is the same rule said out loud for the shaped ones. The
+  paint test measures the real shaped width rather than trusting an em estimate.
 
   Shapes are Lucide's vocabulary (`triangle-alert`, `octagon`, `quote`) reduced to what survives
   at 8 px: Lucide's 24 px line art with a 2 px stroke is under a pixel at that size and gpui's

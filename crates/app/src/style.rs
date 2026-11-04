@@ -55,12 +55,13 @@ pub(crate) const CHIP_RADIUS: gpui::Pixels = gpui::px(6.);
 /// inside that mask (gpui subtracts only borders), so padding on the scroller is what
 /// makes the gutter paintable at all.
 ///
-/// **This is a shared column, not the callout mark's slot.** A callout's kind mark sits
-/// in it today ([`crate::line::marks`]); fold markers, line numbers, a changed-line rule
-/// and an agent's provenance mark all want the same place, and each of them would
-/// otherwise have to rediscover the clipping rule and re-pick a width. Anything placed
-/// here is positioned from [`GUTTER`] so it cannot drift out of the space the layout
-/// actually reserved — the test in `line::tests` holds that boundary.
+/// **This is a shared column, not the callout mark's slot.** A callout's kind mark and a
+/// folded heading's disclosure glyph sit in it today ([`crate::line::marks`]); line
+/// numbers, a changed-line rule and an agent's provenance mark all want the same place,
+/// and each of them would otherwise have to rediscover the clipping rule and re-pick a
+/// width. Anything placed here is positioned from [`GUTTER`] so it cannot drift out of
+/// the space the layout actually reserved — the test in `line::tests` holds that
+/// boundary.
 pub(crate) const GUTTER: gpui::Pixels = gpui::px(16.);
 
 /// The side of the square a gutter mark is drawn in.
@@ -74,6 +75,18 @@ pub(crate) const MARK_SIZE: gpui::Pixels = gpui::px(8.);
 /// A mark that touches the first glyph reads as part of the word rather than as a label
 /// for the line.
 pub(crate) const MARK_GUT: gpui::Pixels = gpui::px(4.);
+
+/// The font size a **shaped** gutter mark is drawn at, whatever the row beside it is
+/// sized at.
+///
+/// A path mark is handed its size ([`MARK_SIZE`]); a glyph mark has to be shaped at a
+/// font size, and that size cannot be the row's. A level-one heading is 22 px, and its
+/// `▸` shapes 13.2 px wide — wider than [`GUTTER`] minus [`MARK_GUT`], so gpui crops it
+/// at the column's left edge in silence. Every mark in the column is drawn at the body
+/// size instead — or at the row's size if the row is smaller, which
+/// `LineElement::gutter_glyph_size` decides — which is also what makes the gutter read as
+/// one column rather than as a ragged edge echoing the note's headings.
+pub(crate) const GUTTER_GLYPH_SIZE: f32 = crate::theme::DEFAULT_FONT_SIZE;
 
 /// How heavy a chip's rule is.
 ///

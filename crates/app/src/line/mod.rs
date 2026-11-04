@@ -115,20 +115,29 @@ pub(crate) struct HitLine {
     /// actually drew rather than what the model was asked for.
     #[allow(dead_code)]
     pub(crate) dim: f32,
-    /// The fold marker this line painted after its text, if any: where it starts
-    /// (measured from the line's left edge) and what it says. A click inside it
-    /// toggles the fold instead of moving the cursor.
+    /// The fold marker this line painted, if any. A folded heading is marked in two
+    /// places — a disclosure glyph in the gutter and the hidden count after the row's
+    /// text — and a click on either toggles the fold instead of moving the cursor.
     pub(crate) fold_marker: Option<FoldMarker>,
 }
 
-/// A fold marker drawn after a line's text. It is not buffer text, so it lives
-/// outside the [`PieceMap`]: it only needs a position and a width.
+/// A folded heading's click target. It is not buffer text, so it lives outside the
+/// [`PieceMap`]: it only needs positions and widths.
 #[derive(Clone)]
 pub(crate) struct FoldMarker {
-    /// First x of the marker, measured from the line's left edge.
-    pub(crate) x: Pixels,
-    /// The marker's shaped text; its width gives the right edge of the click
-    /// target, and its string is what the paint tests check.
+    /// The x ranges that toggle the fold, each `(first x, last x)` measured from the
+    /// line's left edge.
+    ///
+    /// There are two today: the gutter's disclosure glyph, whose range is **negative**
+    /// because the gutter sits left of the line's content edge, and the count that
+    /// follows the row's text. A `Vec` rather than two named fields because the gutter
+    /// is a shared column that later features will hang more in, and "one click range
+    /// per thing drawn" is the shape that grows.
+    pub(crate) ranges: Vec<(Pixels, Pixels)>,
+    /// The count's shaped text, kept so the paint tests can see what the fold says. The
+    /// inline range's right edge is measured from this same shaped line while painting.
+    /// The attribute is because the only reader outside this module is `#[cfg(test)]`.
+    #[allow(dead_code)]
     pub(crate) line: ShapedLine,
 }
 
@@ -259,17 +268,20 @@ pub(crate) struct LineElement {
     /// table grid, a callout's box) comes from it, so a theme change is one
     /// assignment on the editor rather than a change here.
     pub(crate) palette: Rc<Palette>,
-    /// Set when this row is a heading whose section is folded shut: how many
-    /// rows the fold hides. The element paints that count after the row's text
-    /// and records where, so a click on it opens the section again.
+    /// Set when this row is a heading whose section is folded shut: how many rows the
+    /// fold hides. The element draws that count after the row's text and a disclosure
+    /// glyph in the gutter, and records both x ranges, so a click on either opens the
+    /// section again.
     pub(crate) fold: Option<usize>,
 }
 
-/// The text a folded heading carries: a marker and the number of rows the fold
-/// hides, so the user can see how much is out of view.
+/// The text a folded heading carries: the number of rows the fold hides, so the user
+/// can see how much is out of view. The affordance that opens it again is a glyph in
+/// the gutter rather than a symbol in front of these words, because the gutter is only
+/// [`crate::style::GUTTER`] wide and the words do not fit in it.
 fn fold_label(hidden: usize) -> String {
     format!(
-        " \u{22ef} {hidden} more {}",
+        " {hidden} more {}",
         if hidden == 1 { "line" } else { "lines" }
     )
 }
@@ -279,9 +291,11 @@ pub(crate) struct LinePrepaint {
     line: Option<ShapedLine>,
     /// One entry per cell, for a table row.
     cells: Vec<CellShaped>,
-    /// The fold marker (`⋯ 4 more lines`), shaped separately because it is not
-    /// part of the buffer text and so has no offset in the piece map.
+    /// The fold marker (` 4 more lines`), shaped separately because it is not part of
+    /// the buffer text and so has no offset in the piece map.
     marker: Option<ShapedLine>,
+    /// The folded heading's gutter glyph (`▸`), shaped on its own for the same reason.
+    fold_glyph: Option<ShapedLine>,
 }
 
 impl LineElement {
@@ -297,6 +311,16 @@ impl LineElement {
             .as_ref()
             .map(|image| f32::from(image.height))
             .unwrap_or_else(|| theme::line_height(self.size))
+    }
+
+    /// The font size a shaped gutter mark on this row is drawn at.
+    ///
+    /// [`crate::style::GUTTER_GLYPH_SIZE`] rather than the row's own size, so a mark in
+    /// the column is the same size whatever it sits beside — a heading's `▸` at 22 px is
+    /// wider than the column and gets cropped at its edge. Capped by the row's size as
+    /// well, so a note set below the body size still has a mark that fits its line.
+    fn gutter_glyph_size(&self) -> f32 {
+        self.size.min(crate::style::GUTTER_GLYPH_SIZE)
     }
 
     /// Paints one row of a table: the header's background, the grid lines, the
@@ -514,10 +538,29 @@ impl Element for LineElement {
                     None,
                 )
             });
+            // The gutter's half of the same affordance: the disclosure glyph the file
+            // tree already uses for a closed folder, so a folded heading speaks the
+            // app's existing language rather than inventing a second one. It is shaped
+            // at the gutter's size, not the row's: a heading's `▸` would be wider than
+            // the column and get cropped at its edge.
+            let fold_glyph = self.fold.map(|_| {
+                let glyph = crate::style::GLYPH_COLLAPSED;
+                let style = RunStyle {
+                    color: self.palette.dim,
+                    ..RunStyle::plain(&self.palette)
+                };
+                text_system.shape_line(
+                    SharedString::from(glyph),
+                    px(self.gutter_glyph_size()),
+                    &[style.text_run(glyph.len(), &base_font)],
+                    None,
+                )
+            });
             return LinePrepaint {
                 line: Some(line),
                 cells: Vec::new(),
                 marker,
+                fold_glyph,
             };
         };
         // A table row is shaped cell by cell, each with only the styles that
@@ -559,6 +602,7 @@ impl Element for LineElement {
             line: None,
             cells,
             marker: None,
+            fold_glyph: None,
         }
     }
 
@@ -770,9 +814,31 @@ impl Element for LineElement {
                 ));
             }
 
-            // The fold marker goes after the row's text, dimmed, and its x range
-            // is recorded so clicking it can open the section again.
+            // A folded heading is marked in two places. The gutter carries the
+            // affordance, right-aligned in the column the way every other gutter mark
+            // is; the row's text is followed by the count it hides, because the words
+            // are far too wide for a 16 px column. Both ranges toggle the fold.
             if let Some(marker) = prepaint.marker.as_ref() {
+                let mut ranges = Vec::new();
+                if let Some(glyph) = prepaint.fold_glyph.as_ref() {
+                    let x = marks::glyph_x(bounds.left() - crate::style::GUTTER, glyph.width());
+                    // Centred vertically in the row, as every path mark is: a heading's
+                    // row is taller than the gutter glyph's line, and painting it at the
+                    // row's top would hang it off the first line of a wrapped row.
+                    let glyph_height = px(theme::line_height(self.gutter_glyph_size()));
+                    let top = bounds.top() + (px(self.height()) - glyph_height) / 2.;
+                    if let Err(err) = glyph.paint(
+                        gpui::point(x, top),
+                        px(theme::line_height(self.size)),
+                        gpui::TextAlign::default(),
+                        None,
+                        window,
+                        cx,
+                    ) {
+                        tracing::warn!(row = self.row, "failed to paint fold glyph: {err:#}");
+                    }
+                    ranges.push((x - bounds.left(), x - bounds.left() + glyph.width()));
+                }
                 let x = bounds.left() + line.width() + self.char_width;
                 if let Err(err) = marker.paint(
                     gpui::point(x, bounds.top()),
@@ -784,8 +850,9 @@ impl Element for LineElement {
                 ) {
                     tracing::warn!(row = self.row, "failed to paint fold marker: {err:#}");
                 }
+                ranges.push((x - bounds.left(), x - bounds.left() + marker.width()));
                 fold_marker = Some(FoldMarker {
-                    x: x - bounds.left(),
+                    ranges,
                     line: marker.clone(),
                 });
             }
