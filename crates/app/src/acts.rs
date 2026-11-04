@@ -144,9 +144,13 @@ actions!(
         // Pick a palette and see it straight away (`theme`, or the palette).
         ChangeTheme,
         // Pick another vault: the list this app remembers, or a folder from the
-        // file dialog. The chosen vault opens in this process; this window
-        // closes once it has (`:vault`, or the palette).
+        // file dialog. The chosen vault opens in this process beside this
+        // window (`:vault`, or the palette).
         ChangeVault,
+        // Another window on the vault this one is showing (`:new-window`).
+        // The vault's services — index, watcher, MCP — are shared, which is
+        // what makes a second window safe where a second process is refused.
+        NewWindow,
         // Starting and stopping the spell and grammar checker (`harper on|off`).
         CheckerOn,
         CheckerOff,

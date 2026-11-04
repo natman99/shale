@@ -171,7 +171,8 @@ impl Workspace {
     pub(super) fn leave(&mut self, cx: &mut Context<Self>) {
         self.flush_index();
         self.save_session(cx);
-        self.stop_live();
+        // The live channel belongs to the vault's services now; it comes down
+        // with the last window, not with this one.
         self.stop_pending_watch();
         // One process can hold several vault windows: leaving closes *this*
         // window, and the run ends on its own when the last one goes. The

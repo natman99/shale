@@ -62,7 +62,7 @@ impl Workspace {
     }
 
     /// Take the queue beat down. Every graceful exit runs this, in the same shape as
-    /// [`Workspace::stop_live`]; the weak handle is what stops it if nothing does.
+    /// [`VaultServices::stop_live`](super::services); the weak handle is what stops it if nothing does.
     pub(crate) fn stop_pending_watch(&mut self) {
         self._pending = None;
     }

@@ -50,6 +50,8 @@ pub(crate) enum Ex {
     /// `vault`: the vault switcher — the vaults this app remembers, or a
     /// folder from the file dialog.
     VaultPicker,
+    /// `new-window`: another window on the vault this one shows.
+    NewWindow,
     /// `theme <name>`: that palette, now.
     Theme(String),
     /// `theme export <name>`: the palette on screen, written to
@@ -133,6 +135,7 @@ impl Ex {
             Ex::Tree(_) => "tree.toggle",
             Ex::ThemePicker | Ex::Theme(_) => "theme.change",
             Ex::VaultPicker => "vault.switch",
+            Ex::NewWindow => "window.new",
             Ex::ThemeExport(_) => "theme.export",
             Ex::View(View::Raw) => "view.raw",
             Ex::View(View::Live) => "view.live",
@@ -173,6 +176,7 @@ impl Ex {
             | Ex::Tree(None)
             | Ex::ThemePicker
             | Ex::VaultPicker
+            | Ex::NewWindow
             | Ex::View(_)
             | Ex::YankClipboard
             | Ex::PasteClipboard
@@ -217,6 +221,7 @@ pub(crate) fn parse(line: &str) -> Ex {
             _ => Ex::Unknown(format!("harper {rest}").trim().to_string()),
         },
         "vault" if rest.is_empty() => Ex::VaultPicker,
+        "new-window" if rest.is_empty() => Ex::NewWindow,
         "theme" => {
             // `export` is a subcommand, not a theme name. A vault theme actually
             // called `export` is still a picker row and still a valid
@@ -371,6 +376,7 @@ mod tests {
     fn theme_names_a_palette_and_bare_theme_asks_for_the_picker() {
         assert_eq!(parse("theme"), Ex::ThemePicker);
         assert_eq!(parse("vault"), Ex::VaultPicker);
+        assert_eq!(parse("new-window"), Ex::NewWindow);
         assert_eq!(
             parse("theme   gruvbox-dark  "),
             Ex::Theme("gruvbox-dark".into())

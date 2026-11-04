@@ -19,18 +19,19 @@ use std::sync::Arc;
 
 use anyhow::{Context as _, Result};
 use gpui::{
-    App, AppContext as _, BorrowAppContext, Bounds, TitlebarOptions, WindowBounds,
+    App, AppContext as _, BorrowAppContext, Bounds, Entity, TitlebarOptions, WindowBounds,
     WindowHandle, WindowOptions, px, size,
 };
 use shale_core::{Config, RecentVaults, Vault};
 
 use gpui::{Context, PathPromptOptions, Window};
 
-use crate::acts::ChangeVault;
+use crate::acts::{ChangeVault, NewWindow};
 use crate::identity;
 use crate::picker::PickerItem;
 
-use super::{start_watcher, vault_title, Workspace};
+use super::services::{start_watcher, VaultServices};
+use super::{vault_title, Workspace};
 use super::PickerTarget;
 
 /// What the first window does beyond simply existing: `--note`, `--graph`,
@@ -57,8 +58,14 @@ fn recent_store(cx: &App) -> PathBuf {
 }
 
 pub(crate) struct VaultWindows {
-    /// Canonical vault root → its window.
-    windows: HashMap<PathBuf, WindowHandle<Workspace>>,
+    /// Canonical vault root → its windows. More than one window can show a
+    /// vault; what stays single is everything in `services` below.
+    windows: HashMap<PathBuf, Vec<WindowHandle<Workspace>>>,
+    /// Canonical vault root → the vault's shared services: one index, one
+    /// watcher walk, one live MCP channel per vault, however many windows.
+    /// Dropped with the vault's last window, which is what stops the loops
+    /// and takes the MCP lockfile down.
+    services: HashMap<PathBuf, Entity<VaultServices>>,
     /// The open claim files. Dropping one releases the flock, so these live
     /// exactly as long as the registry — which lives as long as the run.
     _claims: HashMap<PathBuf, File>,
@@ -73,6 +80,7 @@ impl VaultWindows {
     pub(crate) fn new(terminating: Arc<AtomicBool>) -> Self {
         Self {
             windows: HashMap::new(),
+            services: HashMap::new(),
             _claims: HashMap::new(),
             terminating,
             first: true,
@@ -81,6 +89,18 @@ impl VaultWindows {
 }
 
 impl gpui::Global for VaultWindows {}
+
+#[cfg(test)]
+impl VaultWindows {
+    /// How many windows show a vault, and whether its services are up: what
+    /// the multi-window tests read to check the sharing is real.
+    pub(crate) fn window_count(&self, root: &Path) -> usize {
+        self.windows.get(root).map_or(0, |v| v.len())
+    }
+    pub(crate) fn services_up(&self, root: &Path) -> bool {
+        self.services.contains_key(root)
+    }
+}
 
 /// Claim the vault for this process: an exclusive `flock` on `.shale/lock`.
 /// The kernel drops it when the process dies, however it dies, so a crashed
@@ -144,24 +164,27 @@ pub(crate) fn open_vault_window(
         .with_context(|| format!("{} is not a vault", vault_path.display()))?;
     anyhow::ensure!(root.is_dir(), "{} is not a directory", root.display());
 
-    // Already open here: the window exists, and two windows on one vault
-    // would be two watchers and two MCP channels again — exactly what the
-    // cross-process claim refuses.
-    if let Some(window) = cx
+    // Already open here: focus the first window rather than opening a
+    // second one. The switcher's job is to *find* a vault; `:new-window`
+    // is the way to ask for another window on one you are already looking
+    // at, and that path reuses the services below instead of starting a
+    // second watcher, index pass and MCP channel beside them.
+    if let Some(first) = cx
         .global::<VaultWindows>()
         .windows
         .get(&root)
+        .and_then(|v| v.first())
         .cloned()
     {
         // Deferred: the window we found may be the very window this call is
         // running inside (picking `here` does that), and gpui refuses
         // re-entering a window already on the stack.
-        let found = window;
+        let found = first;
         cx.defer(move |cx| {
             let _ = found.update(cx, |_, window, _| window.activate_window());
             cx.activate(true);
         });
-        return Ok(window);
+        return Ok(first);
     }
 
     // The claim: this process may already hold it — `main` claims the vault
@@ -188,8 +211,62 @@ pub(crate) fn open_vault_window(
             "could not record the vault in the recent list");
     }
 
-    let vault_name = vault_title(&root);
-    let workspace = cx.new(|cx| Workspace::new(vault.clone(), config.clone(), cx));
+    // The vault's services come before any window: one index, one watcher
+    // walk, one live MCP channel for the vault, shared by every window it
+    // gets now or later.
+    let services = cx.new(|cx| VaultServices::new(vault, config, cx));
+    // The vault can change while Shale is open — Obsidian, git, another
+    // terminal — so the tree and the open note follow the disk. One walk,
+    // fanned out to every window on the vault.
+    start_watcher(&services, cx);
+
+    let window = build_window(&services, &root, options, cx)?;
+
+    cx.update_global::<VaultWindows, _>(|g, _cx| {
+        g.windows.entry(root.clone()).or_default().push(window);
+        g.services.insert(root.clone(), services);
+        if let Some(claim) = claim {
+            g._claims.insert(root, claim);
+        }
+    });
+    Ok(window)
+}
+
+/// Another window on a vault this process is already showing (`:new-window`).
+/// The services are reused as-is: no second watcher, no second index pass,
+/// no second MCP port — which is the whole reason this is allowed where a
+/// second *process* is refused.
+pub(crate) fn open_extra_window(
+    root: &Path,
+    cx: &mut App,
+) -> Result<WindowHandle<Workspace>> {
+    let root = root
+        .canonicalize()
+        .with_context(|| format!("{} is not a vault", root.display()))?;
+    let services = cx
+        .global::<VaultWindows>()
+        .services
+        .get(&root)
+        .cloned()
+        .ok_or_else(|| anyhow::anyhow!("this vault has no windows to add to"))?;
+    let window = build_window(&services, &root, OpenOptions::default(), cx)?;
+    cx.update_global::<VaultWindows, _>(|g, _cx| {
+        g.windows.entry(root).or_default().push(window);
+    });
+    Ok(window)
+}
+
+/// The window-shaped half of opening a vault: the workspace, the frame, and
+/// the registrations that tie the two to the vault's services. `--note`,
+/// `--graph` and `--split` only mean anything to the first window, which is
+/// what `first` says.
+fn build_window(
+    services: &Entity<VaultServices>,
+    root: &Path,
+    options: OpenOptions,
+    cx: &mut App,
+) -> Result<WindowHandle<Workspace>> {
+    let workspace = cx.new(|cx| Workspace::new_with(services.clone(), cx));
     let ws_for_build = workspace.clone();
     let (first, terminating) = {
         let g = cx.global::<VaultWindows>();
@@ -197,6 +274,7 @@ pub(crate) fn open_vault_window(
     };
 
     let initial_note = options.note.clone();
+    let vault_name = vault_title(root);
     let window = cx
         .open_window(
             WindowOptions {
@@ -254,12 +332,7 @@ pub(crate) fn open_vault_window(
         ws.focus_active_tab(window, cx)
     });
 
-    // The vault can change while Shale is open — Obsidian, git, another
-    // terminal — so the tree and the open note follow the disk.
-    start_watcher(&workspace, cx);
-
-    // And a `kill` is answered the same way a quit is: the note to the disk,
-    // the index checkpointed, then the window.
+    // And a `kill` is answered the same way a quit is, in every window.
     workspace.update(cx, |ws, cx| ws.watch_for_termination(terminating, cx));
 
     if first {
@@ -278,17 +351,12 @@ pub(crate) fn open_vault_window(
     }
 
     // When the window closes — by quit, by the compositor, by the last tab's
-    // `:q` — the registry forgets it and the claim file is released, so the
-    // vault is openable again, here or by another process.
-    cx.observe_release(&workspace, |ws, cx| forget_window(ws.vault_root(), cx))
-        .detach();
-
-    cx.update_global::<VaultWindows, _>(|g, _cx| {
-        g.windows.insert(root.clone(), window);
-        if let Some(claim) = claim {
-            g._claims.insert(root, claim);
-        }
-    });
+    // `:q` — the registry forgets *this* window. The vault's services and the
+    // claim file go only with the last one (see [`forget_window`]).
+    cx.observe_release(&workspace, |ws, cx| {
+        forget_window(ws.vault_root(), ws.self_window, cx)
+    })
+    .detach();
     Ok(window)
 }
 
@@ -301,13 +369,32 @@ pub(crate) fn seed_claim(root: PathBuf, claim: Option<File>, cx: &mut App) {
     }
 }
 
-/// Forget a window when it closes, so the vault can be opened again — in this
-/// process or the next — and so the claim file is released with it.
-pub(crate) fn forget_window(vault_root: &Path, cx: &mut App) {
+/// Forget one window when it closes. The vault's services and the claim
+/// file go only with the vault's *last* window: dropping the services entity
+/// stops the watcher, index and backup loops (they hold weak handles) and
+/// takes the MCP lockfile down with it, and dropping the claim file releases
+/// the flock, so the vault is openable again — here or by another process.
+pub(crate) fn forget_window(
+    vault_root: &Path,
+    window: Option<WindowHandle<Workspace>>,
+    cx: &mut App,
+) {
     let root = vault_root.canonicalize().unwrap_or_else(|_| vault_root.to_path_buf());
     cx.update_global::<VaultWindows, _>(|g, _cx| {
-        g.windows.remove(&root);
-        g._claims.remove(&root);
+        if let Some(windows) = g.windows.get_mut(&root) {
+            if let Some(window) = window {
+                windows.retain(|w| w.window_id() != window.window_id());
+            }
+            if windows.is_empty() {
+                g.windows.remove(&root);
+                g.services.remove(&root);
+                g._claims.remove(&root);
+            }
+        } else {
+            // No window list left to consult: release whatever else is held.
+            g.services.remove(&root);
+            g._claims.remove(&root);
+        }
     });
 }
 
@@ -417,5 +504,22 @@ impl Workspace {
             }
         })
         .detach();
+    }
+
+    /// `:new-window`: another window on this vault. The vault's services are
+    /// reused, so the index, the watcher walk and the MCP channel stay single
+    /// however many windows look at the vault; the tabs, tree and editor are
+    /// each window's own.
+    pub(crate) fn new_window(
+        &mut self,
+        _: &NewWindow,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match open_extra_window(self.vault_root(), cx) {
+            Ok(_opened) => self.say("new window", cx),
+            Err(e) => self.say(format!("{e:#}"), cx),
+        }
+        cx.notify();
     }
 }

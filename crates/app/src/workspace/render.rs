@@ -528,6 +528,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::command_line))
             .on_action(cx.listener(Self::change_theme))
             .on_action(cx.listener(Self::change_vault))
+            .on_action(cx.listener(Self::new_window))
             .on_action(cx.listener(|ws, _: &CheckerOn, _window, cx| ws.set_checker(true, cx)))
             .on_action(cx.listener(|ws, _: &CheckerOff, _window, cx| ws.set_checker(false, cx)))
             .on_action(cx.listener(Self::copy_text))

@@ -26,6 +26,7 @@ as you would type it.
 | `vault.search` | Search the vault | `ctrl-shift-f, space s` | — | — |
 | `theme.change` | Change the theme | — | `:theme [name]` | `[name]` |
 | `vault.switch` | Switch vault | — | `:vault` | — |
+| `window.new` | New window on this vault | — | `:new-window` | — |
 | `theme.export` | Write the palette on screen to a theme file | — | `:theme export <name>` | `<name>` |
 | `checker.on` | Turn the spellchecker on | — | `:harper on`, `:harper 1`, `:spellcheck on`, `:spell on` | — |
 | `checker.off` | Turn the spellchecker off | — | `:harper off`, `:harper 0`, `:spellcheck off`, `:spell off` | — |

@@ -524,3 +524,36 @@ Three UX bites from using the switcher:
 
 Tests: app 436 (switch test now asserts both windows stay open; new graph
 test asserts the ex bar opens from the graph tab).
+
+## VaultServices: one vault, one set of services, many windows
+
+The piece that makes "one instance, multiple windows" true rather than just
+multi-vault. The per-vault services were per-*window*: each Workspace opened
+its own SQLite handle (own writer thread), started its own index pass, its
+own watcher walk, and its own live MCP server — so a second window on the
+same vault meant two servers fighting over one `.shale` port lock. That is
+why same-vault multi-window was refused.
+
+`workspace/services.rs`: `VaultServices` — one entity per vault, held by the
+registry beside its windows. It owns the `Db` (windows clone the `Arc`), the
+startup reconcile + daily backup loops, the live MCP server + snapshot, and
+the watcher (one walk, fanned out to every window's `apply_disk_changes`).
+Workspaces register themselves with their services (weak handles; the loops
+prune and stop with the vault). The live beat publishes from every window
+and the desktop-active one last, so the snapshot is where the user actually
+is. `Drop` takes the MCP lockfile down when the vault's last window closes —
+verified live: `mcp.lock` gone after close, reopen succeeds.
+
+Registry: `windows` is now `vault → Vec<WindowHandle>`, plus `services`.
+`open_vault_window` still focuses the first window (the switcher finds);
+`open_extra_window` (`:new-window`, palette "New window on this vault")
+opens another frame on the same services. The claim stays exactly one flock
+per vault; it releases only with the last window.
+
+Known wrinkles, deliberate for now: two windows on one vault share
+`.shale/session.json` (last close wins) and each runs its own harper-ls.
+Buffer-sharing across windows is a later step; the watcher+autosave path
+already keeps them roughly in sync through disk.
+
+Tests: app 438 (new: two windows share one services entry, closing one
+keeps the vault claimed, closing both releases it).

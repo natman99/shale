@@ -15,7 +15,7 @@
 //! `.shale/backups/`.
 
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+
 
 use gpui::{Context, Window};
 use shale_core::db::Provenance;
@@ -24,112 +24,7 @@ use shale_core::watch::VaultChanges;
 use super::Workspace;
 use crate::acts::WordCount;
 
-/// How often the backup loop asks whether a new day has started. The question is
-/// a directory listing, so an hour is generous and the day boundary slips by at
-/// most that much — and a Shale left running for weeks still rotates daily.
-const BACKUP_POLL: Duration = Duration::from_secs(3_600);
-
 impl Workspace {
-    /// The startup reconciliation: read the vault once on a background thread,
-    /// index the notes the index does not already match, and stop.
-    ///
-    /// It ends on purpose. Roadmap P1.3 asks for a pass rather than a loop because
-    /// the vault watcher is already running, and its ticks report everything after
-    /// this point.
-    pub(super) fn start_index(&mut self, cx: &mut Context<Self>) {
-        let Some(db) = self.db.clone() else {
-            return;
-        };
-        self.start_backups(cx);
-        // A copy of the vault rather than the `Rc`: the walk and the reading happen
-        // on a background thread, and `Rc` cannot cross one.
-        let vault = (*self.vault).clone();
-        self._index = Some(cx.spawn(async move |_ws, cx| {
-            let started = Instant::now();
-            let report = cx
-                .background_executor()
-                .spawn(async move { db.reconcile(&vault) })
-                .await;
-            match report {
-                Ok(report) => {
-                    if !report.is_empty() {
-                        // Info, not debug: this is the line that answers the
-                        // roadmap's exit question — did the index rebuild, and
-                        // how long did it take — and it only appears when there
-                        // really was work to report, so a quiet startup stays
-                        // quiet.
-                        tracing::info!(
-                            indexed = report.indexed,
-                            removed = report.removed,
-                            took_ms = started.elapsed().as_millis(),
-                            "the vault index was brought up to date"
-                        );
-                    } else {
-                        // The quiet case still says the pass ran and what it
-                        // cost, at debug: the startup check wants to see the
-                        // spine working on every launch, not only on the ones
-                        // that had work to do.
-                        tracing::debug!(
-                            took_ms = started.elapsed().as_millis(),
-                            "the vault index was already up to date"
-                        );
-                    }
-                    for (path, why) in &report.failed {
-                        // One note that cannot be read costs its own rows, not the
-                        // vault's index, so it is named and the pass stands.
-                        tracing::warn!("could not index {}: {why}", path.display());
-                    }
-                }
-                Err(err) => {
-                    // The index keeps working — a failed pass is not a failed
-                    // handle — so the next watcher tick tries these notes again.
-                    tracing::warn!("could not bring the vault index up to date: {err:#}");
-                }
-            }
-        }));
-    }
-
-    /// The daily backup loop (roadmap P1.6): take today's copy if today's copy
-    /// has not been taken, then ask again every hour.
-    ///
-    /// The first answer comes at startup, so a vault opened on a new day is
-    /// backed up without waiting out the poll. The copy itself happens on the
-    /// index's own writer thread ([`shale_core::db::Db::backup`], off the
-    /// window's thread), and every outcome is a log line: a backup that fails is
-    /// tomorrow's insurance question, not a reason to disturb the window.
-    pub(super) fn start_backups(&mut self, cx: &mut Context<Self>) {
-        let Some(db) = self.db.clone() else {
-            return;
-        };
-        self._backup = Some(cx.spawn(async move |_ws, cx| loop {
-            // A handle per round trip: the loop outlives each backup, so the
-            // `Db` is cloned into the job rather than moved.
-            let db = db.clone();
-            let outcome = cx
-                .background_executor()
-                .spawn(async move { db.backup() })
-                .await;
-            match outcome {
-                Ok(Some(path)) => {
-                    tracing::info!(path = %path.display(), "the vault index was backed up");
-                }
-                // Today's copy already existed: the normal answer, forty-seven
-                // times a day.
-                Ok(None) => {}
-                Err(err) => {
-                    tracing::warn!("the vault index was not backed up: {err:#}");
-                }
-            }
-            cx.background_executor().timer(BACKUP_POLL).await;
-        }));
-    }
-
-    /// Drain what is queued and checkpoint the WAL, so an exit leaves one DB file
-    /// and no writes still sitting in the log (roadmap P1.5).
-    ///
-    /// Best-effort like every other index call: an index that could not be
-    /// checkpointed is still a cache the notes can rebuild, so it is logged and the
-    /// exit goes ahead.
     pub(super) fn flush_index(&self) {
         let Some(db) = self.db.as_ref() else {
             return;

@@ -249,3 +249,55 @@ fn picking_here_keeps_the_window(cx: &mut TestAppContext) {
         "the window is still there"
     );
 }
+
+/// Two windows on one vault: two frames, one set of services. The claim
+/// stays single, the watcher walks once, the MCP channel answers once —
+/// which is the whole reason a second *window* is allowed where a second
+/// *process* is refused.
+#[gpui::test]
+fn two_windows_on_one_vault_share_one_services(cx: &mut TestAppContext) {
+    let store = tempfile::tempdir().unwrap();
+    let store_path = store.path().join("recent.json");
+    setup(cx, &store_path);
+    let (_ka, a) = vault_dir("alpha");
+    let root = a.canonicalize().unwrap();
+
+    let w1 = cx
+        .update(|cx| vaults::open_vault_window(&a, OpenOptions::default(), cx))
+        .unwrap();
+    let w2 = cx.update(|cx| vaults::open_extra_window(&a, cx)).unwrap();
+    assert_ne!(w1.window_id(), w2.window_id(), "two frames");
+    let (wins, services) = cx.read(|cx| {
+        let g = cx.global::<vaults::VaultWindows>();
+        (g.window_count(&root), g.services_up(&root))
+    });
+    assert_eq!((wins, services), (2, true), "one vault, one set of services");
+
+    // Closing one leaves the other fully alive: the services and the claim
+    // go only with the last window.
+    cx.update(|cx| {
+        w1.update(cx, |_ws, window, _| window.remove_window())
+            .unwrap()
+    });
+    let (wins, services) = cx.read(|cx| {
+        let g = cx.global::<vaults::VaultWindows>();
+        (g.window_count(&root), g.services_up(&root))
+    });
+    assert_eq!((wins, services), (1, true), "the survivor keeps the vault open");
+    w2.read_with(cx, |_ws, _cx| ()).unwrap();
+
+    // And the last one out takes the claim with it: the vault opens fresh.
+    cx.update(|cx| {
+        w2.update(cx, |_ws, window, _| window.remove_window())
+            .unwrap()
+    });
+    let (wins, services) = cx.read(|cx| {
+        let g = cx.global::<vaults::VaultWindows>();
+        (g.window_count(&root), g.services_up(&root))
+    });
+    assert_eq!((wins, services), (0, false), "the vault is fully released");
+    let w3 = cx
+        .update(|cx| vaults::open_vault_window(&a, OpenOptions::default(), cx))
+        .unwrap();
+    w3.read_with(cx, |_ws, _cx| ()).unwrap();
+}

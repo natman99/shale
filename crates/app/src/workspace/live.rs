@@ -13,19 +13,13 @@
 //! window exactly as it was and says so in the log, in the same posture as a spell
 //! server that will not start.
 
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
-
 use gpui::Context;
 use shale_core::vault::rel_text;
 use shale_core::vim::Mode;
 
-use crate::live::{LiveServer, Snapshot};
+use crate::live::Snapshot;
 
 use super::Workspace;
-
-/// How often the window republishes its live state.
-const LIVE_REFRESH: Duration = Duration::from_millis(250);
 
 /// The vim mode in the lowercase words the live API uses, rather than the status bar's
 /// uppercase ones: this string is an agent's input as much as a human's reading.
@@ -65,43 +59,6 @@ fn jump_word(path: Option<std::path::PathBuf>) -> String {
 }
 
 impl Workspace {
-    /// Start the live channel: publish once, bind the port, and keep publishing.
-    ///
-    /// Called from `Workspace::new` when `[mcp] live` is on. Nothing else in the
-    /// window depends on it, so a failure here is a log line and a missing feature.
-    pub(crate) fn start_live(&mut self, cx: &mut Context<Self>) {
-        if !self.config.mcp.live {
-            tracing::debug!("the live MCP channel is off: [mcp] live = false");
-            return;
-        }
-        let shared = Arc::new(Mutex::new(Snapshot::default()));
-        self.live_snapshot = Some(Arc::clone(&shared));
-        self.publish_live(cx);
-
-        match LiveServer::start(self.vault.root(), shared) {
-            Ok(server) => {
-                // The port is in the lockfile for `shale-mcp` to read; the log line
-                // is for the human wondering whether the channel came up at all.
-                tracing::debug!(port = server.port(), "the live MCP channel is up");
-                self.live = Some(server);
-                self._live = Some(cx.spawn(async move |ws, cx| {
-                    loop {
-                        cx.background_executor().timer(LIVE_REFRESH).await;
-                        // The weak handle: when the window is gone there is nothing
-                        // left to publish, and the beat ends with it.
-                        if ws.update(cx, |ws, cx| ws.publish_live(cx)).is_err() {
-                            break;
-                        }
-                    }
-                }));
-            }
-            Err(err) => {
-                self.live_snapshot = None;
-                tracing::warn!("the live MCP channel is off: {err:#}");
-            }
-        }
-    }
-
     /// Copy what the window is showing into the snapshot the server answers from.
     ///
     /// Deliberately not the note's text: an agent that wants it has the vault tools,
@@ -173,16 +130,12 @@ impl Workspace {
         }
     }
 
-    /// Take the live channel down: stop the beat, stop answering, and take the
-    /// lockfile away. Every graceful exit runs this, so the next `shale-mcp` to look
-    /// finds nothing rather than a stale hint.
-    pub(crate) fn stop_live(&mut self) {
-        self._live = None;
-        self.live_snapshot = None;
-        if let Some(server) = self.live.take() {
-            if let Err(err) = server.stop() {
-                tracing::warn!("could not remove the MCP lock: {err:#}");
-            }
-        }
+    /// Take this window's live channel down. The channel itself belongs to the
+    /// vault's services, so this asks those to stop answering and take the
+    /// lockfile away; the other windows on the vault keep going.
+    #[cfg(test)]
+    pub(crate) fn stop_live(&mut self, cx: &mut Context<Self>) {
+        self._services.update(cx, |s, _cx| s.stop_live());
     }
 }
+

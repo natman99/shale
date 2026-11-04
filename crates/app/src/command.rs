@@ -364,6 +364,15 @@ const ALL: &[Command] = &[
         action: Some(|| Box::new(ChangeVault)),
     },
     Command {
+        id: "window.new",
+        label: "New window on this vault",
+        keys: "",
+        ex: &["new-window"],
+        args: "",
+        in_palette: true,
+        action: Some(|| Box::new(NewWindow)),
+    },
+    Command {
         id: "theme.export",
         label: "Write the palette on screen to a theme file",
         keys: "",

@@ -202,6 +202,7 @@ impl Workspace {
             | ex::Ex::Tree(None)
             | ex::Ex::ThemePicker
             | ex::Ex::VaultPicker
+            | ex::Ex::NewWindow
             | ex::Ex::View(_)
             | ex::Ex::YankClipboard
             | ex::Ex::PasteClipboard

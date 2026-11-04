@@ -54,7 +54,7 @@ fn the_window_answers_what_it_is_showing(cx: &mut TestAppContext) {
     // A graceful exit takes the port and the lock with it, which is what lets the
     // next `shale-mcp` tell "the window closed" from "a stale hint left behind".
     window
-        .update(cx, |ws, _window, _cx| ws.stop_live())
+        .update(cx, |ws, _window, cx| ws.stop_live(cx))
         .unwrap();
     assert!(
         Lock::read(dir.path()).unwrap().is_none(),
@@ -99,7 +99,7 @@ fn the_beat_keeps_the_answer_current(cx: &mut TestAppContext) {
     assert_eq!(note["dirty"], true, "the edit has not been written yet");
 
     window
-        .update(cx, |ws, _window, _cx| ws.stop_live())
+        .update(cx, |ws, _window, cx| ws.stop_live(cx))
         .unwrap();
 }
 

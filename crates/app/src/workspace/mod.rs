@@ -25,6 +25,7 @@ mod popups;
 mod render;
 mod review;
 mod search;
+mod services;
 mod session;
 mod tabs;
 #[cfg(test)]
@@ -43,7 +44,6 @@ use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use gpui::{prelude::*, Context, Entity, SharedString, Subscription, Task, Window};
 use shale_core::db::{Db, Provenance};
@@ -229,25 +229,17 @@ pub(crate) struct Workspace {
     /// startup pass can hold one handle on a background thread while the window
     /// keeps its own.
     db: Option<Arc<Db>>,
-    /// The startup reconciliation pass. Kept so it is cancelled with the window;
-    /// it ends on its own otherwise (see [`Workspace::start_index`]).
-    _index: Option<Task<()>>,
-    /// The daily index backup loop. Kept so it is cancelled with the window; it
-    /// never ends on its own (see [`Workspace::start_backups`]).
-    _backup: Option<Task<()>>,
     /// The task that watches for a termination signal. Only started by `main`, and
     /// only for as long as the window is (see [`exit`]).
     _termination: Option<Task<()>>,
-    /// The window's loopback MCP server, up when `[mcp] live` is on (see
-    /// [`crate::live`] and [`live`]). `None` when the channel is off or the port
-    /// could not be bound.
-    live: Option<crate::live::LiveServer>,
-    /// The window's state as the live server is allowed to see it. Shared so the
-    /// server thread can answer while the main thread keeps publishing.
+    /// The vault's shared services: the index handle, the live MCP channel, and
+    /// the loops that must run once per vault rather than once per window (see
+    /// [`services`]). Kept so the entity lives exactly as long as some window is
+    /// showing its vault; the registry holds the same entity.
+    _services: Entity<services::VaultServices>,
+    /// The vault's live snapshot, shared with [`services::VaultServices`]: this
+    /// window publishes into it, and the one server answers from it.
     live_snapshot: Option<Arc<Mutex<crate::live::Snapshot>>>,
-    /// The beat that republishes [`Workspace::live_snapshot`]. Kept so it is
-    /// cancelled with the window; it never ends on its own.
-    _live: Option<Task<()>>,
     /// The review strip: the agent proposals waiting for the user, and the marker the
     /// review keys move (see [`crate::review`] and [`review`]). It is always there;
     /// it is only drawn when the queue is not empty.
@@ -310,7 +302,41 @@ impl Workspace {
         self.self_window = Some(window);
     }
 
+    /// The test-shaped constructor: a workspace that owns its services from
+    /// the vault and config. The real path is [`Workspace::new_with`] — the
+    /// registry makes the services first, so several windows can share them.
+    #[cfg(test)]
     pub(crate) fn new(vault: Rc<Vault>, config: Rc<Config>, cx: &mut Context<Self>) -> Self {
+        let services = cx.new(|cx| services::VaultServices::new(vault, config, cx));
+        Self::from_services(services, cx)
+    }
+
+    /// A window on a vault this process is already showing: the services come
+    /// from the registry, so the index, the watcher walk and the MCP channel
+    /// stay single no matter how many windows look at the vault.
+    pub(crate) fn new_with(
+        services: Entity<services::VaultServices>,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        Self::from_services(services, cx)
+    }
+
+    fn from_services(
+        services: Entity<services::VaultServices>,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let (vault, config, db, live_snapshot) = services.read_with(cx, |s, _| {
+            (
+                s.vault.clone(),
+                s.config.clone(),
+                s.db.clone(),
+                s.live_snapshot.clone(),
+            )
+        });
+        // The workspace tells the services it is looking at their vault, so
+        // the watcher fan-out and the live beat reach it.
+        let me = cx.entity();
+        services.update(cx, |s, _| s.add_window(&me));
         let entries = vault.list_markdown().unwrap_or_default();
         let dirs = vault.list_dirs().unwrap_or_default();
         let signature = vault.signature().unwrap_or_default();
@@ -384,21 +410,6 @@ impl Workspace {
         } else {
             (None, None)
         };
-        // The vault index is a cache the notes can always rebuild, so an index that
-        // is switched off in the config or will not open is a missing feature rather
-        // than a broken window: reported, and the window carries on without one.
-        let db = if config.index.enabled {
-            match Db::open(vault.root()) {
-                Ok(db) => Some(db),
-                Err(err) => {
-                    tracing::warn!("no vault index: {err:#}");
-                    None
-                }
-            }
-        } else {
-            None
-        };
-        let db = db.map(Arc::new);
         // Keybinding bugs on Linux are almost always "what did the platform
         // actually deliver, and which action did it resolve to", so log both —
         // at trace level, since this fires for every keystroke and floods the
@@ -475,12 +486,9 @@ impl Workspace {
             _picker_events: None,
             signature,
             db,
-            _index: None,
-            _backup: None,
+            _services: services,
             _termination: None,
-            live: None,
-            live_snapshot: None,
-            _live: None,
+            live_snapshot,
             review,
             _pending: None,
             pending_unreadable: Vec::new(),
@@ -500,18 +508,15 @@ impl Workspace {
         // Roadmap P1.8: the window comes up where the last one left it, before
         // anything else has a chance to look at what "where" was.
         workspace.restore_session(cx);
-        // The one startup pass that catches what other programs did to the vault
-        // while Shale was closed. After it, the watcher and the save paths keep the
-        // index current between them.
-        workspace.start_index(cx);
         // Roadmap P2.5a: the queue of agent proposals is read before the window is on
         // screen, so a proposal that arrived while Shale was closed is on screen the
         // moment it is — and the beat that keeps reading it is started here because a
         // proposal nobody ever sees is the one failure this feature cannot have.
         workspace.start_pending_watch(cx);
-        // Roadmap P2.3: the live channel comes up last, so the first snapshot the
-        // server can answer with already knows the note the session restored.
-        workspace.start_live(cx);
+        // The first snapshot the live server can answer with: the channel itself
+        // came up with the vault's services, and this fills it with the note the
+        // session restored.
+        workspace.publish_live(cx);
         // A theme that failed to load is said here as well as logged: the window
         // opens in the default palette, and the one thing the user should learn
         // without opening a log file is *why the theme changed*. It is the last
@@ -585,9 +590,9 @@ impl Workspace {
                 // Roadmap P1.8: the session goes with the note — this is the last
                 // moment the window knows what it looked like.
                 ws.save_session(cx);
-                // ...and the live channel goes with it, so the next `shale-mcp` to
-                // look finds no port and no lock rather than a stale hint.
-                ws.stop_live();
+                // The live channel does NOT go with this window: it belongs to
+                // the vault, and it comes down when the vault's last window
+                // closes (see [`services`]).
                 // ...and so does the queue beat. The queue itself stays: an unanswered
                 // proposal is on disk for the next window to offer again (P2.5a).
                 ws.stop_pending_watch();
@@ -826,76 +831,6 @@ impl Workspace {
     pub(super) fn resign(&mut self) {
         self.signature = self.vault.signature().unwrap_or_default();
     }
-}
-
-/// How often the vault is re-walked looking for changes made outside Shale. Long
-/// enough that the walk never lands on a keystroke's path, short enough that a
-/// note created in another program shows up in the tree almost at once.
-///
-/// This is the floor, not the whole rule: the interval adapts to the measured
-/// walk (see [`start_watcher`]), because a fixed 750 ms on a 5k-note vault is a
-/// 15 ms walk running at a ~2% duty cycle — visible as 3% idle CPU in the
-/// P3.4 exit-criteria check, all of it the watcher and none of it the graph.
-const WATCH_INTERVAL: Duration = Duration::from_millis(750);
-
-/// The ceiling on the adaptive interval. Past this a vault is so big that even
-/// the walk at rest is rare, and external changes arriving within a quarter of
-/// a minute is the promise; the tree also refreshes on any Shale-side write, so
-/// the ceiling only slows *outside* edits, which is the rarer path.
-const WATCH_INTERVAL_MAX: Duration = Duration::from_secs(15);
-
-/// How many times the interval may exceed the walk it follows. The walk is
-/// allowed at most ~1/300th of the clock: 0.4 ms vaults keep the 750 ms floor
-/// (small vaults stay instant), and a 15 ms walk backs itself off to ~4.7 s,
-/// which is the same ~0.3% idle the contract asks for at every vault size.
-const WATCH_DUTY: u32 = 300;
-
-/// Start watching the vault: every [`WATCH_INTERVAL`] (or longer, if the walk
-/// itself says the vault is big — see the duty rule below) the disk is re-walked
-/// on a background thread and any difference is folded into the window by
-/// [`Workspace::apply_disk_changes`].
-///
-/// Polling rather than an inotify dependency keeps `shale-core` free of external
-/// crates, and the signature pass is the same one the planned vault database will
-/// use to decide which notes to re-index. Only a weak handle is held, so closing
-/// the window ends the loop.
-pub(crate) fn start_watcher(workspace: &Entity<Workspace>, cx: &mut gpui::App) {
-    // A copy, not the `Rc`: the walk runs on a background thread, and `Rc` cannot
-    // cross one.
-    let vault = (*workspace.read(cx).vault).clone();
-    let watched = workspace.downgrade();
-    cx.spawn(async move |cx| {
-        let mut interval = WATCH_INTERVAL;
-        loop {
-            cx.background_executor().timer(interval).await;
-            let vault = vault.clone();
-            let walked = cx
-                .background_executor()
-                .spawn(async move {
-                    let started = std::time::Instant::now();
-                    let signature = vault.signature()?;
-                    Ok::<_, anyhow::Error>((signature, started.elapsed()))
-                })
-                .await;
-            let Ok((signature, walked)) = walked else {
-                continue;
-            };
-            // The walk times itself: the next interval is sized so the walk owns
-            // at most ~1/300th of the clock, floored at the interactive 750 ms
-            // and capped at [`WATCH_INTERVAL_MAX`].
-            interval = (walked * WATCH_DUTY)
-                .max(WATCH_INTERVAL)
-                .min(WATCH_INTERVAL_MAX);
-            if watched
-                .update(cx, |ws, cx| ws.apply_disk_changes(signature, cx))
-                .is_err()
-            {
-                // The window is gone, so there is nothing left to keep current.
-                break;
-            }
-        }
-    })
-    .detach();
 }
 
 /// Lowercased link targets that resolve to an existing note: file stems and
