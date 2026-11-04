@@ -403,3 +403,32 @@ collapses: 23 tests caught that at once). Sweeps: write-all-tabs, any_dirty,
 rename propagation, apply_palette, graph singleton, open_note's
 find-don't-duplicate all became pane-aware. 14 new tests in tests/panes.rs;
 427 app + 449 core green.
+
+## The blank-split bug (2026-11-03, `95add8c`)
+
+User report: opening any split left the editor blank — chrome (tab bars,
+status) painted, note interiors did not; vertical splits also seemed to eat
+the keyboard. Reproduced live with a `--split` debug flag + a temporary
+geometry probe: each pane's editor scroll container measured **859 px wide
+by 0 px tall**. The tab bar (28 px, flex_none) was the pane's entire height.
+
+Cause: gpui does not stretch flex items the way CSS does. The split wrapper
+was a plain div — Block layout, whose children ignore grow and size to
+content — and the pane element only set its main axis (grow + basis). The
+cross axis was never spelled out, so inside a split the pane column
+collapsed to the tab bar and the editor under it got zero height. A single
+pane worked because the root leaf sits directly in the pane area and its
+grow/basis happened to be enough there.
+
+Fix: `size_full()` on both the wrapper (plus `.flex()`, so its child
+participates in flex) and the pane element. `flex_basis(relative(0.))`
+still wins on whichever axis the parent splits along, so the fractions are
+untouched.
+
+Test lesson: the old `a_split` assertion (hit boxes from `hit_line_edges`)
+passed *with the bug present* — the hit lines it read were painted in the
+frame before the split. The guard that actually catches it is the editor's
+layout height (`wrap_height()` via `pane_editor_height`): reverting the fix
+makes the test fail with "pane 0's editor was given 0px of height". Paint
+evidence from a previous frame is not evidence about the current layout.
+428 app + 449 core green.
