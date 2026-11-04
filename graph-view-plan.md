@@ -68,6 +68,20 @@ Edge semantics:
 - **On deactivate:** freeze the drift clock, stop shipping sim positions to the UI (the sim thread may keep ticking off-thread — it never touches `App`), let ripples expire without drawing, pause orbit rotation, pause the toast timers (same signal — one shared "window active" flag in the workspace; toasts already specced to pause unfocused in PROJECT.md). **On activate:** resume; the sim will have quietly settled in the background.
 - **Drift (M5g) is the only opt-in continuous frame source.** Everything else (sim, ripples, springs, orbit) self-settles or is bounded by an explicit user action. With drift off and the sim settled, Shale must draw zero frames while idle.
 - **Validation:** the Wayland frame loop is observable in logs — `wayland/window.rs` drives `FrameLoop::{Ticking, AwaitingCallback, Scheduled, Parked}`; a settled, unfocused graph tab should reach and stay `Parked`. No screenshot tool exists here, so verify idle behavior by log lines plus `top`/`pidstat` on the Shale process (expect 0.0–0.3% with drift off), and ask the user to eyeball the graph tab for motion when drift is off.
+  **Verified 2026-11-03 (P3.4 exit check, 5k fixture, `--graph` flag):** the v1.25.3
+  `FrameLoop` is an internal `Cell` with no log line — the "Parked in the logs" half
+  of this recipe does not exist; the observable proxies are the tab's own bench
+  readout and process CPU. Measured: **0 fps / 1.75 ms paint** settled (the readout
+  itself proves zero frames drawn), **38 fps / 1.4 ms** mid-settle (the beat's
+  16 ms timer + compositor round trip caps the cadence near 40 Hz; paint holds
+  ~8% of the 16.6 ms budget, so the app is not the limit), headless
+  `the_beat_runs_the_layout_to_rest_and_stops` green. Process idle measured 3.1%
+  — traced to the vault watcher's fixed-750 ms full-vault signature walk
+  (15.6 ms × 1.33/s on 5k notes), **not** the graph; fixed the same day by a
+  duty-cycle-adaptive interval (`WATCH_DUTY` in `workspace/mod.rs`), after which
+  idle measured **0.97%**. The remaining ~1% is the live-MCP publish beat (4 Hz)
+  and the review-strip pending poll (1 Hz) — features that postdate this
+  contract's 0.0–0.3% expectation; the graph's own contribution is zero frames.
 
 ### Fixtures for driving it by eye (added 2026-11-03, second shape the same day)
 

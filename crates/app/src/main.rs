@@ -54,6 +54,12 @@ struct Args {
     /// window is created, to exercise post-paint updates.
     #[arg(long)]
     open_after: Option<u64>,
+
+    /// Debug aid: open the graph tab at startup. P3.4's exit criteria are
+    /// numbers — fps while the layout settles, zero frames once it sleeps —
+    /// and checking them should not depend on remembering the chord.
+    #[arg(long)]
+    graph: bool,
 }
 
 fn main() -> Result<()> {
@@ -73,6 +79,7 @@ fn main() -> Result<()> {
     tracing::info!(?source, path = %Config::path(vault.root()).display(), "config");
     let config = Rc::new(config);
     let initial_note = args.note.clone();
+    let graph_at_start = args.graph;
     // The window is named for the vault, not for the program: a window list is a
     // list of vaults, and "Shale" is no use to anyone with two open. The first
     // frame extends it to `vault — note` (`workspace::render`).
@@ -147,6 +154,9 @@ fn main() -> Result<()> {
                     ws_for_build.update(cx, |ws, cx| ws.attach_window(window, cx));
                     if let Some(note) = note.clone() {
                         ws_for_build.update(cx, |ws, cx| ws.open_note(&note, cx));
+                    }
+                    if graph_at_start {
+                        ws_for_build.update(cx, |ws, cx| ws.open_graph(cx));
                     }
                     ws_for_build
                 },

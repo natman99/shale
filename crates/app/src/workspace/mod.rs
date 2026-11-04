@@ -783,10 +783,28 @@ impl Workspace {
 /// How often the vault is re-walked looking for changes made outside Shale. Long
 /// enough that the walk never lands on a keystroke's path, short enough that a
 /// note created in another program shows up in the tree almost at once.
+///
+/// This is the floor, not the whole rule: the interval adapts to the measured
+/// walk (see [`start_watcher`]), because a fixed 750 ms on a 5k-note vault is a
+/// 15 ms walk running at a ~2% duty cycle — visible as 3% idle CPU in the
+/// P3.4 exit-criteria check, all of it the watcher and none of it the graph.
 const WATCH_INTERVAL: Duration = Duration::from_millis(750);
 
-/// Start watching the vault: every [`WATCH_INTERVAL`] the disk is re-walked on a
-/// background thread and any difference is folded into the window by
+/// The ceiling on the adaptive interval. Past this a vault is so big that even
+/// the walk at rest is rare, and external changes arriving within a quarter of
+/// a minute is the promise; the tree also refreshes on any Shale-side write, so
+/// the ceiling only slows *outside* edits, which is the rarer path.
+const WATCH_INTERVAL_MAX: Duration = Duration::from_secs(15);
+
+/// How many times the interval may exceed the walk it follows. The walk is
+/// allowed at most ~1/300th of the clock: 0.4 ms vaults keep the 750 ms floor
+/// (small vaults stay instant), and a 15 ms walk backs itself off to ~4.7 s,
+/// which is the same ~0.3% idle the contract asks for at every vault size.
+const WATCH_DUTY: u32 = 300;
+
+/// Start watching the vault: every [`WATCH_INTERVAL`] (or longer, if the walk
+/// itself says the vault is big — see the duty rule below) the disk is re-walked
+/// on a background thread and any difference is folded into the window by
 /// [`Workspace::apply_disk_changes`].
 ///
 /// Polling rather than an inotify dependency keeps `shale-core` free of external
@@ -799,16 +817,27 @@ pub(crate) fn start_watcher(workspace: &Entity<Workspace>, cx: &mut gpui::App) {
     let vault = (*workspace.read(cx).vault).clone();
     let watched = workspace.downgrade();
     cx.spawn(async move |cx| {
+        let mut interval = WATCH_INTERVAL;
         loop {
-            cx.background_executor().timer(WATCH_INTERVAL).await;
+            cx.background_executor().timer(interval).await;
             let vault = vault.clone();
-            let Ok(signature) = cx
+            let walked = cx
                 .background_executor()
-                .spawn(async move { vault.signature() })
-                .await
-            else {
+                .spawn(async move {
+                    let started = std::time::Instant::now();
+                    let signature = vault.signature()?;
+                    Ok::<_, anyhow::Error>((signature, started.elapsed()))
+                })
+                .await;
+            let Ok((signature, walked)) = walked else {
                 continue;
             };
+            // The walk times itself: the next interval is sized so the walk owns
+            // at most ~1/300th of the clock, floored at the interactive 750 ms
+            // and capped at [`WATCH_INTERVAL_MAX`].
+            interval = (walked * WATCH_DUTY)
+                .max(WATCH_INTERVAL)
+                .min(WATCH_INTERVAL_MAX);
             if watched
                 .update(cx, |ws, cx| ws.apply_disk_changes(signature, cx))
                 .is_err()

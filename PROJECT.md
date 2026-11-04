@@ -289,7 +289,7 @@ Workspace layout:
   remove, the token header, the four endpoint paths, the `Status` shape `shale://status`
   reports, a hand-rolled loopback client and the `probe` that decides whether a port
   is a Shale window, and the strict reply parser that tells one from some other
-  program's port), `graph` (roadmap P3, the other agent's module — its progress is
+  program's port), `graph` (roadmap P3 — its progress is
   in `PROGRESS.md`: `index.rs` the `GraphIndex` over a `petgraph` arena, built from
   the vault's notes, attachments, ghosts and tags, with **no parallel edges** (a→b
   and b→a is one edge, flagged bidirectional) and incremental `set_note`/`remove_note`

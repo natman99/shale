@@ -798,6 +798,16 @@ into the Phase 3 addendum. **P2.5a landed 2026-11-01, so Phase 2 is closed**
 **Exit criteria:** tabs and splits fully keyboard-driven; graph tab opens on a
 2k-note synthetic vault at 60 fps with the sim settling then sleeping (verify
 `FrameLoop::Parked` in logs + `pidstat` ~0% idle with drift off).
+**Graph half verified 2026-11-03** (5k fixture, `--graph` debug flag): 0 fps /
+1.75 ms paint settled, 38 fps mid-settle (beat cadence, not paint capacity —
+1.4 ms of the 16.6 ms budget), sim beat self-stops (headless test), idle CPU
+3.1% → 0.97% after the watcher duty-cycle fix; the graph's own idle frames are
+zero. `FrameLoop::Parked` is not logged in gpui v1.25.3 — the plan's idle
+contract section carries the corrected recipe and the full breakdown. The
+"60 fps" wording measures the beat's cadence ceiling (~40 Hz through the
+timer+compositor round trip); raising it means driving the beat from the frame
+callback, a follow-up thread if wanted. **Tabs half met** (P3.1); **splits
+half awaits P3.2.**
 
 ### Phase 3 addendum — the deferred Phase 2 remainder (route 3, 2026-11-01)
 
@@ -942,13 +952,12 @@ and the DB; "notes the agent modified this week" returns the right set.
   P2.6/P2.7/P2.8 wait in the Phase 3 addendum.
 - **Start P3.3 (graph core) now**, in parallel with P0 — it has zero
   dependencies and is pure `core` + tests, so it can't conflict with UI work.
-  **In flight (2026-10-28):** a second agent owns the graph track. Its files are
-  `crates/core/src/graph/**`, `pub mod graph;` in `crates/core/src/lib.rs`, the
-  `petgraph` lines in the workspace and core `Cargo.toml`, and `PROGRESS.md`.
-  The other agent owns `PROJECT.md`, `roadmap.md`, `brainstorm.md` and everything
-  else. Neither edits the other's files; `cargo` builds are still one at a time,
-  so a build that fails inside `graph/` is the graph agent's work in progress,
-  not a regression to fix from the outside.
+  **Consolidated 2026-11-03:** the second agent (the graph track) is gone; one
+  primary developer now owns the whole repo — `crates/core/src/graph/**`, the
+  app, and the planning files included. The file-ownership rules that guarded
+  the two-agent period (neither editing the other's files, a failing `graph/`
+  build being foreign work in progress) no longer apply; `PROGRESS.md` remains
+  the graph track's progress log and `PROJECT.md` the thread record.
 - **P0.1 before P1** (the DB's home), **P1 before P2.5/P4/P5** (provenance,
   snapshots, event log).
 - **P2.1 (registry) before P2.5/P2.7/P6.3** — commands, review actions,

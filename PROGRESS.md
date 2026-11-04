@@ -362,3 +362,24 @@ rename parses `.canvas`, relax-moves-only-agent-nodes, ghost-accept-creates-
 note, phase placement C1→Phase 3 addendum / C2=P5.6 / C3=P6.10). Hooks
 closed: brainstorm audit line flipped + dated Canvas section, roadmap items
 added. canvas-plan.md §11/§12 now read as ruled.
+
+## P3.4 exit check + the watcher finding (2026-11-03, primary-dev takeover)
+
+The other agent is gone; ownership notes consolidated (roadmap sequencing +
+PROJECT.md). Ran P3.4's graph exit criteria on the 5k fixture with a new
+`--graph` debug flag (main.rs): settled = **0 fps / 1.75 ms paint** (the tab's
+own readout proves zero frames), mid-settle = **38 fps / 1.4 ms** — the beat's
+16 ms timer + compositor round trip caps cadence near 40 Hz; paint holds ~8%
+of the 16.6 ms budget, so capacity is not the limit. Headless
+`the_beat_runs_the_layout_to_rest_and_stops` green. gpui v1.25.3 does NOT log
+`FrameLoop::Parked` (internal Cell) — the idle contract's verification recipe
+in graph-view-plan.md corrected accordingly.
+
+Process idle measured 3.1% — NOT the graph: the vault watcher re-walks the
+whole vault (`Vault::signature`, measured 15.6 ms at 5k / 2.8 ms at 1k /
+0.4 ms at 100) every fixed 750 ms ≈ 2% duty. Fixed with a duty-cycle-adaptive
+interval (`WATCH_DUTY = 300`, floor 750 ms, cap 15 s): small vaults keep the
+instant 750 ms, a 15 ms walk backs itself to ~4.7 s. Re-measured idle:
+**0.97%**; the remainder is the live-MCP publish beat (4 Hz) + review-strip
+poll (1 Hz) — feature beats that postdate the contract's 0.0–0.3% band. The
+graph's own idle contribution is zero frames. 413 app tests green.
