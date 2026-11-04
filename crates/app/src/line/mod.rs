@@ -35,7 +35,8 @@ use runs::{build_runs, cell_styles, CellShaped, LineStyles};
 use std::rc::Rc;
 
 use gpui::{
-    fill, font, px, relative, rgb, App, Bounds, Corners, Element, ElementId, ElementInputHandler,
+    fill, font, px, relative, rgb, App, Bounds, Corners, Element, ElementId,
+    ElementInputHandler,
     Entity, GlobalElementId, InspectorElementId, IntoElement, LayoutId, Pixels, ShapedLine,
     SharedString, Style as ElementStyle, Window,
 };
@@ -210,6 +211,10 @@ pub(crate) struct LineElement {
     pub(crate) line_sel: Option<(usize, usize)>,
     /// The cursor, as a painted-string byte index.
     pub(crate) cursor_col: Option<usize>,
+    /// True when this line's pane does not have the keyboard: the cursor block
+    /// still paints, but faded, so the eye jumps to the live pane's solid one
+    /// without the other panes' carets disappearing on switch.
+    pub(crate) cursor_dim: bool,
     pub(crate) insert: bool,
     /// (start, end, resolved) **buffer** byte spans of wiki-links overlapping
     /// this display line.
@@ -452,12 +457,16 @@ impl LineElement {
                 } else {
                     self.char_width.max(px(7.))
                 };
+                let mut cursor_color: gpui::Hsla = rgb(self.palette.cursor).into();
+                if self.cursor_dim {
+                    cursor_color.a = 0.35;
+                }
                 window.paint_quad(fill(
                     Bounds::from_corners(
                         gpui::point(x, bounds.top()),
                         gpui::point(x + width, bounds.bottom()),
                     ),
-                    rgb(self.palette.cursor),
+                    cursor_color,
                 ));
             }
         }
@@ -805,12 +814,16 @@ impl Element for LineElement {
                     let next = line.x_for_index((col + 1).min(self.text.len()));
                     (next - x).max(px(7.))
                 };
+                let mut cursor_color: gpui::Hsla = rgb(self.palette.cursor).into();
+                if self.cursor_dim {
+                    cursor_color.a = 0.35;
+                }
                 window.paint_quad(fill(
                     Bounds::from_corners(
                         gpui::point(bounds.left() + x, bounds.top()),
                         gpui::point(bounds.left() + x + cursor_width, bounds.bottom()),
                     ),
-                    rgb(self.palette.cursor),
+                    cursor_color,
                 ));
             }
 

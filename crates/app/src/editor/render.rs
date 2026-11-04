@@ -624,6 +624,7 @@ impl Render for MarkdownEditor {
                                 quotes: line_subs,
                                 line_sel,
                                 cursor_col,
+                                cursor_dim: self.cursor_dim,
                                 insert: self.vim.mode() == Mode::Insert,
                                 links: line_links,
                                 spans: line_spans,

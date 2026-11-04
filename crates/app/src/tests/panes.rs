@@ -173,6 +173,21 @@ fn a_split_paints_both_notes(cx: &mut TestAppContext) {
             .unwrap();
         assert!(h > 100.0, "pane {pix}'s editor was given {h}px of height");
     }
+    // The faded cursor follows the keyboard: the pane that does not have it
+    // draws its caret at low alpha.
+    let dim = |pix: usize, cx: &mut TestAppContext| {
+        window
+            .update(cx, |ws, _w, cx| ws.pane_cursor_dim(pix, cx))
+            .unwrap()
+    };
+    assert!(dim(0, &mut cx), "the unfocused pane's cursor is faded");
+    assert!(!dim(1, &mut cx), "the focused pane's cursor is solid");
+    cx.simulate_keystrokes("ctrl-w h");
+    for _ in 0..2 {
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+    }
+    assert!(!dim(0, &mut cx), "stepping left makes pane 0 solid");
+    assert!(dim(1, &mut cx), "and pane 1 faded");
 }
 
 /// `ctrl-w h/l` step sideways between panes.

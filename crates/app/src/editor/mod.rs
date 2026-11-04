@@ -197,6 +197,11 @@ pub struct MarkdownEditor {
     /// re-centres only when the caret actually moved, so it never fights a reader
     /// who scrolled by hand.
     typewriter_anchor: Option<usize>,
+    /// True when this editor's pane is not the window's active pane: its cursor
+    /// block paints faded instead of solid, so the eye jumps to the live pane.
+    /// The workspace sets this per pane while painting; the editor never decides
+    /// it on its own.
+    pub(crate) cursor_dim: bool,
     dirty: bool,
 }
 
@@ -231,6 +236,7 @@ impl MarkdownEditor {
             focus_scope: dim::Scope::default(),
             typewriter: false,
             typewriter_anchor: None,
+            cursor_dim: false,
             dirty: false,
         }
     }

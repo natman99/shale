@@ -243,6 +243,16 @@ impl Workspace {
         let editor = self.panes[pix].active_tab().editor().unwrap();
         editor.read_with(cx, |editor, _cx| f32::from(editor.wrap_height()))
     }
+    /// Whether the pane's editor cursor is drawn faded (the pane does not have
+    /// the keyboard).
+    #[cfg(test)]
+    pub(crate) fn pane_cursor_dim(&self, pix: usize, cx: &gpui::App) -> bool {
+        self.panes[pix]
+            .active_tab()
+            .editor()
+            .map(|editor| editor.read_with(cx, |editor, _cx| editor.cursor_dim))
+            .unwrap_or(false)
+    }
     /// How many panes the window is tiled into (roadmap P3.2).
     #[cfg(test)]
     pub(crate) fn pane_count(&self) -> usize {

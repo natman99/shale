@@ -170,6 +170,15 @@ impl Workspace {
     /// background belong to the pane, so two panes read as two notes with air
     /// between their chrome, not one note with a gutter in the middle.
     pub(crate) fn pane_element(&self, pix: usize, cx: &mut Context<Self>) -> gpui::AnyElement {
+        // A pane without the keyboard paints its cursor faded: the caret stays
+        // visible — switching panes should not make a note look uneditable —
+        // but the solid block marks the pane the keys are in. Set at paint time
+        // so every active_pane change lands, whichever handler caused it; the
+        // value converges after one frame and the editor repaints this frame
+        // with the flag already correct.
+        if let TabContent::Note { editor, .. } = &self.panes[pix].active_tab().content {
+            editor.update(cx, |editor, _cx| editor.cursor_dim = pix != self.active_pane);
+        }
         // The slot belongs to the tab on screen in *this* pane: a note tab's
         // editor or the graph view, never both, and never the active pane's.
         let slot: Option<gpui::AnyElement> = match &self.panes[pix].active_tab().content {
@@ -466,6 +475,9 @@ impl Render for Workspace {
             // pane's rule and the status bar would otherwise sit under the
             // compositor's own border and get clipped by its rounded corners.
             .p_1()
+            // And air between the cards — sidebar, tiling, status bar — so the
+            // rounded corners read as separate cards, not one shape with nicks.
+            .gap_1()
             .bg(gpui::rgb(self.palette.ui_bg))
             .text_color(gpui::rgb(self.palette.ui_fg))
             .on_action(cx.listener(Self::save))
@@ -549,6 +561,7 @@ impl Render for Workspace {
                     .flex_1()
                     .min_h_0()
                     .flex()
+                    .gap_1()
                     .when(self.tree_visible, |d| {
                         d.child(
                             div()
@@ -557,8 +570,15 @@ impl Render for Workspace {
                                 .h_full()
                                 .flex()
                                 .flex_col()
-                                .border_r_1()
-                                .border_color(gpui::rgb(self.palette.ui_border))
+                                // The tree is a card too: the chrome surface
+                                // (same family as the tab bars and the status
+                                // bar), rounded like the panes. Not `bg` — in
+                                // some themes that equals the window's own
+                                // colour and the card vanishes. The old
+                                // right-edge divider goes: the gap between
+                                // cards is the separation now.
+                                .bg(gpui::rgb(self.palette.ui_status_bg))
+                                .rounded(crate::style::PANE_RADIUS)
                                 .child(
                                     div()
                                         .p_2()
@@ -705,6 +725,7 @@ impl Render for Workspace {
                     .gap_4()
                     .text_size(crate::style::TEXT_XS)
                     .bg(gpui::rgb(self.palette.ui_status_bg))
+                    .rounded(crate::style::PANE_RADIUS)
                     .text_color(gpui::rgb(self.palette.ui_fg))
                     .child(format!("{mode}{pending}"))
                     // The view gets its own badge, and it is the only place the view
