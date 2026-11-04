@@ -190,6 +190,18 @@ impl Workspace {
             // height. The main axis still comes from grow/basis, which win
             // over these on whichever axis the parent splits along.
             .size_full()
+            // Which pane has the keyboard: the palette reserves
+            // `ui_active_border` for exactly this — "the rule around whatever
+            // the window currently has the keyboard" — with `ui_border` on the
+            // rest. Only worth drawing when the window is actually tiled; a
+            // lone pane would just gain a frame around the whole editor.
+            .when(self.panes.len() > 1, |d| {
+                d.border_1().border_color(gpui::rgb(if pix == self.active_pane {
+                    self.palette.ui_active_border
+                } else {
+                    self.palette.ui_border
+                }))
+            })
             .child(self.tab_bar(pix, cx))
             .child(
                 div()
