@@ -20,7 +20,7 @@ mod keys;
 mod live;
 mod notes;
 mod open;
-mod panes;
+pub(crate) mod panes;
 mod popups;
 mod render;
 mod review;

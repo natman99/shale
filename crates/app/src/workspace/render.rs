@@ -184,6 +184,12 @@ impl Workspace {
             // size to its content and the note's viewport would collapse.
             .flex_grow(1.)
             .flex_basis(gpui::relative(0.))
+            // gpui does not stretch flex items the way CSS does: the cross
+            // axis must be spelled out, or a pane inside a split sizes to its
+            // content and the editor under the tab bar collapses to zero
+            // height. The main axis still comes from grow/basis, which win
+            // over these on whichever axis the parent splits along.
+            .size_full()
             .child(self.tab_bar(pix, cx))
             .child(
                 div()
@@ -237,6 +243,11 @@ impl Workspace {
                         .flex_basis(gpui::relative(0.))
                         .min_w_0()
                         .min_h_0()
+                        // A plain div is Block layout: its child would ignore
+                        // grow and size to content. Make the wrapper a flex
+                        // container and give it its full box explicitly.
+                        .size_full()
+                        .flex()
                         .child(self.render_node(kid, cx))
                 }))
                 .into_any_element()

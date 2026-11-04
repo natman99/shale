@@ -55,6 +55,10 @@ struct Args {
     #[arg(long)]
     open_after: Option<u64>,
 
+    /// Debug aid: tile a second pane beside the first at startup. P3.2's
+    /// render is what this checks on a live window.
+    #[arg(long)]
+    split: bool,
     /// Debug aid: open the graph tab at startup. P3.4's exit criteria are
     /// numbers — fps while the layout settles, zero frames once it sleeps —
     /// and checking them should not depend on remembering the chord.
@@ -167,7 +171,12 @@ fn main() -> Result<()> {
         // `focus_editor`: a session that ended on the graph tab comes back to the graph
         // tab, and the keyboard has to be where the frame is.
         window
-            .update(cx, |ws, window, cx| ws.focus_active_tab(window, cx))
+            .update(cx, |ws, window, cx| {
+                if args.split {
+                    ws.split_pane(workspace::panes::SplitDir::Row, false, window, cx);
+                }
+                ws.focus_active_tab(window, cx)
+            })
             .unwrap();
 
         // The vault can change while Shale is open — Obsidian, git, another

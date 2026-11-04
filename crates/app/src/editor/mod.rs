@@ -506,6 +506,14 @@ impl MarkdownEditor {
         self.scroll_handle.bounds().size.width
     }
 
+    /// The height the editor was given by the layout: the scroll container's
+    /// bounds from the previous frame. A pane whose column collapsed under its
+    /// tab bar shows up here as zero (the P3.2 split-render bug).
+    #[cfg(test)]
+    pub fn wrap_height(&self) -> Pixels {
+        self.scroll_handle.bounds().size.height
+    }
+
     /// The shaped lines produced by the last paint, with the byte range each one
     /// covers. Diagnostic aid: compares what is actually painted against the wrap
     /// model (a different painted font would show up here as a width mismatch).

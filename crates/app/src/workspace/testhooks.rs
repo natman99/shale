@@ -222,6 +222,27 @@ impl Workspace {
             .filter(|tab| tab.is_graph())
             .count()
     }
+    /// One pane's first display line, as painted: `(top, bottom, left)`, or
+    /// `None` when the pane's editor painted no line at all — which is what a
+    /// collapsed viewport looks like from the hit-test side.
+    #[cfg(test)]
+    pub(crate) fn pane_hit_box(&self, pix: usize, cx: &gpui::App) -> Option<(gpui::Pixels, gpui::Pixels, gpui::Pixels)> {
+        let editor = self.panes[pix].active_tab().editor()?;
+        editor.read_with(cx, |editor, _cx| {
+            let (top, bottom) = editor.hit_line_edges(0)?;
+            let left = editor.hit_line_x(0)?.0;
+            Some((top, bottom, left))
+        })
+    }
+    /// The height the pane's editor was actually given by the layout. A split
+    /// whose wrapper failed to size the pane gives zero (the P3.2 bug: gpui
+    /// does not stretch flex items, so the editor collapsed under the tab bar
+    /// and painted nothing).
+    #[cfg(test)]
+    pub(crate) fn pane_editor_height(&self, pix: usize, cx: &gpui::App) -> f32 {
+        let editor = self.panes[pix].active_tab().editor().unwrap();
+        editor.read_with(cx, |editor, _cx| f32::from(editor.wrap_height()))
+    }
     /// How many panes the window is tiled into (roadmap P3.2).
     #[cfg(test)]
     pub(crate) fn pane_count(&self) -> usize {

@@ -141,6 +141,40 @@ fn tab_keys_belong_to_the_pane_with_the_keyboard(cx: &mut TestAppContext) {
     );
 }
 
+/// A split has to paint both notes, not just hold both buffers: the state
+/// tests above prove the model; this one proves the layout. Each pane's first
+/// line must have a hit box, and the two boxes must not overlap.
+#[gpui::test]
+fn a_split_paints_both_notes(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = two_notes(cx);
+    cx.simulate_keystrokes("ctrl-w v");
+    show(&mut cx, &window, "b.md");
+    for _ in 0..2 {
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+    }
+    let left = window
+        .update(&mut cx, |ws, _w, cx| ws.pane_hit_box(0, cx))
+        .unwrap();
+    let right = window
+        .update(&mut cx, |ws, _w, cx| ws.pane_hit_box(1, cx))
+        .unwrap();
+    let (ltop, lbot, lx) = left.expect("pane 0 painted its first line");
+    let (rtop, rbot, rx) = right.expect("pane 1 painted its first line");
+    assert!(lbot > ltop && rbot > rtop, "both boxes have height");
+    assert!(rx > lx, "the right pane sits to the right of the left one");
+    // The regression this guards: gpui does not stretch flex items the way CSS
+    // does, so a split wrapper that only sets the main axis leaves the pane
+    // sized to its content — the editor gets zero height and paints nothing
+    // while the tab bar stays visible. The layout box must be tall, not just
+    // the painted line.
+    for pix in 0..2 {
+        let h = window
+            .update(&mut cx, |ws, _w, cx| ws.pane_editor_height(pix, cx))
+            .unwrap();
+        assert!(h > 100.0, "pane {pix}'s editor was given {h}px of height");
+    }
+}
+
 /// `ctrl-w h/l` step sideways between panes.
 #[gpui::test]
 fn ctrl_w_h_l_step_between_panes(cx: &mut TestAppContext) {
