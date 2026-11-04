@@ -299,6 +299,20 @@ pub(crate) fn keybindings() -> Vec<KeyBinding> {
         // not the note's, so `:tabnext`, `:only` and friends are the way out of
         // a graph tab that `escape` alone does not give.
         ":" => RunCommandLine,
+        // The leader chords the graph shares with the note. They dispatch the
+        // same actions the note's engine dispatches — the window owns all of
+        // them — so the hands do not change when the view does. The engine is
+        // not involved here: gpui spells the two-stroke directly, which is
+        // safe because nothing in this context binds a lone `space` or `g`.
+        "space f" => QuickOpen,
+        "space s" => SearchVault,
+        "space e" => TreeToggle,
+        "space d" => ToggleFocus,
+        "space g" => OpenGraph,
+        // Tab pages, the same `g t`/`g T` the note's engine reaches. Tab pages
+        // live outside the `ctrl-w` prefix, and the graph is one of them.
+        "g t" => TabNext,
+        "g T" => TabPrev,
         "escape" => FocusEditor,
         // `enter` opens the chosen node's note, and `f` frames the whole graph again.
         "enter" => GraphOpen,

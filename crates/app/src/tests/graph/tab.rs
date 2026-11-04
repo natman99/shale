@@ -480,3 +480,27 @@ fn the_command_line_opens_from_the_graph_tab(cx: &mut TestAppContext) {
         .unwrap();
     assert_eq!(text.as_deref(), Some(""), "the ex bar opened anyway");
 }
+
+/// The leader chords the note has, the graph has: `space f` opens the
+/// picker, `g t`/`g T` walk the tab pages. The hands should not have to
+/// change when the view does.
+#[gpui::test]
+fn the_leader_chords_work_from_the_graph_tab(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = linked_vault(cx);
+    cx.simulate_keystrokes("space g");
+    assert!(graph(&window, &mut cx));
+
+    cx.simulate_keystrokes("space f");
+    let matches = window
+        .update(&mut cx, |ws, _window, cx| ws.picker_matches(cx))
+        .unwrap();
+    assert!(matches.unwrap_or(0) > 0, "space f opened the picker");
+    cx.simulate_keystrokes("escape");
+
+    // Two tabs exist (note, graph); `g T` walks back to the note tab.
+    assert_eq!(marker(&window, &mut cx), 1, "the graph tab is the marker");
+    cx.simulate_keystrokes("g T");
+    assert_eq!(marker(&window, &mut cx), 0, "g T walked to the note tab");
+    cx.simulate_keystrokes("g t");
+    assert_eq!(marker(&window, &mut cx), 1, "g t walked back");
+}
