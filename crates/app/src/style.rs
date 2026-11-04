@@ -64,6 +64,12 @@ pub(crate) const CHIP_RADIUS: gpui::Pixels = gpui::px(6.);
 /// boundary.
 pub(crate) const GUTTER: gpui::Pixels = gpui::px(16.);
 
+/// The corner radius of a pane's card: its rule, its tab bar's top and the
+/// note's bottom round by this much, so a tiled window reads as rounded panes
+/// inside the compositor's own rounded frame rather than squares inside
+/// circles.
+pub(crate) const PANE_RADIUS: gpui::Pixels = gpui::px(8.);
+
 /// The side of the square a gutter mark is drawn in.
 ///
 /// Square so several marks can share the column on one row without overlapping, and small

@@ -159,6 +159,9 @@ impl Workspace {
             .text_size(crate::style::TEXT_XS)
             .bg(gpui::rgb(self.palette.ui_status_bg))
             .text_color(gpui::rgb(self.palette.ui_dim))
+            // The card's top corners: the bar's own background carries the
+            // round (the chips are inset by TAB_GAP and never reach them).
+            .rounded_t(crate::style::PANE_RADIUS)
             .children(tabs)
             .into_any_element()
     }
@@ -195,6 +198,7 @@ impl Workspace {
             // the window currently has the keyboard" — with `ui_border` on the
             // rest. Only worth drawing when the window is actually tiled; a
             // lone pane would just gain a frame around the whole editor.
+            .rounded(crate::style::PANE_RADIUS)
             .when(self.panes.len() > 1, |d| {
                 d.border_1().border_color(gpui::rgb(if pix == self.active_pane {
                     self.palette.ui_active_border
@@ -208,6 +212,10 @@ impl Workspace {
                     .relative()
                     .flex_1()
                     .min_w_0()
+                    // The note's background ends in the same round corners the
+                    // pane's rule draws; gpui clips children to rectangles, so
+                    // each painted surface rounds itself.
+                    .rounded_b(crate::style::PANE_RADIUS)
                     .h_full()
                     .flex()
                     .flex_col()

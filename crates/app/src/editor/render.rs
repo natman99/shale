@@ -464,6 +464,10 @@ impl Render for MarkdownEditor {
                     .text_size(px(self.font_size))
                     .line_height(px(theme::line_height(self.font_size)))
                     .bg(rgb(self.palette.bg))
+                    // The pane's card rounds its bottom corners; the note's
+                    // background is the surface that reaches them, and gpui
+                    // clips children to rectangles — so the round lives here.
+                    .rounded_b(crate::style::PANE_RADIUS)
                     .text_color(rgb(self.palette.fg))
                     .on_mouse_down(MouseButton::Left, cx.listener(Self::on_click))
                     .children(display_lines.iter().enumerate().map(|(index, dl)| {
