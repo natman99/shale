@@ -470,3 +470,33 @@ not look uneditable); the solid block + the rule mark the live pane.
 Paint-time sync covers every `active_pane` write without touching ten
 handlers; converges in one frame. Verified by pixels (sidebar card
 5..330, gap, rule at 335) and by the `a_split` assertions.
+
+## Preview as a reading view; vault switcher; one Shale per vault (2026-11-04)
+
+**Preview (`f4638e6`).** The caret was the bug: it sat on hidden markdown
+syntax and inline images, and motions walked it through characters the view
+hides. Preview now hides the caret; `j`/`k`/arrows scroll the view (clamped
+against `max_offset`, which gpui reports as a positive magnitude), `g`/`G`
+jump its ends through the engine (so `g t`/`g T`/`g f` keep working), and
+every caret motion and operator is swallowed. The keys a reader keeps —
+leader chords, `/`, `n`/`N`, escape — still reach the engine; the branch
+stands down while `awaiting_chord()` so multi-key chords survive.
+
+**Recent vaults (`d0be06a`).** `shale_core::recent`: MRU list + `last` in
+`$XDG_STATE_HOME/shale/recent.json`, capped at 10, atomic write. No-argument
+startup opens `last`; the CLI arg stays. `:vault`/palette open the switcher
+(recents with the current marked `here`, plus the folder dialog).
+
+**One Shale per vault.** Exclusive `flock` on `.shale/lock` (kernel-released
+on any death; pid written for humans), claimed **before the GUI exists** —
+gpui's loop cannot end before its first window, so a refusal inside
+`app.run` printed its message and then hung forever (the bug the user hit
+twice). In-process, a registry maps vault → window: the same vault focuses
+its window instead of starting a watcher/MCP twin; closing a window releases
+the claim. `leave()` closes its own window (`self_window`, set at open)
+instead of `cx.quit()` — otherwise switching vaults closed the app (the
+other bug the user hit). Multi-window is now real: one process, one binary,
+one set of threads per vault.
+
+Tests: app 435, core 455. Live-verified: second instance refused in 4ms with
+holder pid; reopen after close succeeds. Windows claim is `LockFileEx` TODO.
