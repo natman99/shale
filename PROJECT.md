@@ -4625,8 +4625,22 @@ conversation. Roughly in order of what they have said they want.
     the bar its own module doc says it sits above; and it had no focus signal at all,
     which matters because `y` accepts a hunk in one state and yanks a character in the
     other — its rule is now `accent` while it holds the keyboard (§5 amended).
-    **Unverified:** the user's vault is not in the repo, so the exact path that made it
-    look *light* rather than merely stale was not reproduced. `examples/graph/5k` names
-    `theme = "dark"`, and the built-in default is `mocha`, both dark — so a light-looking
-    strip means a light palette was applied after construction, or their own vault names
-    one. If it still reads light on startup with no theme change, look there next.
+    **Verified by the user, 2026-11-03:** the band they saw was close to `#dfe3ec`, which
+    is the **Light** palette's `popup_bg` — so this was the stale-palette bug and nothing
+    else. The 5k demo vault was the window, and it names `theme = "dark"`, whose own
+    `popup_bg` is `#303036`; a light-looking strip in a dark-named vault is exactly what a
+    palette applied after construction leaves behind. (The alternative reading — that §5's
+    elevation simply looked light against the near-black note and status bar — was wrong,
+    and is left here because the two are easy to confuse and the hexes are what separate
+    them.)
+13. **`scripts/review_proposal.py` — the way to get the review strip on screen without
+    rebuilding the setup by hand** (added 2026-11-03). It asks the running window which
+    note is open (`live_note`), writes a `[mcp.profile."review-strip"]` scoped to exactly
+    that one note with `review = true`, appends one sentence through `write_note`, and
+    prints the id plus the `--retract` line. The profile block sits between sentinel
+    comments and is rewritten in place, so it follows the note from run to run and never
+    widens to a wildcard; `--clean` deletes it. **The reason it is scoped to one note:** a
+    scratch profile that could write the whole vault would make the test harness the thing
+    that bypasses the review path. It also re-checks the note on disk afterwards and fails
+    loudly if the sentence landed in the file, because a harness that quietly *can* write
+    is worse than no harness.

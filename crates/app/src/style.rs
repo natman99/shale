@@ -46,6 +46,15 @@ use gpui::{ParentElement, Styled};
 /// ceiling before it becomes a capsule.
 pub(crate) const CHIP_RADIUS: gpui::Pixels = gpui::px(6.);
 
+/// How heavy a chip's rule is.
+///
+/// Heavier than the window's other 1 px rules on purpose: a chip is a box around two
+/// characters at [`TEXT_XS`], and at that size a hairline reads as a smudge rather than
+/// as a key. It is still a rule and not a fill, so §5's elevation levels are untouched.
+/// Fractional rather than gpui's `border_2` because the ask was a tad, not twice: at a
+/// 2× display this is 3 device pixels where `border_2` would be 4.
+pub(crate) const CHIP_RULE: gpui::Pixels = gpui::px(1.5);
+
 /// The spacing scale the chrome's gaps are picked from: 4, 8, 12 and 16 px.
 ///
 /// A surface that needs a gap takes the nearest step rather than inventing a
@@ -143,7 +152,9 @@ pub(crate) const GLYPH_CLOSE: &str = "×";
 /// A chip is a rule and a corner, not a fill. It delimits text; it does not claim to be
 /// above the surface, so it takes none of §5's elevation and needs no contrast floor of
 /// its own — the key is judged against whatever the chip sits on, exactly as the meaning
-/// beside it already is.
+/// beside it already is. The rule is [`CHIP_RULE`], a little heavier than the window's
+/// other hairlines, because a 1 px box around two characters at [`TEXT_XS`] reads as a
+/// smudge rather than as a key.
 pub(crate) fn key_chip(
     key: &str,
     meaning: &str,
@@ -158,7 +169,7 @@ pub(crate) fn key_chip(
         .child(
             gpui::div()
                 .px(SPACE_1)
-                .border_1()
+                .border(CHIP_RULE)
                 .border_color(gpui::rgb(rule))
                 // The same corner as every other chip in the window, so a key chip and a
                 // tab and a picker row are one shape language.

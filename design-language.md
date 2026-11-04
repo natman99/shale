@@ -187,7 +187,9 @@ needs no contrast floor of its own — the key is judged against whatever the ch
 exactly as the word beside it already is. The colours are arguments to the helper rather than
 a `Palette` import, because this module owns the treatment and never decides which role a
 surface takes; the strip is raised, so its chips take `popup_border` and follow the surface
-they are on.
+they are on. The rule is `CHIP_RULE` (1.5 px) rather than the window's hairline: a 1 px box
+around two characters at `TEXT_XS` reads as a smudge rather than as a key. Still a rule, so the
+elevation levels stay three.
 
 ## 10. Accessibility — color-only information needs a second channel
 
