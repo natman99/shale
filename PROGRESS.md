@@ -383,3 +383,23 @@ instant 750 ms, a 15 ms walk backs itself to ~4.7 s. Re-measured idle:
 **0.97%**; the remainder is the live-MCP publish beat (4 Hz) + review-strip
 poll (1 Hz) — feature beats that postdate the contract's 0.0–0.3% band. The
 graph's own idle contribution is zero frames. 413 app tests green.
+
+## P3.2 tiling splits — a + b (2026-11-03)
+
+P3.2a (`59715ec`): `Pane` owns `tabs/active/note_mru`; the Workspace holds
+`panes: Vec<Pane>` + `active_pane`, and every tab operation routes through
+`pane()/pane_mut()`. Pure refactor — all 413 app tests green through it.
+P3.2b (`7f7c19d`): the pane tree (`workspace/panes.rs`) — Leaf/Split{Row|Column,
+frac}, relative fractions, `rects()` for geometric focus, `remove_leaf` +
+`renumber_after` (the tree must follow the flat list's renumbering or a leaf
+names the wrong pane — caught by the `:only` test), split/close/only/equalize,
+the `ctrl-w` alphabet in keys.rs, `:split/:vsplit/:close/:only` in ex.rs +
+command.rs (docs/commands.md regenerated; the `window.close` label reworded
+because "Close this pane, writing its notes first" fuzzy-matched the palette
+query "new note"). Render: per-pane tab bars inside a recursive flex tree
+(gpui has no `flex_ratio`; `flex_grow(f) + flex_basis(relative(0.))` is the
+proportional share — and the root leaf needs it too, or the note's viewport
+collapses: 23 tests caught that at once). Sweeps: write-all-tabs, any_dirty,
+rename propagation, apply_palette, graph singleton, open_note's
+find-don't-duplicate all became pane-aware. 14 new tests in tests/panes.rs;
+427 app + 449 core green.

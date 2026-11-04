@@ -732,7 +732,21 @@ into the Phase 3 addendum. **P2.5a landed 2026-11-01, so Phase 2 is closed**
     is still open and belongs to P3.2.
 - **P3.2 Tiling splits** (goal) — same pane model as tabs; `:pin` (note
   pinning, brainstorm ✅) is a pane flag: dimmed, excluded from the jump chain,
-  auto-closing.
+  auto-closing. **Landed 2026-11-03 (P3.2a + P3.2b):** `Pane` owns the tab row
+  (the pure refactor, every tab test green through it), and the window's editing
+  area is a tiling tree — `Node::Leaf | Split{dir,kids,frac}` beside the flat
+  `Vec<Pane>`, fractions relative. `ctrl-w s/v` split, `S/V` split with the
+  buffer in hand (a second view, loaded past the find-don't-duplicate rule on
+  purpose), `h/j/k/l` step geometrically with the sidebar as the leftmost
+  pane's left neighbour, `q/c` close (notes written first; a failed write keeps
+  the pane; the last pane refuses), `o` keeps only it, `=` equalizes. Each pane
+  draws its own tab bar and the clicks name their pane; the graph stays one tab
+  per **window** (a second `space g` focuses the pane showing it); a note open
+  in another pane is found, not duplicated; exits, renames and theme changes
+  sweep every pane. `:split/:vsplit/:close/:only` on the command line, palette
+  rows for the two split shapes. **Still open for P3.2:** pane resize (`>`/`<`),
+  move/exchange/rotate (`H/J/K/L`, `x/X`, `r`), the session's pane-tree half of
+  P1.8 (a split window currently restores as one pane), and `:pin`.
 - **P3.3 Graph M1a — start immediately, in parallel with P0/P1.** No
   dependencies: `crates/core/src/graph/{index,sim,quadtree,filter}.rs` +
   petgraph. See `graph-view-plan.md` Tasks 1–4.
