@@ -590,11 +590,37 @@ Verified live on niri: legacy session restored, close wrote the slots format
 with the real tiled frame (`w: 2042, h: 1100`; position 0,0 because Wayland
 does not report one).
 
-**Found while verifying (pre-existing, not from this change):** after the
-last window closes, the process can linger — the old build (`41fa3d6`) does
-it too. The session saves and the claim releases; something (likely a
-services background loop) keeps gpui's run loop alive with no windows left.
-Open issue.
+**Corrected (2026-11-04): the lingering process was never real.** The note
+above reported that after the last window closes the process can linger, and
+that `41fa3d6` does it too. Re-measured against `784e56f` with the process
+identified by its own `argv[0]` rather than by a name match, and **no exit
+path lingers**:
+
+| exit path | process after close |
+| --- | --- |
+| compositor close, one window | gone (< 2 s) |
+| `SIGTERM` (the polled flag → `finish_termination`) | gone |
+| `:q` → `app.quit` → `leave` | gone |
+| compositor close, two windows on one vault, both closed | gone |
+| `:q` with the graph tab open (sim beat running) | gone |
+| `--split` (two panes), compositor close | gone |
+| compositor close with `harper-ls` running | shale gone, `harper-ls` gone |
+
+The session saves, the claim flock releases, the MCP lockfile goes, and the
+spellchecker child goes with the parent.
+
+**What the report was actually seeing:** `pgrep -f shale` — the check a
+verifying agent reaches for — matches **its own shell**, because the command
+line of every command run in this repo contains `/home/nat/projects/shale`.
+With no Shale running at all it returns two live PIDs. The same trap in
+reverse bit this re-measurement: a `kill` aimed at the tracked pid hit the
+Hermes command wrapper, not Shale, and Shale survived it. The A/B against
+`41fa3d6` was made with the same faulty check, so it proves nothing.
+
+**The recipe, for the next verification:** name the process exactly
+(`pgrep -x shale`, or read `argv[0]`), and close windows by id
+(`niri msg action close-window --id N`) — the bare form closes the *focused*
+window, which is usually not the one under test.
 
 Tests: app 439 (new: two windows on one vault keep alpha/beta in separate
 slots, close both, reopen, each wakes in its own room — and the frame is in
