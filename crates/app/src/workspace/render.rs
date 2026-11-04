@@ -454,6 +454,10 @@ impl Render for Workspace {
             .size_full()
             .flex()
             .flex_col()
+            // A gutter between Shale's chrome and the window edge: the focused
+            // pane's rule and the status bar would otherwise sit under the
+            // compositor's own border and get clipped by its rounded corners.
+            .p_1()
             .bg(gpui::rgb(self.palette.ui_bg))
             .text_color(gpui::rgb(self.palette.ui_fg))
             .on_action(cx.listener(Self::save))

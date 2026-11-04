@@ -711,16 +711,19 @@ fn the_note_takes_the_width_the_tree_had(cx: &mut TestAppContext) {
     }
     let (x_without, width_without) = note_box(&window, cx);
 
+    // With the tree away the note starts at the content area's left edge —
+    // which is now inside the window's 4 px gutter (8 px at the test
+    // window's 2x scale), not under the compositor's border.
     assert_eq!(
-        x_without, 0.0,
-        "with the tree away the note starts at the window's left edge"
+        x_without, 8.0,
+        "with the tree away the note starts at the content edge"
     );
-    // The gap the sidebar left is exactly what the note gained, so nothing is left
-    // behind where the tree used to be.
+    // The gap the sidebar left is exactly what the note gained, so nothing is
+    // left behind where the tree used to be.
     assert_eq!(
-        width_without,
-        width_with + x_with,
-        "the note gained the sidebar's column: {x_with} + {width_with} -> {width_without}"
+        width_without - width_with,
+        x_with - x_without,
+        "the note gained the sidebar's column: {x_with} -> {x_without}, {width_with} -> {width_without}"
     );
 }
 
