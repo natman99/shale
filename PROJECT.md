@@ -4611,3 +4611,22 @@ conversation. Roughly in order of what they have said they want.
     (`line/mod.rs`) and the run builder plus style map (`line/runs.rs`).
 11. **The `bench/` work the user drafted** in `d606dfc`. `ydotool` is allowed only
     there.
+12. **The review strip was the one view left out of the theme fan-out** (found by the
+    user, 2026-11-03). `Review` caches an `Rc<Palette>` like the editor, the picker and
+    the graph, and `Workspace::apply_palette` handed the new one to the window, every
+    tab and the open picker — but not to `self.review`. Any theme applied after the
+    workspace was built (`:theme`, a picker preview, the desktop-follow watcher for a
+    vault that names no theme) left the strip painting the startup palette. Fixed, and
+    pinned by a paint test that switches to `gruvbox-dark` and re-reads the strip's own
+    rule; reverting the fix makes it fail, which is how it was checked. **The general
+    lesson is the one to keep:** a new view that caches its palette has to be added to
+    `apply_palette`, and nothing in the type system says so. Two more strip fixes came
+    out of the same report: it was mounted *after* the status bar, so it painted below
+    the bar its own module doc says it sits above; and it had no focus signal at all,
+    which matters because `y` accepts a hunk in one state and yanks a character in the
+    other — its rule is now `accent` while it holds the keyboard (§5 amended).
+    **Unverified:** the user's vault is not in the repo, so the exact path that made it
+    look *light* rather than merely stale was not reproduced. `examples/graph/5k` names
+    `theme = "dark"`, and the built-in default is `mocha`, both dark — so a light-looking
+    strip means a light palette was applied after construction, or their own vault names
+    one. If it still reads light on startup with no theme change, look there next.

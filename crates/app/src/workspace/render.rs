@@ -582,6 +582,18 @@ impl Render for Workspace {
                             }),
                     ),
             )
+            // The review strip: the last thing before the status bar, so it sits
+            // **above** it, and only when something is waiting (roadmap P2.5a). The
+            // status bar owns facts about the whole note and is left alone, and the
+            // note never shifts once the strip is up: the strip is `flex_none`, and the
+            // note column above it takes what is left.
+            //
+            // It carries no border of its own here. The strip is raised
+            // (`design-language.md` §5) and draws its own `popup_border` on all four
+            // sides, so a rule here would be a second line one pixel below the first.
+            .when(self.review_active(cx), |d| {
+                d.child(div().flex_none().w_full().child(self.review.clone()))
+            })
             .child(
                 div()
                     .h(px(24.))
@@ -666,18 +678,6 @@ impl Render for Workspace {
                     })
                     .child(format!("{}:{}", line + 1, col + 1)),
             )
-            // The review strip: bottom of the window, above the status bar, and only
-            // when something is waiting (roadmap P2.5a). The status bar owns facts
-            // about the whole note and is left alone, and the note never shifts once
-            // the strip is up: the strip is `flex_none`, and the note column above it
-            // takes what is left.
-            //
-            // It carries no border of its own any more. The strip is raised
-            // (`design-language.md` §5) and draws its own `popup_border` on all four
-            // sides, so a rule here would be a second line one pixel below the first.
-            .when(self.review_active(cx), |d| {
-                d.child(div().flex_none().w_full().child(self.review.clone()))
-            })
             .when_some(popup, |d, (popup, bounds)| {
                 // `anchored` paints at a window coordinate rather than in the
                 // layout, which is what lets the panel sit over the note without

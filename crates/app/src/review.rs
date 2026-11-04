@@ -20,6 +20,11 @@
 //! The queue itself is the files in `.shale/pending-edits/` (see
 //! [`shale_core::pending`]); what is here is the window's view of them, pushed in by
 //! [`crate::workspace`] on a beat.
+//!
+//! Which layer is in use is shown, not assumed: the strip's rule is `popup_border`
+//! while the note has the keyboard and `accent` while the strip does (`design-language.md`
+//! §5). The same `y` means two different things depending on that, so the state has to be
+//! visible before the key is pressed.
 
 use std::collections::HashSet;
 use std::rc::Rc;
@@ -84,7 +89,9 @@ pub(crate) struct Review {
     collapsed: HashSet<String>,
     /// The row the keyboard is on, counted over [`Review::rows`].
     current: usize,
-    /// The colours the strip is drawn with, from the window.
+    /// The colours the strip is drawn with, from the window. Refreshed by
+    /// [`Review::set_palette`] whenever the theme changes; a view that caches its
+    /// colours and is left out of that fan-out keeps the startup palette.
     palette: Rc<Palette>,
 }
 
@@ -99,6 +106,17 @@ impl Review {
             current: 0,
             palette,
         }
+    }
+
+    /// Hand the strip the window's current palette.
+    ///
+    /// The strip caches its colours exactly as the editor, the picker and the graph do,
+    /// so [`crate::workspace`] has to include it in the fan-out a theme change makes.
+    /// A view that is left out keeps painting with the palette the window was built
+    /// with, which is what made the strip look as though it ignored the theme.
+    pub(crate) fn set_palette(&mut self, palette: Rc<Palette>, cx: &mut Context<Self>) {
+        self.palette = palette;
+        cx.notify();
     }
 
     /// Replace what the strip shows with what the queue now holds.
@@ -254,8 +272,12 @@ impl Focusable for Review {
 }
 
 impl Render for Review {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let palette = Rc::clone(&self.palette);
+        // Whether the strip holds the keyboard. It is the only part of the window that
+        // can be operated on without a prefix, and the user has to be able to see that
+        // before they press `y`: the same key yanks in prose and accepts a hunk here.
+        let focused = self.focus_handle.is_focused(window);
         let entity = cx.entity();
         let rows = self.rows();
         let drawn = self.drawn();
@@ -329,7 +351,18 @@ impl Render for Review {
             // to answer.
             .bg(gpui::rgb(palette.popup_bg))
             .border_1()
-            .border_color(gpui::rgb(palette.popup_border))
+            // The rule is the focus signal. The strip has no cursor and no selection
+            // of its own to show, and the marked row is drawn whether or not the strip
+            // has the keys, so before this there was no way to tell `y` would accept a
+            // hunk from whether it would yank a character. Accent rather than a second
+            // weight, because §5's raised panels keep their line's weight and change
+            // only its hue -- and accent is already how this app says "this is the
+            // thing the keyboard is on".
+            .border_color(gpui::rgb(if focused {
+                palette.accent
+            } else {
+                palette.popup_border
+            }))
             .rounded(crate::style::CHIP_RADIUS)
             .text_color(gpui::rgb(palette.ui_fg))
             .child(

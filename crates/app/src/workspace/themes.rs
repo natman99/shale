@@ -260,8 +260,13 @@ impl Workspace {
             }
         }
         if let Some(picker) = self.picker.clone() {
-            picker.update(cx, |picker, cx| picker.set_palette(palette, cx));
+            picker.update(cx, |picker, cx| picker.set_palette(Rc::clone(&palette), cx));
         }
+        // The strip is not a tab, so it is not in the loop above; and it is drawn from
+        // its own entity, which caches its colours like every other view here. Leaving
+        // it out is what made it keep the startup palette through a theme change.
+        self.review
+            .update(cx, |review, cx| review.set_palette(Rc::clone(&palette), cx));
         cx.notify();
     }
 

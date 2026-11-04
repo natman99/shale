@@ -119,6 +119,15 @@ takes the border and the bg-shift; the dim step of the triple is about content b
 panel and does not apply to a bar that pushes the note up. A paint test pins the pair, because
 nothing else in the suite looked at the strip's colours and §5 is a rule rather than a preference.
 
+**A raised panel that can hold the keyboard says so on its rule.** The strip's rule is
+`popup_border` while the note has the keys and `accent` while the strip has them. It has no cursor
+and no selection of its own to show, and its marked row is drawn in both states, so there was
+nothing to tell the user whether `y` was about to accept a hunk or yank a character — the two-layer
+keymap makes that the single most consequential thing on screen. Hue only, never a second border
+weight: the panel keeps its line and §5's three levels stay three. Accent is already how this app
+says "the keyboard is here" (the tree's selected row, the status bar's save state), so this adds no
+role. A paint test pins both states.
+
 ## 6. Type — the note's scale exists; the chrome's is now shared
 
 Already true: editor base size + proportional heading scale + one `LINE_RATIO`;

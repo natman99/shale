@@ -163,10 +163,193 @@ fn the_review_strip_paints_the_raised_pair(cx: &mut TestAppContext) {
     );
 }
 
+/// The strip's rule and the colours it is drawn with: `(bounds, border, background)`.
+type Rule = (gpui::Bounds<gpui::ScaledPixels>, gpui::Hsla, gpui::Hsla);
+
+/// The strip's own rule: the one painted quad that is a wide, short box with a border
+/// on it. The key chips are boxed too, but they are key-sized; the strip's rule is the
+/// width of the window, so a width threshold separates them. Bounds are **device**
+/// pixels, which is why the threshold is 500 rather than the logical window width.
+///
+/// gpui draws a box's fill and its rule as two quads over the same bounds, so the
+/// background is read off the quad that shares the bordered quad's bounds rather than
+/// off the bordered quad itself, whose own background is empty.
+///
+/// Returns `(bounds, border_colour, background)`.
+fn strip_rule(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> Rule {
+    for _ in 0..3 {
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+    }
+    let quads = window
+        .update(cx, |_ws, window, _cx| window.painted_quads())
+        .unwrap();
+    let found = quads
+        .iter()
+        .filter(|quad| quad.border_widths.top.as_f32() > 0.0)
+        .find(|quad| quad.bounds.size.width.as_f32() > 500.0);
+    let quad = found.expect("the strip rules itself with a box the width of the window");
+    let bounds = quad.bounds;
+    let near = |a: f32, b: f32| (a - b).abs() <= 1.0;
+    let fill = quads
+        .iter()
+        .filter(|other| {
+            near(other.bounds.origin.x.as_f32(), bounds.origin.x.as_f32())
+                && near(other.bounds.origin.y.as_f32(), bounds.origin.y.as_f32())
+                && near(other.bounds.size.width.as_f32(), bounds.size.width.as_f32())
+                && near(
+                    other.bounds.size.height.as_f32(),
+                    bounds.size.height.as_f32(),
+                )
+        })
+        .find_map(|other| other.background.as_solid())
+        .expect("the strip fills its own box");
+    (bounds, quad.border_color, fill)
+}
+
+/// Colours compare by hue/sat/light, not bit-for-bit: gpui converts a palette's packed
+/// `u32` through f32 on the way to the screen, and the same colour asked for twice does
+/// not always come back with identical bits.
+fn same_colour(a: gpui::Hsla, b: gpui::Hsla) -> bool {
+    (a.h - b.h).abs() < 0.001 && (a.s - b.s).abs() < 0.001 && (a.l - b.l).abs() < 0.001
+}
+
+/// The strip is painted with the palette **on screen**, not the one the window happened
+/// to be built with. It caches its colours the way the editor, the picker and the graph
+/// do, so the theme fan-out has to include it; when it was left out the strip kept the
+/// startup palette and looked as though it ignored the theme completely.
+#[gpui::test]
+fn the_strip_follows_a_theme_change(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = one_proposal(cx);
+    let before = window
+        .update(&mut cx, |ws, _window, _cx| {
+            (
+                gpui::Hsla::from(gpui::rgb(ws.palette().popup_bg)),
+                gpui::Hsla::from(gpui::rgb(ws.palette().popup_border)),
+            )
+        })
+        .unwrap();
+    let (_, border, bg) = strip_rule(&window, &mut cx);
+    assert!(same_colour(border, before.1), "it starts on its own theme");
+    assert!(same_colour(bg, before.0), "and starts on its own theme");
+
+    cx.simulate_keystrokes("escape :");
+    cx.simulate_input("theme gruvbox-dark");
+    cx.simulate_keystrokes("enter");
+    let after = window
+        .update(&mut cx, |ws, _window, _cx| {
+            (
+                gpui::Hsla::from(gpui::rgb(ws.palette().popup_bg)),
+                gpui::Hsla::from(gpui::rgb(ws.palette().popup_border)),
+            )
+        })
+        .unwrap();
+    assert!(
+        !same_colour(after.0, before.0),
+        "the theme did change the popup background"
+    );
+
+    let (_, border, bg) = strip_rule(&window, &mut cx);
+    assert!(
+        same_colour(bg, after.0),
+        "the strip is painted on the new theme's `popup_bg`"
+    );
+    assert!(
+        same_colour(border, after.1),
+        "and ruled with the new theme's `popup_border`"
+    );
+}
+
+/// The strip sits **above** the status bar, which is what its module doc has always
+/// claimed and what the mount order did not do: the strip was added to the window's
+/// column after the bar, so it painted below it.
+#[gpui::test]
+fn the_strip_sits_above_the_status_bar(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = one_proposal(cx);
+    for _ in 0..3 {
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+    }
+    let (bar_bg, height) = window
+        .update(&mut cx, |ws, window, _cx| {
+            (
+                gpui::Hsla::from(gpui::rgb(ws.palette().ui_status_bg)),
+                window.bounds().size.height.as_f32(),
+            )
+        })
+        .unwrap();
+    let (strip, _, _) = strip_rule(&window, &mut cx);
+    let quads = window
+        .update(&mut cx, |_ws, window, _cx| window.painted_quads())
+        .unwrap();
+    // The tab bar wears the same role as the status bar, so the bar is the *lowest*
+    // band drawn with it.
+    let bar = quads
+        .iter()
+        .filter(|quad| {
+            quad.background
+                .as_solid()
+                .is_some_and(|c| same_colour(c, bar_bg))
+        })
+        .map(|quad| quad.bounds)
+        .max_by_key(|band| band.origin.y.as_f32() as i64)
+        .expect("the status bar is painted");
+
+    // Everything here is in **device** pixels, and the test window is at 2×, so the
+    // comparisons are in f32 with a couple of pixels of slack rather than in exact
+    // logical lengths.
+    let strip_y = strip.origin.y.as_f32();
+    let strip_bottom = strip_y + strip.size.height.as_f32();
+    let bar_y = bar.origin.y.as_f32();
+    let bar_bottom = bar_y + bar.size.height.as_f32();
+
+    assert!(
+        strip_y < bar_y,
+        "the strip (y={strip_y}) is above the status bar (y={bar_y})"
+    );
+    assert!(
+        strip_bottom <= bar_y + 2.0,
+        "and the two bands do not overlap: the strip ends at {strip_bottom}, the bar starts at {bar_y}"
+    );
+    assert!(
+        bar_bottom >= height - 2.0,
+        "the status bar is still the last thing in the window (ends at {bar_bottom}, window is {height})"
+    );
+}
+
+/// The strip says when it holds the keyboard. Its rule turns accent while it has focus
+/// and goes back to `popup_border` when the note has it again: the same `y` accepts a
+/// hunk in one state and yanks a character in the other, and before this there was
+/// nothing on screen that told the user which they were about to do.
+#[gpui::test]
+fn the_strip_shows_when_it_has_the_keyboard(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = one_proposal(cx);
+    let (accent, quiet) = window
+        .update(&mut cx, |ws, _window, _cx| {
+            (
+                gpui::Hsla::from(gpui::rgb(ws.palette().accent)),
+                gpui::Hsla::from(gpui::rgb(ws.palette().popup_border)),
+            )
+        })
+        .unwrap();
+
+    // The note has the keyboard: the rule is the quiet raised-panel line.
+    let (_, border, _) = strip_rule(&window, &mut cx);
+    assert!(same_colour(border, quiet), "not focused: the quiet rule");
+
+    command_line("review", &mut cx);
+    let (_, border, _) = strip_rule(&window, &mut cx);
+    assert!(same_colour(border, accent), "focused: the rule is accent");
+
+    cx.simulate_keystrokes("escape");
+    let (_, border, _) = strip_rule(&window, &mut cx);
+    assert!(
+        same_colour(border, quiet),
+        "and back to quiet when escape gives the keyboard to the note"
+    );
+}
 /// The legend is **boxed chips**, not a run of prose (`design-language.md` §9). Five
 /// key-sized rules are drawn on the strip: that is what makes `j/k` read as a key rather
 /// than as the start of a label, and it is the treatment §9 asks for wherever keys are
-/// Pinned at the size rather than the count, because a chip's width is the key's
+/// named. Pinned at the size rather than the count, because a chip's width is the key's
 /// width and the strip's own rule is the width of the window. The bounds are **device**
 /// pixels, so the thresholds are comfortably above the ~43 px a chip is at 2× and well
 /// below the 3840 × 100 the strip's own rule is.
