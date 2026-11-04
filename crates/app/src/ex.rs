@@ -96,6 +96,14 @@ pub(crate) enum Ex {
     /// a second `:graph` moves the frame to the graph that is already open (roadmap
     /// P3.4).
     Graph,
+    /// The panes (roadmap P3.2). vim's window commands, spelled the way vim does:
+    /// `split`/`sp` stacks a second pane under this one, `vsplit`/`vs` puts one
+    /// beside it, `close`/`clo` closes this pane (its notes written first), and
+    /// `only`/`on` keeps only this one.
+    Split,
+    VSplit,
+    WindowClose,
+    WindowOnly,
     /// Anything else, with the word that was typed. Nothing runs: an unknown word
     /// is a typo, not something to guess at.
     Unknown(String),
@@ -136,6 +144,10 @@ impl Ex {
             Ex::TabOnly => "tab.only",
             Ex::TabMove(_) => "tab.move",
             Ex::Graph => "graph.open",
+            Ex::Split => "window.split",
+            Ex::VSplit => "window.vsplit",
+            Ex::WindowClose => "window.close",
+            Ex::WindowOnly => "window.only",
         })
     }
 
@@ -165,7 +177,11 @@ impl Ex {
             | Ex::TabPrev
             | Ex::TabClose
             | Ex::TabOnly
-            | Ex::Graph => self.command_id()?,
+            | Ex::Graph
+            | Ex::Split
+            | Ex::VSplit
+            | Ex::WindowClose
+            | Ex::WindowOnly => self.command_id()?,
             _ => return None,
         })
     }
@@ -280,6 +296,14 @@ pub(crate) fn parse(line: &str) -> Ex {
         "tabprev" | "tabp" => Ex::TabPrev,
         "tabclose" | "tabc" => Ex::TabClose,
         "tabonly" | "tabo" => Ex::TabOnly,
+        // The panes (roadmap P3.2). `:on` is vim's abbreviation for `:only`;
+        // the word only ever appears as an argument elsewhere (`:checker on`),
+        // and the command word is read before any argument, so they cannot
+        // collide.
+        "split" | "sp" => Ex::Split,
+        "vsplit" | "vs" => Ex::VSplit,
+        "close" | "clo" => Ex::WindowClose,
+        "only" | "on" => Ex::WindowOnly,
         // A number that is not a number is a typo, and runs nothing — the same
         // posture `:theme` takes with a name it cannot find. With no number at all,
         // vim moves the tab to the end, and that is what this does too.

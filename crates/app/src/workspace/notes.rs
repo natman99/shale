@@ -24,10 +24,17 @@ impl Workspace {
         // put it on the bar twice. The current tab is the exception — reopening the
         // note that is already on screen re-reads it, which is what a reload from
         // disk asks for.
-        if let Some(index) = self.tab_for_path(path) {
-            if index != self.pane().active {
+        // Any pane, not just this one (roadmap P3.2): a link followed in pane A
+        // to a note pane B already shows focuses B rather than opening a third
+        // copy of the note on two bars at once.
+        if let Some((pix, tix)) = self.tab_for_path_anywhere(path) {
+            if pix != self.active_pane || tix != self.pane().active {
                 self.record_jump(path, cx);
-                self.show_tab(index, cx);
+                if pix != self.active_pane {
+                    self.active_pane = pix;
+                    self.hover_stale = true;
+                }
+                self.show_tab(tix, cx);
                 return;
             }
         }
@@ -126,7 +133,10 @@ impl Workspace {
     /// has a frame to report through afterwards, and closing a tab writes its note
     /// whether or not that tab is the one on screen.
     pub(super) fn write_tab(&mut self, index: usize, cx: &mut Context<Self>) {
-        let Some(path) = self.pane().tabs[index].path().map(|path| path.to_path_buf()) else {
+        let Some(path) = self.pane().tabs[index]
+            .path()
+            .map(|path| path.to_path_buf())
+        else {
             self.say("no file open", cx);
             return;
         };
@@ -227,7 +237,10 @@ impl Workspace {
         if !editor.read_with(cx, |editor, _cx| editor.is_dirty()) {
             return;
         }
-        let Some(path) = self.pane().tabs[index].path().map(|path| path.to_path_buf()) else {
+        let Some(path) = self.pane().tabs[index]
+            .path()
+            .map(|path| path.to_path_buf())
+        else {
             return;
         };
         let text = editor.read_with(cx, |editor, _cx| editor.text());

@@ -197,13 +197,19 @@ impl Workspace {
 
     /// The note the tab on screen holds, or `None` for an empty tab or the graph.
     pub(crate) fn note(&self) -> Option<PathBuf> {
-        self.pane().active_tab().path().map(|path| path.to_path_buf())
+        self.pane()
+            .active_tab()
+            .path()
+            .map(|path| path.to_path_buf())
     }
 
     /// Which tab holds `path`, if one does. This is what makes opening a note that is
     /// already open a tab change rather than a second copy of the note.
     pub(super) fn tab_for_path(&self, path: &Path) -> Option<usize> {
-        self.pane().tabs.iter().position(|tab| tab.path() == Some(path))
+        self.pane()
+            .tabs
+            .iter()
+            .position(|tab| tab.path() == Some(path))
     }
 
     /// Which tab has this id, for the subscriptions that captured one.
@@ -220,7 +226,9 @@ impl Workspace {
         // The view the user is working in, which is what a tab opened from a note in
         // raw mode is opened in. There is no tab to ask yet only at startup, where
         // the editor's own default is the right answer.
-        let view = self.pane().tabs
+        let view = self
+            .pane()
+            .tabs
             .get(self.pane().active)
             .and_then(|tab| tab.editor())
             .map(|editor| editor.read(cx).view())
@@ -300,7 +308,9 @@ impl Workspace {
         if !self.pane().active_tab().is_graph() {
             return self.pane().active;
         }
-        let index = self.pane().note_mru
+        let index = self
+            .pane()
+            .note_mru
             .and_then(|id| self.tab_for_id(id))
             .unwrap_or_else(|| self.add_tab(cx));
         self.show_tab(index, cx);
@@ -416,7 +426,8 @@ impl Workspace {
             cx.notify();
             return;
         }
-        let next = (self.pane().active as isize + by).rem_euclid(self.pane().tabs.len() as isize) as usize;
+        let next =
+            (self.pane().active as isize + by).rem_euclid(self.pane().tabs.len() as isize) as usize;
         self.show_tab(next, cx);
     }
 
@@ -589,7 +600,10 @@ impl Workspace {
         let from = self.pane().active;
         let to = to.min(self.pane().tabs.len() - 1);
         if from == to {
-            self.say(format!("tab {} of {}", from + 1, self.pane().tabs.len()), cx);
+            self.say(
+                format!("tab {} of {}", from + 1, self.pane().tabs.len()),
+                cx,
+            );
             return;
         }
         let tab = self.pane_mut().tabs.remove(from);
@@ -632,19 +646,27 @@ impl Workspace {
     /// may happen.
     pub(super) fn write_all_tabs(&mut self, cx: &mut Context<Self>) -> bool {
         let mut clean = true;
-        for index in 0..self.pane().tabs.len() {
-            if !self.pane().tabs[index]
-                .editor()
-                .is_some_and(|editor| editor.read_with(cx, |editor, _cx| editor.is_dirty()))
-            {
-                continue;
-            }
-            self.write_tab(index, cx);
-            if self.pane().tabs[index]
-                .editor()
-                .is_some_and(|editor| editor.read_with(cx, |editor, _cx| editor.is_dirty()))
-            {
-                clean = false;
+        // Every pane, not just the active one (roadmap P3.2): an exit owes every
+        // note on every tab bar. `write_tab` works on the active pane, so the
+        // sweep walks the panes by making each one active in turn; nothing is
+        // drawn or focused during the walk.
+        let panes = self.panes.len();
+        for pix in 0..panes {
+            self.active_pane = pix;
+            for index in 0..self.pane().tabs.len() {
+                if !self.pane().tabs[index]
+                    .editor()
+                    .is_some_and(|editor| editor.read_with(cx, |editor, _cx| editor.is_dirty()))
+                {
+                    continue;
+                }
+                self.write_tab(index, cx);
+                if self.pane().tabs[index]
+                    .editor()
+                    .is_some_and(|editor| editor.read_with(cx, |editor, _cx| editor.is_dirty()))
+                {
+                    clean = false;
+                }
             }
         }
         clean
@@ -654,10 +676,13 @@ impl Workspace {
     /// autosave off, and what the tab bar's dots show. The graph tab is never dirty:
     /// it has no note to be ahead of.
     pub(super) fn any_dirty(&self, cx: &gpui::App) -> bool {
-        self.pane().tabs.iter().any(|tab| {
-            tab.editor()
-                .is_some_and(|editor| editor.read_with(cx, |editor, _cx| editor.is_dirty()))
-        })
+        self.panes
+            .iter()
+            .flat_map(|pane| pane.tabs.iter())
+            .any(|tab| {
+                tab.editor()
+                    .is_some_and(|editor| editor.read_with(cx, |editor, _cx| editor.is_dirty()))
+            })
     }
 
     /// The tabs as the tab bar and the session file want them: whether the tab is the
@@ -665,7 +690,13 @@ impl Workspace {
     /// in. A graph tab has no path, no dirty state and no view, which is what the tab
     /// bar and the session both read as "this one is the graph".
     pub(crate) fn tab_state(&self, cx: &gpui::App) -> Vec<TabState> {
-        self.pane().tabs
+        self.pane().tab_state(cx)
+    }
+}
+
+impl Pane {
+    pub(crate) fn tab_state(&self, cx: &gpui::App) -> Vec<TabState> {
+        self.tabs
             .iter()
             .map(|tab| TabState {
                 id: tab.id,

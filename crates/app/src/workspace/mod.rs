@@ -20,6 +20,7 @@ mod keys;
 mod live;
 mod notes;
 mod open;
+mod panes;
 mod popups;
 mod render;
 mod review;
@@ -172,6 +173,11 @@ pub(crate) struct Workspace {
     /// Which pane has the keyboard. With one pane this never moves; a split
     /// will make `ctrl-w h/j/k/l` mean something.
     active_pane: usize,
+    /// The tiling of the panes (roadmap P3.2): a tree of rows/columns whose
+    /// leaves are indices into `panes`. Kept beside the flat list rather than
+    /// wrapping it because panes hold entities and the tree is geometry;
+    /// `panes` and `active_pane` are fixed up by every tree edit in `panes`.
+    layout: panes::Node,
     /// The next tab id. Monotonic, because a tab's *index* moves when another tab
     /// closes and its editor's subscription needs an identity that does not.
     /// Window-level, not per pane: ids are how subscriptions find a tab wherever
@@ -430,6 +436,7 @@ impl Workspace {
             // is wired up with. One pane today; see the field docs.
             panes: vec![tabs::Pane::new(Vec::new())],
             active_pane: 0,
+            layout: panes::Node::Leaf(0),
             tab_seq: 0,
             // Nothing has been given to a window that does not exist yet; the
             // first frame names it.
@@ -650,10 +657,12 @@ impl Workspace {
 
     /// `ctrl-w h`: move the keyboard to the panel on the left.
     ///
-    /// Today the window has two panels, so this is the sidebar; a tiling split
-    /// view will make it step sideways between panes instead. The command is
-    /// ignored while a prompt or a picker is up, because those own the keyboard
-    /// and moving focus out from under them would leave them open and unreachable.
+    /// With a tiling split (roadmap P3.2) this steps to the pane on the left;
+    /// the leftmost pane's left neighbour is the sidebar, which keeps the P1.8
+    /// habit continuous — one `ctrl-w h` from the note, through panes, to the
+    /// tree. The command is ignored while a prompt or a picker is up, because
+    /// those own the keyboard and moving focus out from under them would leave
+    /// them open and unreachable.
     pub(super) fn window_left(
         &mut self,
         _: &WindowLeft,
@@ -663,10 +672,17 @@ impl Workspace {
         if self.overlay_owns_keys() {
             return;
         }
+        if self.focus_pane_relative(-1, 0, window, cx) {
+            return;
+        }
         self.focus_tree(&FocusTree, window, cx);
     }
 
     /// `ctrl-w l`: move the keyboard to the note.
+    ///
+    /// From the sidebar this enters the leftmost pane; from a pane it steps to
+    /// the pane on the right, and the rightmost pane keeps the keyboard on its
+    /// note — the old two-panel behaviour survives as the edge case.
     pub(super) fn window_right(
         &mut self,
         _: &WindowRight,
@@ -676,7 +692,17 @@ impl Workspace {
         if self.overlay_owns_keys() {
             return;
         }
-        self.focus_editor(&FocusEditor, window, cx);
+        if self.tree_focus.contains_focused(window, cx) {
+            if let Some(ix) = self.first_pane() {
+                self.active_pane = ix;
+                self.hover_stale = true;
+            }
+            self.focus_editor(&FocusEditor, window, cx);
+            return;
+        }
+        if !self.focus_pane_relative(1, 0, window, cx) {
+            self.focus_editor(&FocusEditor, window, cx);
+        }
     }
 
     /// Fold a change made outside Shale into the window.
@@ -718,7 +744,10 @@ impl Workspace {
         // the tab bar is a note the user is one key away from, and a buffer holding a
         // copy of something that is no longer true is the same trap either way.
         for index in 0..self.pane().tabs.len() {
-            let Some(path) = self.pane().tabs[index].path().map(|path| path.to_path_buf()) else {
+            let Some(path) = self.pane().tabs[index]
+                .path()
+                .map(|path| path.to_path_buf())
+            else {
                 continue;
             };
             let Some(editor) = self.pane().tabs[index].editor().cloned() else {

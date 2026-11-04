@@ -12,6 +12,7 @@ use crate::style::CHIP_RADIUS;
 use crate::tree;
 
 use super::bar::{mode_label, save_indicator, word_badge};
+use super::tabs::TabContent;
 use super::tree::{push_node, TreeState};
 use super::Workspace;
 
@@ -48,6 +49,200 @@ pub(crate) fn vault_title(root: &Path) -> String {
 }
 
 impl Workspace {
+    /// One pane's tab bar (roadmap P3.2). Built here rather than in a widget of
+    /// its own because a tab is not a thing that can be drawn without the window:
+    /// clicking one moves the keyboard *to that pane* and closing one writes its
+    /// note. Each pane draws its own bar; the bar's clicks name their pane.
+    pub(crate) fn tab_bar(&self, pix: usize, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let tabs: Vec<gpui::Stateful<gpui::Div>> = self.panes[pix]
+            .tab_state(cx)
+            .into_iter()
+            .enumerate()
+            .map(|(index, tab)| {
+                let label = if tab.graph {
+                    // The graph tab has no file name to show, and "graph" is what the
+                    // tab is: the same word the status bar's badge uses.
+                    "graph".to_string()
+                } else {
+                    tab.path
+                        .as_ref()
+                        .map(|path| {
+                            path.file_stem()
+                                .unwrap_or_default()
+                                .to_string_lossy()
+                                .to_string()
+                        })
+                        .unwrap_or_else(|| "no note".to_string())
+                };
+                let entity = cx.entity().clone();
+                let close = cx.entity().clone();
+                let id = tab.id;
+                let active = index == self.panes[pix].active;
+                div()
+                    .id(("tab", id))
+                    .flex_1()
+                    .min_w_0()
+                    .h(TAB_ROW)
+                    .px_2()
+                    .rounded(CHIP_RADIUS)
+                    .flex()
+                    .items_center()
+                    .gap_1()
+                    // A tab is a thing to act on, so the pointer says so rather than
+                    // offering the caret it inherits from the note.
+                    .cursor(gpui::CursorStyle::PointingHand)
+                    .text_color(gpui::rgb(if active {
+                        self.palette.ui_fg
+                    } else {
+                        self.palette.ui_dim
+                    }))
+                    .child(
+                        // The same dot the status bar uses, on the tab it belongs to:
+                        // with tabs open, a note ahead of its file is not necessarily
+                        // the one on screen.
+                        div()
+                            .text_color(gpui::rgb(self.palette.accent))
+                            .child(save_indicator(tab.dirty)),
+                    )
+                    .child(div().flex_1().min_w_0().text_ellipsis().child(label))
+                    .child(
+                        div()
+                            .id(("tab-close", id))
+                            .text_color(gpui::rgb(self.palette.ui_dim))
+                            .cursor(gpui::CursorStyle::PointingHand)
+                            .child(crate::style::GLYPH_CLOSE)
+                            // The close mark is the tab's own click. Without stopping
+                            // the propagation the row behind it would take the same
+                            // click and switch to the tab it is closing.
+                            .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                                cx.stop_propagation();
+                            })
+                            .on_click(move |_, window, cx| {
+                                close.update(cx, |ws, cx| {
+                                    // The bar belongs to pane `pix`; the click makes
+                                    // it the active pane first, so the close lands on
+                                    // this bar's tab and not the same index in
+                                    // whichever pane had the keyboard.
+                                    ws.active_pane = pix;
+                                    ws.hover_stale = true;
+                                    ws.click_tab_close(id, window, cx);
+                                });
+                            }),
+                    )
+                    // The tab bar's own pair: an inactive tab is a raised chip on
+                    // the bar, the open one is the chip that is connected to the
+                    // surface below it. They were unpainted before, which left the
+                    // roles reserved but unused (`design-language.md` §4).
+                    .bg(gpui::rgb(self.palette.ui_tab_bg))
+                    .when(active, |d| d.bg(gpui::rgb(self.palette.ui_tab_active_bg)))
+                    .when(!active, |d| {
+                        d.hover(|s| s.bg(gpui::rgb(self.palette.ui_hover_bg)))
+                    })
+                    .on_click(move |_, window, cx| {
+                        entity.update(cx, |ws, cx| {
+                            ws.active_pane = pix;
+                            ws.hover_stale = true;
+                            ws.click_tab(id, window, cx);
+                        });
+                    })
+            })
+            .collect();
+
+        div()
+            .flex_none()
+            .w_full()
+            .h(TAB_BAR)
+            .px(TAB_GAP)
+            .flex()
+            .items_center()
+            .gap(TAB_GAP)
+            .text_size(crate::style::TEXT_XS)
+            .bg(gpui::rgb(self.palette.ui_status_bg))
+            .text_color(gpui::rgb(self.palette.ui_dim))
+            .children(tabs)
+            .into_any_element()
+    }
+
+    /// One pane: its tab bar over its active tab's view. The padding and the
+    /// background belong to the pane, so two panes read as two notes with air
+    /// between their chrome, not one note with a gutter in the middle.
+    pub(crate) fn pane_element(&self, pix: usize, cx: &mut Context<Self>) -> gpui::AnyElement {
+        // The slot belongs to the tab on screen in *this* pane: a note tab's
+        // editor or the graph view, never both, and never the active pane's.
+        let slot: Option<gpui::AnyElement> = match &self.panes[pix].active_tab().content {
+            TabContent::Note { editor, .. } => Some(editor.clone().into_any_element()),
+            TabContent::Graph(view) => Some(view.clone().into_any_element()),
+        };
+        div()
+            .flex()
+            .flex_col()
+            .min_w_0()
+            .min_h_0()
+            // The pane fills its slot in whatever lays it out: the pane area for
+            // a root leaf, or the split's flex row/column for a kid. Grow plus a
+            // zero basis is the proportional share; without it the pane would
+            // size to its content and the note's viewport would collapse.
+            .flex_grow(1.)
+            .flex_basis(gpui::relative(0.))
+            .child(self.tab_bar(pix, cx))
+            .child(
+                div()
+                    .relative()
+                    .flex_1()
+                    .min_w_0()
+                    .h_full()
+                    .flex()
+                    .flex_col()
+                    // The note gets some air: text hard against the pane's edges
+                    // is cramped. The padding is on this column and its background
+                    // is the note's, so the air belongs to the note.
+                    .px_4()
+                    .pt_3()
+                    .pb_2()
+                    .bg(gpui::rgb(self.palette.bg))
+                    // The column, not just the text, has to report the pointer:
+                    // the space below the last line belongs to no line, and a
+                    // panel the pointer walked away downwards would otherwise
+                    // never be told to go.
+                    .on_mouse_move(
+                        cx.listener(|this, event: &gpui::MouseMoveEvent, window, cx| {
+                            this.pointer_moved(event.position, window, cx);
+                        }),
+                    )
+                    .child(div().flex_1().min_h_0().when_some(slot, |d, e| d.child(e))),
+            )
+            .into_any_element()
+    }
+
+    /// The pane tree, laid out. A split is a flex row or column whose children
+    /// carry `flex_grow` fractions — gpui has no `flex_ratio`, but grow plus a
+    /// zero basis is exactly proportional distribution.
+    pub(crate) fn render_node(
+        &self,
+        node: &super::panes::Node,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
+        use super::panes::{Node, SplitDir};
+        match node {
+            Node::Leaf(pix) => self.pane_element(*pix, cx),
+            Node::Split { dir, kids, frac } => {
+                let el = div().size_full().min_w_0().min_h_0().flex();
+                let el = match dir {
+                    SplitDir::Row => el.flex_row(),
+                    SplitDir::Column => el.flex_col(),
+                };
+                el.children(kids.iter().zip(frac.iter()).map(|(kid, f)| {
+                    div()
+                        .flex_grow(*f)
+                        .flex_basis(gpui::relative(0.))
+                        .min_w_0()
+                        .min_h_0()
+                        .child(self.render_node(kid, cx))
+                }))
+                .into_any_element()
+            }
+        }
+    }
     /// The window's title: the vault, and the note on screen when there is one --
     /// `my-vault — Welcome`.
     ///
@@ -231,91 +426,6 @@ impl Render for Workspace {
                 .unwrap_or(0),
         );
 
-        // The tab bar's rows. Built here rather than in a widget of its own because a
-        // tab is not a thing that can be drawn without the window: clicking one moves
-        // the keyboard, and closing one writes its note.
-        let tabs: Vec<gpui::Stateful<gpui::Div>> = self
-            .tab_state(cx)
-            .into_iter()
-            .enumerate()
-            .map(|(index, tab)| {
-                let label = if tab.graph {
-                    // The graph tab has no file name to show, and "graph" is what the
-                    // tab is: the same word the status bar's badge uses.
-                    "graph".to_string()
-                } else {
-                    tab.path
-                        .as_ref()
-                        .map(|path| {
-                            path.file_stem()
-                                .unwrap_or_default()
-                                .to_string_lossy()
-                                .to_string()
-                        })
-                        .unwrap_or_else(|| "no note".to_string())
-                };
-                let entity = cx.entity().clone();
-                let close = cx.entity().clone();
-                let id = tab.id;
-                let active = index == self.pane().active;
-                div()
-                    .id(("tab", id))
-                    .flex_1()
-                    .min_w_0()
-                    .h(TAB_ROW)
-                    .px_2()
-                    .rounded(CHIP_RADIUS)
-                    .flex()
-                    .items_center()
-                    .gap_1()
-                    // A tab is a thing to act on, so the pointer says so rather than
-                    // offering the caret it inherits from the note.
-                    .cursor(gpui::CursorStyle::PointingHand)
-                    .text_color(gpui::rgb(if active {
-                        self.palette.ui_fg
-                    } else {
-                        self.palette.ui_dim
-                    }))
-                    .child(
-                        // The same dot the status bar uses, on the tab it belongs to:
-                        // with tabs open, a note ahead of its file is not necessarily
-                        // the one on screen.
-                        div()
-                            .text_color(gpui::rgb(self.palette.accent))
-                            .child(save_indicator(tab.dirty)),
-                    )
-                    .child(div().flex_1().min_w_0().text_ellipsis().child(label))
-                    .child(
-                        div()
-                            .id(("tab-close", id))
-                            .text_color(gpui::rgb(self.palette.ui_dim))
-                            .cursor(gpui::CursorStyle::PointingHand)
-                            .child(crate::style::GLYPH_CLOSE)
-                            // The close mark is the tab's own click. Without stopping
-                            // the propagation the row behind it would take the same
-                            // click and switch to the tab it is closing.
-                            .on_mouse_down(MouseButton::Left, |_, _, cx| {
-                                cx.stop_propagation();
-                            })
-                            .on_click(move |_, window, cx| {
-                                close.update(cx, |ws, cx| ws.click_tab_close(id, window, cx));
-                            }),
-                    )
-                    // The tab bar's own pair: an inactive tab is a raised chip on
-                    // the bar, the open one is the chip that is connected to the
-                    // surface below it. They were unpainted before, which left the
-                    // roles reserved but unused (`design-language.md` §4).
-                    .bg(gpui::rgb(self.palette.ui_tab_bg))
-                    .when(active, |d| d.bg(gpui::rgb(self.palette.ui_tab_active_bg)))
-                    .when(!active, |d| {
-                        d.hover(|s| s.bg(gpui::rgb(self.palette.ui_hover_bg)))
-                    })
-                    .on_click(move |_, window, cx| {
-                        entity.update(cx, |ws, cx| ws.click_tab(id, window, cx));
-                    })
-            })
-            .collect();
-
         div()
             .track_focus(&self.focus_handle)
             .size_full()
@@ -336,6 +446,15 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::focus_editor))
             .on_action(cx.listener(Self::window_left))
             .on_action(cx.listener(Self::window_right))
+            .on_action(cx.listener(Self::window_split_down))
+            .on_action(cx.listener(Self::window_split_right))
+            .on_action(cx.listener(Self::window_split_down_here))
+            .on_action(cx.listener(Self::window_split_right_here))
+            .on_action(cx.listener(Self::window_close))
+            .on_action(cx.listener(Self::window_only))
+            .on_action(cx.listener(Self::window_up))
+            .on_action(cx.listener(Self::window_down))
+            .on_action(cx.listener(Self::window_equalize))
             .on_action(cx.listener(Self::tab_next))
             .on_action(cx.listener(Self::tab_prev))
             .on_action(cx.listener(Self::tab_new))
@@ -389,25 +508,6 @@ impl Render for Workspace {
                 cx.listener(|this, _event: &gpui::MouseDownEvent, window, cx| {
                     this.dismiss_overlays(window, cx);
                 }),
-            )
-            // The tabs (roadmap P3.1). Top of the window, one row per open note, where
-            // a window's tabs already live in every other editor the user has used.
-            // It is `flex_none`, so it takes its height and the note takes what is
-            // left; the tabs share that width and ellipsis rather than scrolling, which
-            // is the part still to do.
-            .child(
-                div()
-                    .flex_none()
-                    .w_full()
-                    .h(TAB_BAR)
-                    .px(TAB_GAP)
-                    .flex()
-                    .items_center()
-                    .gap(TAB_GAP)
-                    .text_size(crate::style::TEXT_XS)
-                    .bg(gpui::rgb(self.palette.ui_status_bg))
-                    .text_color(gpui::rgb(self.palette.ui_dim))
-                    .children(tabs),
             )
             .child(
                 div()
@@ -486,50 +586,17 @@ impl Render for Workspace {
                                 ),
                         )
                     })
+                    // The panes (roadmap P3.2): the tiling tree, each leaf drawing
+                    // its own tab bar over its own note. The overlays float over the
+                    // whole tiling rather than one pane: a picker is one thing the
+                    // window owns, and so is the command line.
                     .child(
                         div()
-                            .relative()
                             .flex_1()
                             .min_w_0()
-                            .h_full()
+                            .relative()
                             .flex()
-                            .flex_col()
-                            // The note gets some air: text hard against the sidebar,
-                            // the top of the window and the status bar is cramped, and
-                            // the first and last lines look cut off. The padding is on
-                            // this column and its background is the note's, so the air
-                            // belongs to the note: the band around the text is the same
-                            // colour as the text's own background rather than a strip of
-                            // chrome, and the note reads as one rectangle from the
-                            // sidebar to the edge of the window.
-                            .px_4()
-                            .pt_3()
-                            .pb_2()
-                            .bg(gpui::rgb(self.palette.bg))
-                            // The column, not just the text, has to report the
-                            // pointer: the space below the last line belongs to no
-                            // line, and a panel the pointer walked away downwards
-                            // would otherwise never be told to go.
-                            .on_mouse_move(cx.listener(
-                                |this, event: &gpui::MouseMoveEvent, window, cx| {
-                                    this.pointer_moved(event.position, window, cx);
-                                },
-                            ))
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_h_0()
-                                    .when_some(self.editor().cloned(), |d, editor| d.child(editor))
-                                    // The graph goes in the same slot as the editor, and
-                                    // only one of them is ever here: the slot belongs to
-                                    // the tab on screen, so a graph tab that is merely
-                                    // open paints nothing. Asking the window for "the
-                                    // graph view" instead would lay its links over the
-                                    // note the user is reading.
-                                    .when_some(self.active_graph_view().cloned(), |d, view| {
-                                        d.child(view)
-                                    }),
-                            )
+                            .child(self.render_node(&self.layout, cx))
                             // A picker *overlays* the note rather than pushing it
                             // down: it is painted after the text, so opening one does
                             // not re-wrap every line underneath. Like the prompt it is

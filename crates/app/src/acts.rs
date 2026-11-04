@@ -150,6 +150,17 @@ actions!(
         // A split view will grow these into stepping sideways between panes.
         WindowLeft,
         WindowRight,
+        // The split alphabet (roadmap P3.2), all under the `ctrl-w` prefix the
+        // keymap already reserves for window commands.
+        WindowSplitDown,
+        WindowSplitRight,
+        WindowSplitDownHere,
+        WindowSplitRightHere,
+        WindowClose,
+        WindowOnly,
+        WindowUp,
+        WindowDown,
+        WindowEqualize,
         // The tabs (roadmap P3.1). Tab pages live outside the `ctrl-w` prefix, which
         // is reserved for the window commands a split view will want: these are
         // `g t`/`g T` in the note, `:tabnext`/`:tabprev`/`:tabclose`/`:tabonly` on the

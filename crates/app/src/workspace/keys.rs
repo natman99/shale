@@ -41,6 +41,21 @@ pub(crate) fn keybindings() -> Vec<KeyBinding> {
         // and replayed if the next key does not finish the chord.
         KeyBinding::new("ctrl-w h", WindowLeft, None),
         KeyBinding::new("ctrl-w l", WindowRight, None),
+        // The split alphabet (roadmap P3.2), vim's shapes: `s`/`v` split the
+        // pane in hand, `S`/`V` split it *with the current buffer*, `h/j/k/l`
+        // step between panes, `q` closes one, `o` keeps only it, `=` evens
+        // them out. The rest of vim's alphabet (`x`/`r`/`>`,`<`) waits for
+        // P3.2c; the prefix itself is already reserved (see above).
+        KeyBinding::new("ctrl-w s", WindowSplitDown, None),
+        KeyBinding::new("ctrl-w v", WindowSplitRight, None),
+        KeyBinding::new("ctrl-w S", WindowSplitDownHere, None),
+        KeyBinding::new("ctrl-w V", WindowSplitRightHere, None),
+        KeyBinding::new("ctrl-w j", WindowDown, None),
+        KeyBinding::new("ctrl-w k", WindowUp, None),
+        KeyBinding::new("ctrl-w q", WindowClose, None),
+        KeyBinding::new("ctrl-w c", WindowClose, None),
+        KeyBinding::new("ctrl-w o", WindowOnly, None),
+        KeyBinding::new("ctrl-w =", WindowEqualize, None),
     ];
     macro_rules! bind {
         ($ctx:expr, [ $( $key:literal => $action:ident ),* $(,)? ]) => {

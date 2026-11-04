@@ -24,6 +24,7 @@ mod keys;
 mod live;
 mod motions;
 mod paint;
+mod panes;
 mod picker;
 mod popup;
 mod quotes;

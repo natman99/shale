@@ -210,7 +210,11 @@ impl Workspace {
             | ex::Ex::TabPrev
             | ex::Ex::TabClose
             | ex::Ex::TabOnly
-            | ex::Ex::Graph => {
+            | ex::Ex::Graph
+            | ex::Ex::Split
+            | ex::Ex::VSplit
+            | ex::Ex::WindowClose
+            | ex::Ex::WindowOnly => {
                 unreachable!("a command with no argument is dispatched by id")
             }
         }
@@ -298,10 +302,12 @@ impl Workspace {
                 // Every tab that was showing the old name now shows the new one.
                 // More than one can be, which is what a tab holding a note while
                 // another tab holds the same note looks like from here.
-                for tab in self.pane_mut().tabs.iter_mut() {
-                    if let TabContent::Note { path, .. } = &mut tab.content {
-                        if path.as_deref() == Some(from.as_path()) {
-                            *path = Some(renamed.clone());
+                for pane in self.panes.iter_mut() {
+                    for tab in pane.tabs.iter_mut() {
+                        if let TabContent::Note { path, .. } = &mut tab.content {
+                            if path.as_deref() == Some(from.as_path()) {
+                                *path = Some(renamed.clone());
+                            }
                         }
                     }
                 }

@@ -636,6 +636,46 @@ const ALL: &[Command] = &[
         in_palette: false,
         action: Some(|| Box::new(TabOnly)),
     },
+    // ---- panes (roadmap P3.2) ----------------------------------------------
+    // The split alphabet lives on the `ctrl-w` prefix; these are the command-line
+    // spellings vim uses, and the palette rows for the two shapes of split, which
+    // are the parts a mouse-first user would never find under the prefix.
+    Command {
+        id: "window.split",
+        label: "Split this pane, stacked",
+        keys: "ctrl-w s",
+        ex: &["split", "sp"],
+        args: "",
+        in_palette: true,
+        action: Some(|| Box::new(WindowSplitDown)),
+    },
+    Command {
+        id: "window.vsplit",
+        label: "Split this pane, side by side",
+        keys: "ctrl-w v",
+        ex: &["vsplit", "vs"],
+        args: "",
+        in_palette: true,
+        action: Some(|| Box::new(WindowSplitRight)),
+    },
+    Command {
+        id: "window.close",
+        label: "Close this pane, saving its notes first",
+        keys: "ctrl-w q",
+        ex: &["close", "clo"],
+        args: "",
+        in_palette: true,
+        action: Some(|| Box::new(WindowClose)),
+    },
+    Command {
+        id: "window.only",
+        label: "Close every pane but this one",
+        keys: "ctrl-w o",
+        ex: &["only", "on"],
+        args: "",
+        in_palette: false,
+        action: Some(|| Box::new(WindowOnly)),
+    },
     // The one tab command with an argument, so it has no action to carry one: the
     // command line calls the window directly, the way `:theme <name>` does.
     Command {

@@ -216,7 +216,48 @@ impl Workspace {
     /// checks, and `:graph` twice is how it would break.
     #[cfg(test)]
     pub(crate) fn graph_tabs(&self) -> usize {
-        self.pane().tabs.iter().filter(|tab| tab.is_graph()).count()
+        self.panes
+            .iter()
+            .flat_map(|pane| pane.tabs.iter())
+            .filter(|tab| tab.is_graph())
+            .count()
+    }
+    /// How many panes the window is tiled into (roadmap P3.2).
+    #[cfg(test)]
+    pub(crate) fn pane_count(&self) -> usize {
+        self.panes.len()
+    }
+    /// Which pane has the keyboard.
+    #[cfg(test)]
+    pub(crate) fn active_pane_ix(&self) -> usize {
+        self.active_pane
+    }
+    /// The notes of one pane's tab bar, in order: `None` is the empty tab,
+    /// `Some("")` would be a graph tab's missing path.
+    #[cfg(test)]
+    pub(crate) fn pane_tab_paths(&self, pix: usize, cx: &gpui::App) -> Vec<Option<PathBuf>> {
+        self.panes[pix]
+            .tabs
+            .iter()
+            .map(|tab| tab.path().map(|p| p.to_path_buf()))
+            .collect()
+    }
+    /// Which tab one pane shows.
+    #[cfg(test)]
+    pub(crate) fn pane_tab_index(&self, pix: usize) -> usize {
+        self.panes[pix].active
+    }
+    /// The root split's shape: `leaf`, `row` or `col` — enough for a test to
+    /// check that `s` stacked and `v` tiled sideways.
+    #[cfg(test)]
+    pub(crate) fn layout_shape(&self) -> &'static str {
+        match &self.layout {
+            crate::workspace::panes::Node::Leaf(_) => "leaf",
+            crate::workspace::panes::Node::Split { dir, .. } => match dir {
+                crate::workspace::panes::SplitDir::Row => "row",
+                crate::workspace::panes::SplitDir::Column => "col",
+            },
+        }
     }
     /// Whether the tab on screen is the graph.
     #[cfg(test)]

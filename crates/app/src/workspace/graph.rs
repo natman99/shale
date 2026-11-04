@@ -81,20 +81,6 @@ impl Workspace {
         })
     }
 
-    /// The graph view of the tab that is **on screen**, if that tab is the graph.
-    ///
-    /// `graph_view` searches every tab, which is right for the beat, the counts and the
-    /// filter — all of which want the graph wherever it is — and wrong for the frame. A
-    /// graph tab that is not on screen must not be drawn; until this existed the content
-    /// slot asked the question window-wide, so a graph tab sitting on the bar painted
-    /// its links over the note that was actually open.
-    pub(super) fn active_graph_view(&self) -> Option<&Entity<crate::graph::GraphView>> {
-        match &self.pane().active_tab().content {
-            TabContent::Graph(view) => Some(view),
-            TabContent::Note { .. } => None,
-        }
-    }
-
     /// Add the window's graph tab after the one on screen, and make it the active one.
     ///
     /// Unlike [`add_tab`] there is no editor event to subscribe to: the graph changes
@@ -287,7 +273,11 @@ impl Workspace {
     /// One beat of the layout: tick the sim, ship the new picture, and say whether
     /// anything moved (which is whether another beat is owed).
     fn graph_tick(&mut self, cx: &mut Context<Self>) -> bool {
-        if !self.pane().tabs.iter().any(|tab| tab.is_graph()) {
+        if !self
+            .panes
+            .iter()
+            .any(|pane| pane.tabs.iter().any(|tab| tab.is_graph()))
+        {
             self.graph_beat = None;
             return false;
         }
@@ -428,8 +418,20 @@ impl Workspace {
     /// building it reads every note in the vault and a window that never opens the
     /// graph should never pay for it.
     pub(crate) fn open_graph(&mut self, cx: &mut Context<Self>) {
-        if let Some(index) = self.pane().tabs.iter().position(|tab| tab.is_graph()) {
-            self.show_tab(index, cx);
+        // One graph per window, across panes too (roadmap P3.2): a second tab
+        // would be a second view of the same physics with its own camera, so the
+        // answer is to focus the pane already showing it, not to open another.
+        if let Some((pix, tix)) = self.panes.iter().enumerate().find_map(|(pix, pane)| {
+            pane.tabs
+                .iter()
+                .position(|tab| tab.is_graph())
+                .map(|tix| (pix, tix))
+        }) {
+            if pix != self.active_pane {
+                self.active_pane = pix;
+                self.hover_stale = true;
+            }
+            self.show_tab(tix, cx);
             return;
         }
         // The tab opens first, index or no index. On a large vault the scan takes
