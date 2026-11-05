@@ -944,3 +944,42 @@ written where it will be found: a background timer is not a one-frame deferral.
 
 Clicking a tag to filter by that tag is noted in `graph-view-plan.md` as unbuilt work.
 app 464 / core 463.
+
+## The camera drift, rebuilt: frame-paced, and a spring that cannot overshoot
+
+Used the local graph for a while and the camera follow came back as "choppy and jerky", with
+"some desync with simulation and view state making the whole camera vibrate". Both halves were
+real, and the first cut caused them:
+
+**It was timer-paced, not frame-paced.** A background-executor timer firing every 16 ms is not a
+frame loop: ticks land between frames, inside frames, or not at all depending on what the window
+is doing, and the picture shows the sum of that. The drift is a chain of `on_next_frame`
+callbacks now — one step per drawn frame, camera moved before the frame is laid out and painted —
+and the chain stops re-arming when the camera has no ground left to cover, which is what returns
+the window to idle. `the_drift_parks_itself_when_it_arrives` asserts a settled drift leaves zero
+pending next-frame callbacks behind.
+
+**It was chasing a target that was shaking.** The framing is re-derived from the frame every tick,
+which is right (a widened neighbourhood is still spreading out under the forces), but it means the
+target moves, and a camera springing straight at a moving target vibrates with it. The target is
+now smoothed (τ = 0.15 s) and **starts at the camera rather than at the framing** — seeding it with
+the framing puts it a whole move ahead on frame one, and the camera travels to where the target
+*was* and comes back. That seeding bug is what `the_drift_arrives_where_fit_would` caught: 150 px
+short of the framing, every time.
+
+**And the spring overshot.** Stepped integration (`v += a·dt; x += v·dt`) at ω = 12 crosses the
+target by a few pixels and returns, which reads as a bounce. The spring is integrated in closed
+form now — `x(t) = (d + (v + ωd)t)·e^{-ωt} + target` — which cannot: from rest the displacement
+keeps its sign for every t. Zoom and eye distance are sprung in log space, for the same reason the
+wheel ruling put magnification and travel on separate gestures: they are multipliers.
+
+Three rulings from the user shaped the shape of it: smoothness over responsiveness, no last-minute
+snap (a slightly-off final position is paid for with smooth arrival), and glide on every forced
+camera movement **except `f`**, which stays a snap because the mode switch already carries motion
+and stacking animations on it is motion for its own sake.
+
+Two test bugs surfaced on the way and are worth remembering, because both tests were green while
+wrong: a `while !step()` loop that ran exactly one step, and a no-overshoot assertion that measured
+the camera against where it *started* instead of against where it was going. The assertion that
+holds is per-axis: the camera never gets to the far side of its target.
+app 464 / core 466.

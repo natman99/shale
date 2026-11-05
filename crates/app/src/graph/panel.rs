@@ -73,7 +73,7 @@ impl GraphView {
         if query != self.filter_field.text() {
             self.filter_field = Field::new(&query);
         }
-        self.adopt_filter(filter, cx);
+        self.adopt_filter(filter);
         cx.notify();
     }
 
@@ -146,7 +146,7 @@ impl GraphView {
             .update(cx, |ws, _cx| ws.graph_filter_state())
             .ok()
         {
-            self.adopt_filter(filter, cx);
+            self.adopt_filter(filter);
         }
         cx.notify();
     }
@@ -193,7 +193,7 @@ impl GraphView {
     /// already borrowed while it is being handled — which is why this door hands the
     /// result back to the caller instead of pushing it in the way a note change's is.
     fn apply_filter(&mut self, filter: GraphFilter, cx: &mut Context<Self>) {
-        self.adopt_filter(filter.clone(), cx);
+        self.adopt_filter(filter.clone());
         if let Ok(Some((summary, frame))) = self
             .workspace
             .update(cx, move |ws, cx| ws.graph_set_filter(filter, cx))

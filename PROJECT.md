@@ -247,10 +247,16 @@ Rationale and the full milestone live in `graph-view-plan.md` (M2); these are th
 
 #### The camera drift (binding, ruled 2026-11-04)
 
-- **A neighbourhood that changes size moves the camera.** A depth step, a re-centre or a toggle re-frames the view onto the neighbourhood it just changed. The lean is toward the **note**, not the whole vault: the framing is of the neighbourhood the frame now holds, whose middle the centre note is at by construction.
-- **The drift is a chase, not a tween.** Each tick re-derives the fit from the frame *as it is now* and takes a quarter of the remaining gap, because the neighbourhood is still spreading out under the forces when the drift starts. A fixed target would arrive at a framing the layout has already outgrown. It gives up after ~1.5 s so a long settle never leaves the camera chasing a graph.
+- **A neighbourhood that changes size moves the camera.** Every forced camera movement glides: a depth step, a re-centre, a filter toggle, a follow. The lean is toward the **note**, not the whole vault: the framing is of the neighbourhood the frame now holds, whose middle the centre note is at by construction.
+- **`f` is the exception and stays a snap.** The user ruled it: the fit key is a recovery move, and stacking an animation on the mode-switch turn (which is already motion) would be motion for its own sake.
+- **No glide on the 2↔3 switch.** Turning the graph is itself the movement; the camera does not also slide.
+- **Frame-paced, never timer-paced.** The drift is a chain of `on_next_frame` callbacks, one step per drawn frame, with the camera moved *before* the frame is laid out and painted. A wall-clock timer was the first attempt and it was wrong twice: ticks landed between frames, in frames, or not at all, which read as stutter, and it stepped the camera out of step with the layout's beat, which read as vibration.
+- **A critically damped spring at ω = 12 rad/s, integrated in closed form.** Stepping it (`v += a·dt`) overshoots at this stiffness — the camera passes the framing and comes back. The closed form cannot: from rest its displacement keeps its sign for every t. Zoom and eye distance are sprung in **log** space, because they are multipliers and a linear spring makes travelling in feel different from travelling out.
+- **The target is smoothed (τ = 0.15 s) and starts at the camera.** The framing is re-derived from the frame as it currently stands on every step — a neighbourhood that has just been widened is still spreading out under the forces, and a framing taken once at the start frames a graph that no longer exists. Seeding the smoothed target with that framing instead of with the camera puts the target a whole move ahead on frame one, and the camera then travels to where the target *was* and comes back.
+- **A dead zone, and no snap at the end.** 1 px of pan, 0.5 % of zoom and distance. The spring converges inside it and stops; the final position is allowed to be slightly off, because the user chose smoothness over arriving exactly.
+- **The drift has to end.** "Settled" is the dead zone holding for 3 consecutive frames, and stopping the re-arm is what returns the window to idle — a re-arming frame callback that never stops is a window that never stops painting. A 240-frame cap backs that up against a layout that never rests.
 - **Any camera input from the user ends it.** A press, a wheel, a zoom or pan key, `f`. The view stops moving itself the moment they touch it.
-- **The drift never takes the angle away.** It lerps pan/zoom/distance and leaves yaw/pitch alone — the same contract as `f` in the projected view.
+- **The drift never takes the angle away.** It springs pan/zoom/distance and leaves yaw/pitch alone — the same contract as `f` in the projected view.
 
 #### Pointer grammar (binding, ruled 2026-11-04)
 

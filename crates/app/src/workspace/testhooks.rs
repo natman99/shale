@@ -403,7 +403,12 @@ impl Workspace {
     }
     /// One tick of that drift, by hand.
     #[cfg(test)]
-    pub(crate) fn graph_drift_step(&self, cx: &mut gpui::App) -> bool {
+    pub(crate) fn graph_drift_target(&self, cx: &gpui::App) -> Option<([f32; 2], f32, f32)> {
+        self.graph_view()?.read(cx).drift_target()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn graph_drift_step(&mut self, cx: &mut Context<Workspace>) -> bool {
         self.graph_view()
             .is_some_and(|view| view.update(cx, |view, _cx| view.drift_step()))
     }

@@ -159,7 +159,10 @@ impl GraphFrame {
     }
 
     /// Where a node is, by slot. `None` once the slot is gone, which is what a frame
-    /// that arrived under a held pointer means.
+    /// that arrived under a held pointer means. Test-only today: the pointer's own path
+    /// reads the node out of `nodes` directly, and this is the door `graph_node_screen`
+    /// aims the pointer through.
+    #[cfg(test)]
     pub(crate) fn node_position(&self, slot: usize) -> Option<[f32; 2]> {
         self.nodes.get(slot).map(|node| node.position)
     }

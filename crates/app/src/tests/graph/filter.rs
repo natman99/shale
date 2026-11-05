@@ -349,6 +349,14 @@ fn shown(cx: &mut VisualTestContext, window: &WindowHandle<Workspace>) -> usize 
     counts(cx, window).map_or(0, |counts| counts.notes)
 }
 
+/// The flat camera as `(zoom, pan)`, for the drift tests that watch it move.
+fn cam2d(cx: &mut VisualTestContext, window: &WindowHandle<Workspace>) -> (f32, [f32; 2]) {
+    window
+        .update(cx, |ws, _window, cx| ws.graph_camera(cx))
+        .unwrap()
+        .expect("the canvas has framed the graph")
+}
+
 /// Which notes the picture is holding. The count is not enough where two
 /// neighbourhoods are the same size.
 fn shown_paths(cx: &mut VisualTestContext, window: &WindowHandle<Workspace>) -> Vec<String> {
@@ -579,7 +587,9 @@ fn the_drift_arrives_where_fit_would(cx: &mut TestAppContext) {
     paint(&mut cx, &window);
 
     let mut steps = 0;
-    while !window
+    // The step reports whether the camera still has ground to cover; the loop runs while
+    // it does, and the step that reports arrival is the one that ends it.
+    while window
         .update(&mut cx, |ws, _window, cx| ws.graph_drift_step(cx))
         .unwrap()
     {
@@ -628,3 +638,135 @@ fn the_drift_arrives_where_fit_would(cx: &mut TestAppContext) {
 }
 
 
+
+/// The spring is critically damped, so the camera must reach its framing without
+/// travelling through it. Overshoot is what makes a follow look like a bounce, and a
+/// discrete integrator can produce a little of it, so the tolerance is small but real.
+#[gpui::test]
+fn the_drift_never_overshoots_its_framing(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = chain_vault(cx, "n1.md");
+    cx.simulate_keystrokes("space g");
+    paint(&mut cx, &window);
+    // Where the camera sits before the neighbourhood widens: that is where the drift
+    // leaves from. Read here rather than after the widening, because between the two the
+    // view has a *pending* fit for the new frame, and a camera that has not been moved
+    // yet is not the same reading.
+    let (start_zoom, start_pan) = cam2d(&mut cx, &window);
+    cx.simulate_keystrokes("]");
+    paint(&mut cx, &window);
+
+    // The honest statement of "no overshoot": on each axis the camera approaches its
+    // target and never gets to the far side of it. The target itself is moving (it is the
+    // smoothed framing), so measuring the camera against where it started would only show
+    // that the start was not where it ended.
+    fn sign(v: f32) -> i32 {
+        if v > 0.0 {
+            1
+        } else if v < 0.0 {
+            -1
+        } else {
+            0
+        }
+    }
+    let mut sides: Vec<[i32; 3]> = Vec::new();
+    let mut steps = 0;
+    while window
+        .update(&mut cx, |ws, _window, cx| ws.graph_drift_step(cx))
+        .unwrap()
+    {
+        steps += 1;
+        assert!(steps < 300, "the drift never arrived");
+        let (zoom, pan) = cam2d(&mut cx, &window);
+        let target = window
+            .update(&mut cx, |ws, _window, cx| ws.graph_drift_target(cx))
+            .unwrap()
+            .expect("the drift is running, so it has a target");
+        sides.push([
+            sign(pan[0] - target.0[0]),
+            sign(pan[1] - target.0[1]),
+            sign(zoom - target.1),
+        ]);
+    }
+    assert!(steps > 3, "a spring that arrives in one step is a snap: {steps}");
+    let (end_zoom, end_pan) = cam2d(&mut cx, &window);
+    assert!(
+        (end_pan[0] - start_pan[0]).abs() + (end_pan[1] - start_pan[1]).abs() > 10.0
+            && (end_zoom - start_zoom).abs() > 0.001,
+        "and the drift actually moved the camera: {start_pan:?} -> {end_pan:?}, \
+         {start_zoom} -> {end_zoom}"
+    );
+
+    for axis in 0..3 {
+        for pair in sides.windows(2) {
+            let (was, now) = (pair[0][axis], pair[1][axis]);
+            assert!(
+                !(was > 0 && now < 0) && !(was < 0 && now > 0),
+                "axis {axis} crossed its target: {sides:?}"
+            );
+        }
+    }
+}
+
+/// The dead zone: a framing the camera is already inside is not chased. `:graph-local 5`
+/// on a five-note chain is the whole vault wearing a neighbourhood's clothes, so the
+/// framing does not move at all — and the drift should notice, rather than micro-moving
+/// the camera every frame until the cap runs out.
+#[gpui::test]
+fn a_framing_the_camera_is_already_inside_is_not_chased(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = chain_vault(cx, "n1.md");
+    cx.simulate_keystrokes("space g");
+    paint(&mut cx, &window);
+    let (zoom, pan) = cam2d(&mut cx, &window);
+
+    command_line("graph-local 5", &mut cx);
+    paint(&mut cx, &window);
+
+    let mut steps = 0;
+    while window
+        .update(&mut cx, |ws, _window, cx| ws.graph_drift_step(cx))
+        .unwrap()
+    {
+        steps += 1;
+        assert!(steps < 300, "the drift never settled");
+    }
+    // The step that finds the third still frame is the one that ends the drift, so it
+    // reports "no more ground to cover" and is not counted.
+    assert_eq!(
+        steps + 1,
+        crate::graph::DRIFT_STILL_FRAMES as usize,
+        "the drift gives up after the dead zone has held for its still-frame budget"
+    );
+    let (zoom_after, pan_after) = cam2d(&mut cx, &window);
+    assert!(
+        (pan_after[0] - pan[0]).abs() < 1.0 && (pan_after[1] - pan[1]).abs() < 1.0,
+        "the camera did not move for a framing it was already inside: {pan:?} -> {pan_after:?}"
+    );
+    assert!(
+        (zoom_after - zoom).abs() <= zoom * 0.005,
+        "and neither did the zoom: {zoom} -> {zoom_after}"
+    );
+}
+
+/// The idle contract, applied to the camera: the drift is a chain of next-frame
+/// callbacks, and a chain that never stops is a window that never stops painting. It has
+/// to end on its own and leave no frame demand behind.
+#[gpui::test]
+fn the_drift_parks_itself_when_it_arrives(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = chain_vault(cx, "n1.md");
+    cx.simulate_keystrokes("space g");
+    paint(&mut cx, &window);
+    cx.simulate_keystrokes("]");
+
+    let mut frames = 0;
+    while window.update(&mut cx, |ws, _window, cx| ws.graph_reframing(cx)).unwrap() {
+        frames += 1;
+        assert!(frames < 60, "the drift is still running after a minute of frames");
+        repaint(&mut cx);
+    }
+    assert!(frames > 3, "the drift ran for real frames: {frames}");
+    let pending = cx.update(|window, cx| window.simulate_next_frame(cx));
+    assert_eq!(
+        pending, 0,
+        "the drift left no next-frame work behind, so the window can idle"
+    );
+}

@@ -23,7 +23,7 @@ mod sim;
 
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use gpui::{
     canvas, div, prelude::*, App, Bounds, Context, FocusHandle, Focusable, IntoElement,
@@ -113,25 +113,104 @@ pub(crate) struct GraphSummary {
 }
 
 /// What a held button on the canvas is doing.
-/// A camera that is moving itself. The drift is a chase, not a tween: each tick
-/// re-derives the framing from the frame as it currently is, so a neighbourhood that is
-/// still spreading out under the forces gets followed rather than left behind.
-struct Reframe {
-    ticks: u32,
+/// A camera that is moving itself to frame the neighbourhood.
+///
+/// **Frame-paced, never timer-paced.** The drift is a chain of next-frame callbacks, so
+/// it takes exactly one step per drawn frame — the camera is moved before the frame is
+/// laid out and painted, which means the picture the user sees is the picture the camera
+/// was computed against. A wall-clock timer was the first attempt and it was wrong twice
+/// over: ticks landed between frames, in frames, or not at all, which read as stutter;
+/// and it stepped the camera out of step with the layout's own beat, which read as
+/// vibration.
+///
+/// **A chase, not a tween.** The framing is re-derived from the frame as it currently is
+/// each step, because a neighbourhood is still spreading out under the forces when the
+/// drift starts. The spring chases a *smoothed* copy of that framing rather than the raw
+/// one, so a layout that is still settling shakes the target without shaking the camera.
+struct Drift {
+    /// The frame the last step ran on. `dt` is measured between drawn frames, so the
+    /// camera travels the same distance per second on a 60 Hz laptop and a 144 Hz
+    /// monitor instead of the same distance per tick.
+    last: Instant,
+    /// Frames since the drift started. A safety cap, not the stop condition — the drift
+    /// ends when the framing has been inside the dead zone for [`DRIFT_STILL_FRAMES`]
+    /// frames, and that is also what lets the window go back to idle: a re-arming frame
+    /// callback that never stops is a window that never stops painting.
+    frames: u32,
+    /// Consecutive frames the framing has been inside the dead zone.
+    still: u32,
+    space: DriftSpace,
 }
 
-/// How the drift behaves. A quarter of the remaining gap per tick reaches the new
-/// framing in well under a second — enough to read as the view moving, not enough to
-/// feel like an animation the user is waiting on.
-const REFRAME_EASE: f32 = 0.25;
-const REFRAME_TICK: Duration = Duration::from_millis(16);
-/// The drift gives up after this many ticks (~1.5 s) even if the layout is still
-/// moving, so a long settle never leaves the camera chasing a graph forever.
-const REFRAME_MAX_TICKS: u32 = 90;
-/// A gap under this is the framing already: sub-pixel pans and 1% zooms are not worth
-/// another frame of repaint.
-const REFRAME_EPS_PX: f32 = 1.0;
-const REFRAME_EPS_ZOOM: f32 = 0.01;
+/// The spring's state, per space: where the camera is, where it is going (smoothed), and
+/// how fast it is travelling. Zoom and eye distance are sprung in **log** space — they
+/// are multipliers, and a linear spring makes zooming in feel different from zooming out.
+enum DriftSpace {
+    Flat {
+        cam: Camera,
+        target: Camera,
+        vel: [f32; 3],
+    },
+    Deep {
+        cam: Cam3,
+        target: Cam3,
+        vel: [f32; 4],
+    },
+}
+
+/// Spring stiffness, rad/s. Critically damped at this value, so the camera reaches the
+/// framing without overshooting it; ~0.35 s to settle. Ruled: smoothness over
+/// responsiveness — the user would rather the camera glide late than jump.
+const DRIFT_OMEGA: f32 = 12.0;
+/// How quickly the *target* is allowed to move (s). The raw fit is chased through this,
+/// so frame-to-frame jitter in a settling layout averages out before it reaches the
+/// camera.
+const DRIFT_TAU: f32 = 0.15;
+/// The dead zone: a framing this close is the framing already. Sub-pixel pans and half-
+/// percent scales are not worth another frame of repaint, and without a dead zone a
+/// layout that is still settling keeps the camera micro-moving forever — the vibration
+/// this whole design exists to kill.
+const DRIFT_DEAD_PAN: f32 = 1.0;
+const DRIFT_DEAD_SCALE: f32 = 0.005;
+/// Frames inside the dead zone before the drift calls it arrived.
+pub(crate) const DRIFT_STILL_FRAMES: u32 = 3;
+/// The hard cap (~4 s at 60 Hz), as a safety against a layout that never rests.
+const DRIFT_MAX_FRAMES: u32 = 240;
+/// The `dt` bounds. Below the floor a hitched or back-to-back step does nothing; above
+/// the ceiling a window that was hidden for ten seconds would fling the camera across
+/// the screen when it came back.
+const DRIFT_DT_MIN: f32 = 1.0 / 240.0;
+const DRIFT_DT_MAX: f32 = 1.0 / 20.0;
+
+/// Advance a critically damped spring over `dt`, **in closed form**:
+/// `x(t) = (d + (v + ωd)t)·e^{-ωt} + target`, `d = x - target`.
+///
+/// Stepping it (`v += a·dt; x += v·dt`) was the first attempt and it overshoots at this
+/// stiffness — the camera passes the framing and comes back, which is exactly the bounce
+/// the "no snapping" ruling was reaching past. The closed form cannot: from rest,
+/// `d·(1 + ωt)·e^{-ωt}` keeps its sign for every t, so the camera approaches its framing
+/// and never crosses it.
+fn spring(x: f32, v: &mut f32, target: f32, dt: f32) -> f32 {
+    let decay = (-DRIFT_OMEGA * dt).exp();
+    let d = x - target;
+    let b = *v + DRIFT_OMEGA * d;
+    let moved = d + b * dt;
+    *v = (b - DRIFT_OMEGA * moved) * decay;
+    target + moved * decay
+}
+
+/// The same spring in log space, for the two quantities that are multipliers: zoom and
+/// eye distance. A linear spring on those makes travelling in feel different from
+/// travelling out, which is exactly the asymmetry the wheel ruling killed years ago.
+fn spring_log(x: f32, v: &mut f32, target: f32, dt: f32) -> f32 {
+    spring(x.ln(), v, target.ln(), dt).exp()
+}
+
+/// Move `current` a fraction of the way toward `raw` in `dt`, the fraction set by
+/// [`DRIFT_TAU`]. This is the smoothing the spring chases.
+fn chase(current: f32, raw: f32, dt: f32) -> f32 {
+    current + (raw - current) * (1.0 - (-dt / DRIFT_TAU).exp())
+}
 
 struct Drag {
     /// Where the button went down. A press that never travels past [`CLICK_SLOP`] is a
@@ -215,11 +294,12 @@ pub(crate) struct GraphView {
     /// is: the keyboard's zoom needs the middle of a space the view only learns about
     /// during a frame.
     canvas: Rc<RefCell<Option<Bounds<Pixels>>>>,
-    /// A camera moving itself to frame the neighbourhood (M2b). Aimed **each tick**
-    /// rather than once, because the neighbourhood it is chasing is still settling when
-    /// the drift starts. Cleared by any camera input from the user.
-    reframe: Option<Reframe>,
-    reframe_task: Option<gpui::Task<()>>,
+    /// A camera moving itself to frame the neighbourhood (M2b). Cleared by any camera
+    /// input from the user.
+    reframe: Option<Drift>,
+    /// Whether the chain of next-frame callbacks that drives the drift is live. Arming
+    /// happens in `render`, which is where the frame's `Window` is within reach.
+    drift_armed: bool,
     /// The links kept from the last paint, so a repaint that moved nothing does not
     /// tessellate 18k of them again. In a cell because the paint phase cannot reach into
     /// the entity it is painting; one per view because each view has its own camera.
@@ -288,7 +368,7 @@ impl GraphView {
             pending_fit3: Rc::default(),
             projection: Rc::default(),
             reframe: None,
-            reframe_task: None,
+            drift_armed: false,
             canvas: Rc::default(),
             paint: Rc::new(RefCell::new(render::Cache::new())),
             bench: Rc::new(RefCell::new(bench::Bench::new())),
@@ -433,7 +513,7 @@ impl GraphView {
                 .update(cx, |ws, _cx| ws.graph_filter_state())
                 .ok()
             {
-                self.adopt_filter(filter, cx);
+                self.adopt_filter(filter);
             }
         }
         cx.notify();
@@ -460,7 +540,7 @@ impl GraphView {
                     .update(cx, |ws, _cx| ws.graph_filter_state())
                     .ok()
                 {
-                    self.adopt_filter(filter, cx);
+                    self.adopt_filter(filter);
                 }
                 cx.notify();
             }
@@ -479,7 +559,7 @@ impl GraphView {
                     .update(cx, |ws, _cx| ws.graph_filter_state())
                     .ok()
                 {
-                    self.adopt_filter(filter, cx);
+                    self.adopt_filter(filter);
                 }
                 cx.notify();
             }
@@ -492,11 +572,11 @@ impl GraphView {
     /// note sits at the middle of that by construction. Ruled by the person using it:
     /// expanding the hops in the projected view otherwise grows the cloud off the screen
     /// and there is no way to compare one depth against the next.
-    fn followed_local(&mut self, before: &Option<shale_core::graph::filter::LocalScope>, cx: &mut Context<Self>) {
+    fn followed_local(&mut self, before: &Option<shale_core::graph::filter::LocalScope>) {
         if before == &self.filter.local {
             return;
         }
-        self.reframe_to_neighbourhood(cx);
+        self.reframe_to_neighbourhood();
     }
 
     /// Take a filter the window or the strip answered with, and re-frame if the **local
@@ -504,143 +584,185 @@ impl GraphView {
     /// through here, so the drift can never be forgotten at a new entry point — and a
     /// search or kind change, which is not a move through the neighbourhood, leaves the
     /// camera exactly where the user left it.
-    fn adopt_filter(&mut self, filter: GraphFilter, cx: &mut Context<Self>) {
+    fn adopt_filter(&mut self, filter: GraphFilter) {
         let before = self.filter.local.clone();
         self.filter = filter;
-        self.followed_local(&before, cx);
+        self.followed_local(&before);
     }
 
-    /// Start the drift. The task is one loop for the whole drift, not a task per tick:
-    /// it re-arms itself every 16 ms and ends when the framing is reached, when the
-    /// user touches the camera, or when the view is gone.
-    fn reframe_to_neighbourhood(&mut self, cx: &mut Context<Self>) {
-        // A view that has never been framed will be framed by the prepaint anyway, and
-        // a canvas that has never been laid out has no bounds to aim at.
-        if self.frame.is_none() || self.canvas.borrow().is_none() {
+    /// Start the drift: snapshot where the camera is and where the neighbourhood wants
+    /// it, and let `render` arm the frame loop. Nothing here moves the camera — the first
+    /// move happens on a real frame, against a real `dt`.
+    fn reframe_to_neighbourhood(&mut self) {
+        // A drift needs a canvas to frame against and a frame to frame; both are checked
+        // again on every step, because either can go away mid-chase.
+        if self.canvas.borrow().is_none() || self.frame.is_none() {
             return;
         }
-        self.reframe = Some(Reframe { ticks: 0 });
-        if self.reframe_task.is_some() {
-            return;
-        }
-        // Weak, like the sim's beat: a view that is gone has no camera to drift, and a
-        // strong handle would be the task keeping it alive.
-        let weak = cx.entity().downgrade();
-        self.reframe_task = Some(cx.spawn(async move |_, cx| {
-            loop {
-                cx.background_executor().timer(REFRAME_TICK).await;
-                let Ok(done) = weak.update(cx, |view, cx| {
-                    let done = view.step_reframe();
-                    cx.notify();
-                    done
-                }) else {
+        let space = match self.mode {
+            Dim::Two => {
+                let Some(current) = self.camera() else {
                     return;
                 };
-                if done {
-                    return;
+                DriftSpace::Flat {
+                    cam: current,
+                    // The smoothed target starts at the camera, not at the framing.
+                    // Seeding it with the fit would put the target a whole move ahead of
+                    // the camera on frame one, and the spring would then travel to where
+                    // the target *was* while the target kept moving — the camera would
+                    // pass the framing and come back, which is the bounce the whole shape
+                    // of this is meant to avoid. Starting at the camera keeps the target
+                    // between the camera and its framing at every step, so the approach
+                    // is one-directional.
+                    target: current,
+                    vel: [0.0; 3],
                 }
             }
-        }));
+            Dim::Three => {
+                let Some(current) = self.camera3() else {
+                    return;
+                };
+                // Nothing is fitted here: the framing is re-derived on every step, from
+                // the frame as it is at that moment. A neighbourhood that has just been
+                // widened is still spreading out under the forces, and a framing taken
+                // once at the start would be a framing of the graph as it was before it
+                // finished moving.
+                DriftSpace::Deep {
+                    cam: current,
+                    target: current,
+                    vel: [0.0; 4],
+                }
+            }
+        };
+        self.reframe = Some(Drift {
+            last: Instant::now(),
+            frames: 0,
+            still: 0,
+            space,
+        });
     }
 
-    /// One tick of the drift.
-    fn step_reframe(&mut self) -> bool {
-        let Some(reframe) = self.reframe.as_ref() else {
-            self.reframe_task = None;
-            return true;
+    /// The step the frame loop runs: `dt` is the gap between drawn frames, clamped so a
+    /// window that was hidden for a minute cannot fling the camera when it comes back.
+    fn step_drift_timed(&mut self) -> bool {
+        let dt = match self.reframe.as_ref() {
+            Some(drift) => (Instant::now() - drift.last).as_secs_f32(),
+            None => return false,
         };
-        let ticks = reframe.ticks + 1;
-        let arrived = self.drift_camera();
-        if arrived || ticks >= REFRAME_MAX_TICKS {
-            self.reframe = None;
-            self.reframe_task = None;
-            return true;
-        }
-        self.reframe = Some(Reframe { ticks });
-        false
+        self.step_drift(dt.clamp(DRIFT_DT_MIN, DRIFT_DT_MAX))
     }
 
-    /// Take a quarter of the remaining gap toward the framing the neighbourhood wants
-    /// **right now**. Recomputing the target each tick rather than tweening to a fixed
-    /// one is what lets the camera follow a neighbourhood that is still spreading out
-    /// under the forces, instead of arriving at a framing it has already outgrown.
-    fn drift_camera(&mut self) -> bool {
-        let (Some(frame), Some(bounds)) = (self.frame.as_ref(), *self.canvas.borrow()) else {
-            return true;
+    /// One step of the drift over `dt` seconds: re-derive the framing from the frame as
+    /// it is now, smooth the target toward it, and let the spring take up some of the
+    /// gap. Returns whether the camera still has ground to cover.
+    fn step_drift(&mut self, dt: f32) -> bool {
+        let Some(mut drift) = self.reframe.take() else {
+            return false;
         };
+        let Some(bounds) = *self.canvas.borrow() else {
+            return false;
+        };
+        drift.last = Instant::now();
+        drift.frames += 1;
         let box_px = [
             bounds.origin.x.as_f32(),
             bounds.origin.y.as_f32(),
             bounds.size.width.as_f32(),
             bounds.size.height.as_f32(),
         ];
-        match self.mode {
-            Dim::Two => {
-                let Some(current) = self.camera() else {
-                    return true;
+        let close = match &mut drift.space {
+            DriftSpace::Flat { cam, target, vel } => {
+                let Some(frame) = self.frame.as_ref() else {
+                    return false;
                 };
                 let positions: Vec<[f32; 2]> =
                     frame.nodes.iter().map(|node| node.position).collect();
-                let target = Camera::fit(&positions, box_px, FIT_MARGIN);
-                let pan = [
-                    current.pan[0] + (target.pan[0] - current.pan[0]) * REFRAME_EASE,
-                    current.pan[1] + (target.pan[1] - current.pan[1]) * REFRAME_EASE,
-                ];
-                let zoom = current.zoom + (target.zoom - current.zoom) * REFRAME_EASE;
-                let arrived = (target.pan[0] - pan[0]).abs() < REFRAME_EPS_PX
-                    && (target.pan[1] - pan[1]).abs() < REFRAME_EPS_PX
-                    && (target.zoom - zoom).abs() <= target.zoom * REFRAME_EPS_ZOOM;
-                self.camera = Some(if arrived {
-                    target
-                } else {
-                    Camera::new(pan, zoom)
-                });
-                arrived
+                let raw = Camera::fit(&positions, box_px, FIT_MARGIN);
+                target.pan[0] = chase(target.pan[0], raw.pan[0], dt);
+                target.pan[1] = chase(target.pan[1], raw.pan[1], dt);
+                target.zoom = chase(target.zoom, raw.zoom, dt);
+                cam.pan[0] = spring(cam.pan[0], &mut vel[0], target.pan[0], dt);
+                cam.pan[1] = spring(cam.pan[1], &mut vel[1], target.pan[1], dt);
+                cam.zoom = spring_log(cam.zoom, &mut vel[2], target.zoom, dt);
+                self.camera = Some(*cam);
+                (raw.pan[0] - cam.pan[0]).abs() < DRIFT_DEAD_PAN
+                    && (raw.pan[1] - cam.pan[1]).abs() < DRIFT_DEAD_PAN
+                    && (raw.zoom - cam.zoom).abs() <= raw.zoom * DRIFT_DEAD_SCALE
             }
-            Dim::Three => {
-                let Some(current) = self.camera3() else {
-                    return true;
+            DriftSpace::Deep { cam, target, vel } => {
+                let Some(frame) = self.frame.as_ref() else {
+                    return false;
                 };
                 let positions: Vec<[f32; 3]> = frame
                     .nodes
                     .iter()
                     .map(|node| [node.position[0], node.position[1], node.depth])
                     .collect();
-                // `fit` keeps the angle the user is at, so the drift frames the
-                // neighbourhood without taking their orientation away from them.
-                let mut target = current;
-                target.fit(&positions, box_px, FIT_MARGIN);
-                let pan = [
-                    current.pan[0] + (target.pan[0] - current.pan[0]) * REFRAME_EASE,
-                    current.pan[1] + (target.pan[1] - current.pan[1]) * REFRAME_EASE,
-                ];
-                let zoom = current.zoom + (target.zoom - current.zoom) * REFRAME_EASE;
-                let dist = current.dist + (target.dist - current.dist) * REFRAME_EASE;
-                let arrived = (target.pan[0] - pan[0]).abs() < REFRAME_EPS_PX
-                    && (target.pan[1] - pan[1]).abs() < REFRAME_EPS_PX
-                    && (target.zoom - zoom).abs() <= target.zoom * REFRAME_EPS_ZOOM
-                    && (target.dist - dist).abs() <= target.dist * REFRAME_EPS_ZOOM;
-                self.cam3 = Some(if arrived {
-                    target
-                } else {
-                    Cam3 {
-                        yaw: current.yaw,
-                        pitch: current.pitch,
-                        pan,
-                        zoom,
-                        dist,
-                    }
-                });
-                arrived
+                // Canonical, for the reason given where the drift starts: fitting from
+                // the moving camera makes the target chase the camera.
+                let mut raw = Cam3 {
+                    yaw: cam.yaw,
+                    pitch: cam.pitch,
+                    ..Cam3::new()
+                };
+                raw.fit(&positions, box_px, FIT_MARGIN);
+                target.pan[0] = chase(target.pan[0], raw.pan[0], dt);
+                target.pan[1] = chase(target.pan[1], raw.pan[1], dt);
+                target.zoom = chase(target.zoom, raw.zoom, dt);
+                target.dist = chase(target.dist, raw.dist, dt);
+                cam.pan[0] = spring(cam.pan[0], &mut vel[0], target.pan[0], dt);
+                cam.pan[1] = spring(cam.pan[1], &mut vel[1], target.pan[1], dt);
+                cam.zoom = spring_log(cam.zoom, &mut vel[2], target.zoom, dt);
+                cam.dist = spring_log(cam.dist, &mut vel[3], target.dist, dt);
+                self.cam3 = Some(*cam);
+                (raw.pan[0] - cam.pan[0]).abs() < DRIFT_DEAD_PAN
+                    && (raw.pan[1] - cam.pan[1]).abs() < DRIFT_DEAD_PAN
+                    && (raw.zoom - cam.zoom).abs() <= raw.zoom * DRIFT_DEAD_SCALE
+                    && (raw.dist - cam.dist).abs() <= raw.dist * DRIFT_DEAD_SCALE
             }
+        };
+        drift.still = if close { drift.still + 1 } else { 0 };
+        let done = drift.still >= DRIFT_STILL_FRAMES || drift.frames >= DRIFT_MAX_FRAMES;
+        if !done {
+            self.reframe = Some(drift);
         }
+        !done
+    }
+
+    /// Arm the chain of next-frame callbacks that drives the drift. Called from `render`,
+    /// which is where the frame's `Window` is within reach.
+    fn arm_drift(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.drift_armed = true;
+        Self::drift_frame(window, cx.entity().downgrade());
+    }
+
+    /// One link in the chain. Re-arming is the loop; **not** re-arming is how the drift
+    /// ends — and stopping the re-arm is what lets the window go back to idle, so a
+    /// settled camera never leaves a graph painting itself for no one.
+    fn drift_frame(window: &mut Window, weak: gpui::WeakEntity<Self>) {
+        window.on_next_frame(move |window, cx| {
+            let more = weak
+                .update(cx, |view, cx| {
+                    let more = view.step_drift_timed();
+                    if !more {
+                        view.drift_armed = false;
+                    }
+                    cx.notify();
+                    more
+                })
+                .unwrap_or(false);
+            if more {
+                Self::drift_frame(window, weak);
+            }
+        });
     }
 
     /// Any camera input from the user ends the drift: the view stops moving on its own
     /// the moment they touch it.
     fn cancel_reframe(&mut self) {
+        // The pending callback runs, finds no drift, and stops re-arming. Clearing
+        // `drift_armed` here would arm a second chain alongside it.
         self.reframe = None;
-        self.reframe_task = None;
     }
 
     /// The view's own half of a mode change: which space to draw and hit-test in. The
@@ -679,11 +801,20 @@ impl GraphView {
         self.reframe.is_some()
     }
 
-    /// One tick of the drift, driven by hand: the test cares where the camera arrives,
-    /// not what the 16 ms timer is doing.
+    /// Where the running drift is heading, for the tests that watch it arrive.
+    #[cfg(test)]
+    pub(crate) fn drift_target(&self) -> Option<([f32; 2], f32, f32)> {
+        self.reframe.as_ref().map(|d| match &d.space {
+            DriftSpace::Flat { target, .. } => (target.pan, target.zoom, 0.0),
+            DriftSpace::Deep { target, .. } => (target.pan, target.zoom, target.dist),
+        })
+    }
+
+    /// One step of the drift, driven by hand at a fixed 60 Hz: the test cares where the
+    /// camera arrives, not what the frame clock happened to give the real loop.
     #[cfg(test)]
     pub(crate) fn drift_step(&mut self) -> bool {
-        self.drift_camera()
+        self.step_drift(1.0 / 60.0)
     }
 
     #[cfg(test)]
@@ -1197,6 +1328,15 @@ fn stat(palette: &Palette, value: impl std::fmt::Display, label: &'static str) -
 
 impl Render for GraphView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // A drift is a chain of next-frame callbacks: one step per drawn frame, with the
+        // camera moved before the frame is laid out and painted, so the picture the user
+        // sees is the picture the camera was computed against. It is armed here because
+        // this is where the frame's `Window` is within reach; the chain re-arms itself
+        // while the camera has ground to cover and stops when it doesn't, which is what
+        // returns the window to idle.
+        if self.reframe.is_some() && !self.drift_armed {
+            self.arm_drift(window, cx);
+        }
         let palette = Rc::clone(&self.palette);
         let frame = self.frame.clone();
         // The two closures each need their own handle on the snapshot: prepaint only
