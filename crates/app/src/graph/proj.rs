@@ -30,7 +30,7 @@ use shale_core::theme::Palette;
 use super::cache::{Cache, Geometry, Key};
 use super::frame::GraphFrame;
 use super::render::{
-    label_runs, Labels, LinkPaths, Look, LABEL_CAP, LABEL_SCALE, LINK_MIN_PX, LINK_WIDTH, RING_PX,
+    label_runs, Labels, LinkPaths, Look, LABEL_SCALE, LINK_MIN_PX, LINK_WIDTH, RING_PX,
 };
 use super::sim::GRID_MAX_SPAN;
 
@@ -39,6 +39,13 @@ use super::sim::GRID_MAX_SPAN;
 /// renderer fades its label count out at low zoom — here the perspective factor does
 /// the fading per node instead of the zoom doing it per frame.
 const LABEL_MIN_DOT_PX: f32 = 1.5;
+/// The projected space names **fewer** nodes than the flat one, and that is not a
+/// performance choice — it is the clutter. A third axis seen from outside folds depth
+/// into the same screen area, so nodes arrive bunched: at the flat view's budget the
+/// labels land on top of each other in the middle of the cloud, where the text stops
+/// being a name and becomes texture. Highest degree still wins, and nearness breaks
+/// the ties, so what survives the cut is the vocabulary of the part being looked at.
+const LABEL_CAP_3D: usize = 120;
 
 /// The alpha a node keeps at the far end of the depth range. Nearer nodes come back
 /// toward 1.0; nothing goes fully transparent, because a node you cannot see is a
@@ -279,7 +286,16 @@ pub(crate) fn paint_graph3d(
             paint_nodes3d(frame, projection, palette, look.hover, bounds, window);
         });
         window.paint_layer(bounds, |window| {
-            paint_labels3d(frame, projection, &look.labels, palette, bounds, window, cx);
+            paint_labels3d(
+                frame,
+                projection,
+                &look.labels,
+                palette,
+                bounds,
+                look.hover,
+                window,
+                cx,
+            );
         });
     });
 }
@@ -457,19 +473,28 @@ fn paint_nodes3d(
     }
 }
 
-/// The labels: at most [`LABEL_CAP`], on the nodes big enough on screen to name,
-/// highest degree first — the 2D rule, with the perspective factor deciding who is
-/// too small to name instead of the zoom deciding it for the whole frame at once.
-fn paint_labels3d(
+/// Who gets named in the projected space: at most [`LABEL_CAP_3D`], on the nodes big
+/// enough on screen to name, highest degree first with nearness breaking a tie — the
+/// 2D rule, with the perspective factor deciding who is too small to name instead of
+/// the zoom deciding it for the whole frame at once.
+///
+/// Split out from the paint because it is a *choice*, and a choice this visible is
+/// worth pinning: [`label_slots_respects_the_cap`] checks the budget and who survives
+/// it without a window in sight.
+pub(crate) fn label_slots(
     frame: &GraphFrame,
     projection: &Projection,
-    labels: &Labels,
-    palette: &Palette,
     bounds: Bounds<Pixels>,
-    window: &mut Window,
-    cx: &mut App,
-) {
-    let mut chosen: Vec<usize> = frame
+    hover: Option<usize>,
+) -> Vec<usize> {
+    // Ranked, then cut. The tuple *is* the ranking — degree first, and nearness (which
+    // is what `alpha` reports) breaking a tie so a hub far away does not out-shout the
+    // note the user is actually looking at. It used to be built, mapped back to slots,
+    // and thrown away without a sort, which made the cut below "the first 120 nodes by
+    // index" — the doc comment promised hubs and the code delivered whatever the index
+    // scan happened to produce. `label_slots_respects_the_cap` is what keeps that from
+    // coming back.
+    let mut ranked: Vec<(std::cmp::Reverse<u32>, std::cmp::Reverse<[u8; 4]>, usize)> = frame
         .nodes
         .iter()
         .enumerate()
@@ -479,14 +504,39 @@ fn paint_labels3d(
                 .is_some_and(|xy| on_screen(xy, projection.radius(frame, *slot), bounds))
                 && projection.radius(frame, *slot) >= LABEL_MIN_DOT_PX
         })
-        .map(|(slot, node)| (slot, node.degree))
-        // Nearness breaks a degree tie, so a hub far away does not out-shout the
-        // note the user is actually looking at.
-        .map(|(slot, degree)| (std::cmp::Reverse(degree), std::cmp::Reverse(projection.alpha(slot).to_be_bytes()), slot))
-        .map(|(_, _, slot)| slot)
+        .map(|(slot, node)| {
+            (
+                std::cmp::Reverse(node.degree),
+                std::cmp::Reverse(projection.alpha(slot).to_be_bytes()),
+                slot,
+            )
+        })
         .collect();
-    chosen.truncate(LABEL_CAP);
+    ranked.sort();
+    let mut chosen: Vec<usize> = ranked.into_iter().map(|(_, _, slot)| slot).collect();
+    chosen.truncate(LABEL_CAP_3D);
+    // The hovered node is named whatever the budget and the size gate decided, in this
+    // space especially: the node under the pointer may be a small, far one, and a ring
+    // around an unnamed dot is a question with no answer.
+    if let Some(slot) = hover {
+        if !chosen.contains(&slot) {
+            chosen.push(slot);
+        }
+    }
+    chosen
+}
 
+fn paint_labels3d(
+    frame: &GraphFrame,
+    projection: &Projection,
+    labels: &Labels,
+    palette: &Palette,
+    bounds: Bounds<Pixels>,
+    hover: Option<usize>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let chosen = label_slots(frame, projection, bounds, hover);
     let label_size = px(labels.size * LABEL_SCALE);
     let text_system = window.text_system().clone();
     for slot in chosen {
@@ -515,4 +565,112 @@ fn paint_labels3d(
 /// Straight-line distance in screen px.
 fn distance(a: [f32; 2], b: [f32; 2]) -> f32 {
     ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2)).sqrt()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use super::super::frame::GraphNode;
+    use gpui::SharedString;
+
+    /// A crowded frame: `n` nodes packed 12 px apart on a shallow depth, every one of
+    /// them big enough to name — the bunched middle of a projected cloud, which is the
+    /// case the cap exists for. Each node carries a different degree, so *who* survives
+    /// the cut is checkable, not just how many.
+    fn crowded_frame(n: usize) -> GraphFrame {
+        let nodes = (0..n)
+            .map(|i| GraphNode {
+                position: [(i % 40) as f32 * 12.0, (i / 40) as f32 * 12.0],
+                depth: (i % 7) as f32 * 9.0,
+                radius: 4.0,
+                kind: NodeKind::Note,
+                degree: i as u32,
+                label: SharedString::from(format!("n{i}")),
+                path: None,
+            })
+            .collect();
+        GraphFrame {
+            nodes,
+            edges: Vec::new(),
+            grid: Grid::default(),
+            bounds: None,
+        }
+    }
+
+    /// A canvas big enough to hold that frame's projection. The camera looks down -z
+    /// with screen y growing down, so a layout spread over positive world y projects to
+    /// negative screen y — the box has to cover both.
+    fn canvas() -> Bounds<Pixels> {
+        Bounds::new(point(px(-800.0), px(-800.0)), size(px(1600.0), px(1600.0)))
+    }
+
+    /// The projected space names fewer nodes than the flat one, because a third axis
+    /// seen from outside folds depth into the same screen area and the labels pile up.
+    /// The cut is a vocabulary, not a sample: the hubs survive, the leaves go.
+    #[test]
+    fn label_slots_respects_the_cap() {
+        let extra = 80;
+        let frame = crowded_frame(LABEL_CAP_3D + extra);
+        let projection = Projection::build(&frame, &Cam3::new());
+
+        let chosen = label_slots(&frame, &projection, canvas(), None);
+        assert_eq!(
+            chosen.len(),
+            LABEL_CAP_3D,
+            "every node was eligible, so the cap is what answered"
+        );
+        let kept_lowest = chosen
+            .iter()
+            .map(|slot| frame.nodes[*slot].degree)
+            .min()
+            .expect("the cap is not zero");
+        assert_eq!(
+            kept_lowest as usize, extra,
+            "the cut kept the highest-degree nodes rather than the first ones"
+        );
+    }
+
+    /// The node under the pointer is named whatever the cap and the size gate decided —
+    /// in the projected space especially, where the hovered node can be a small far one
+    /// and a ring around an unnamed dot is a question with no answer.
+    #[test]
+    fn the_hovered_node_is_always_named() {
+        let frame = crowded_frame(LABEL_CAP_3D + 80);
+        let projection = Projection::build(&frame, &Cam3::new());
+        // The worst case for the gate: the lowest-degree node, drawn too small to name.
+        let hovered = 0usize;
+        assert!(
+            projection.radius(&frame, hovered) >= LABEL_MIN_DOT_PX,
+            "the fixture is the crowded one; the gate is what excludes it below"
+        );
+
+        let chosen = label_slots(&frame, &projection, canvas(), Some(hovered));
+        assert!(
+            chosen.contains(&hovered),
+            "the hovered node was left out of the frame's {} names",
+            chosen.len()
+        );
+        assert_eq!(
+            chosen.len(),
+            LABEL_CAP_3D + 1,
+            "the hover joins the budget rather than replacing someone in it"
+        );
+    }
+
+    /// And when the node is too small for the gate at all, the hover still answers.
+    #[test]
+    fn a_hovered_node_below_the_size_gate_is_still_named() {
+        let mut frame = crowded_frame(40);
+        frame.nodes[7].radius = 0.01; // a dot too small to name by the gate
+        let projection = Projection::build(&frame, &Cam3::new());
+        assert!(
+            projection.radius(&frame, 7) < LABEL_MIN_DOT_PX,
+            "the fixture must actually be below the gate"
+        );
+
+        let plain = label_slots(&frame, &projection, canvas(), None);
+        assert!(!plain.contains(&7), "the gate excludes it for an ordinary frame");
+        let hovered = label_slots(&frame, &projection, canvas(), Some(7));
+        assert!(hovered.contains(&7), "but the hover names it anyway");
+    }
 }

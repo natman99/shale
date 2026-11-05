@@ -223,6 +223,11 @@ Rationale and the full milestone live in `graph-view-plan.md` (M2); these are th
 - **The hit-test grid is built from the projected bounds**, never the layout bounds — otherwise the miss-a-node-on-the-bounding-box-edge bug (thread 38) returns in a new costume. Hit test = project, then `Grid` over the projected points with radii scaled by `Projected::scale`.
 - **Exit gate:** the 2D numbers in thread 43 must not move, and the 3D frame is benched (`crates/app/src/tests/graph/paint_bench.rs`) and idle-park-checked before the mode is called done.
 
+#### Label rules (binding, ruled 2026-11-04)
+
+- **The budget is per space.** The flat view names at most `LABEL_CAP` (300), ramped by zoom down to a quarter of that; the projected view names at most `LABEL_CAP_3D` (120), flat. Not a performance call — a third axis seen from outside folds depth into the same screen area, so nodes arrive bunched and 300 names in the middle of the cloud is texture, not vocabulary. Both cuts are highest-degree-first; the projected one breaks ties toward the nearer node.
+- **The hovered node is always named, in both spaces.** The budget decides which nodes the *frame* names; the hover is an answer to a question, not part of the texture, so it joins the set rather than replacing a member — and it survives the 2D zoom fade and the 3D dot-size gate alike. A ring around an unnamed dot is a question with no answer. Pinned by `chosen_labels` (2D), `the_hovered_node_is_always_named` and `a_hovered_node_below_the_size_gate_is_still_named` (3D).
+
 ### Database 
 Persist metadata about notes to a local sqlite DB. This, along with other vault metadata, should be kept in a `.shale` directory in the vault. Store modification and creation date, tags, names, and whatever else is relevant as the project continues. When Obsidian properties are added, these should be stored as well. Use incremental updating of the DB. When the app is launched, a background thread should go and check for modified files that weren't persisted (due to an external editor, etc) and update the vault in the background. This background thread should then end and further updates will be done as notes are updated.
 

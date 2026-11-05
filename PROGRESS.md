@@ -802,3 +802,33 @@ the node facing the camera actually goes on screen, since a sign in a rotation
 function is precisely the thing nobody can check by reading it.
 
 app 449 / core 460.
+
+### Labels: a lower budget in 3D, the hover always named — and the cut that never sorted
+
+Two asks, one bug found on the way.
+
+**"The points end up much more closely bunched in 3d, can we lower that label cap a
+bunch?"** Yes, and the cap should not have been shared in the first place: a third
+axis seen from outside folds depth into the same screen area, so the same budget that
+reads as sparse in the flat view reads as texture in the projected one. `LABEL_CAP_3D
+= 120` (the flat view keeps 300 with its zoom ramp). Not a cost decision — the label
+phase is 0.17–0.5 ms of a 3–4 ms frame.
+
+**"Always display the label of the hovered node, in 2d and 3d."** Done in both. The
+budget decides which nodes the *frame* names; the hover is an answer to a question, so
+it joins the set rather than replacing a member, and it survives the 2D zoom fade
+(the frame can be label-free and the hover still speaks) and the 3D dot-size gate (the
+node under the pointer may be a small far one). A ring around an unnamed dot is a
+question with no answer.
+
+**The bug the test caught:** `label_slots` built its ranking tuple — degree first,
+nearness breaking ties — then mapped it straight back to slots and **never sorted**, so
+`truncate(120)` was keeping *the first 120 nodes by index*, not the hubs. The doc
+comment promised hubs; the code delivered whatever order the index scan happened to
+produce. Writing the cap test is what found it: the assertion "the cut kept the
+highest-degree nodes" failed with the degree-0 leaf sitting in the chosen set. Pinned
+now by `label_slots_respects_the_cap`, `the_hovered_node_is_always_named` and
+`a_hovered_node_below_the_size_gate_is_still_named`, and PROJECT.md gained a short
+"Label rules" block under Graph View.
+
+app 452 / core 460.

@@ -173,7 +173,16 @@ pub(crate) fn paint_frame(
         paint_nodes(frame, &camera, &view, palette, look.hover, window);
     });
     window.paint_layer(bounds, |window| {
-        paint_labels(frame, &camera, &view, &look.labels, palette, window, cx);
+        paint_labels(
+            frame,
+            &camera,
+            &view,
+            &look.labels,
+            palette,
+            look.hover,
+            window,
+            cx,
+        );
     });
 }
 
@@ -670,38 +679,70 @@ pub(crate) fn label_runs(palette: &Palette, labels: &Labels, text: &str) -> [Tex
     }]
 }
 
-/// The labels: [`LABEL_CAP`] of them at most, highest degree first, at full strength.
+/// Who gets named, and why the hovered node is never left out.
+///
+/// The budget is the zoom's: [`LABEL_CAP`] at most, highest degree first, because if
+/// only *n* names fit they should be the hubs a person is most likely looking for.
+/// The hovered node then joins whatever survived — it is the one name the user is
+/// asking for, and a graph that answers a hover with a ring and no name makes them
+/// read the ring. That holds even below [`LABEL_FADE_FROM`], where the frame itself
+/// carries no labels: the hover is not texture, it is an answer.
+fn chosen_labels(
+    frame: &GraphFrame,
+    camera: &Camera,
+    view: &Viewport,
+    hover: Option<usize>,
+) -> Vec<usize> {
+    // `fade` is how far into the ramp this zoom is: 0 below [`LABEL_FADE_FROM`], where the
+    // characters are smaller than the gap between two nodes and the labels are not worth
+    // their cost, 1 at [`LABEL_FADE_FULL`]. It buys **fewer labels**, never fainter ones.
+    let fade =
+        ((camera.zoom - LABEL_FADE_FROM) / (LABEL_FADE_FULL - LABEL_FADE_FROM)).clamp(0.0, 1.0);
+    let cap = if fade <= 0.02 {
+        0
+    } else {
+        (LABEL_CAP as f32 * fade.max(LABEL_CAP_FLOOR)) as usize
+    };
+    let mut chosen: Vec<usize> = frame
+        .nodes
+        .iter()
+        .enumerate()
+        .filter(|(_, node)| view.holds(node, CULL_MARGIN))
+        .map(|(slot, _)| slot)
+        .collect();
+    chosen.sort_by_key(|slot| std::cmp::Reverse(frame.nodes[*slot].degree));
+    chosen.truncate(cap);
+    if let Some(slot) = hover {
+        if !chosen.contains(&slot) {
+            chosen.push(slot);
+        }
+    }
+    chosen
+}
+
+/// The labels: [`LABEL_CAP`] of them at most, highest degree first, at full strength,
+/// plus the hovered node always.
 pub(crate) fn paint_labels(
     frame: &GraphFrame,
     camera: &Camera,
     view: &Viewport,
     labels: &Labels,
     palette: &Palette,
+    hover: Option<usize>,
     window: &mut Window,
     cx: &mut App,
 ) {
-    // `fade` is how far into the ramp this zoom is: 0 below [`LABEL_FADE_FROM`], where the
-    // characters are smaller than the gap between two nodes and the labels are not worth
-    // their cost, 1 at [`LABEL_FADE_FULL`]. It buys **fewer labels**, never fainter ones.
-    let fade =
-        ((camera.zoom - LABEL_FADE_FROM) / (LABEL_FADE_FULL - LABEL_FADE_FROM)).clamp(0.0, 1.0);
-    if fade <= 0.02 {
+    let chosen = chosen_labels(frame, camera, view, hover);
+    if chosen.is_empty() {
         return;
     }
-    let cap = (LABEL_CAP as f32 * fade.max(LABEL_CAP_FLOOR)) as usize;
-    // Highest degree first: if only `cap` labels fit, they should be the
-    // hubs, because those are the notes a person is most likely looking for.
-    let mut chosen: Vec<&GraphNode> = frame
-        .nodes
-        .iter()
-        .filter(|node| view.holds(node, CULL_MARGIN))
-        .collect();
-    chosen.sort_by_key(|node| std::cmp::Reverse(node.degree));
-    chosen.truncate(cap);
 
     let label_size = px(labels.size * LABEL_SCALE);
     let text_system = window.text_system().clone();
-    for node in chosen {
+    for slot in chosen {
+        let Some(node) = frame.nodes.get(slot) else {
+            continue;
+        };
         let center = camera.to_screen(node.position);
         let r = node.radius * camera.zoom;
         let label = node.label.clone();

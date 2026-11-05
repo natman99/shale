@@ -432,6 +432,9 @@ impl Render for PaintBench {
                                 &view,
                                 &labels,
                                 palette.as_ref(),
+                                // No hover: this row measures the frame's own budget, and
+                                // the hovered label is one extra line of text either way.
+                                None,
                                 window,
                                 cx,
                             );
