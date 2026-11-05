@@ -249,7 +249,7 @@ impl Workspace {
             },
         );
         self.pane_mut().active = index;
-        self.mark_note_mru();
+        self.mark_note_mru(cx);
         // The new tab is the drawn one, so both the pointer's subscription and the
         // keyboard have to come here; neither path has a window, so the next frame is
         // asked for both.
@@ -291,9 +291,11 @@ impl Workspace {
     /// Records which note tab the frame is on, which is what the graph tab's "where
     /// does a note open instead?" rule needs (see [`Workspace::note_tab`]). Called
     /// wherever `self.pane().active` is assigned.
-    pub(super) fn mark_note_mru(&mut self) {
+    pub(super) fn mark_note_mru(&mut self, cx: &mut Context<Self>) {
         if !self.pane().active_tab().is_graph() {
             self.pane_mut().note_mru = Some(self.pane().active_tab().id);
+            // A local graph follows the note the window is looking at.
+            self.graph_local_follow(cx);
         }
     }
 
@@ -364,7 +366,7 @@ impl Workspace {
         self.drop_popup(cx);
         self.clear_search(cx);
         self.pane_mut().active = index;
-        self.mark_note_mru();
+        self.mark_note_mru(cx);
         // The pointer can only hover over the note that is drawn, so the hover
         // subscription has to move with the frame. It needs a window, and this path
         // does not always have one, so the next frame is asked to do it.
@@ -470,7 +472,7 @@ impl Workspace {
             self.pane_mut().tabs.remove(index);
             // The tab to the left, which is where the eye already is.
             self.pane_mut().active = index.min(self.pane().tabs.len() - 1);
-            self.mark_note_mru();
+            self.mark_note_mru(cx);
             self.hover_stale = true;
             self.focus_stale = true;
             self.drop_popup(cx);

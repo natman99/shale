@@ -252,6 +252,7 @@ fn a_filter_change_is_remembered_by_the_session(cx: &mut TestAppContext) {
             existing_only: false,
             tags: true,
             search: Some("idea".into()),
+            local: None,
         }),
         "and a filter the user chose is"
     );
@@ -276,6 +277,7 @@ fn the_filter_comes_back_with_the_session(cx: &mut TestAppContext) {
             existing_only: true,
             tags: false,
             search: None,
+            local: None,
         }),
         ..Session::default()
     };
@@ -305,5 +307,161 @@ fn the_filter_comes_back_with_the_session(cx: &mut TestAppContext) {
         counts(&mut cx, &window).map(|counts| (counts.notes, counts.links)),
         Some((2, 1)),
         "and the row agrees"
+    );
+}
+
+// ----- the local graph (roadmap M2b) ----------------------------------------
+
+/// A chain of five notes, `n1` → `n2` → … → `n5`: the shape where a hop count is
+/// legible, because each depth adds exactly one note.
+fn chain_vault(
+    cx: &mut TestAppContext,
+    open: &str,
+) -> (
+    tempfile::TempDir,
+    WindowHandle<Workspace>,
+    VisualTestContext,
+) {
+    let owned: Vec<(String, String)> = (1..=5)
+        .map(|i| {
+            (
+                format!("n{i}.md"),
+                if i < 5 {
+                    format!("on to [[n{}]]\n", i + 1)
+                } else {
+                    "the end of the chain\n".to_string()
+                },
+            )
+        })
+        .collect();
+    let notes: Vec<(&str, &str)> = owned
+        .iter()
+        .map(|(name, text)| (name.as_str(), text.as_str()))
+        .collect();
+    let (dir, window) = vault_with(cx, &notes);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show(&mut cx, &window, open);
+    (dir, window, cx)
+}
+
+/// How many notes the picture is holding.
+fn shown(cx: &mut VisualTestContext, window: &WindowHandle<Workspace>) -> usize {
+    counts(cx, window).map_or(0, |counts| counts.notes)
+}
+
+/// `]` and `[` are the depth, and the depth is a hop count from the note on screen —
+/// three hops of a five-note chain is three notes, not three links and a cloud.
+#[gpui::test]
+fn the_local_graph_reaches_the_note_on_screen(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = chain_vault(cx, "n1.md");
+    cx.simulate_keystrokes("space g");
+    paint(&mut cx, &window);
+    assert_eq!(shown(&mut cx, &window), 5, "the whole vault is five notes");
+
+    cx.simulate_keystrokes("]");
+    assert_eq!(
+        shown(&mut cx, &window),
+        3,
+        "the default two hops from n1 are n1, n2 and n3"
+    );
+    cx.simulate_keystrokes("]");
+    assert_eq!(shown(&mut cx, &window), 4, "a third hop adds one note");
+    cx.simulate_keystrokes("[");
+    assert_eq!(shown(&mut cx, &window), 3, "and takes it back off");
+    cx.simulate_keystrokes("\\");
+    assert_eq!(shown(&mut cx, &window), 5, "`\\` is the whole vault again");
+}
+
+/// The neighbourhood is *of the note being read*: move to another note and the picture
+/// moves with it, rather than staying a map of a note the user has left.
+#[gpui::test]
+fn the_local_graph_follows_the_note_being_read(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = chain_vault(cx, "n1.md");
+    cx.simulate_keystrokes("space g");
+    paint(&mut cx, &window);
+    cx.simulate_keystrokes("]");
+    assert_eq!(shown(&mut cx, &window), 3, "two hops from n1");
+
+    show(&mut cx, &window, "n4.md");
+    cx.run_until_parked();
+    assert_eq!(
+        shown(&mut cx, &window),
+        3,
+        "and now it is two hops from n4 — n3, n4, n5"
+    );
+}
+
+/// The depth is a view decision, so it rides the session seat like the rest of the
+/// filter. The centre deliberately does not: a remembered centre can be a note the user
+/// deleted on the way out.
+#[gpui::test]
+fn the_local_depth_is_remembered_by_the_session(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = chain_vault(cx, "n1.md");
+    cx.simulate_keystrokes("space g");
+    paint(&mut cx, &window);
+    cx.simulate_keystrokes("] ] ]");
+    let seat = window
+        .update(&mut cx, |ws, _window, cx| ws.session_snapshot(cx))
+        .unwrap()
+        .graph_filter
+        .expect("a filter the user chose is a seat");
+    assert_eq!(seat.local, Some(4), "three steps from the default of two");
+}
+
+/// …and the next window opens the graph narrowed the way the last one left it.
+#[gpui::test]
+fn the_local_depth_comes_back_with_the_session(cx: &mut TestAppContext) {
+    let session = Session {
+        tabs: vec![
+            Tab {
+                path: Some(PathBuf::from("n1.md")),
+                view: String::new(),
+                graph: false,
+                camera: None,
+                mode: None,
+                orientation: None,
+            },
+            Tab {
+                path: None,
+                view: String::new(),
+                graph: true,
+                camera: None,
+                mode: None,
+                orientation: None,
+            },
+        ],
+        active_tab: Some(1),
+        graph_filter: Some(GraphFilterSeat {
+            orphans: true,
+            existing_only: false,
+            tags: true,
+            search: None,
+            local: Some(2),
+        }),
+        ..Session::default()
+    };
+    let owned: Vec<(String, String)> = (1..=5)
+        .map(|i| {
+            (
+                format!("n{i}.md"),
+                if i < 5 {
+                    format!("on to [[n{}]]\n", i + 1)
+                } else {
+                    "the end of the chain\n".to_string()
+                },
+            )
+        })
+        .collect();
+    let notes: Vec<(&str, &str)> = owned
+        .iter()
+        .map(|(name, text)| (name.as_str(), text.as_str()))
+        .collect();
+    let (_dir, window) = session::vault_with_session(cx, &notes, &session);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    paint(&mut cx, &window);
+    assert_eq!(
+        shown(&mut cx, &window),
+        3,
+        "the graph opens narrowed to two hops of the note the session was on"
     );
 }

@@ -811,6 +811,11 @@ into the Phase 3 addendum. **P2.5a landed 2026-11-01, so Phase 2 is closed**
   **Re-striped 2026-11-04:** M2 splits into **M2a projected 3D** (its own item
   below, P3.6, pulled ahead of everything else in this phase) and **M2b local
   graph**, which follows it.
+  **M2b landed 2026-11-04**: `GraphFilter::local` is a scope dimension in core's
+  `apply`, centred on the note the window is looking at, depth 1–5 (default 2),
+  reached by the strip's `local` chip, `[` / `]` / `\` in the graph context, and
+  `:graph-local [n]` / `:graph-global`. It composes with search, kinds and folder
+  scope, and the depth rides the session seat.
   **Brainstorm rulings that feed M5 (2026-10-29):** typed edges as an edge
   layer + kind filter (P1.2 `edges` table; display registry with inverse
   labels; no layout springs in v1), hook→payoff dashed arcs, region

@@ -155,6 +155,10 @@ pub(crate) struct Workspace {
     /// which is what lets a layout survive an edit: the arena's node indexes do not
     /// outlive a rebuild, but a note's path does. `None` until the graph is opened.
     graph_sim: Option<crate::graph::GraphSim>,
+    /// The one-frame deferral that lets a local graph follow the note the window moves
+    /// to (see `graph_local_follow`). Kept because a dropped gpui task is a cancelled
+    /// one.
+    graph_follow: Option<gpui::Task<()>>,
     /// The sim's beat: one task that ticks the layout while the graph tab is on screen
     /// and ends when the sim settles or the tab closes. One task, not one per tick —
     /// and it stops by itself, because a settled graph that keeps asking for frames is
@@ -479,6 +483,7 @@ impl Workspace {
             // ask for it (see [`Workspace::open_graph`]).
             graph: None,
             graph_sim: None,
+            graph_follow: None,
             graph_beat: None,
             graph_build: None,
             graph_pending: Vec::new(),

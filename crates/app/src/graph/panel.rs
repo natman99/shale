@@ -51,7 +51,14 @@ enum Chip {
     Missing,
     /// `#tag` nodes.
     Tags,
+    /// The neighbourhood of the note on screen (M2b). Its label carries the depth.
+    Local,
 }
+
+/// The depth the local view starts at when it is switched on rather than stepped: two
+/// hops, because one hop is the note and its links, which reads as a list rather than a
+/// picture.
+pub(crate) const DEFAULT_LOCAL_DEPTH: usize = 2;
 
 impl GraphView {
     /// The filter the window is working with, pushed in on every refresh so the chips
@@ -110,8 +117,38 @@ impl GraphView {
             // The chip says what is on screen, so "missing" off is core's
             // `existing_only` on.
             Chip::Missing => filter.existing_only = !filter.existing_only,
+            // The local chip is not a toggle the strip can compute: the centre belongs to
+            // the window, so it goes through its own door.
+            Chip::Local => return self.toggle_local(cx),
         }
         self.apply_filter(filter, cx);
+    }
+
+    /// The local chip: the graph as the neighbourhood of the note on screen, or the whole
+    /// vault. The window owns the centre, so this asks rather than computes — and if the
+    /// window says nothing happened (no note has been shown, so there is nothing to be a
+    /// neighbourhood around), the chip does not light up.
+    pub(super) fn toggle_local(&mut self, cx: &mut Context<Self>) {
+        let depth = if self.filter.local.is_some() {
+            None
+        } else {
+            Some(DEFAULT_LOCAL_DEPTH)
+        };
+        let Ok(Some((summary, frame))) =
+            self.workspace.update(cx, move |ws, cx| ws.graph_local(depth, cx))
+        else {
+            return;
+        };
+        self.summary = Some(summary);
+        self.store_frame(frame);
+        if let Some(filter) = self
+            .workspace
+            .update(cx, |ws, _cx| ws.graph_filter_state())
+            .ok()
+        {
+            self.filter = filter;
+        }
+        cx.notify();
     }
 
     /// `alt-o`.
@@ -180,6 +217,11 @@ impl GraphView {
             !self.filter.existing_only,
             self.filter.tags,
         );
+        let local = self.filter.local.as_ref().map(|scope| scope.depth);
+        let local_label = match local {
+            Some(depth) => format!("local {depth}"),
+            None => "local".to_string(),
+        };
         div()
             .key_context(FILTER_CONTEXT)
             .track_focus(&self.panel_focus)
@@ -242,6 +284,13 @@ impl GraphView {
                     .id("graph-filter-tags")
                     .on_click(cx.listener(|this, _, _window, cx| {
                         this.toggle(Chip::Tags, cx);
+                    })),
+            )
+            .child(
+                chip(&palette, &local_label, local.is_some())
+                    .id("graph-filter-local")
+                    .on_click(cx.listener(|this, _, _window, cx| {
+                        this.toggle(Chip::Local, cx);
                     })),
             )
             .child(
@@ -384,7 +433,7 @@ impl EntityInputHandler for GraphView {
 /// is on carries `ui_active_bg`, one the pointer is over carries `ui_hover_bg`, and one
 /// that is off is drawn in `ui_disabled` -- the role for "this is here, you are not
 /// getting it", which is quieter than a label and says something a label does not.
-fn chip(palette: &Palette, label: &'static str, on: bool) -> gpui::Div {
+fn chip(palette: &Palette, label: impl Into<gpui::SharedString>, on: bool) -> gpui::Div {
     div()
         .flex_none()
         .px_2()
@@ -402,5 +451,5 @@ fn chip(palette: &Palette, label: &'static str, on: bool) -> gpui::Div {
         // Only an off chip answers the pointer with a background: on one, the hover
         // colour would be quieter than the state it is already in.
         .when(!on, |d| d.hover(|s| s.bg(gpui::rgb(palette.ui_hover_bg))))
-        .child(label)
+        .child(label.into())
 }

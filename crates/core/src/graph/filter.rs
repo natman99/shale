@@ -26,6 +26,25 @@ pub struct GraphFilter {
     /// Constellation scope (M3): only notes under this vault-relative folder,
     /// plus the tags and ghosts attached to them. `None` is the whole vault.
     pub folder: Option<String>,
+    /// Local scope (M2b): only the nodes within `depth` hops of one note. This
+    /// is the graph read as *a note's neighbourhood* rather than as a vault —
+    /// the picture that answers "what is this note connected to". `None` is the
+    /// whole vault.
+    pub local: Option<LocalScope>,
+}
+
+/// How far the local view reaches from its centre (M2b). Five is Obsidian's
+/// slider ceiling and the honest point where "neighbourhood" stops being a
+/// word: at five hops a hub note's scope is most of the vault again.
+pub const LOCAL_DEPTH_MAX: usize = 5;
+
+/// The local scope: a centre and how far out it reaches.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LocalScope {
+    /// Vault-relative path of the note the view is centred on.
+    pub center: String,
+    /// Hops from the centre. `0` is the centre alone.
+    pub depth: usize,
 }
 
 impl Default for GraphFilter {
@@ -36,6 +55,7 @@ impl Default for GraphFilter {
             tags: true,
             search: None,
             folder: None,
+            local: None,
         }
     }
 }
@@ -82,6 +102,42 @@ pub fn apply(index: &GraphIndex, filter: &GraphFilter) -> Vec<bool> {
         for i in hide {
             visible[i] = false;
         }
+    }
+
+    // Local scope: a hop count from the centre, over the vault as it is — the
+    // BFS walks *through* nodes the kind filters are about to hide, because
+    // "two hops away" is a fact about the links, not about what is on screen.
+    // The kind and search filters then cut inside that neighbourhood as usual.
+    if let Some(local) = &filter.local {
+        if let Some(center) = index.node_for_path(&local.center) {
+            let depth = local.depth.min(LOCAL_DEPTH_MAX);
+            let mut hops = vec![usize::MAX; n];
+            hops[center.index()] = 0;
+            let mut frontier = vec![center];
+            let mut hop = 0usize;
+            while hop < depth && !frontier.is_empty() {
+                let mut next = Vec::new();
+                for node in &frontier {
+                    for nb in index.neighbors(*node) {
+                        if hops[nb.index()] == usize::MAX {
+                            hops[nb.index()] = hop + 1;
+                            next.push(nb);
+                        }
+                    }
+                }
+                frontier = next;
+                hop += 1;
+            }
+            for (i, v) in visible.iter_mut().enumerate() {
+                if hops[i] > depth {
+                    *v = false;
+                }
+            }
+        }
+        // A centre the index does not know — a note deleted from under the view,
+        // or one never indexed — leaves the scope inert rather than painting an
+        // empty canvas. The window clears the mode in that case (it owns the
+        // centre); an empty graph is a worse answer than the whole one.
     }
 
     for (i, v) in visible.iter_mut().enumerate() {
@@ -181,6 +237,115 @@ mod tests {
         // prove the mechanism has something to drop.
         let root = index.node_for_path("root.md").unwrap();
         assert!(index.graph().find_edge(root, ghost).is_some());
+        Ok(())
+    }
+
+    /// The local view is a hop count, and the hop count is the whole feature: one hop
+    /// from `root.md` is its note, its ghost and its tag; two hops adds what those reach;
+    /// notes that are not reachable at all never arrive.
+    #[test]
+    fn local_scope_reaches_the_depth_it_says() -> anyhow::Result<()> {
+        let (_dir, _vault, index) = fixture()?;
+        let at = |depth: usize| {
+            apply(
+                &index,
+                &GraphFilter {
+                    local: Some(LocalScope {
+                        center: "root.md".into(),
+                        depth,
+                    }),
+                    ..Default::default()
+                },
+            )
+        };
+        let sorted = |values: &[String]| -> Vec<String> {
+            let mut v = values.to_vec();
+            v.sort();
+            v
+        };
+        let named = |visible: &[bool]| -> Vec<String> {
+            (0..index.node_count())
+                .filter(|i| visible[*i])
+                .map(|i| index.meta(NodeIndex::new(i)).label.to_string())
+                .collect::<Vec<_>>()
+        };
+        // The labels are the graph's own: a note is its stem, and `[[pie/p]]` is a
+        // ghost node beside the resolved link to `child 1/pie/p.md`.
+        let one = named(&at(1));
+        assert_eq!(
+            sorted(&one),
+            sorted(&["gone", "p", "pie/p", "root", "top"].map(String::from)),
+            "one hop is the note, what it links, and what it tags"
+        );
+        let two = named(&at(2));
+        assert_eq!(
+            sorted(&two),
+            sorted(
+                &["gone", "p", "pie/p", "root", "sweet", "top", "x"].map(String::from)
+            ),
+            "the second hop arrives, and nothing unreachable does"
+        );
+        let zero = named(&at(0));
+        assert_eq!(zero, vec!["root".to_string()], "depth 0 is the centre alone");
+        Ok(())
+    }
+
+    /// A depth past the ceiling is clamped rather than trusted: an unbounded BFS on a
+    /// hub note is the whole vault wearing a neighbourhood's clothes.
+    #[test]
+    fn local_depth_is_clamped() -> anyhow::Result<()> {
+        let (_dir, _vault, index) = fixture()?;
+        let f = GraphFilter {
+            local: Some(LocalScope {
+                center: "root.md".into(),
+                depth: LOCAL_DEPTH_MAX + 40,
+            }),
+            ..Default::default()
+        };
+        let visible = apply(&index, &f);
+        let cake = index.node_for_path("child 1/cake/c.md").unwrap();
+        assert!(
+            !visible[cake.index()],
+            "the clamp holds, so an unreachable note stays unreachable"
+        );
+        Ok(())
+    }
+
+    /// A centre the index does not know leaves the scope inert rather than empty.
+    #[test]
+    fn a_missing_centre_does_not_empty_the_graph() -> anyhow::Result<()> {
+        let (_dir, _vault, index) = fixture()?;
+        let f = GraphFilter {
+            local: Some(LocalScope {
+                center: "deleted.md".into(),
+                depth: 1,
+            }),
+            ..Default::default()
+        };
+        assert_eq!(count(&apply(&index, &f)), index.node_count());
+        Ok(())
+    }
+
+    /// Local is a scope, not a mode: the kind filters still cut inside it.
+    #[test]
+    fn local_scope_composes_with_the_kind_filters() -> anyhow::Result<()> {
+        let (_dir, _vault, index) = fixture()?;
+        let f = GraphFilter {
+            tags: false,
+            existing_only: true,
+            local: Some(LocalScope {
+                center: "root.md".into(),
+                depth: 1,
+            }),
+            ..Default::default()
+        };
+        let visible = apply(&index, &f);
+        let root = index.node_for_path("root.md").unwrap();
+        let p = index.node_for_path("child 1/pie/p.md").unwrap();
+        let top = index.node_for_tag("top").unwrap();
+        let gone = index.ghost_for_target("gone").unwrap();
+        assert!(visible[root.index()] && visible[p.index()]);
+        assert!(!visible[top.index()] && !visible[gone.index()]);
         Ok(())
     }
 

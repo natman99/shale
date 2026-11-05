@@ -241,6 +241,118 @@ impl Workspace {
         self.pump_graph(cx);
     }
 
+    /// The note the local graph is centred on (M2b): the most recently shown note in the
+    /// active pane. The graph tab is never the centre — the centre is the note the user
+    /// was reading when they turned the vault into a neighbourhood, and `note_mru` is
+    /// that fact already, kept for the session.
+    pub(crate) fn graph_center(&self) -> Option<String> {
+        let pane = self.pane();
+        let id = pane.note_mru?;
+        let tab = pane.tabs.iter().find(|tab| tab.id == id)?;
+        match &tab.content {
+            TabContent::Note {
+                path: Some(path), ..
+            } => Some(path.to_string_lossy().into_owned()),
+            _ => None,
+        }
+    }
+
+    /// The window's filter, for the view's chips: the window is the one that owns it, so
+    /// a chip that changed by key has to be read back rather than guessed at.
+    pub(crate) fn graph_filter_state(&self) -> shale_core::graph::filter::GraphFilter {
+        self.graph_filter.clone()
+    }
+
+    /// Turn the graph into a neighbourhood around the note on screen, or back into the
+    /// vault (`:graph-local [n]`, `:graph-global`, the strip's chip, `[` and `]`).
+    ///
+    /// The window owns the centre rather than the strip: the centre is a fact about which
+    /// note the window is looking at, and the strip only says how far out to reach. A
+    /// depth of `None` is the whole vault. With no note shown there is nothing to be a
+    /// neighbourhood around, and the answer is to do nothing rather than to show an empty
+    /// canvas or silently widen to the whole vault.
+    pub(crate) fn graph_local(
+        &mut self,
+        depth: Option<usize>,
+        cx: &mut Context<Self>,
+    ) -> Option<(crate::graph::GraphSummary, Rc<crate::graph::GraphFrame>)> {
+        use shale_core::graph::filter::{LocalScope, LOCAL_DEPTH_MAX};
+        match depth {
+            None => self.graph_filter.local = None,
+            Some(depth) => {
+                let Some(center) = self.graph_center() else {
+                    return None;
+                };
+                self.graph_filter.local = Some(LocalScope {
+                    center,
+                    depth: depth.clamp(1, LOCAL_DEPTH_MAX),
+                });
+            }
+        }
+        let built = self.rebuild_graph();
+        self.pump_graph(cx);
+        built
+    }
+
+    /// The same door for a request that did not come from the view (a `:` command): the
+    /// view has to be told what the chips now say, because it did not make the change.
+    pub(crate) fn graph_local_synced(&mut self, depth: Option<usize>, cx: &mut Context<Self>) {
+        self.graph_local(depth, cx);
+        if let Some(view) = self.graph_view().cloned() {
+            let filter = self.graph_filter.clone();
+            view.update(cx, |view, cx| view.set_filter(filter, cx));
+        }
+    }
+
+    /// Step the local depth, turning the local view on if it was not on (the graph
+    /// context's `[` and `]`).
+    pub(crate) fn graph_local_step(
+        &mut self,
+        delta: isize,
+        cx: &mut Context<Self>,
+    ) -> Option<(crate::graph::GraphSummary, Rc<crate::graph::GraphFrame>)> {
+        use shale_core::graph::filter::LOCAL_DEPTH_MAX;
+        let current = self.graph_filter.local.as_ref().map(|scope| scope.depth);
+        let next = match current {
+            // Off, and stepping: start at the default rather than at one hop, because
+            // one hop is the note and its direct links, which is a list, not a picture.
+            None => 2,
+            Some(depth) => (depth as isize + delta).clamp(1, LOCAL_DEPTH_MAX as isize) as usize,
+        };
+        self.graph_local(Some(next), cx)
+    }
+
+    /// The note under the local view has changed, so the neighbourhood has to follow it.
+    ///
+    /// Called wherever a note tab becomes the one on screen. A local graph that stayed
+    /// centred on the note it *was* looking at would be a picture of a note the user has
+    /// left, which is the confusion the feature exists to remove.
+    ///
+    /// The work is deferred one frame rather than done here. This runs from tab
+    /// activation, and a tab is very often activated *by the graph view itself* — a node
+    /// click opens its note — so the view is borrowed by the time we get here, and
+    /// `refresh_graph` writes to it. One frame later nobody is borrowing anything.
+    pub(crate) fn graph_local_follow(&mut self, cx: &mut Context<Self>) {
+        let Some(scope) = self.graph_filter.local.as_ref() else {
+            return;
+        };
+        let Some(center) = self.graph_center() else {
+            return;
+        };
+        if center == scope.center {
+            return;
+        }
+        self.graph_filter.local = Some(shale_core::graph::filter::LocalScope {
+            center,
+            depth: scope.depth,
+        });
+        let weak = cx.entity().downgrade();
+        self.graph_follow = Some(cx.spawn(async move |_, cx| {
+            cx.background_executor().timer(TICK).await;
+            let _ = weak.update(cx, |ws, cx| ws.refresh_graph(cx));
+        }));
+    }
+
     /// A new filter, from the strip: remember it on the window and re-make the picture.
     ///
     /// The window owns the filter rather than the view, because the mask it produces

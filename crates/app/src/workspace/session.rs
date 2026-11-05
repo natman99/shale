@@ -44,6 +44,7 @@ fn filter_seat(filter: &GraphFilter) -> Option<GraphFilterSeat> {
             .search
             .clone()
             .filter(|query| !query.trim().is_empty()),
+        local: filter.local.as_ref().map(|scope| scope.depth),
     };
     (seat != GraphFilterSeat::default()).then_some(seat)
 }
@@ -183,8 +184,12 @@ impl Workspace {
         // The graph filter, before any tab is opened: the graph tab's first frame is
         // built from the window's filter, so a seat that arrives afterwards would be
         // restored into a picture that had already been laid out without it.
+        let mut restored_local = None;
         if let Some(seat) = session.graph_filter.as_ref() {
+            restored_local = seat.local;
             self.graph_filter = GraphFilter {
+                // The depth is restored below, once a note is on screen to be the centre.
+                local: None,
                 orphans: seat.orphans,
                 existing_only: seat.existing_only,
                 tags: seat.tags,
@@ -270,7 +275,7 @@ impl Workspace {
                 .active_tab
                 .unwrap_or(0)
                 .min(self.pane().tabs.len() - 1);
-            self.mark_note_mru();
+            self.mark_note_mru(cx);
             // The cursor and scroll belong to the tab that had the keyboard: the
             // session remembers one seat, the one the user was looking at. With the
             // graph on screen there is no seat to put back.
@@ -296,6 +301,12 @@ impl Workspace {
                     }
                 }
             }
+        }
+
+        // The local graph's depth, restored last: its scope is a neighbourhood *around a
+        // note*, and until the tabs are back there is no note to be the centre of it.
+        if let Some(depth) = restored_local {
+            self.graph_local(Some(depth), cx);
         }
 
         // Focus mode and typewriter scroll are the frame's decisions rather than the

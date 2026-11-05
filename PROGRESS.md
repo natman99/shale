@@ -873,3 +873,33 @@ app 455 / core 460.
 still-camera 3.51 ms — the same band as the 3.36–3.71 recorded when 3D landed, so
 collision culling and the hysteresis memory cost nothing measurable. The flat view was
 untouched by all of it.
+
+### M2b: the local graph — the vault narrowed to the note on screen
+
+A filter dimension, not a mode: `GraphFilter::local` (`LocalScope { center, depth }`) sits
+beside `folder` in core's `apply`, so it composes with the search line, the kind toggles
+and the folder scope, and both spaces get it for free. The BFS walks the vault as it is —
+through nodes the kind filters are about to hide — because "two hops away" is a fact about
+the links, not about what is on screen.
+
+The **centre is the window's**: the most recently shown note in the active pane
+(`note_mru`), and the neighbourhood follows the note the window moves to. The depth is
+session state; the centre never is — a remembered centre can be a note the user deleted
+on the way out. Depth 1-5, default 2, clamped in the app rather than trusted from `:`.
+
+Reached four ways: the strip's `local N` chip, `[` / `]` (step) and `\\` (whole vault)
+in the graph context, and `:graph-local [n]` / `:graph-global`.
+
+One thing learned on the way and now a rule: a workspace-to-view write that hangs off tab
+activation has to be **deferred one frame**. `graph_local_follow` runs from
+`mark_note_mru`, and a tab is very often activated *by the graph view itself* — a node
+click opens its note — so the view is already borrowed when it lands, and `refresh_graph`
+writing to it there is a gpui double-borrow panic. The follow re-arms through a one-frame
+task holding a weak handle.
+
+Pinned by `the_local_graph_reaches_the_note_on_screen`,
+`the_local_graph_follows_the_note_being_read`, `the_local_depth_is_remembered_by_the_session`,
+`the_local_depth_comes_back_with_the_session`, and four core filter tests (the hop count,
+the clamp, a missing centre staying inert, composition with the kind filters). Left undone
+on purpose: a depth slider (the keys and the command line do the job; the strip would need
+a second control kind) and per-pane centres. app 459 / core 464.

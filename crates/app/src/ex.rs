@@ -105,6 +105,10 @@ pub(crate) enum Ex {
     /// The space is an argument in all but spelling, so it travels as a payload on one
     /// variant rather than two names that could drift.
     GraphMode(bool),
+    /// `graph-local [n]` / `graph-global`: the graph as the neighbourhood of the note on
+    /// screen, to depth `n` (M2b). One variant carrying the depth, and `graph-global` is
+    /// the same request with the scope switched off.
+    GraphLocal(Option<usize>),
     /// The panes (roadmap P3.2). vim's window commands, spelled the way vim does:
     /// `split`/`sp` stacks a second pane under this one, `vsplit`/`vs` puts one
     /// beside it, `close`/`clo` closes this pane (its notes written first), and
@@ -157,6 +161,10 @@ impl Ex {
             Ex::Graph => "graph.open",
             Ex::GraphMode(false) => "graph.flat",
             Ex::GraphMode(true) => "graph.projected",
+            // The same variant spells both: `0` is the whole vault, which is a different
+            // row of the registry with its own words.
+            Ex::GraphLocal(Some(0)) => "graph.global",
+            Ex::GraphLocal(_) => "graph.local",
             Ex::Split => "window.split",
             Ex::VSplit => "window.vsplit",
             Ex::WindowClose => "window.close",
@@ -194,6 +202,9 @@ impl Ex {
             | Ex::TabOnly
             | Ex::Graph
             | Ex::GraphMode(_)
+            // Only the bare form: `:graph-local 3` carries an argument and keeps its
+            // handling in the workspace.
+            | Ex::GraphLocal(None)
             | Ex::Split
             | Ex::VSplit
             | Ex::WindowClose
@@ -309,6 +320,18 @@ pub(crate) fn parse(line: &str) -> Ex {
         "graph" | "g" => Ex::Graph,
         "graph2d" => Ex::GraphMode(false),
         "graph3d" => Ex::GraphMode(true),
+        // The local graph. A bare `:graph-local` turns it on at the default depth; a
+        // number sets the depth, and `0` is the whole vault again — the same shape as
+        // the strip's chip and the `[`/`]` keys, so the hands and the command line agree.
+        "graph-local" | "loc" => match rest {
+            "" => Ex::GraphLocal(None),
+            "0" | "off" | "all" => Ex::GraphLocal(Some(0)),
+            rest => match rest.parse::<usize>() {
+                Ok(n) if n > 0 => Ex::GraphLocal(Some(n)),
+                _ => Ex::Unknown(format!("graph-local {rest}").trim().to_string()),
+            },
+        },
+        "graph-global" => Ex::GraphLocal(Some(0)),
         // The tabs (roadmap P3.1). vim's spellings, abbreviated the way vim allows,
         // and `:tabmove` is the only one that takes a number.
         "tabnew" | "tabedit" => Ex::TabNew,

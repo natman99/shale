@@ -126,6 +126,10 @@ pub struct GraphFilterSeat {
     pub tags: bool,
     /// What was typed in the search line, if anything.
     pub search: Option<String>,
+    /// How far the local graph reached from the note on screen (M2b). The centre is not
+    /// stored: it is whichever note the window opens on, and a remembered centre can be
+    /// a note the user deleted on the way out.
+    pub local: Option<usize>,
 }
 
 impl Default for GraphFilterSeat {
@@ -136,6 +140,7 @@ impl Default for GraphFilterSeat {
             existing_only: false,
             tags: true,
             search: None,
+            local: None,
         }
     }
 }
@@ -335,6 +340,7 @@ mod tests {
                 existing_only: true,
                 tags: true,
                 search: Some("idea".into()),
+                local: Some(3),
             }),
         };
         session.save(dir.path())?;

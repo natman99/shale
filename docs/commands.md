@@ -63,6 +63,8 @@ as you would type it.
 | `tab.move` | Move this tab to a position | — | `:tabmove <n>` | `<n>` |
 | `graph.open` | Show the vault's link graph | `space g` | `:graph`, `:g` | — |
 | `graph.flat` | Graph: flat view | `2 (graph)` | `:graph2d` | — |
+| `graph.local` | Graph: this note's neighbourhood | `[ ] (graph)` | `:graph-local [n]`, `:loc [n]` | `[n]` |
+| `graph.global` | Graph: the whole vault again | `\ (graph)` | `:graph-global` | — |
 | `graph.projected` | Graph: projected 3D view | `3 (graph)` | `:graph3d` | — |
 
 The palette does not list `app.quit-force`, `note.write-quit`, `theme.export`, `review.next`, `review.prev`, `review.accept`, `review.reject`, `review.open-note`, `review.collapse`, `tab.next`, `tab.prev`, `tab.only`, `window.only`, `tab.move`: `note.write-quit` is save and then quit, two

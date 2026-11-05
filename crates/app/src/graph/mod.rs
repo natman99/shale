@@ -35,7 +35,7 @@ use shale_core::graph::geom::{Camera, MIN_ZOOM, ZOOM_STEP};
 use shale_core::graph::proj::Cam3;
 use shale_core::theme::Palette;
 
-use crate::acts::{GraphFit, GraphMode, GraphOpen, GraphPan, GraphSelect, GraphZoom};
+use crate::acts::{GraphFit, GraphLocal, GraphLocalStep, GraphMode, GraphOpen, GraphPan, GraphSelect, GraphZoom};
 use crate::field::Field;
 use crate::workspace::Workspace;
 
@@ -45,7 +45,7 @@ pub(crate) use frame::GraphFrame;
 // path's types needs them named here.
 #[cfg(test)]
 pub(crate) use proj::{paint_graph3d, Projection};
-pub(crate) use panel::FILTER_CONTEXT;
+pub(crate) use panel::{FILTER_CONTEXT, DEFAULT_LOCAL_DEPTH};
 pub(crate) use sim::{Dim, GraphSim};
 
 /// The key context the graph's bindings live in. It is a context of its own for the
@@ -368,6 +368,82 @@ impl GraphView {
             self.store_frame(frame);
         }
         cx.notify();
+    }
+
+    /// `[` and `]`: the local graph's depth (M2b). The window owns the centre — which
+    /// note the neighbourhood is around — and the view only asks for a step, because the
+    /// centre is a fact about the window's tabs rather than about the picture.
+    fn local_step(
+        &mut self,
+        action: &GraphLocalStep,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some((summary, frame)) = self
+            .workspace
+            .update(cx, |ws, cx| ws.graph_local_step(action.0, cx))
+            .ok()
+            .flatten()
+        {
+            self.set_summary(summary, cx);
+            self.store_frame(frame);
+            // The chips say what the filter is, and the filter changed.
+            if let Some(filter) = self
+                .workspace
+                .update(cx, |ws, _cx| ws.graph_filter_state())
+                .ok()
+            {
+                self.filter = filter;
+            }
+        }
+        cx.notify();
+    }
+
+    /// The palette's row and any config binding: set the local depth, or toggle it.
+    fn local(&mut self, action: &GraphLocal, _window: &mut Window, cx: &mut Context<Self>) {
+        match action.0 {
+            None => self.toggle_local(cx),
+            // `0` is the whole vault — the same spelling `:graph-global` and the chip
+            // reaching off both use.
+            Some(0) => {
+                if let Some((summary, frame)) = self
+                    .workspace
+                    .update(cx, |ws, cx| ws.graph_local(None, cx))
+                    .ok()
+                    .flatten()
+                {
+                    self.set_summary(summary, cx);
+                    self.store_frame(frame);
+                }
+                if let Some(filter) = self
+                    .workspace
+                    .update(cx, |ws, _cx| ws.graph_filter_state())
+                    .ok()
+                {
+                    self.filter = filter;
+                }
+                cx.notify();
+            }
+            Some(depth) => {
+                if let Some((summary, frame)) = self
+                    .workspace
+                    .update(cx, |ws, cx| ws.graph_local(Some(depth), cx))
+                    .ok()
+                    .flatten()
+                {
+                    self.set_summary(summary, cx);
+                    self.store_frame(frame);
+                }
+                if let Some(filter) = self
+                    .workspace
+                    .update(cx, |ws, _cx| ws.graph_filter_state())
+                    .ok()
+                {
+                    self.filter = filter;
+                }
+                cx.notify();
+            }
+        }
     }
 
     /// The view's own half of a mode change: which space to draw and hit-test in. The
@@ -958,6 +1034,8 @@ impl Render for GraphView {
             .on_action(cx.listener(Self::open))
             .on_action(cx.listener(Self::fit))
             .on_action(cx.listener(Self::turn))
+            .on_action(cx.listener(Self::local_step))
+            .on_action(cx.listener(Self::local))
             // `/` is handled on the window rather than on the canvas because the strip it
             // opens is a sibling of the canvas, and the handler is the same either way.
             .on_action(cx.listener(Self::open_panel))

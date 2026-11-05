@@ -251,6 +251,21 @@ actions!(
     ]
 );
 
+/// The local graph's depth (M2b): how many hops from the note on screen the picture
+/// reaches. One action carrying the step rather than two names, because `[` and `]` are
+/// the same gesture in opposite directions, and stepping from *off* turns the view on at
+/// the default depth.
+#[derive(Clone, PartialEq, gpui::Action)]
+#[action(namespace = shale, no_json)]
+pub(crate) struct GraphLocalStep(pub isize);
+
+/// The local graph's scope as a request: `Some(n)` sets the depth, `None` toggles it.
+/// The palette row and the strip's chip are the same ask with a different amount of
+/// conviction.
+#[derive(Clone, PartialEq, gpui::Action)]
+#[action(namespace = shale, no_json)]
+pub(crate) struct GraphLocal(pub Option<usize>);
+
 /// A zoom step for the graph's camera: the factor to scale by, so `+` is
 /// [`shale_core::graph::geom::ZOOM_STEP`] and `-` its reciprocal.
 #[derive(Clone, PartialEq, gpui::Action)]

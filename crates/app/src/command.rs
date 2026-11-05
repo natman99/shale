@@ -731,6 +731,28 @@ const ALL: &[Command] = &[
         in_palette: true,
         action: Some(|| Box::new(GraphMode(crate::graph::Dim::Two))),
     },
+    // The local graph (roadmap M2b): the vault narrowed to the neighbourhood of the note
+    // on screen. The palette row toggles at the default depth; the depth itself is the
+    // command line's and the keys' (`[` and `]`), because a palette row cannot type a
+    // number and a key is the faster way to change your mind.
+    Command {
+        id: "graph.local",
+        label: "Graph: this note's neighbourhood",
+        keys: "[ ] (graph)",
+        ex: &["graph-local", "loc"],
+        args: "[n]",
+        in_palette: true,
+        action: Some(|| Box::new(GraphLocal(None))),
+    },
+    Command {
+        id: "graph.global",
+        label: "Graph: the whole vault again",
+        keys: "\\ (graph)",
+        ex: &["graph-global"],
+        args: "",
+        in_palette: true,
+        action: Some(|| Box::new(GraphLocal(Some(0)))),
+    },
     Command {
         id: "graph.projected",
         label: "Graph: projected 3D view",

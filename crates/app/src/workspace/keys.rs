@@ -352,6 +352,15 @@ pub(crate) fn keybindings() -> Vec<KeyBinding> {
     for (key, factor) in [("+", ZOOM_STEP), ("-", 1.0 / ZOOM_STEP)] {
         keys.push(KeyBinding::new(key, GraphZoom(factor), Some(graph)));
     }
+    // `[` and `]` narrow and widen the local graph (M2b). Brackets because they are the
+    // shape of a scope, they are free in this context, and they are not `+`/`-`, which
+    // already mean the camera: a scope gesture and a zoom gesture that share keys would
+    // make the user ask which one the graph heard.
+    for (key, delta) in [("[", -1isize), ("]", 1isize)] {
+        keys.push(KeyBinding::new(key, GraphLocalStep(delta), Some(graph)));
+    }
+    // `\` widens all the way out: the local view off, the whole vault back on screen.
+    keys.push(KeyBinding::new("\\", GraphLocal(Some(0)), Some(graph)));
     // The arrows move the view, and their shift forms move it three times as far, which
     // is the spec's "`Shift` = 3× speed".
     for (key, dx, dy) in [

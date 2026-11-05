@@ -189,6 +189,16 @@ impl Workspace {
             // The one tab command with an argument. Typed 1-based, like every number
             // in vim's command line.
             ex::Ex::TabMove(to) => self.move_tab(to - 1, cx),
+            // `:graph-local [n]` / `:graph-global`. `Some(0)` is the whole vault: the
+            // command line spells zero the way the strip's chip does by clicking it off.
+            ex::Ex::GraphLocal(depth) => match depth {
+                // `0` and `:graph-global` are the whole vault; a bare `:graph-local` is
+                // the default depth, not a toggle, because the command line is a
+                // statement of what the user wants rather than a shrug.
+                Some(0) => self.graph_local_synced(None, cx),
+                Some(n) => self.graph_local_synced(Some(n), cx),
+                None => self.graph_local_synced(Some(crate::graph::DEFAULT_LOCAL_DEPTH), cx),
+            },
             ex::Ex::Unknown(word) => self.say(format!("unknown command: {word}"), cx),
             // Every one of these carries no argument, so `no_arg_command` above
             // already dispatched it as an action.
