@@ -84,14 +84,21 @@ impl Cam3 {
         }
     }
 
-    /// Orbit: drag rotates the world. `dx` is screen px (yaw), `dy` screen
-    /// px (pitch). A full drag across a ~1000 px pane turns the world about
-    /// 80° — enough that a single sweep reads the third axis, not so much
-    /// that one flick loses the picture. (Measured against the first cut at
-    /// 0.006 rad/px, which the user called unusable: with the eye outside the
-    /// cloud, that rate whips the near nodes off screen.)
+    /// Orbit: drag **grabs the world and turns it with the pointer** — drag right
+    /// and the face of the globe you are holding travels right, the way a globe
+    /// under your finger behaves. `dx`/`dy` are screen px.
+    ///
+    /// The yaw is negated and the pitch is not, which is not an inconsistency in
+    /// the math but the screen's y axis pointing the other way: a positive pitch
+    /// already carries the front of the world *down* the screen, which is what a
+    /// downward drag asks for. Pinned by `a_drag_turns_the_world_with_the_pointer`
+    /// rather than left to the sign, because the sign is exactly the thing a
+    /// reader cannot check without running it.
+    ///
+    /// The rate is 0.0025 rad/px: a sweep across a ~1000 px pane turns the world
+    /// about 80°. The first cut at 0.006 was called unusable on a live window.
     pub fn orbit_by(&mut self, dx: f32, dy: f32) {
-        self.yaw += dx * ORBIT_RAD_PER_PX;
+        self.yaw -= dx * ORBIT_RAD_PER_PX;
         self.pitch = (self.pitch + dy * ORBIT_RAD_PER_PX).clamp(-PITCH_LIMIT, PITCH_LIMIT);
     }
 
@@ -440,6 +447,34 @@ mod tests {
                 "radius {radius}: a node sits at the near clamp"
             );
         }
+    }
+
+    /// Grab-and-turn: the node facing the camera must follow the pointer, not
+    /// slide against it. Both axes, because the two signs come from different
+    /// places (see [`Cam3::orbit_by`]) and only a test keeps them honest.
+    #[test]
+    fn a_drag_turns_the_world_with_the_pointer() {
+        let front = [[0.0f32, 0.0, 900.0]];
+        let at = |yaw: f32, pitch: f32, dx: f32, dy: f32| {
+            let mut cam = Cam3 {
+                yaw,
+                pitch,
+                ..Cam3::new()
+            };
+            let before = cam.project(front[0]);
+            cam.orbit_by(dx, dy);
+            let after = cam.project(front[0]);
+            (after.xy[0] - before.xy[0], after.xy[1] - before.xy[1])
+        };
+
+        let (dx, dy) = at(0.0, 0.0, 120.0, 0.0);
+        assert!(dx > 0.0, "dragging right moved the front node {dx} px — against the pointer");
+        let (dx, dy) = at(0.0, 0.0, 0.0, 120.0);
+        assert!(dy > 0.0, "dragging down moved the front node {dy} px — against the pointer");
+        // And the other way round, so the test is about the direction rather than
+        // one lucky sign.
+        let (dx, _) = at(0.0, 0.0, -120.0, 0.0);
+        assert!(dx < 0.0, "dragging left moved the front node {dx} px");
     }
 
     /// The dolly is the way out of a close view, so its clamps are the difference

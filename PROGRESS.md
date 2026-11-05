@@ -767,3 +767,38 @@ screen scale does not, and 24 notches cannot cross into the cloud). app 449 / co
 stress fixtures too conservatively (its radius is set by the longest spike, so the
 dense core reads small) — needs the next live pass. If it does, the refinement is a
 percentile radius with a hard floor at the true maximum, not a different constant.
+
+### The second live pass: two gesture rulings, and one that was working
+
+The mode is visible now, and the report was specific rather than vibes.
+
+**"Switching views does cause the graph to relayout and move around slightly, but
+it's less than initial open."** That is the design working, and the user's eye is
+calibrated enough to measure it: `SWITCH_HEAT = 0.5` is deliberately between
+`REHEAT = 0.3` (a shape change — a nudge, because nothing about the picture's
+meaning changed) and full heat (a fresh vault). A flat layout has no third axis to
+reveal, so turning the graph has to spend *some* energy to open one; anything less
+and the two spaces would be the same picture seen twice.
+
+**"The zoom acts weird kinda like a fisheye."** Correct, and it was my gesture
+choice, not the geometry. The dolly was on the **bare** wheel, so every notch
+changed the perspective factor along with the size: the near nodes grew faster than
+the far ones, which the eye reads as the picture bulging rather than as the camera
+moving. Ruled: **the wheel means magnify in both spaces** (anchored at the cursor,
+same as the flat view — a gesture that changes meaning when the mode changes is a
+gesture that has to be relearned), and the travel moves to **`ctrl` + wheel**, where
+changing the depth of the perspective is the thing the user asked for. `+`/`-`
+magnify in both spaces too. Pinned by the rewritten
+`the_projected_wheel_magnifies_and_ctrl_travels`: the bare wheel moves the scale and
+not the eye, `ctrl` moves the eye and not the scale, and 24 notches of travel still
+cannot cross into the cloud.
+
+**"Can we reverse the left mouse drag rotation directions? It's backwards from what
+I expect."** Done: an orbit is **grab-and-turn** — drag right and the face of the
+world you are holding travels right. Only the yaw needed flipping, because screen y
+already points the other way and the pitch was right by accident of that; the new
+core test `a_drag_turns_the_world_with_the_pointer` pins both axes by watching where
+the node facing the camera actually goes on screen, since a sign in a rotation
+function is precisely the thing nobody can check by reading it.
+
+app 449 / core 460.

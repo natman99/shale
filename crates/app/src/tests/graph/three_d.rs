@@ -412,23 +412,29 @@ fn eye(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> Option<f
 }
 
 /// The wheel, in lines — the same synthesized event the flat view's tests use.
-fn wheel(cx: &mut VisualTestContext, at: gpui::Point<gpui::Pixels>, lines: f32) {
+fn wheel(
+    cx: &mut VisualTestContext,
+    at: gpui::Point<gpui::Pixels>,
+    lines: f32,
+    modifiers: gpui::Modifiers,
+) {
     cx.simulate_event(gpui::ScrollWheelEvent {
         position: at,
         delta: gpui::ScrollDelta::Lines(gpui::point(0.0, lines)),
-        modifiers: gpui::Modifiers::default(),
+        modifiers,
         touch_phase: gpui::TouchPhase::Moved,
     });
 }
 
-/// The wheel in the projected space **travels** rather than magnifies: the eye moves
-/// along the view axis and the screen scale stays where the fit put it. The first cut
-/// magnified instead, which compounds with the perspective factor and cannot get a
-/// user out of a close view — the complaint that made the mode unusable on a live
-/// window. And the travel is bounded by the cloud's own radius, so "zoom in" can
-/// never become "be inside it".
+/// The bare wheel magnifies in **both** spaces — one gesture, one meaning, so a user
+/// does not relearn the wheel every time they press `3` — and the projected space's
+/// travel lives on `ctrl`: the eye moves along the view axis, the screen scale does
+/// not, and the travel is bounded by the cloud's radius so "zoom in" can never become
+/// "be inside it". (The bare wheel dollied in the first live cut; the user's word for
+/// how that felt was "fisheye" — perspective changing under a zoom reads as
+/// distortion, not as travel.)
 #[gpui::test]
-fn the_wheel_travels_in_the_projected_space(cx: &mut TestAppContext) {
+fn the_projected_wheel_magnifies_and_ctrl_travels(cx: &mut TestAppContext) {
     let (_dir, window, mut cx) = linked_vault(cx);
     cx.simulate_keystrokes("space g");
     turn_to_3d(&window, &mut cx);
@@ -436,19 +442,36 @@ fn the_wheel_travels_in_the_projected_space(cx: &mut TestAppContext) {
     let [x, y, w, h] = box_of(&window, &mut cx);
     let at = gpui::point(gpui::px(x + w / 2.0), gpui::px(y + h / 2.0));
     let fitted = eye(&window, &mut cx).expect("the canvas framed the graph");
-    // The fit sits the eye at `FIT_DIST` times the cloud's radius, so that product is
-    // the radius the dolly clamps against.
-    let radius = fitted / FIT_DIST;
+    let zoom0 = angle(&window, &mut cx).3;
 
-    wheel(&mut cx, at, 1.0);
+    wheel(&mut cx, at, 1.0, gpui::Modifiers::default());
+    assert_eq!(
+        eye(&window, &mut cx),
+        Some(fitted),
+        "the bare wheel left the eye where the fit put it"
+    );
+    assert!(
+        angle(&window, &mut cx).3 > zoom0,
+        "and magnified the picture: {zoom0} -> {}",
+        angle(&window, &mut cx).3
+    );
+
+    let ctrl = gpui::Modifiers {
+        control: true,
+        ..Default::default()
+    };
+    wheel(&mut cx, at, 1.0, ctrl);
     let nearer = eye(&window, &mut cx).expect("the camera is still there");
     assert!(
         nearer < fitted,
-        "a wheel up travels the eye in: {fitted} -> {nearer}"
+        "ctrl + wheel up travels the eye in: {fitted} -> {nearer}"
     );
 
+    // The fit sits the eye at `FIT_DIST` times the cloud's radius, so that product is
+    // the radius the dolly clamps against.
+    let radius = fitted / FIT_DIST;
     for _ in 0..24 {
-        wheel(&mut cx, at, 1.0);
+        wheel(&mut cx, at, 1.0, ctrl);
     }
     let bounded = eye(&window, &mut cx).expect("the camera is still there");
     assert!(

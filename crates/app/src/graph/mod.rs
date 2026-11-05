@@ -586,7 +586,15 @@ impl GraphView {
     }
 
     /// The wheel: zoom anchored at the cursor, which is the one zoom that does not make
-    /// the thing being looked for leave the screen.
+    /// the thing being looked for leave the screen — in **both** spaces, because a
+    /// gesture that means one thing in the flat view and another thing three axes over
+    /// is a gesture the user has to relearn every time they press `3`.
+    ///
+    /// `ctrl` + wheel is the projected space's **dolly**: it moves the eye along the
+    /// view axis instead of magnifying the picture, which deepens or flattens the
+    /// perspective. Kept off the bare wheel on purpose — the user's word for what the
+    /// dolly felt like was "fisheye", because perspective changing under a zoom is a
+    /// movement the eye reads as distortion rather than as travel.
     fn canvas_wheel(
         &mut self,
         event: &ScrollWheelEvent,
@@ -616,17 +624,19 @@ impl GraphView {
                 self.camera = Some(camera);
             }
             Dim::Three => {
-                // In the projected space the wheel **dollies the eye** rather than
-                // scaling the picture. Screen scale cannot get you out of a cloud you
-                // are standing inside — it only magnifies what is already in your face,
-                // and it compounds with the perspective factor until the view is
-                // unusable. Travel is bounded by the cloud's own radius, so the eye can
-                // never cross into it either. The factor is inverted because moving the
-                // eye *closer* is what scrolling up means.
                 let Some(mut camera) = self.camera3() else {
                     return;
                 };
-                camera.dolly_by(self.cloud, 1.0 / factor);
+                if event.modifiers.control {
+                    // Travel, bounded by the cloud's own radius, so the eye can never
+                    // cross into it. Inverted because moving the eye *closer* is what
+                    // scrolling up means.
+                    camera.dolly_by(self.cloud, 1.0 / factor);
+                } else {
+                    // core's 3D zoom anchors on the **projected** point, so the node
+                    // under the cursor is the one that stays under it, at its own depth.
+                    camera.zoom_at(anchor, factor);
+                }
                 self.cam3 = Some(camera);
             }
         }
@@ -648,12 +658,12 @@ impl GraphView {
                 self.camera = Some(camera);
             }
             Dim::Three => {
-                // The same travel as the wheel, because in this space "zoom" is travel
-                // and nothing else — the dolly has no anchor to aim.
+                // Magnify, like the flat view: the keyboard has no cursor to anchor at,
+                // so the canvas center stands in for it.
                 let Some(mut camera) = self.camera3() else {
                     return;
                 };
-                camera.dolly_by(self.cloud, 1.0 / action.0);
+                camera.zoom_at(center, action.0);
                 self.cam3 = Some(camera);
             }
         }
