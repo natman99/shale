@@ -526,6 +526,39 @@ pub(crate) fn label_slots(
     chosen
 }
 
+/// How much breathing room two labels must have between them, in screen px.
+const LABEL_PAD: f32 = 3.0;
+
+/// The labels already placed this frame, as screen boxes.
+///
+/// The cap is a ceiling, not the mechanism: in a bunched cloud every eligible node sits
+/// in the same band, so a budget of 120 names 120 overlapping words and the picture
+/// reads as texture. What actually keeps a graph readable is **naming what fits** — a
+/// candidate is drawn only if its box clears every box already taken. Highest degree
+/// still goes first (and the hover before all of them), so the names that survive are
+/// the ones a person would have chosen anyway, and the ones that go were going to be
+/// unreadable regardless.
+#[derive(Default)]
+struct Placed {
+    boxes: Vec<[f32; 4]>,
+}
+
+impl Placed {
+    /// Whether `candidate` (x0, y0, x1, y1) clears everything taken, by [`LABEL_PAD`].
+    fn fits(&self, candidate: [f32; 4]) -> bool {
+        self.boxes.iter().all(|taken| {
+            candidate[2] + LABEL_PAD <= taken[0]
+                || taken[2] + LABEL_PAD <= candidate[0]
+                || candidate[3] + LABEL_PAD <= taken[1]
+                || taken[3] + LABEL_PAD <= candidate[1]
+        })
+    }
+
+    fn add(&mut self, candidate: [f32; 4]) {
+        self.boxes.push(candidate);
+    }
+}
+
 fn paint_labels3d(
     frame: &GraphFrame,
     projection: &Projection,
@@ -536,9 +569,16 @@ fn paint_labels3d(
     window: &mut Window,
     cx: &mut App,
 ) {
-    let chosen = label_slots(frame, projection, bounds, hover);
+    let mut chosen = label_slots(frame, projection, bounds, hover);
+    // The hovered label is placed **first**, so it keeps its space rather than being
+    // skipped because a hub happened to be measured before it.
+    if let Some(hovered) = hover {
+        chosen.retain(|slot| *slot != hovered);
+        chosen.insert(0, hovered);
+    }
     let label_size = px(labels.size * LABEL_SCALE);
     let text_system = window.text_system().clone();
+    let mut placed = Placed::default();
     for slot in chosen {
         let Some(node) = frame.nodes.get(slot) else {
             continue;
@@ -554,6 +594,16 @@ fn paint_labels3d(
             px(center[0] - shaped.width.as_f32() / 2.0),
             px(center[1] + r + labels.size),
         );
+        let box_ = [
+            origin.x.as_f32(),
+            origin.y.as_f32(),
+            origin.x.as_f32() + shaped.width.as_f32(),
+            origin.y.as_f32() + labels.size,
+        ];
+        if !placed.fits(box_) {
+            continue;
+        }
+        placed.add(box_);
         if let Err(err) = shaped.paint(origin, px(labels.size), gpui::TextAlign::Left, None, window, cx)
         {
             tracing::warn!("a graph label could not be painted: {err:#}");
@@ -654,6 +704,32 @@ mod tests {
             chosen.len(),
             LABEL_CAP_3D + 1,
             "the hover joins the budget rather than replacing someone in it"
+        );
+    }
+
+    /// The cap is a ceiling, not the mechanism: in a bunched cloud every eligible node
+    /// sits in the same band, so the budget names a pile of overlapping words. What
+    /// keeps the picture readable is naming what *fits*.
+    #[test]
+    fn a_label_that_would_land_on_another_is_skipped() {
+        let mut placed = Placed::default();
+        assert!(placed.fits([0.0, 0.0, 60.0, 12.0]), "an empty canvas takes anything");
+        placed.add([0.0, 0.0, 60.0, 12.0]);
+        assert!(
+            !placed.fits([10.0, 2.0, 70.0, 14.0]),
+            "a label landing on one already drawn is skipped"
+        );
+        assert!(
+            placed.fits([70.0, 0.0, 130.0, 12.0]),
+            "the same box moved clear of it is drawn"
+        );
+        assert!(
+            !placed.fits([62.0, 0.0, 122.0, 12.0]),
+            "and the gap has to clear the padding, not just touch"
+        );
+        assert!(
+            placed.fits([0.0, 40.0, 60.0, 52.0]),
+            "below it, clear vertically, is a different line of text"
         );
     }
 

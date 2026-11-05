@@ -832,3 +832,11 @@ now by `label_slots_respects_the_cap`, `the_hovered_node_is_always_named` and
 "Label rules" block under Graph View.
 
 app 452 / core 460.
+
+**Follow-up from the live picture: the cap was the wrong mechanism.** 120 labels in a
+bunched cloud is still 120 overlapping words — every eligible node sits in the same
+band. Placement is now collision-aware: a label is drawn only if its screen box clears
+every label already placed (by 3 px), highest degree first, and the hover placed before
+all of them so it keeps its space. The cap stays as a ceiling. 3D only for now; moving
+the flat view is a measured decision, since its label phase is inside the "2D numbers
+must not move" gate. app 453 / core 460.
