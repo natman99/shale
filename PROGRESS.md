@@ -868,3 +868,8 @@ something actually moves into a name's space, not every tick. Pinned by
 user's to confirm.
 
 app 455 / core 460.
+
+**Re-bench after the label and switch changes** (5k, projected): whole-vault 3.73 ms,
+still-camera 3.51 ms — the same band as the 3.36–3.71 recorded when 3D landed, so
+collision culling and the hysteresis memory cost nothing measurable. The flat view was
+untouched by all of it.
