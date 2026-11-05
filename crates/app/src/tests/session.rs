@@ -97,6 +97,11 @@ fn a_session_reopens_the_vault_where_the_user_left_it(cx: &mut TestAppContext) {
         // and restoring one must still land on that note.
         tabs: vec![],
         active_tab: None,
+        // No `panes` and no `layout`: the shape a window wrote before it could split,
+        // which is one pane holding these tabs.
+        panes: vec![],
+        layout: None,
+        active_pane: None,
         graph_filter: None,
     };
     let (_dir, window) = vault_with_session(

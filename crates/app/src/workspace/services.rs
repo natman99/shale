@@ -136,10 +136,6 @@ impl VaultServices {
         self.windows.push(workspace.downgrade());
     }
 
-    /// The session bookkeeping, kept here rather than per window so two
-    /// windows on one vault each own a slot of the file and neither writes
-    /// over the other's room.
-
     /// Claim the lowest session slot no live window is holding.
     pub(crate) fn claim_slot(&mut self) -> usize {
         let mut ix = 0;

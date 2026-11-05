@@ -169,6 +169,9 @@ actions!(
         WindowUp,
         WindowDown,
         WindowEqualize,
+        // Resizing the pane in hand within the split it sits in (`ctrl-w >`/`<`).
+        WindowGrow,
+        WindowShrink,
         // The tabs (roadmap P3.1). Tab pages live outside the `ctrl-w` prefix, which
         // is reserved for the window commands a split view will want: these are
         // `g t`/`g T` in the note, `:tabnext`/`:tabprev`/`:tabclose`/`:tabonly` on the

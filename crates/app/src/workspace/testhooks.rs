@@ -290,6 +290,13 @@ impl Workspace {
             },
         }
     }
+    /// Where every pane actually sits, as fractions of the editing area: what a
+    /// resize is supposed to change, and the honest way for a test to see it.
+    #[cfg(test)]
+    pub(crate) fn pane_rects(&self) -> Vec<(usize, f32, f32, f32, f32)> {
+        self.layout.rects()
+    }
+
     /// Whether the tab on screen is the graph.
     #[cfg(test)]
     pub(crate) fn showing_graph(&self) -> bool {

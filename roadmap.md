@@ -32,8 +32,9 @@ harper-ls with the popup + code actions, image embeds, MCP stdio server
 **Where the phases stand** (refreshed 2026-11-04, replacing the 2026-10-28
 list that still called tabs and the graph unbuilt): **Phases 0, 1 and 2 are
 closed** — the one Phase 2 remainder is **P2.5b**, the inline review overlay.
-**Phase 3:** P3.1 tabs done; P3.2 splits landed (a + b) with pane resize,
-move/exchange/rotate, the pane-tree half of the session and `:pin` still open;
+**Phase 3:** P3.1 tabs done; P3.2 splits landed (a + b), and 2026-11-05 closed the
+session's pane-tree half and pane resize (`ctrl-w >`/`<`) — move/exchange/rotate and
+`:pin` are what is left of P3.2;
 P3.3/P3.4 graph M1a + M1b done and measured (a whole 5k-note frame paints in
 2.3–2.6 ms at whole-vault zoom, the sim beat self-stops, idle CPU ~1%). The
 multi-window arc landed since: `VaultServices` (one index, watcher, backup loop
@@ -751,9 +752,18 @@ into the Phase 3 addendum. **P2.5a landed 2026-11-01, so Phase 2 is closed**
   per **window** (a second `space g` focuses the pane showing it); a note open
   in another pane is found, not duplicated; exits, renames and theme changes
   sweep every pane. `:split/:vsplit/:close/:only` on the command line, palette
-  rows for the two split shapes. **Still open for P3.2:** pane resize (`>`/`<`),
-  move/exchange/rotate (`H/J/K/L`, `x/X`, `r`), the session's pane-tree half of
-  P1.8 (a split window currently restores as one pane), and `:pin`.
+  rows for the two split shapes.
+  **Landed 2026-11-05 (P3.2c):** the session file keeps the tree and every pane's
+  tabs — `panes` (a `PaneSeat` per leaf, in tree order), `layout` (`leaf` /
+  `split{dir,frac,kids}`) and `active_pane` — so a split window comes back split,
+  with each note in the pane that held it, that pane's own active tab, and the
+  divider where the user left it. A file from before this reads as one pane
+  (`Session::pane_seats` is the single reader), and a tree that does not describe
+  the panes it ships with is a log line and one pane holding all the tabs, not a
+  panic. `ctrl-w >`/`<` (also `+`/`-`) give the pane in hand more or less of the
+  split it sits **directly** in — relative fractions, 0.25 of an equal share per
+  press, floored at 0.2 so a pane cannot be squeezed out of existence.
+  **Still open for P3.2:** move/exchange/rotate (`H/J/K/L`, `x/X`, `r`) and `:pin`.
 - **P3.3 Graph M1a — start immediately, in parallel with P0/P1.** No
   dependencies: `crates/core/src/graph/{index,sim,quadtree,filter}.rs` +
   petgraph. See `graph-view-plan.md` Tasks 1–4.

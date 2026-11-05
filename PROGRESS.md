@@ -1205,3 +1205,49 @@ Not done, deliberately: the created note is **empty** (same as `:new` — no tit
 template), and `[[note#heading]]` still lands at the top, because the resolver takes a raw target
 with no alias and no anchor. Both belong with P4.6 (link health, heading anchors), which is where
 the graph's tracked-link data pays off properly. app 465 / core 471.
+
+
+## The window's shape survives a restart; `ctrl-w >`/`<` move the divider (2026-11-05)
+
+Two open P3.2 items, one arc. A split window used to restore as **one pane** — and the
+tree was not the only loss: the other panes' tabs went with it, because `capture_session`
+asked `tab_state` for the *active* pane and nothing else.
+
+**The file.** `Session` gained `panes: Vec<PaneSeat>` (one per leaf, in tree order: its
+tabs, and which of them had the keyboard), `layout: Option<LayoutSeat>` (`leaf` /
+`split{dir,frac,kids}`) and `active_pane`. The leaves carry no payload — the leaves *are*
+the `panes` list, counted left-to-right, top-to-bottom, which is the order the window
+paints them. `tabs`/`active_tab` stay and now mean "the pane with the keyboard's", which
+is what they always were. `Session::pane_seats()` is the single reader: a file with no
+`panes` answers as exactly one pane, so the old shape and the new one are one case in the
+restore rather than two.
+
+**The tree.** `Node::seat()` and `Node::from_seat(seat, leaves)` live in `panes.rs`: the
+tree type converts to and from its own seat, so the geometry owns its own format.
+`from_seat` answers `None` for a shape that does not describe exactly `leaves` panes, a
+direction that is not `row`/`column`, or a kid given no space. A session file is plain
+text a person can edit; a window that cannot make sense of the shape keeps the one pane it
+opened with, puts every tab in it, and says so in the log — it does not paint nonsense and
+does not index a pane that is not there.
+
+**The restore** walks the panes in tree order, setting `active_pane` as it goes, because
+every door it uses (`add_tab`, `load_note`, `open_graph`) works on the pane that has the
+keyboard. The per-pane cleanup — drop tabs whose notes were deleted, keep at least one
+tab, restore that pane's *own* active tab — runs per pane. The cursor and scroll seat is
+still one seat: the pane with the keyboard's. The tab body moved into `restore_tab`, which
+is now also where the graph tab's camera, mode and orientation come back.
+
+**Resize.** `ctrl-w >`/`<` (and `+`/`-`, the same moves for a hand on the letter row) call
+`Node::resize(leaf, delta)`, which finds the split the pane sits **directly** in: in a
+stack inside a row, growing the bottom pane makes it taller, not wider. Fractions are
+relative, so the pane takes `+0.25` of an equal share per press and the others keep their
+numbers and take proportionally less. `MIN_FRAC = 0.2`: a pane may be squeezed to a sliver
+but not out of existence, because a pane you cannot see is a pane you cannot hand the
+keyboard back to. Keys only, no `:` row — `ctrl-w =` (equalize) is keys-only too.
+
+Nine app tests (both halves of the fraction round-trip, the split restore with each note in
+its pane and its own active tab, a nonsense tree dropped rather than trusted, the
+nearest-split rule, a one-pane window refusing, the floor holding under 40 presses) and one
+core test (a flat file reads as one pane), plus the round-trip extended to a 2:1 split.
+Mutation-checked twice: not rebuilding the tree fails the restore test; refusing to recurse
+fails the nearest-split test. app 480 / core 466.

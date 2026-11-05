@@ -91,6 +91,34 @@ pub struct Orientation {
     pub pitch: f32,
 }
 
+/// One pane's tabs, as the session file keeps them (roadmap P3.2).
+///
+/// A pane is a leaf of the window's tiling tree, and it holds its own tab strip: the
+/// window's tabs are its panes' tabs, in tree order.
+#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PaneSeat {
+    pub tabs: Vec<Tab>,
+    pub active_tab: Option<usize>,
+}
+
+/// The shape of a window's tiling tree, as the session file keeps it.
+///
+/// A leaf carries nothing: the leaves *are* [`Session::panes`], counted in the same
+/// left-to-right, top-to-bottom order the window paints them. A split says which way
+/// it divides (`row` side by side, `column` stacked), how much of the space each kid
+/// was given, and what the kids are.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum LayoutSeat {
+    Leaf,
+    Split {
+        dir: String,
+        frac: Vec<f32>,
+        kids: Vec<LayoutSeat>,
+    },
+}
+
 /// The graph tab's camera, as the session remembers it.
 ///
 /// Three numbers, and no attempt at precision: `f32` is what the camera itself is
@@ -210,6 +238,16 @@ pub struct Session {
     /// Which of [`Session::tabs`] had the keyboard. Out of range is clamped at
     /// restore, because a tab closed since the file was written is not an error.
     pub active_tab: Option<usize>,
+    /// Every pane's tabs, in tree order — the general form of `tabs`/`active_tab`,
+    /// which describe only the pane that had the keyboard. Empty means the file
+    /// predates panes, and `tabs` is that one pane's worth, which is what it always
+    /// was; [`Session::pane_seats`] is how readers avoid the difference.
+    pub panes: Vec<PaneSeat>,
+    /// The tree those panes sit in. `None` is a single pane, which is also what a
+    /// file with no `panes` restores to.
+    pub layout: Option<LayoutSeat>,
+    /// Which pane had the keyboard, counted in the same tree order as `panes`.
+    pub active_pane: Option<usize>,
     /// The window's frame: size, position, maximized. `None` is "no opinion"
     /// and the platform places the window. Saved per window slot, since two
     /// windows on one vault sit in different places.
@@ -265,6 +303,19 @@ impl Sessions {
 }
 
 impl Session {
+    /// The panes this session describes, whether the file wrote them as panes or as
+    /// one flat list of tabs. Readers go through this so the old shape and the new one
+    /// are one case, not two.
+    pub fn pane_seats(&self) -> Vec<PaneSeat> {
+        if !self.panes.is_empty() {
+            return self.panes.clone();
+        }
+        vec![PaneSeat {
+            tabs: self.tabs.clone(),
+            active_tab: self.active_tab,
+        }]
+    }
+
     /// Read the session for `vault_root`. A vault with no session file is the
     /// normal case, not an error: it answers [`Session::default`] — nothing to
     /// restore. A file that exists but does not parse is an error, so the
@@ -335,6 +386,50 @@ mod tests {
                 },
             ],
             active_tab: Some(1),
+            // A split window: two panes side by side, the right one holding the
+            // keyboard. The `tabs` above are the pane with the keyboard's, so the two
+            // agree on `notes/idea.md` (roadmap P3.2).
+            panes: vec![
+                PaneSeat {
+                    tabs: vec![Tab {
+                        path: Some(PathBuf::from("Welcome.md")),
+                        view: "live".into(),
+                        graph: false,
+                        camera: None,
+                        mode: None,
+                        orientation: None,
+                    }],
+                    active_tab: Some(0),
+                },
+                PaneSeat {
+                    tabs: vec![
+                        Tab {
+                            path: Some(PathBuf::from("Welcome.md")),
+                            view: "live".into(),
+                            graph: false,
+                            camera: None,
+                            mode: None,
+                            orientation: None,
+                        },
+                        Tab {
+                            path: Some(PathBuf::from("notes/idea.md")),
+                            view: "raw".into(),
+                            graph: false,
+                            camera: None,
+                            mode: None,
+                            orientation: None,
+                        },
+                    ],
+                    active_tab: Some(1),
+                },
+            ],
+            layout: Some(LayoutSeat::Split {
+                dir: "row".into(),
+                // Relative, not normalized: this is a 2:1 split.
+                frac: vec![2.0, 1.0],
+                kids: vec![LayoutSeat::Leaf, LayoutSeat::Leaf],
+            }),
+            active_pane: Some(1),
             graph_filter: Some(GraphFilterSeat {
                 orphans: false,
                 existing_only: true,
@@ -351,6 +446,58 @@ mod tests {
         );
         assert_eq!(Session::load(dir.path())?, session);
         Ok(())
+    }
+
+    /// A file written before windows could split holds one flat list of tabs.
+    /// `pane_seats` is how a reader stops caring which shape the file used.
+    #[test]
+    fn a_session_from_before_panes_reads_as_exactly_one_pane() {
+        let flat = Session {
+            tabs: vec![Tab {
+                path: Some(PathBuf::from("a.md")),
+                view: "live".into(),
+                graph: false,
+                camera: None,
+                mode: None,
+                orientation: None,
+            }],
+            active_tab: Some(0),
+            ..Session::default()
+        };
+        let seats = flat.pane_seats();
+        assert_eq!(seats.len(), 1, "one flat list is one pane");
+        assert_eq!(seats[0].tabs, flat.tabs);
+        assert_eq!(seats[0].active_tab, flat.active_tab);
+
+        // And a file that does name its panes answers with exactly those.
+        let split = Session {
+            panes: vec![
+                PaneSeat {
+                    tabs: vec![Tab {
+                        path: Some(PathBuf::from("a.md")),
+                        view: "live".into(),
+                        graph: false,
+                        camera: None,
+                        mode: None,
+                        orientation: None,
+                    }],
+                    active_tab: Some(0),
+                },
+                PaneSeat {
+                    tabs: vec![Tab {
+                        path: Some(PathBuf::from("b.md")),
+                        view: "raw".into(),
+                        graph: false,
+                        camera: None,
+                        mode: None,
+                        orientation: None,
+                    }],
+                    active_tab: Some(0),
+                },
+            ],
+            ..Session::default()
+        };
+        assert_eq!(split.pane_seats(), split.panes);
     }
 
     #[test]

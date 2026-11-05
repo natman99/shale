@@ -19,12 +19,33 @@
 
 use gpui::Context;
 use shale_core::graph::filter::GraphFilter;
-use shale_core::session::{GraphFilterSeat, Jump as CoreJump, Tab as CoreTab};
+use shale_core::session::{
+    GraphFilterSeat, Jump as CoreJump, PaneSeat as CorePaneSeat, Tab as CoreTab,
+};
 use shale_core::Session;
 
 use super::Workspace;
 use crate::dim;
 use crate::editor::View;
+
+/// A pane's tabs in the shape the session file keeps them: a tab that names no note
+/// and is not the graph is an empty tab, and an empty tab is nothing worth
+/// remembering — which is also why a one-tab window and an empty one look the same in
+/// the file.
+fn tab_seats(state: Vec<super::tabs::TabState>) -> Vec<CoreTab> {
+    state
+        .into_iter()
+        .filter(|tab| tab.path.is_some() || tab.graph)
+        .map(|tab| CoreTab {
+            path: tab.path,
+            view: tab.view,
+            graph: tab.graph,
+            camera: tab.camera,
+            mode: tab.mode,
+            orientation: tab.orientation,
+        })
+        .collect()
+}
 
 /// The window's graph filter as a session seat, or `None` while it is the default.
 ///
@@ -77,19 +98,7 @@ impl Workspace {
         // file full of nulls is noise. One empty tab means "the window had nothing
         // open", which `open_note: None` already says. The graph tab is worth
         // restoring even with no path, because the graph is the thing that was open.
-        let tabs = self
-            .tab_state(cx)
-            .into_iter()
-            .filter(|tab| tab.path.is_some() || tab.graph)
-            .map(|tab| CoreTab {
-                path: tab.path,
-                view: tab.view,
-                graph: tab.graph,
-                camera: tab.camera,
-                mode: tab.mode,
-                orientation: tab.orientation,
-            })
-            .collect();
+        let tabs = tab_seats(self.tab_state(cx));
         Session {
             open_note: self.note(),
             cursor: seat.as_ref().map(|seat| seat.0),
@@ -116,6 +125,19 @@ impl Workspace {
                 .collect(),
             tabs,
             active_tab: Some(self.pane().active),
+            // Every pane's tabs, in tree order, and the tree itself (roadmap P3.2):
+            // the two `tabs` fields above describe the pane that has the keyboard, and
+            // a window with a split would otherwise forget the other panes entirely.
+            panes: self
+                .panes
+                .iter()
+                .map(|pane| CorePaneSeat {
+                    tabs: tab_seats(pane.tab_state(cx)),
+                    active_tab: Some(pane.active),
+                })
+                .collect(),
+            layout: Some(self.layout.seat()),
+            active_pane: Some(self.active_pane),
             graph_filter: filter_seat(&self.graph_filter),
             // The frame goes in at save time, from the bounds render keeps
             // current — capture is about the room, not the window around it.
@@ -153,6 +175,66 @@ impl Workspace {
         }
     }
 
+    /// One tab of a restored session, in whichever pane currently has the keyboard.
+    ///
+    /// Each tab comes through the same door an interactive open uses (`:graph`,
+    /// `ctrl-t`), so a restored tab is wired up exactly as a new one would be.
+    fn restore_tab(&mut self, tab: &CoreTab, cx: &mut Context<Self>) {
+        if tab.graph {
+            // The graph tab comes through the same door `:graph` uses, so its index is
+            // built exactly as an interactive open would build it — and the
+            // one-per-window rule means a file that somehow names two graph tabs
+            // restores one.
+            self.open_graph(cx);
+            // The space first: the sim has to be running in it before the tab's first
+            // frame, so the graph opens three-dimensional rather than flat for one
+            // frame and turned on the next (roadmap P3.6).
+            if let Some(mode) = tab.mode.as_deref() {
+                self.graph_restore_mode(
+                    if mode == "3d" {
+                        crate::graph::Dim::Three
+                    } else {
+                        crate::graph::Dim::Two
+                    },
+                    cx,
+                );
+            }
+            // Where the user had left the view. Set before anything is painted, so the
+            // first frame uses their camera rather than a fresh fit that the next frame
+            // would have to undo.
+            if let (Some(seat), Some(view)) = (tab.camera, self.graph_view().cloned()) {
+                view.update(cx, |view, _cx| {
+                    view.set_camera(Some(shale_core::graph::geom::Camera::new(
+                        seat.pan, seat.zoom,
+                    )))
+                });
+            }
+            // The projected view's angle, and only its angle: the framing comes back
+            // from the layout rather than from the file, which is what keeps a restored
+            // 3D view from opening on a screenful of nothing.
+            if let (Some(angle), Some(view)) = (tab.orientation, self.graph_view().cloned()) {
+                view.update(cx, |view, _cx| {
+                    view.set_orientation(Some((angle.yaw, angle.pitch)))
+                });
+            }
+            return;
+        }
+        let Some(path) = tab.path.as_ref() else {
+            return;
+        };
+        self.add_tab(cx);
+        if self.vault.exists(path) {
+            self.load_note(path, cx);
+            // Each tab keeps the view it was in: one note left in raw mode to read
+            // another in preview is the point of the per-tab editor.
+            if let Some(editor) = self.editor().cloned() {
+                editor.update(cx, |editor, cx| {
+                    editor.set_view(View::from_word(&tab.view), cx)
+                });
+            }
+        }
+    }
+
     /// Put the window back the way the window that stood in this slot left
     /// it, if the session file says how. Called once from
     /// [`Workspace::from_services`], after the slot is claimed.
@@ -173,7 +255,7 @@ impl Workspace {
             return;
         }
 
-        self.expanded = session.expanded.into_iter().collect();
+        self.expanded = session.expanded.iter().cloned().collect();
 
         // The tree, before any frame is drawn: a window that opens with its sidebar
         // away should never have had one painted first to move it out of the way.
@@ -198,87 +280,65 @@ impl Workspace {
             };
         }
 
-        // The tabs, left to right (roadmap P3.1). A session file written before tabs
-        // have none, and the `open_note` branch below is that case — which is also
-        // what a one-tab session writes today, so the two agree.
-        let had_tabs = !session.tabs.is_empty();
+        // The panes before the tabs: every tab goes to the pane that held it, so the
+        // tree has to exist first (roadmap P3.2). A file with no `panes` describes one
+        // pane, which is what the window already is.
+        let seats = session.pane_seats();
+        if seats.len() > 1 {
+            match session
+                .layout
+                .as_ref()
+                .and_then(|layout| super::panes::Node::from_seat(layout, seats.len()))
+            {
+                Some(node) => {
+                    self.layout = node;
+                    self.panes = (0..seats.len())
+                        .map(|_| super::tabs::Pane::new(Vec::new()))
+                        .collect();
+                }
+                None => tracing::warn!(
+                    "the session's pane tree does not describe its {} panes; opening one pane",
+                    seats.len()
+                ),
+            }
+        }
+
+        // The tabs, left to right within each pane (roadmap P3.1). A session file
+        // written before tabs have none, and the `open_note` branch below is that case
+        // — which is also what a one-tab session writes today, so the two agree.
+        let had_tabs = seats.iter().any(|seat| !seat.tabs.is_empty());
         if had_tabs {
-            for tab in session.tabs.iter() {
-                if tab.graph {
-                    // The graph tab comes through the same door `:graph` uses, so its
-                    // index is built exactly as an interactive open would build it —
-                    // and the one-per-window rule means a file that somehow names two
-                    // graph tabs restores one.
-                    self.open_graph(cx);
-                    // The space first: the sim has to be running in it before the tab's
-                    // first frame, so the graph opens three-dimensional rather than flat
-                    // for one frame and turned on the next (roadmap P3.6).
-                    if let Some(mode) = tab.mode.as_deref() {
-                        self.graph_restore_mode(
-                            if mode == "3d" {
-                                crate::graph::Dim::Three
-                            } else {
-                                crate::graph::Dim::Two
-                            },
-                            cx,
-                        );
-                    }
-                    // Where the user had left the view. Set before anything is painted,
-                    // so the first frame uses their camera rather than a fresh fit that
-                    // the next frame would have to undo.
-                    if let (Some(seat), Some(view)) = (tab.camera, self.graph_view().cloned()) {
-                        view.update(cx, |view, _cx| {
-                            view.set_camera(Some(shale_core::graph::geom::Camera::new(
-                                seat.pan, seat.zoom,
-                            )))
-                        });
-                    }
-                    // The projected view's angle, and only its angle: the framing comes
-                    // back from the layout rather than from the file, which is what keeps
-                    // a restored 3D view from opening on a screenful of nothing.
-                    if let (Some(angle), Some(view)) = (tab.orientation, self.graph_view().cloned())
-                    {
-                        view.update(cx, |view, _cx| {
-                            view.set_orientation(Some((angle.yaw, angle.pitch)))
-                        });
-                    }
-                    continue;
+            for (ix, seat) in seats.iter().enumerate() {
+                // Every door below works on the pane that has the keyboard, so the
+                // restore walks the panes in tree order, one at a time. Clamped,
+                // because a file whose tree was dropped has more seats than panes.
+                self.active_pane = ix.min(self.panes.len() - 1);
+                for tab in seat.tabs.iter() {
+                    self.restore_tab(tab, cx);
                 }
-                let Some(path) = tab.path.as_ref() else {
-                    continue;
-                };
-                // Every tab comes through the same door `ctrl-t` uses, so a restored
-                // tab is wired up exactly as a new one would be. The empty tab the
-                // window started with is dropped at the end of this block.
-                self.add_tab(cx);
-                if self.vault.exists(path) {
-                    self.load_note(path, cx);
-                    // Each tab keeps the view it was in: one note left in raw mode to
-                    // read another in preview is the point of the per-tab editor.
-                    if let Some(editor) = self.editor().cloned() {
-                        editor.update(cx, |editor, cx| {
-                            editor.set_view(View::from_word(&tab.view), cx)
-                        });
-                    }
+                // A note deleted since last time is not a session, it is a memory, so
+                // its tab goes — and with it the empty tab the pane started with. Each
+                // pane keeps the at-least-one-tab invariant either way.
+                self.pane_mut()
+                    .tabs
+                    .retain(|tab| tab.path().is_some() || tab.is_graph());
+                if self.pane().tabs.is_empty() {
+                    self.add_tab(cx);
                 }
+                self.pane_mut().active = seat
+                    .active_tab
+                    .unwrap_or(0)
+                    .min(self.pane().tabs.len() - 1);
             }
-            // A note deleted since last time is not a session, it is a memory, so its
-            // tab goes — and with it the empty tab the window started with. The window
-            // keeps the at-least-one-tab invariant either way.
-            self.pane_mut()
-                .tabs
-                .retain(|tab| tab.path().is_some() || tab.is_graph());
-            if self.pane().tabs.is_empty() {
-                self.add_tab(cx);
-            }
-            self.pane_mut().active = session
-                .active_tab
+            self.active_pane = session
+                .active_pane
                 .unwrap_or(0)
-                .min(self.pane().tabs.len() - 1);
+                .min(self.panes.len() - 1);
             self.mark_note_mru(cx);
             // The cursor and scroll belong to the tab that had the keyboard: the
-            // session remembers one seat, the one the user was looking at. With the
-            // graph on screen there is no seat to put back.
+            // session remembers one seat, the one the user was looking at — in the pane
+            // that had the keyboard. With the graph on screen there is no seat to put
+            // back.
             if let Some(offset) = session.cursor {
                 if let Some(editor) = self.editor().cloned() {
                     editor.update(cx, |editor, cx| {

@@ -16,8 +16,19 @@
 //! `[4, 2]`. Equalizing sets them all to 1.
 
 use gpui::{Context, Window};
+use shale_core::session::LayoutSeat;
 
 use crate::workspace::Workspace;
+
+/// How much one press of `ctrl-w >` moves a divider, in the tree's relative fractions.
+/// A quarter of an equal share: visible in one press, small enough to fine-tune with a
+/// few.
+const RESIZE_STEP: f32 = 0.25;
+
+/// How small a pane may be squeezed, in the tree's relative fractions. Below this the
+/// resize refuses: a pane that has been dragged to a sliver is still a pane the user
+/// has to be able to see and select.
+const MIN_FRAC: f32 = 0.2;
 
 /// A split's orientation. `Row` lays children side by side (vim's `:vsplit`,
 /// `ctrl-w v`), `Column` stacks them (vim's `:split`, `ctrl-w s`) — named for
@@ -49,6 +60,108 @@ impl Node {
             Node::Leaf(ix) => Some(*ix),
             Node::Split { kids, .. } => kids.first()?.first_leaf(),
         }
+    }
+
+    /// The tree as the session file keeps it: the same shape, the same fractions, and
+    /// the leaves as leaves (roadmap P3.2). The leaf *indices* are not written — the
+    /// file's `panes` list is the leaves, in this tree's leaf order.
+    pub(crate) fn seat(&self) -> LayoutSeat {
+        match self {
+            Node::Leaf(_) => LayoutSeat::Leaf,
+            Node::Split { dir, kids, frac } => LayoutSeat::Split {
+                dir: match dir {
+                    SplitDir::Row => "row".into(),
+                    SplitDir::Column => "column".into(),
+                },
+                frac: frac.clone(),
+                kids: kids.iter().map(|kid| kid.seat()).collect(),
+            },
+        }
+    }
+
+    /// The tree a session file describes, for a window that is to have `leaves` panes.
+    ///
+    /// `None` when the shape does not describe exactly that many panes, names a
+    /// direction that is not one of the two, or gives a kid no space. A session file is
+    /// plain text a person can edit, and a window that cannot make sense of the shape
+    /// keeps the single pane it opened with rather than painting nonsense.
+    pub(crate) fn from_seat(seat: &LayoutSeat, leaves: usize) -> Option<Node> {
+        let mut next = 0;
+        let node = Node::from_seat_at(seat, leaves, &mut next)?;
+        (next == leaves).then_some(node)
+    }
+
+    fn from_seat_at(seat: &LayoutSeat, leaves: usize, next: &mut usize) -> Option<Node> {
+        match seat {
+            LayoutSeat::Leaf => {
+                if *next >= leaves {
+                    return None;
+                }
+                let ix = *next;
+                *next += 1;
+                Some(Node::Leaf(ix))
+            }
+            LayoutSeat::Split { dir, frac, kids } => {
+                let dir = match dir.as_str() {
+                    "row" => SplitDir::Row,
+                    "column" => SplitDir::Column,
+                    _ => return None,
+                };
+                if kids.is_empty()
+                    || kids.len() != frac.len()
+                    || frac.iter().any(|f| !f.is_finite() || *f <= 0.)
+                {
+                    return None;
+                }
+                let kids = kids
+                    .iter()
+                    .map(|kid| Node::from_seat_at(kid, leaves, next))
+                    .collect::<Option<Vec<_>>>()?;
+                Some(Node::Split {
+                    dir,
+                    kids,
+                    frac: frac.clone(),
+                })
+            }
+        }
+    }
+
+    /// Whether this node's subtree contains the pane `leaf_ix`.
+    fn holds(&self, leaf_ix: usize) -> bool {
+        match self {
+            Node::Leaf(ix) => *ix == leaf_ix,
+            Node::Split { kids, .. } => kids.iter().any(|kid| kid.holds(leaf_ix)),
+        }
+    }
+
+    /// Give the pane in hand a bigger or smaller slice of the split it sits directly
+    /// in (roadmap P3.2's resize half). `delta` is in the tree's relative units, where
+    /// 1.0 is an equal share, so `[1, 1]` plus `0.25` is a 5:4 pair — the other kids
+    /// keep their fractions and take proportionally less.
+    ///
+    /// `false` when there is no split to resize within (a window with one pane), and
+    /// when the move would take the pane below [`MIN_FRAC`]: a pane squeezed to nothing
+    /// is a pane the user cannot get back.
+    pub(crate) fn resize(&mut self, leaf_ix: usize, delta: f32) -> bool {
+        let Node::Split { kids, frac, .. } = self else {
+            return false;
+        };
+        let Some(slot) = kids
+            .iter()
+            .position(|kid| matches!(kid, Node::Leaf(ix) if *ix == leaf_ix))
+        else {
+            // Deeper down: the nearest split the pane sits in is the one that resizes.
+            return kids
+                .iter_mut()
+                .find(|kid| kid.holds(leaf_ix))
+                .is_some_and(|kid| kid.resize(leaf_ix, delta));
+        };
+        let next = frac[slot] + delta;
+        if next < MIN_FRAC {
+            return false;
+        }
+        frac[slot] = next;
+        true
     }
 
     /// Normalized rectangles (0..1 in both axes) for every leaf. Geometry for
@@ -344,6 +457,18 @@ impl Workspace {
         cx.notify();
     }
 
+    /// Give the pane with the keyboard more or less of the space its split offers
+    /// (roadmap P3.2). Answers whether anything moved, so a test — and a caller that
+    /// wants to say something — can tell a window with one pane from a window that just
+    /// moved a divider.
+    pub(crate) fn resize_pane(&mut self, delta: f32, cx: &mut Context<Self>) -> bool {
+        let moved = self.layout.resize(self.active_pane, delta);
+        if moved {
+            cx.notify();
+        }
+        moved
+    }
+
     /// Find a tab holding `path` in *any* pane. Opening a note that is
     /// already open focuses the pane showing it rather than opening a third
     /// copy — which is what a split makes newly important.
@@ -467,6 +592,30 @@ impl Workspace {
             return;
         }
         self.equalize_panes(cx);
+    }
+
+    pub(crate) fn window_grow(
+        &mut self,
+        _: &crate::acts::WindowGrow,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.overlay_owns_keys() {
+            return;
+        }
+        self.resize_pane(RESIZE_STEP, cx);
+    }
+
+    pub(crate) fn window_shrink(
+        &mut self,
+        _: &crate::acts::WindowShrink,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.overlay_owns_keys() {
+            return;
+        }
+        self.resize_pane(-RESIZE_STEP, cx);
     }
 }
 

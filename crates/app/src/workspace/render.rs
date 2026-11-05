@@ -525,6 +525,8 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::window_up))
             .on_action(cx.listener(Self::window_down))
             .on_action(cx.listener(Self::window_equalize))
+            .on_action(cx.listener(Self::window_grow))
+            .on_action(cx.listener(Self::window_shrink))
             .on_action(cx.listener(Self::tab_next))
             .on_action(cx.listener(Self::tab_prev))
             .on_action(cx.listener(Self::tab_new))

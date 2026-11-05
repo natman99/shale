@@ -56,6 +56,14 @@ pub(crate) fn keybindings() -> Vec<KeyBinding> {
         KeyBinding::new("ctrl-w c", WindowClose, None),
         KeyBinding::new("ctrl-w o", WindowOnly, None),
         KeyBinding::new("ctrl-w =", WindowEqualize, None),
+        // The pane in hand takes more or less of the space its split offers. `+`/`-`
+        // are the same moves for a hand that is already on the letter row, and — like
+        // vim's — they are not tied to an axis: the pane grows along whatever axis the
+        // split it sits in divides.
+        KeyBinding::new("ctrl-w >", WindowGrow, None),
+        KeyBinding::new("ctrl-w <", WindowShrink, None),
+        KeyBinding::new("ctrl-w +", WindowGrow, None),
+        KeyBinding::new("ctrl-w -", WindowShrink, None),
     ];
     macro_rules! bind {
         ($ctx:expr, [ $( $key:literal => $action:ident ),* $(,)? ]) => {

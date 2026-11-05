@@ -14,9 +14,9 @@ Shale is an obsidian-style markdown editor with extra developer focused features
 - [x] Theming support and support for custom themes. Include light and dark themes. The visual grammar built on top of them (roles, spacing, state, elevation, motion, glyphs, microcopy) is ruled and written in `design-language.md` (graph track, 2026-11-03; its §16 lists the roadmap hooks, which landed 2026-11-03 — thread 44).
 - [ ] Graph view (planned: graph-view-plan.md + roadmap P3)
 - [ ] Pdf export notes
-- [ ] Tabs
-- [ ] Tiling split view (like Obsidian)
-- [ ] Remember the workspace between sessions: the open note with its cursor and scroll, which folders are expanded in the tree, the note's view, the jump chain, and once they exist the tabs and panes (roadmap P1.8, in `.shale/session.json`)
+- [x] Tabs (roadmap P3.1)
+- [x] Tiling split view (like Obsidian) (roadmap P3.2: the tree, the `ctrl-w` alphabet, and `ctrl-w >`/`<` to resize the pane in hand)
+- [x] Remember the workspace between sessions: the open note with its cursor and scroll, which folders are expanded in the tree, the note's view, the jump chain, and the tabs and panes — every pane's tabs, the tree over them and where the divider was (roadmap P1.8, in `.shale/session.json`)
 - [x] Command pallette (vim `:` and Vscode's `ctrl+shift+p` to open. Vim version supports vim features like `s/x/x` replacement. Fuzzy search for commands) — palette, `:` line, and fuzzy all done; the `s/x/x`-style ex features are not (see roadmap P2.7)
 - [x] Note search and full vault search (command pallette, vim `/`) — vault search done (`ctrl-shift-f`); in-buffer `/` done (roadmap P0.5)
 - [ ] Templates: save standard notes as templates to be copied in to other notes with a command. Also add a gui picker.
@@ -359,7 +359,9 @@ Workspace layout:
   `session` (the session file — where the last window stood: open note, cursor
   and scroll, expanded folders, view, focus mode and scope, typewriter, the jump
   chain, and the tabs with the view each was in (a tab's `path` is optional: a tab
-  with no path and `graph = true` is the graph tab) — `.shale/session.json`,
+  with no path and `graph = true` is the graph tab), plus **every pane's** tabs, the
+  tiling tree over them (`leaf` / `split{dir,frac,kids}`) and which pane had the
+  keyboard — `.shale/session.json`,
   incremental like the config and written with that same atomic discipline), `live` (the **contract** both halves of the live
   MCP channel speak, roadmap P2.3: the `.shale/mcp.lock` record and its read/write/
   remove, the token header, the four endpoint paths, the `Status` shape `shale://status`

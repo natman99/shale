@@ -406,3 +406,324 @@ fn the_command_line_spells_the_same_commands(cx: &mut TestAppContext) {
     command_line("only", &mut cx);
     assert_eq!(panes(&window, &mut cx), 1);
 }
+
+// --- Resizing a pane (roadmap P3.2) ------------------------------------------
+
+/// The width a pane has been given, as a fraction of the editing area.
+fn width(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext, pix: usize) -> f32 {
+    window
+        .update(cx, |ws, _window, _cx| ws.pane_rects())
+        .unwrap()
+        .into_iter()
+        .find(|(ix, ..)| *ix == pix)
+        .map(|(_, _, _, w, _)| w)
+        .unwrap()
+}
+
+fn height(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext, pix: usize) -> f32 {
+    window
+        .update(cx, |ws, _window, _cx| ws.pane_rects())
+        .unwrap()
+        .into_iter()
+        .find(|(ix, ..)| *ix == pix)
+        .map(|(_, _, _, _, h)| h)
+        .unwrap()
+}
+
+/// `ctrl-w >` and `ctrl-w <` move the divider between the pane in hand and the rest of
+/// its split. Fractions are relative, so the other pane keeps its number and takes
+/// proportionally less of what is left.
+#[gpui::test]
+fn ctrl_w_grows_and_shrinks_the_pane_in_hand(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = two_notes(cx);
+    cx.simulate_keystrokes("ctrl-w v");
+    show(&mut cx, &window, "b.md");
+    assert!(
+        (width(&window, &mut cx, 0) - width(&window, &mut cx, 1)).abs() < 0.001,
+        "a fresh split is even"
+    );
+
+    cx.simulate_keystrokes("ctrl-w >");
+    let grown = width(&window, &mut cx, 1);
+    assert!(
+        grown > 0.5 + 0.05,
+        "the pane with the keyboard took more of the row: {grown}"
+    );
+    assert!(
+        width(&window, &mut cx, 0) < 0.5 - 0.02,
+        "and the other gave the space up"
+    );
+
+    cx.simulate_keystrokes("ctrl-w <");
+    assert!(
+        (width(&window, &mut cx, 1) - 0.5).abs() < 0.001,
+        "one press back is the same distance"
+    );
+}
+
+/// The divider belongs to the split the pane sits **directly** in. In a stack inside a
+/// row, growing the bottom pane makes it taller, not wider — the row it hangs in is
+/// not the split it lives in.
+#[gpui::test]
+fn a_resize_moves_the_split_the_pane_sits_in(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = two_notes(cx);
+    cx.simulate_keystrokes("ctrl-w v");
+    show(&mut cx, &window, "b.md");
+    cx.simulate_keystrokes("ctrl-w s");
+    assert_eq!(panes(&window, &mut cx), 3);
+
+    let wide = width(&window, &mut cx, 2);
+    let tall = height(&window, &mut cx, 2);
+    cx.simulate_keystrokes("ctrl-w >");
+    assert!(
+        height(&window, &mut cx, 2) > tall + 0.05,
+        "the stack grew around the pane in hand"
+    );
+    assert!(
+        (width(&window, &mut cx, 2) - wide).abs() < 0.001,
+        "and the row it hangs in did not move"
+    );
+}
+
+/// A window with one pane has no divider to move: the keys do nothing rather than
+/// inventing a split or complaining.
+#[gpui::test]
+fn a_single_pane_has_no_divider_to_move(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = two_notes(cx);
+    cx.simulate_keystrokes("ctrl-w > ctrl-w < ctrl-w + ctrl-w -");
+    assert_eq!(panes(&window, &mut cx), 1, "no split appeared");
+    assert!(
+        (width(&window, &mut cx, 0) - 1.0).abs() < 0.001,
+        "and the one pane still has the whole window"
+    );
+}
+
+/// The floor: a pane can be squeezed to a sliver, but not out of existence. A pane the
+/// user cannot see is a pane they cannot give the keyboard back to.
+#[gpui::test]
+fn a_pane_cannot_be_squeezed_out_of_existence(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = two_notes(cx);
+    cx.simulate_keystrokes("ctrl-w v");
+    show(&mut cx, &window, "b.md");
+    for _ in 0..40 {
+        cx.simulate_keystrokes("ctrl-w <");
+    }
+    let sliver = width(&window, &mut cx, 1);
+    assert!(sliver > 0.05, "still a pane, not a line: {sliver}");
+    assert!(sliver <= 0.25, "and stopped at the floor: {sliver}");
+    cx.simulate_keystrokes("ctrl-w <");
+    assert_eq!(
+        width(&window, &mut cx, 1),
+        sliver,
+        "the floor holds against further pressing"
+    );
+}
+
+// --- The session remembers the tiling tree (roadmap P3.2) --------------------
+
+use shale_core::session::{LayoutSeat, PaneSeat, Session, Tab as SeatTab};
+
+fn seat_tab(path: &str) -> SeatTab {
+    SeatTab {
+        path: Some(PathBuf::from(path)),
+        view: "live".into(),
+        graph: false,
+        camera: None,
+        mode: None,
+        orientation: None,
+    }
+}
+
+fn seat(paths: &[&str], active: usize) -> PaneSeat {
+    PaneSeat {
+        tabs: paths.iter().map(|p| seat_tab(p)).collect(),
+        active_tab: Some(active),
+    }
+}
+
+fn seat_paths(seat: &PaneSeat) -> Vec<String> {
+    seat.tabs
+        .iter()
+        .map(|tab| {
+            tab.path
+                .as_ref()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|| "—".to_string())
+        })
+        .collect()
+}
+
+/// What a split window writes is the tree plus **every** pane's tabs — not the single
+/// pane that had the keyboard, which is all a window used to remember.
+#[gpui::test]
+fn a_split_window_remembers_every_pane(cx: &mut TestAppContext) {
+    let (dir, window, mut cx) = two_notes(cx);
+    cx.simulate_keystrokes("ctrl-w v");
+    show(&mut cx, &window, "b.md");
+    assert_eq!(panes(&window, &mut cx), 2, "a pane beside this one");
+
+    window
+        .update(&mut cx, |ws, _window, cx| ws.save_session(cx))
+        .unwrap();
+    let session = Session::load(dir.path()).unwrap();
+    let seats = session.pane_seats();
+    assert_eq!(seats.len(), 2, "both panes are in the file");
+    assert_eq!(seat_paths(&seats[0]), vec!["a.md".to_string()]);
+    assert_eq!(seat_paths(&seats[1]), vec!["b.md".to_string()]);
+    assert_eq!(session.active_pane, Some(1), "the new pane had the keyboard");
+
+    match session
+        .layout
+        .as_ref()
+        .expect("the tree itself is in the file")
+    {
+        LayoutSeat::Split { dir, frac, kids } => {
+            assert_eq!(dir, "row", "`ctrl-w v` divides side by side");
+            assert_eq!(kids.len(), 2);
+            assert!(
+                matches!(kids[0], LayoutSeat::Leaf) && matches!(kids[1], LayoutSeat::Leaf),
+                "two leaves, and the leaves are the `panes` list"
+            );
+            assert_eq!(frac.len(), 2);
+            assert!(frac.iter().all(|f| *f > 0.), "every kid got some space");
+        }
+        other => panic!("expected a split, got {other:?}"),
+    }
+}
+
+/// The fractions are why the tree is worth storing: a window that was resized before it
+/// closed writes the divider where the user left it, and a window opened on that file
+/// lays its panes out in that proportion.
+#[gpui::test]
+fn a_resized_split_remembers_where_the_divider_was(cx: &mut TestAppContext) {
+    let (dir, window, mut cx) = two_notes(cx);
+    cx.simulate_keystrokes("ctrl-w v");
+    show(&mut cx, &window, "b.md");
+    cx.simulate_keystrokes("ctrl-w > ctrl-w >");
+
+    window
+        .update(&mut cx, |ws, _window, cx| ws.save_session(cx))
+        .unwrap();
+    let session = Session::load(dir.path()).unwrap();
+    match session.layout.as_ref().expect("the tree is in the file") {
+        LayoutSeat::Split { frac, .. } => {
+            assert_eq!(frac.len(), 2);
+            assert!(
+                (frac[0] - 1.0).abs() < 0.001,
+                "the pane that was not touched kept its share: {:?}",
+                frac
+            );
+            assert!(
+                (frac[1] - 1.5).abs() < 0.001,
+                "two presses of a quarter share each: {:?}",
+                frac
+            );
+        }
+        other => panic!("expected a split, got {other:?}"),
+    }
+}
+
+/// The same file read the other way: the fractions in it decide where the divider
+/// sits, not an even split.
+#[gpui::test]
+fn a_sessions_fractions_lay_out_the_panes(cx: &mut TestAppContext) {
+    let session = Session {
+        panes: vec![seat(&["a.md"], 0), seat(&["b.md"], 0)],
+        layout: Some(LayoutSeat::Split {
+            dir: "row".into(),
+            frac: vec![1.0, 1.5],
+            kids: vec![LayoutSeat::Leaf, LayoutSeat::Leaf],
+        }),
+        active_pane: Some(0),
+        ..Session::default()
+    };
+    let (_dir, window) =
+        session::vault_with_session(cx, &[("a.md", "first\n"), ("b.md", "second\n")], &session);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    assert!(
+        (width(&window, &mut cx, 0) - 0.4).abs() < 0.001,
+        "1 of 2.5 is 40% of the row: {}",
+        width(&window, &mut cx, 0)
+    );
+    assert!(
+        (width(&window, &mut cx, 1) - 0.6).abs() < 0.001,
+        "and 1.5 of 2.5 is 60%: {}",
+        width(&window, &mut cx, 1)
+    );
+}
+
+/// The other half: a window opened on that file comes back **split**, with each note
+/// in the pane that held it and the keyboard where the user left it.
+#[gpui::test]
+fn a_session_with_two_panes_comes_back_split(cx: &mut TestAppContext) {
+    let session = Session {
+        open_note: Some(PathBuf::from("b.md")),
+        tabs: vec![seat_tab("b.md")],
+        active_tab: Some(0),
+        panes: vec![seat(&["a.md"], 0), seat(&["b.md", "a.md"], 1)],
+        layout: Some(LayoutSeat::Split {
+            dir: "column".into(),
+            // Relative: this is a 2:1 stack, and the fractions are the point of
+            // storing them (roadmap P3.2's resize half).
+            frac: vec![2.0, 1.0],
+            kids: vec![LayoutSeat::Leaf, LayoutSeat::Leaf],
+        }),
+        active_pane: Some(1),
+        ..Session::default()
+    };
+    let (_dir, window) =
+        session::vault_with_session(cx, &[("a.md", "first\n"), ("b.md", "second\n")], &session);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+
+    assert_eq!(panes(&window, &mut cx), 2, "the window is split again");
+    assert_eq!(shape(&window, &mut cx), "col", "the way it was split");
+    assert_eq!(
+        pane_tabs(&window, &mut cx, 0),
+        vec!["a.md".to_string()],
+        "the top pane has its own tab"
+    );
+    assert_eq!(
+        pane_tabs(&window, &mut cx, 1),
+        vec!["b.md".to_string(), "a.md".to_string()],
+        "and the bottom pane has both of its tabs, in order"
+    );
+    assert_eq!(active(&window, &mut cx), 1, "the keyboard went back to its pane");
+    assert_eq!(
+        window
+            .update(&mut cx, |ws, _window, _cx| ws.status())
+            .unwrap(),
+        "a.md",
+        "and that pane's own keyboard was on its second tab — the per-pane active tab \
+         is restored, not assumed to be the first"
+    );
+}
+
+/// A session file is plain text a person can edit, and a tree that does not describe
+/// the panes it ships with is a log line and one pane — not a window that paints
+/// nonsense, and not a panic on an out-of-range pane index.
+#[gpui::test]
+fn a_pane_tree_that_does_not_fit_its_panes_is_dropped(cx: &mut TestAppContext) {
+    let session = Session {
+        panes: vec![seat(&["a.md"], 0), seat(&["b.md"], 0)],
+        layout: Some(LayoutSeat::Split {
+            dir: "row".into(),
+            frac: vec![1.0, 1.0],
+            // Three leaves for two panes: the shape cannot be built.
+            kids: vec![LayoutSeat::Leaf, LayoutSeat::Leaf, LayoutSeat::Leaf],
+        }),
+        active_pane: Some(7),
+        ..Session::default()
+    };
+    let (_dir, window) =
+        session::vault_with_session(cx, &[("a.md", "first\n"), ("b.md", "second\n")], &session);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+
+    assert_eq!(panes(&window, &mut cx), 1, "the tree that did not fit was dropped");
+    assert_eq!(shape(&window, &mut cx), "leaf");
+    assert_eq!(active(&window, &mut cx), 0, "and the pane index with it");
+    assert_eq!(
+        pane_tabs(&window, &mut cx, 0),
+        vec!["a.md".to_string(), "b.md".to_string()],
+        "the tabs are not lost: they land in the one pane the window has"
+    );
+}

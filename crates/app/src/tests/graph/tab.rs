@@ -432,6 +432,10 @@ fn a_session_reopens_the_graph_tab(cx: &mut TestAppContext) {
             },
         ],
         active_tab: Some(1),
+        // No `panes`/`layout`: one pane, the shape from before windows could split.
+        panes: vec![],
+        layout: None,
+        active_pane: None,
         graph_filter: None,
     };
     let (_dir, window) = session::vault_with_session(
