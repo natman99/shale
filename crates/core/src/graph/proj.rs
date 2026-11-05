@@ -15,13 +15,28 @@
 //! bench): the per-point cost is ~10 flops; the projection of a 5k-node
 //! frame is microseconds either way, and the painter sort dominates.
 
-/// Camera distance from the origin, in world units. Bigger = flatter
-/// perspective; the default keeps a ~1000-unit layout comfortably
-/// three-dimensional without extreme foreshortening.
+/// Camera distance from the origin, in world units, before anything has been
+/// measured. Only a starting value: [`Cam3::fit`] re-derives it from the
+/// layout it is framing, and a layout that has never been fitted is not on
+/// screen anyway.
 pub const DEFAULT_DIST: f32 = 2200.0;
 /// Near guard: points closer to the camera than this clamp to it (a node
-/// cannot project to infinity).
+/// cannot project to infinity). With `fit` and `dolly_by` keeping the eye
+/// outside the cloud this never engages; it is the guard against a hand-set
+/// camera, not the framing rule.
 pub const NEAR: f32 = 50.0;
+/// How far outside its own bounding sphere the eye sits when the camera fits
+/// a layout: `dist = radius * FIT_DIST`. The near half of the cloud then
+/// reads about 1.7× the far half — perspective you can see, not a fisheye.
+/// Below ~1.0 the camera is *inside* the cloud, and every node nearer than
+/// the camera plane lands on the near clamp blown up by an order of
+/// magnitude: that is the failure this constant exists to prevent, and the
+/// reason `dist` cannot stay a constant.
+pub const FIT_DIST: f32 = 3.5;
+/// The dolly's travel limits, as multiples of the cloud's bounding radius:
+/// never inside the sphere, never so far out that the perspective goes flat.
+pub const DOLLY_NEAR: f32 = 1.6;
+pub const DOLLY_FAR: f32 = 14.0;
 
 /// The 3D camera.
 #[derive(Debug, Clone, Copy)]
@@ -55,6 +70,8 @@ pub struct Projected {
 }
 
 const PITCH_LIMIT: f32 = 1.484; // 85°
+/// Radians of orbit per screen pixel of drag (see [`Cam3::orbit_by`]).
+const ORBIT_RAD_PER_PX: f32 = 0.0025;
 
 impl Cam3 {
     pub fn new() -> Self {
@@ -68,10 +85,36 @@ impl Cam3 {
     }
 
     /// Orbit: drag rotates the world. `dx` is screen px (yaw), `dy` screen
-    /// px (pitch); ~0.006 rad/px feels right at typical window sizes.
+    /// px (pitch). A full drag across a ~1000 px pane turns the world about
+    /// 80° — enough that a single sweep reads the third axis, not so much
+    /// that one flick loses the picture. (Measured against the first cut at
+    /// 0.006 rad/px, which the user called unusable: with the eye outside the
+    /// cloud, that rate whips the near nodes off screen.)
     pub fn orbit_by(&mut self, dx: f32, dy: f32) {
-        self.yaw += dx * 0.006;
-        self.pitch = (self.pitch + dy * 0.006).clamp(-PITCH_LIMIT, PITCH_LIMIT);
+        self.yaw += dx * ORBIT_RAD_PER_PX;
+        self.pitch = (self.pitch + dy * ORBIT_RAD_PER_PX).clamp(-PITCH_LIMIT, PITCH_LIMIT);
+    }
+
+    /// The cloud's bounding radius: rotation-independent, and the only
+    /// measurement the camera needs in order to keep the eye outside what it
+    /// is looking at.
+    pub fn bounding_radius(pos: &[[f32; 3]]) -> f32 {
+        pos.iter()
+            .map(|p| (p[0] * p[0] + p[1] * p[1] + p[2] * p[2]).sqrt())
+            .fold(0.0_f32, f32::max)
+    }
+
+    /// Dolly: move the eye along the view axis, which is the gesture that gets
+    /// you **out** of a cloud you are standing in — screen scale cannot do
+    /// that, it only magnifies what is already in your face. `factor > 1`
+    /// pulls back. Clamped to [`DOLLY_NEAR`]..[`DOLLY_FAR`] times the cloud's
+    /// radius, so the eye never crosses into the sphere and never flies so far
+    /// out that the perspective goes flat. Deliberately not cursor-anchored:
+    /// the cloud stays put and the eye travels, which is what re-orienting
+    /// needs.
+    pub fn dolly_by(&mut self, radius: f32, factor: f32) {
+        let radius = radius.max(1.0);
+        self.dist = (self.dist * factor).clamp(radius * DOLLY_NEAR, radius * DOLLY_FAR);
     }
 
     pub fn pan_by(&mut self, d: [f32; 2]) {
@@ -165,14 +208,26 @@ impl Cam3 {
         order
     }
 
-    /// Fit a 3D spread into `bounds` ([x, y, w, h] px): project at the
-    /// current rotation, frame the projected extent, keep the current
-    /// rotation. The 3D analogue of [`super::geom::Camera::fit`].
+    /// Fit a 3D spread into `bounds` ([x, y, w, h] px): put the eye outside
+    /// the cloud, *then* frame the projected extent at the current rotation.
+    /// The 3D analogue of [`super::geom::Camera::fit`] — and the reason it
+    /// cannot simply copy that one is `dist`. Framing a 7,000-unit layout from
+    /// a fixed 2,200 units leaves most of the cloud **behind** the camera
+    /// plane, where the near clamp flattens it onto that plane and magnifies
+    /// it by an order of magnitude: the user is inside the graph, surrounded
+    /// by giant overlapping nodes, and no amount of panning gets them out. So
+    /// fitting sets the distance first.
     pub fn fit(&mut self, pos: &[[f32; 3]], bounds: [f32; 4], margin: f32) {
         if pos.is_empty() {
             self.pan = [bounds[0] + bounds[2] / 2.0, bounds[1] + bounds[3] / 2.0];
             return;
         }
+        // 1. The eye goes outside the sphere the notes live in. A bounding
+        //    radius does not care about rotation, so this stays put while the
+        //    user orbits and `f` never drifts.
+        let radius = Self::bounding_radius(pos).max(1.0);
+        self.dist = (radius * FIT_DIST).clamp(radius * DOLLY_NEAR, radius * DOLLY_FAR);
+        // 2. Then the framing, at whatever angle the user is already at.
         let t = self.trig();
         let (mut lo, mut hi) = ([f32::MAX; 2], [f32::MIN; 2]);
         for p in pos {
@@ -339,6 +394,77 @@ mod tests {
             assert!(p.xy[0] >= 29.0 && p.xy[0] <= 771.0, "x {:?}", p.xy);
             assert!(p.xy[1] >= 29.0 && p.xy[1] <= 571.0, "y {:?}", p.xy);
         }
+    }
+
+    /// The regression the first live cut shipped with: a big layout framed from a
+    /// fixed distance leaves most of the cloud behind the camera plane, where the
+    /// near clamp flattens it onto that plane and magnifies it ~40×. The user is
+    /// inside the graph and no gesture gets them out. Fitting must put the eye
+    /// outside the sphere the notes live in, at any plausible layout size.
+    #[test]
+    fn fit_keeps_the_eye_outside_the_cloud() {
+        for radius in [400.0f32, 1200.0, 3500.0] {
+            // A spread of nodes on a sphere shell, the shape a settled force layout
+            // is roughly.
+            let pos: Vec<[f32; 3]> = (0..200)
+                .map(|i| {
+                    let a = i as f32 * 0.35;
+                    let b = i as f32 * 0.13;
+                    [
+                        radius * a.cos() * b.cos(),
+                        radius * b.sin(),
+                        radius * a.sin() * b.cos(),
+                    ]
+                })
+                .collect();
+            let mut cam = Cam3::new();
+            cam.fit(&pos, [0.0, 0.0, 1400.0, 900.0], 40.0);
+
+            let mut proj = Vec::new();
+            cam.project_all(&pos, &mut proj);
+            let scales: Vec<f32> = proj.iter().map(|p| p.scale).collect();
+            let (lo, hi) = (scales.iter().copied().fold(f32::MAX, f32::min), scales.iter().copied().fold(0.0, f32::max));
+            assert!(
+                hi < 2.5,
+                "radius {radius}: the nearest node magnifies {hi}× — the eye is inside the cloud"
+            );
+            assert!(
+                hi / lo < 2.5,
+                "radius {radius}: near/far magnification ratio {} is a fisheye",
+                hi / lo
+            );
+            // And nothing landed on the near clamp, which is the same failure seen
+            // from the guard's side.
+            assert!(
+                proj.iter().all(|p| (cam.dist - p.view_z) > NEAR),
+                "radius {radius}: a node sits at the near clamp"
+            );
+        }
+    }
+
+    /// The dolly is the way out of a close view, so its clamps are the difference
+    /// between "fly toward the graph" and "be inside it again".
+    #[test]
+    fn the_dolly_never_crosses_into_the_cloud() {
+        let radius = 2000.0;
+        let mut cam = Cam3::new();
+        for _ in 0..12 {
+            cam.dolly_by(radius, 1.0 / 1.15);
+        }
+        assert!(
+            cam.dist >= radius * DOLLY_NEAR - 0.01,
+            "the eye crossed into the cloud: dist {} < {}",
+            cam.dist,
+            radius * DOLLY_NEAR
+        );
+        for _ in 0..24 {
+            cam.dolly_by(radius, 1.15);
+        }
+        assert!(
+            cam.dist <= radius * DOLLY_FAR + 0.01,
+            "the eye flew off to where the perspective is flat: {}",
+            cam.dist
+        );
     }
 
     #[test]

@@ -286,7 +286,10 @@ impl Workspace {
         built
     }
 
-    /// Which space this window's graph runs in, for the session file and the tests.
+    /// Which space this window's graph runs in. The session capture reads the mode off
+    /// the **view** instead (it walks tabs, and a tab owns its view), so this accessor
+    /// exists for the tests that ask the window what space it is in.
+    #[cfg(test)]
     pub(crate) fn graph_mode(&self) -> crate::graph::Dim {
         self.graph_dim
     }

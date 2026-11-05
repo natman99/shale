@@ -40,6 +40,10 @@ use crate::field::Field;
 use crate::workspace::Workspace;
 
 pub(crate) use frame::GraphFrame;
+// Re-exported for the tests only: the paint path calls `proj::paint_graph3d` where it
+// stands, and `proj` is private to this module, so a test that wants the projected
+// path's types needs them named here.
+#[cfg(test)]
 pub(crate) use proj::{paint_graph3d, Projection};
 pub(crate) use panel::FILTER_CONTEXT;
 pub(crate) use sim::{Dim, GraphSim};
@@ -137,6 +141,10 @@ pub(crate) struct GraphView {
     building: bool,
     /// What to paint: the window's simulation snapshot, shipped whenever it moves.
     frame: Option<Rc<GraphFrame>>,
+    /// The radius of the sphere the current layout lives in, in world units — measured
+    /// when the frame arrives (see [`Self::store_frame`]) and used by the projected
+    /// view's dolly clamps.
+    cloud: f32,
     /// Where the **user** put the view — by a session restore, by a drag or a wheel.
     /// `None` means "keep framing the whole graph", and that is the right default
     /// rather than a lazy one: the layout is still moving while it settles, and a
@@ -227,6 +235,7 @@ impl GraphView {
             summary: None,
             building: false,
             frame: None,
+            cloud: 0.0,
             camera: None,
             mode,
             cam3: None,
@@ -295,6 +304,10 @@ impl GraphView {
     /// The part of [`Self::set_frame`] that needs no context, so a frame that came back
     /// from the window inside one of the view's own handlers can be stored the same way.
     fn store_frame(&mut self, frame: Rc<GraphFrame>) {
+        // The cloud's radius travels with the frame: the projected camera needs it for
+        // the dolly's clamps, and it is cheaper to measure once per frame than per
+        // wheel notch.
+        self.cloud = frame.bounding_radius();
         let same_size = self
             .frame
             .as_ref()
@@ -603,12 +616,17 @@ impl GraphView {
                 self.camera = Some(camera);
             }
             Dim::Three => {
-                // core's 3D zoom anchors on the **projected** point, so the node under
-                // the cursor is the one that stays under it, at its own depth.
+                // In the projected space the wheel **dollies the eye** rather than
+                // scaling the picture. Screen scale cannot get you out of a cloud you
+                // are standing inside — it only magnifies what is already in your face,
+                // and it compounds with the perspective factor until the view is
+                // unusable. Travel is bounded by the cloud's own radius, so the eye can
+                // never cross into it either. The factor is inverted because moving the
+                // eye *closer* is what scrolling up means.
                 let Some(mut camera) = self.camera3() else {
                     return;
                 };
-                camera.zoom_at(anchor, factor);
+                camera.dolly_by(self.cloud, 1.0 / factor);
                 self.cam3 = Some(camera);
             }
         }
@@ -630,10 +648,12 @@ impl GraphView {
                 self.camera = Some(camera);
             }
             Dim::Three => {
+                // The same travel as the wheel, because in this space "zoom" is travel
+                // and nothing else — the dolly has no anchor to aim.
                 let Some(mut camera) = self.camera3() else {
                     return;
                 };
-                camera.zoom_at(center, action.0);
+                camera.dolly_by(self.cloud, 1.0 / action.0);
                 self.cam3 = Some(camera);
             }
         }

@@ -63,6 +63,22 @@ pub(crate) struct GraphFrame {
 }
 
 impl GraphFrame {
+    /// The radius of the sphere the layout lives in, in world units. This is the one
+    /// measurement the projected camera needs about the layout as a whole: it is what
+    /// keeps the eye outside the cloud when fitting, and what bounds the dolly
+    /// (see `shale_core::graph::proj::Cam3`).
+    pub(crate) fn bounding_radius(&self) -> f32 {
+        self.nodes
+            .iter()
+            .map(|n| {
+                n.position[0] * n.position[0]
+                    + n.position[1] * n.position[1]
+                    + n.depth * n.depth
+            })
+            .fold(0.0_f32, f32::max)
+            .sqrt()
+    }
+
     /// An empty frame: a vault with nothing in it, or a graph that failed to build.
     /// Painting it draws the canvas with nothing in it, which is a different fact from
     /// "no canvas at all".

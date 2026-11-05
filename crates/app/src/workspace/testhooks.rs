@@ -427,6 +427,12 @@ impl Workspace {
             )
         })
     }
+    /// How far the projected camera's eye sits from the origin, in world units. The
+    /// dolly's whole contract is this number: travel, bounded by the cloud's radius.
+    #[cfg(test)]
+    pub(crate) fn graph_eye_distance(&self, cx: &gpui::App) -> Option<f32> {
+        self.graph_view()?.read(cx).camera3().map(|camera| camera.dist)
+    }
     /// The layout's third axis, straight off the window's sim: how a test tells a graph
     /// that opened up from one that stayed flat.
     #[cfg(test)]

@@ -725,3 +725,45 @@ stays inside the 60 Hz budget on a 5,261-note stress vault. Closer in the 3D
 rows read cheaper (0.53–0.70 ms) but they are **not the same picture**:
 `Cam3::fit` frames the sphere, so the same nominal zoom shows far less
 (64n/51l against 1136n/7291l at 3.0x). No claim is made from that pair.
+
+### The first live pass: unusable, and the one number that caused it
+
+The user opened the 5k fixture on a real window and the verdict was blunt: *"completely
+unuseable. Everything is far too sensitive and the camera seems to be in the middle of
+the cluster with no way to get bearing to move out of it."* Both halves were one bug.
+
+`Cam3::fit` copied the 2D `Camera::fit` and **never touched `dist`**, which stayed at
+the constant `DEFAULT_DIST = 2200` world units. The 5k layout spans ~7,000 units, so
+the camera plane sat *inside* the cloud: for any node nearer than the plane,
+`depth = (dist - z)` goes negative, the `NEAR = 50` clamp catches it, and
+`scale = dist / 50` magnifies it ~44×. Half the vault was a wall of overlapping giants
+painted on the near plane. "Too sensitive" was that, amplified: with the near nodes
+44× blown up, one degree of orbit throws more across the screen than the whole picture,
+and a wheel notch of screen magnification compounds with the bogus perspective factor
+rather than doing anything a user could read.
+
+Three changes, all in the camera rather than the renderer:
+
+- **`fit` sets `dist` from the layout** — `dist = bounding_radius × FIT_DIST (3.5)`,
+  clamped into the dolly band. A bounding radius is rotation-independent, so it does
+  not drift while the user orbits. The near/far magnification ratio at that distance is
+  ~1.9: perspective you can see, not a fisheye.
+- **In 3D the wheel and `+`/`-` dolly the eye** (`Cam3::dolly_by`, clamped to
+  1.6–14× the cloud's radius) instead of scaling the picture. Travel is the gesture
+  that gets you out of a close view, and the clamp means "zoom in" can never become
+  "be inside it" again. The frame carries its bounding radius (`GraphFrame::
+  bounding_radius`, measured once per frame in `store_frame`) so the view can answer a
+  wheel notch without a pass over 5k nodes.
+- **Orbit down from 0.006 to 0.0025 rad/px** — a full sweep across a pane turns the
+  world about 80°.
+
+New pins: core `fit_keeps_the_eye_outside_the_cloud` (three layout sizes; no node may
+land on the near clamp, magnification ratio under 2.5) and `the_dolly_never_crosses_
+into_the_cloud`; app `the_wheel_travels_in_the_projected_space` (the eye moves, the
+screen scale does not, and 24 notches cannot cross into the cloud). app 449 / core 459.
+
+**Not yet re-checked by a human.** The numbers say the geometry is sane; whether it
+*feels* right — orbit rate, dolly step, whether a bounding *sphere* frames the spiky
+stress fixtures too conservatively (its radius is set by the longest spike, so the
+dense core reads small) — needs the next live pass. If it does, the refinement is a
+percentile radius with a hard floor at the true maximum, not a different constant.

@@ -14,6 +14,7 @@
 //!   of nothing — in three axes especially.
 use super::*;
 use crate::graph::Dim;
+use shale_core::graph::proj::{DOLLY_NEAR, FIT_DIST};
 
 /// Which space the window's graph is running in.
 fn mode(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> Dim {
@@ -400,5 +401,59 @@ fn a_settled_projected_graph_stops_painting(cx: &mut TestAppContext) {
             .update(&mut cx, |ws, _w, _cx| ws.graph_beat_running())
             .unwrap(),
         "painting a settled projected graph did not restart the beat"
+    );
+}
+
+/// How far the projected camera's eye sits from the origin, in world units.
+fn eye(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> Option<f32> {
+    window
+        .update(cx, |ws, _window, cx| ws.graph_eye_distance(cx))
+        .unwrap()
+}
+
+/// The wheel, in lines — the same synthesized event the flat view's tests use.
+fn wheel(cx: &mut VisualTestContext, at: gpui::Point<gpui::Pixels>, lines: f32) {
+    cx.simulate_event(gpui::ScrollWheelEvent {
+        position: at,
+        delta: gpui::ScrollDelta::Lines(gpui::point(0.0, lines)),
+        modifiers: gpui::Modifiers::default(),
+        touch_phase: gpui::TouchPhase::Moved,
+    });
+}
+
+/// The wheel in the projected space **travels** rather than magnifies: the eye moves
+/// along the view axis and the screen scale stays where the fit put it. The first cut
+/// magnified instead, which compounds with the perspective factor and cannot get a
+/// user out of a close view — the complaint that made the mode unusable on a live
+/// window. And the travel is bounded by the cloud's own radius, so "zoom in" can
+/// never become "be inside it".
+#[gpui::test]
+fn the_wheel_travels_in_the_projected_space(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = linked_vault(cx);
+    cx.simulate_keystrokes("space g");
+    turn_to_3d(&window, &mut cx);
+
+    let [x, y, w, h] = box_of(&window, &mut cx);
+    let at = gpui::point(gpui::px(x + w / 2.0), gpui::px(y + h / 2.0));
+    let fitted = eye(&window, &mut cx).expect("the canvas framed the graph");
+    // The fit sits the eye at `FIT_DIST` times the cloud's radius, so that product is
+    // the radius the dolly clamps against.
+    let radius = fitted / FIT_DIST;
+
+    wheel(&mut cx, at, 1.0);
+    let nearer = eye(&window, &mut cx).expect("the camera is still there");
+    assert!(
+        nearer < fitted,
+        "a wheel up travels the eye in: {fitted} -> {nearer}"
+    );
+
+    for _ in 0..24 {
+        wheel(&mut cx, at, 1.0);
+    }
+    let bounded = eye(&window, &mut cx).expect("the camera is still there");
+    assert!(
+        bounded >= radius * DOLLY_NEAR - 0.01,
+        "the eye crossed into the cloud: {bounded} < {}",
+        radius * DOLLY_NEAR
     );
 }
