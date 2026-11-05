@@ -1074,3 +1074,38 @@ projection had been rebuilt by then. What does reach it is the projection's own 
 under the middle of the canvas. With the old loop that panics with the reported shape (`len is 2
 but the index is 2`); with the fix it answers about the two nodes it actually projected.
 app 464 / core 469.
+
+
+## What an idle Shale actually costs (measured, 2026-11-05)
+
+Baseline before any idling work. A release build, one window, no interaction, sampled from
+`/proc` over 15 s (CPU from `stat`, wakeups from `status`; `sample.py` in the scratch dir):
+
+| configuration | CPU | threads | RSS | voluntary wakeups/s |
+|---|---|---|---|---|
+| organic-1k, `--graph` showing | 0.55% | 25 | 30 MiB | 11.2 |
+| organic-1k, note showing (no graph tab) | 0.60% | 25 | 29 MiB | 11.2 |
+| organic-1k, `--graph`, `[mcp] live = false` | 0.47% | 24 | 30 MiB | **7.3** |
+| organic-1k, `--graph`, `[spellcheck] enabled = false` | 0.60% | 24 | 30 MiB | 11.3 |
+| organic-100, `--graph` | 0.27% | 25 | 26 MiB | 12.7 |
+| the `harper-ls` child, idle | 0.00% | 19 | **141 MiB** | 0.0 |
+
+What the numbers say:
+
+- **The graph is free at rest.** With and without the graph tab is inside the noise, and 0.55% CPU
+  at 1k notes rules out idle painting (a 1k paint is 2.4-3.7 ms; painting at frame rate would show
+  ~15%). The beat parks when the layout settles, and the drift chain parks itself.
+- **The live MCP beat is the largest wakeup source: ~4/s** (11.2 → 7.3 with it off). It republishes
+  every 250 ms whether or not anything changed, and it calls `publish_live` on *every* window plus
+  the active one again.
+- **`harper-ls` is the largest memory item by far**: 141 MiB and 19 threads, ~5x the app's own
+  30 MiB, to underline two words. It starts even when the window opens on the graph tab.
+- **The vault walk is the largest CPU item** and scales with the vault (0.27% at 100 notes, 0.55%
+  at 1k) — the `WATCH_DUTY` self-tuning is doing its job, and it is the one thing here that is
+  already designed as a budget.
+- **The review-queue poll is per window, not per vault** (`start_pending_watch` runs from
+  `Workspace::new`), so N windows on one vault means N `read_dir`s a second. The watcher, live
+  channel and backups are per-vault (`VaultServices`); this one was left on the window.
+- ~7 wakeups/s remain with the live channel off, and they are not accounted for by the three beats
+  (live 4 + walk 1.3 + queue 1). Unaccounted-for idle wakeups are the one thing this measurement
+  cannot name; `strace -c -p` on a running window would.
