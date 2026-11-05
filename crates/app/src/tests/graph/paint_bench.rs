@@ -157,6 +157,10 @@ impl Render for PaintBench {
         let phases = self.phases;
         let zoom = self.zoom;
         let paint_cache = self.paint.clone();
+        // The tab's label hysteresis, mirrored here so the projected rows measure the
+        // same paint the user sees (a fresh memory each frame would paint a different,
+        // cheaper frame than the tab does).
+        let label_memory = Rc::new(RefCell::new(Vec::<usize>::new()));
         div().w(size.width).h(size.height).child(
             canvas(
                 // Framing happens in the prepaint phase, where the element's bounds are known,
@@ -282,6 +286,7 @@ impl Render for PaintBench {
                                     &projection,
                                     &look,
                                     &mut paint_cache.borrow_mut(),
+                                    &label_memory,
                                     window,
                                     cx,
                                 );
@@ -292,6 +297,7 @@ impl Render for PaintBench {
                                     &projection,
                                     &look,
                                     &mut Cache::new(),
+                                    &label_memory,
                                     window,
                                     cx,
                                 );
@@ -680,6 +686,11 @@ fn sweep3d(cx: &mut TestAppContext, root: &std::path::Path) {
         }
     }
 }
+
+
+/// Diagnostic: same, but for the layout that arrives by *switching* 2D -> 3D.
+
+/// Diagnostic: how balanced is a settled layout's spread across the three axes?
 
 /// The 5k fixture: 5261 nodes and ~19k links, which is the size the user's vault is at.
 #[gpui::test]

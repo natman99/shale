@@ -840,3 +840,31 @@ every label already placed (by 3 px), highest degree first, and the hover placed
 all of them so it keeps its space. The cap stays as a ceiling. 3D only for now; moving
 the flat view is a measured decision, since its label phase is inside the "2D numbers
 must not move" gate. app 453 / core 460.
+
+### The projected view: a sheet that opens, and labels that stop popping
+
+Two live-pass complaints, both measured before being touched.
+
+**"The 3d simulation seems to spread out in a plane a lot."** The physics is fine — a
+layout *born* in 3D on the organic fixtures measures an axis-spread ratio of 0.75
+(100 notes) and 0.62 (1k). The **switch** is what flattens: 2D→3D carried the flat x/y
+and took the new axis from the fresh sim's seeded placement, which is a sphere of
+radius ~10·√n — about a quarter of a settled vault's spread. The layout starts as a
+sheet, and a sheet is a near-equilibrium: in-plane forces balance and there is no z
+gradient to escape along, so `SWITCH_HEAT` alone cannot open it. Measured after a
+switch: ratio **0.18 / 0.41**. The fix scales the seeded depth to the flat layout's own
+spread before it is used: **0.69 / 0.96**, with the x/y spread essentially unchanged —
+the same graph, opened into a volume rather than re-seeded. Pinned by
+`turning_the_graph_opens_the_third_axis`.
+
+**"There's a lot of popping."** Label placement is greedy, and greedy placement with no
+memory contests the same real estate afresh every tick: two labels a few px apart trade
+the spot back and forth while the graph is warm. Now the nodes named last frame take
+first claim, in the order they were named (`remembered_first`, memory in
+`GraphView::label_memory`). Collision still decides who fits, the ranking still decides
+among newcomers, and a remembered label still has to fit — so the set changes when
+something actually moves into a name's space, not every tick. Pinned by
+`the_labels_named_last_frame_keep_first_claim`; the perceptual half of the claim is the
+user's to confirm.
+
+app 455 / core 460.

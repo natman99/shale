@@ -345,14 +345,49 @@ impl GraphSim {
                 .enumerate()
                 .map(|(slot, slot_data)| (slot_data.key.as_str(), slot))
                 .collect();
+            // Turning a flat layout into a spatial one has to open the third axis at
+            // the scale the layout already has. The new sim's seeded placement is a
+            // sphere of radius ~10·√n, which for a settled vault is a *quarter* of the
+            // flat spread — so the carried layout starts as a sheet, and a sheet is a
+            // near-equilibrium: the in-plane forces balance and there is no z gradient
+            // to escape along, so SWITCH_HEAT alone leaves it a sheet. Measured on the
+            // organic fixtures: axis-spread ratio 0.18 (100) and 0.41 (1k) after a
+            // switch, against 0.75 / 0.62 for a layout born in 3D. So the seeded depth
+            // is scaled to the flat layout's own spread before it is used.
+            let z_scale = if switched {
+                let spread = |values: &[f32]| -> f32 {
+                    if values.is_empty() {
+                        return 0.0;
+                    }
+                    let mean = values.iter().sum::<f32>() / values.len() as f32;
+                    (values.iter().map(|v| (v - mean).powi(2)).sum::<f32>() / values.len() as f32).sqrt()
+                };
+                let flat: Vec<f32> = (0..previous.slots.len())
+                    .flat_map(|slot| {
+                        let p = previous.physics.pos(slot);
+                        [p[0], p[1]]
+                    })
+                    .collect();
+                let seeded: Vec<f32> = (0..slots.len()).map(|slot| physics.pos(slot)[2]).collect();
+                let (flat, seeded) = (spread(&flat), spread(&seeded));
+                if seeded > 0.0 && flat > 0.0 {
+                    flat / seeded
+                } else {
+                    1.0
+                }
+            } else {
+                1.0
+            };
             for (slot, slot_data) in slots.iter().enumerate() {
                 if let Some(&was) = old.get(slot_data.key.as_str()) {
                     let mut carried = previous.physics.pos(was);
                     if switched {
                         // The depth a flat layout never had comes from the new sim's
                         // own seeded placement, so the same vault turns the same way
-                        // every launch rather than shaking out a new shape.
-                        carried[2] = physics.pos(slot)[2];
+                        // every launch rather than shaking out a new shape — at the
+                        // scale the layout already has, so it opens into a volume
+                        // instead of staying a sheet.
+                        carried[2] = physics.pos(slot)[2] * z_scale;
                     }
                     physics.set_pos(slot, carried);
                     if same_shape && !switched {

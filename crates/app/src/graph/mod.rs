@@ -186,6 +186,12 @@ pub(crate) struct GraphView {
     /// tessellate 18k of them again. In a cell because the paint phase cannot reach into
     /// the entity it is painting; one per view because each view has its own camera.
     paint: Rc<RefCell<render::Cache>>,
+    /// Which nodes the projected view named last frame. Label placement is greedy, so
+    /// without a memory of the previous frame the same real estate is contested afresh
+    /// every tick: two labels a few px apart trade the spot back and forth and the
+    /// picture pops. Remembered labels get first claim, which is hysteresis — the set
+    /// only changes when something actually moves into a name's space.
+    label_memory: Rc<RefCell<Vec<usize>>>,
     /// The temporary frame counter: how often the canvas is painted and what each paint
     /// costs. See [`bench`] for why it exists and why it is meant to be deleted.
     bench: Rc<RefCell<bench::Bench>>,
@@ -246,6 +252,7 @@ impl GraphView {
             canvas: Rc::default(),
             paint: Rc::new(RefCell::new(render::Cache::new())),
             bench: Rc::new(RefCell::new(bench::Bench::new())),
+            label_memory: Rc::new(RefCell::new(Vec::new())),
             hover: None,
             selected: None,
             drag: None,
@@ -890,6 +897,7 @@ impl Render for GraphView {
         let canvas_bounds = Rc::clone(&self.canvas);
         let bench = Rc::clone(&self.bench);
         let paint = Rc::clone(&self.paint);
+        let label_memory = Rc::clone(&self.label_memory);
         let look = render::Look {
             palette: Rc::clone(&self.palette),
             hover: self.chosen(),
@@ -1120,6 +1128,7 @@ impl Render for GraphView {
                                                 &projection,
                                                 &look,
                                                 &mut paint.borrow_mut(),
+                                                &label_memory,
                                                 window,
                                                 cx,
                                             );

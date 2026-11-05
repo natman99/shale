@@ -166,6 +166,58 @@ fn turning_the_graph_carries_the_arrangement(cx: &mut TestAppContext) {
     );
 }
 
+/// A flat layout that is *turned* has to open, not stay a sheet. The third axis arrives
+/// at the scale the layout already has: the new sim's seeded placement is a small sphere
+/// (radius ~10·√n) and a settled vault spreads four times wider than that, so using it
+/// raw leaves a plane — and a plane is a near-equilibrium, with balanced in-plane forces
+/// and no z gradient to escape along, so the switch re-heat alone cannot fix it. On the
+/// organic fixtures the raw carry measured an axis-spread ratio of 0.18 (100 notes) and
+/// 0.41 (1k) against 0.75 / 0.62 for a layout born in 3D; the scaled carry lands at
+/// 0.69 / 0.96.
+#[gpui::test]
+fn turning_the_graph_opens_the_third_axis(cx: &mut TestAppContext) {
+    // A hub and forty notes around it: in the flat view a disc, which is exactly the
+    // shape a sheet keeps.
+    let hub = (1..=40)
+        .map(|i| format!("[[n{i}]] "))
+        .collect::<String>();
+    let owned: Vec<(String, String)> = std::iter::once(("hub.md".to_string(), hub))
+        .chain((1..=40).map(|i| (format!("n{i}.md"), "back to [[hub]]".to_string())))
+        .collect();
+    let notes: Vec<(&str, &str)> = owned
+        .iter()
+        .map(|(name, text)| (name.as_str(), text.as_str()))
+        .collect();
+    let (_dir, window) = vault_with(cx, &notes);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show(&mut cx, &window, "hub.md");
+    cx.simulate_keystrokes("space g");
+    paint(&mut cx, &window);
+
+    window
+        .update(&mut cx, |ws, _window, cx| ws.graph_set_mode(Dim::Three, cx))
+        .unwrap();
+    // Read before the executor runs: this is the layout as the switch made it, before
+    // the re-heat has had a tick to move anything.
+    let flat = window
+        .update(&mut cx, |ws, _window, _cx| ws.graph_sim_positions())
+        .unwrap();
+    let depths = window
+        .update(&mut cx, |ws, _window, _cx| ws.graph_depths())
+        .unwrap();
+    let spread = |values: &[f32]| -> f32 {
+        let mean = values.iter().sum::<f32>() / values.len() as f32;
+        (values.iter().map(|v| (v - mean).powi(2)).sum::<f32>() / values.len() as f32).sqrt()
+    };
+    let x = spread(&flat.iter().map(|p| p[0]).collect::<Vec<f32>>());
+    let y = spread(&flat.iter().map(|p| p[1]).collect::<Vec<f32>>());
+    let z = spread(&depths);
+    assert!(
+        z >= 0.5 * x.min(y),
+        "the third axis opened at the layout's own scale: x={x:.1} y={y:.1} z={z:.1}"
+    );
+}
+
 // ----- the pointer answers about the picture --------------------------------
 
 /// The hit test runs on the projected points, so aiming the pointer at where a node was

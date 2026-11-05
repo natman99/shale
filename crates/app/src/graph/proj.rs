@@ -19,6 +19,8 @@
 //!   and nodes by depth would undo the batching win that took a 5k frame from
 //!   14.8 ms to 2.3 (PROJECT.md thread 43). v1 approximates, and says so.
 
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use gpui::{point, px, size, App, Bounds, ContentMask, Pixels, Window};
@@ -267,6 +269,7 @@ pub(crate) fn paint_graph3d(
     projection: &Projection,
     look: &Look,
     cache: &mut Cache,
+    label_memory: &RefCell<Vec<usize>>,
     window: &mut Window,
     cx: &mut App,
 ) {
@@ -293,6 +296,7 @@ pub(crate) fn paint_graph3d(
                 palette,
                 bounds,
                 look.hover,
+                label_memory,
                 window,
                 cx,
             );
@@ -559,6 +563,25 @@ impl Placed {
     }
 }
 
+/// Put the nodes named last frame in front of the ones that were not, keeping the order
+/// they were named in. This is the whole of the label hysteresis: greedy placement
+/// otherwise contests the same real estate afresh every tick, so two labels a few px
+/// apart trade the spot back and forth and the picture pops. A remembered label still
+/// has to fit, and the ranking still decides among newcomers, so the set changes when
+/// something actually moves into a name's space — not every tick.
+fn remembered_first(mut chosen: Vec<usize>, remembered: &[usize]) -> Vec<usize> {
+    if remembered.is_empty() {
+        return chosen;
+    }
+    let rank: HashMap<usize, usize> = remembered
+        .iter()
+        .enumerate()
+        .map(|(order, slot)| (*slot, order))
+        .collect();
+    chosen.sort_by_key(|slot| rank.get(slot).copied().unwrap_or(usize::MAX));
+    chosen
+}
+
 fn paint_labels3d(
     frame: &GraphFrame,
     projection: &Projection,
@@ -566,10 +589,20 @@ fn paint_labels3d(
     palette: &Palette,
     bounds: Bounds<Pixels>,
     hover: Option<usize>,
+    label_memory: &RefCell<Vec<usize>>,
     window: &mut Window,
     cx: &mut App,
 ) {
     let mut chosen = label_slots(frame, projection, bounds, hover);
+    // Hysteresis, before anything else: the nodes this view named last frame get first
+    // claim on the space, in the order they were named. Greedy placement without a
+    // memory of the previous frame contests the same real estate afresh every tick, and
+    // two labels a few px apart trade the spot back and forth — the picture pops. The
+    // ranking still decides among *newcomers*, and a remembered label still has to fit,
+    // so this is stability at the margin rather than a name pinned to a stale spot.
+    let remembered = label_memory.borrow();
+    chosen = remembered_first(chosen, &remembered);
+    drop(remembered);
     // The hovered label is placed **first**, so it keeps its space rather than being
     // skipped because a hub happened to be measured before it.
     if let Some(hovered) = hover {
@@ -579,6 +612,7 @@ fn paint_labels3d(
     let label_size = px(labels.size * LABEL_SCALE);
     let text_system = window.text_system().clone();
     let mut placed = Placed::default();
+    let mut painted: Vec<usize> = Vec::new();
     for slot in chosen {
         let Some(node) = frame.nodes.get(slot) else {
             continue;
@@ -604,12 +638,14 @@ fn paint_labels3d(
             continue;
         }
         placed.add(box_);
+        painted.push(slot);
         if let Err(err) = shaped.paint(origin, px(labels.size), gpui::TextAlign::Left, None, window, cx)
         {
             tracing::warn!("a graph label could not be painted: {err:#}");
             break;
         }
     }
+    *label_memory.borrow_mut() = painted;
 }
 
 /// Straight-line distance in screen px.
@@ -730,6 +766,24 @@ mod tests {
         assert!(
             placed.fits([0.0, 40.0, 60.0, 52.0]),
             "below it, clear vertically, is a different line of text"
+        );
+    }
+
+    /// Greedy placement contests the same real estate afresh every tick unless it
+    /// remembers what it named last frame. The remembered labels take first claim, in
+    /// the order they were named; everyone else keeps the ranking behind them.
+    #[test]
+    fn the_labels_named_last_frame_keep_first_claim() {
+        let ordered = remembered_first(vec![3usize, 1, 7, 9], &[9, 3]);
+        assert_eq!(
+            ordered,
+            vec![9, 3, 1, 7],
+            "remembered first and in remembered order, the rest in rank order"
+        );
+        assert_eq!(
+            remembered_first(vec![1, 2], &[]),
+            vec![1, 2],
+            "with no memory the ranking stands as built"
         );
     }
 
