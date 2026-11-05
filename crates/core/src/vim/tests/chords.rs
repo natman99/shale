@@ -19,6 +19,21 @@ fn gx_requests_link_follow() {
 }
 
 #[test]
+fn gd_and_g_capital_requests_the_same_link_and_the_creating_one() {
+    let mut vim = Vim::new();
+    let mut b = buf();
+    b.set_cursor(20);
+    vim.handle_normal_key(Key::Char('g'), &mut b);
+    // `gd` — go to definition, the LSP habit — is the same request as `gx`.
+    assert_eq!(vim.handle_normal_key(Key::Char('d'), &mut b), Outcome::FollowLink);
+    vim.handle_normal_key(Key::Char('g'), &mut b);
+    // `gD` asks for the same thing with the note made first if there isn't one.
+    assert_eq!(vim.handle_normal_key(Key::Char('D'), &mut b), Outcome::CreateLink);
+    assert_eq!(b.cursor(), 20, "neither chord moves the cursor");
+    assert_eq!(vim.mode(), Mode::Normal);
+}
+
+#[test]
 fn upper_k_requests_the_checkers_note() {
     let mut vim = Vim::new();
     let mut b = buf();

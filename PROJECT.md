@@ -396,7 +396,8 @@ Workspace layout:
   unresolved dimmed) with **live preview** hiding the markers of a row the cursor
   is not on, **heading-section folding** (`za`/`zc`/`zo`/`zd`/`zM`/`zR`, or a click
   on the `⋯ n more lines` marker a folded heading carries), and link navigation
-  (`gx` on a link in normal mode, ctrl+click),
+  (`gd` — or the older `gx` — on a link in normal mode, ctrl+click; `gD` makes the
+  note first when the link resolves to nothing),
   status bar (mode, pending count/operator, dirty flag, path, display row:col),
   **theming** (`appearance.theme` selects a built-in palette — Shale's own `dark`
   and `light` plus 18 family palettes: the four Catppuccin flavours (`latte`,
@@ -2571,8 +2572,10 @@ is wgpu).
 Next steps, roughly in order:
 
 1. ~~Wiki-link rendering/highlighting + navigation~~ Done: resolved links tinted,
-   unresolved dimmed; `gx` / ctrl+click follow the link under the cursor.
-   Still TODO here: creating a note from an unresolved link, and link preview.
+   unresolved dimmed; `gd` (or the older `gx`) / ctrl+click follow the link under the
+   cursor, and `gD` creates the missing note — beside the one in hand, or verbatim when
+   the target spells a path — and follows it.
+   Still TODO here: link preview, and jumping to a `#heading` anchor.
 2. ~~Soft wrap~~ Done (see Open threads). Follow-ups there: screen-line `$`/`0`,
    display columns for tabs/multi-byte text.
 3. ~~Resolve the ctrl+z / redo keystroke question~~ Done (keymap `+` → `-`).

@@ -1179,3 +1179,29 @@ Also learned the easy way: gpui's test executor *does* pump a repeating beat —
 past the interval plus `run_until_parked` runs one pass of it. The old comment in `review.rs`
 ("rather than waiting on simulated time") was about directness, not impossibility. app 464 /
 core 470.
+
+
+## `gd` follows a link, `gD` makes the note and follows it (2026-11-05)
+
+The follow chord was `gx`; the LSP-shaped pair is now the front door — **`gd`** follows the
+wiki-link under the cursor, **`gD`** follows it *and creates the note first* when the target
+resolves to nothing. `gx` keeps working (one line in the chord table, and it is what the docs
+and comments already say).
+
+The chord is a core `Outcome` (`FollowLink` / the new `CreateLink`), the editor emits a new
+`EditorEvent::CreateLink`, and the window decides what creating means — the engine still knows
+nothing about the vault. `Workspace::follow_link` gained a `create` flag; `make_link_note` reuses
+`:new`'s bookkeeping (`create_note` → `refresh_entries` → `index_created` → tree selection →
+`open_note` → the status line), in that order, because opening a note says the note's name and the
+creation is the thing worth saying.
+
+**Where the new note lands (ruled 2026-11-05): beside the note in hand.** A link written inside
+`areas/bread-v2/bread-v2.md` wants a note of that area; a target that spells a path out
+(`[[areas/x/y]]`) is used verbatim, folders and all, and `create_note` makes the parents. The
+folder is a tidiness choice, not a correctness one — Shale resolves links by shortest unique name
+anywhere in the vault.
+
+Not done, deliberately: the created note is **empty** (same as `:new` — no title line, no
+template), and `[[note#heading]]` still lands at the top, because the resolver takes a raw target
+with no alias and no anchor. Both belong with P4.6 (link health, heading anchors), which is where
+the graph's tracked-link data pays off properly. app 465 / core 471.

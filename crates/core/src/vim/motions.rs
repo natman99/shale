@@ -157,7 +157,12 @@ impl Vim {
                     }
                     Outcome::Stay
                 }
-                Key::Char('x') => Outcome::FollowLink,
+                // `gd` — go to definition, the LSP habit — and the older `gx` both
+                // follow the link under the cursor.
+                Key::Char('d') | Key::Char('x') => Outcome::FollowLink,
+                // `gD`: the same, but a target that resolves to nothing is created
+                // first, beside the note the user is standing in.
+                Key::Char('D') => Outcome::CreateLink,
                 // `g f` is Shale's quick-open. vim's `gf` edits the file named
                 // under the cursor; here the name is typed, so the chord opens the
                 // picker instead — and it is one of the ways in now that `ctrl-o`

@@ -331,14 +331,15 @@ impl Workspace {
         };
         let active = index == self.pane().active;
         match event {
-            EditorEvent::FollowLink { target } => {
-                // Only the tab on screen can be clicked or `gx`-ed, but a link
+            EditorEvent::FollowLink { target } | EditorEvent::CreateLink { target } => {
+                // Only the tab on screen can be clicked or `gd`-ed, but a link
                 // followed in a tab that is not on screen would otherwise edit the
                 // wrong note, so it is brought on screen first.
                 if !active {
                     self.show_tab(index, cx);
                 }
-                self.follow_link(target, cx);
+                let create = matches!(event, EditorEvent::CreateLink { .. });
+                self.follow_link(target, create, cx);
             }
             EditorEvent::Changed => {
                 self.queue_autosave(index, cx);

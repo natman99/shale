@@ -662,7 +662,9 @@ impl Workspace {
                 }
                 // Everything else the editor reports is handled by the subscription
                 // the tab itself makes, which needs no window.
-                EditorEvent::FollowLink { .. } | EditorEvent::Changed => {}
+                EditorEvent::FollowLink { .. }
+                | EditorEvent::CreateLink { .. }
+                | EditorEvent::Changed => {}
             },
         ));
         self.hover_stale = false;

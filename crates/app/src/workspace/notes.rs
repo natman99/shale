@@ -6,7 +6,7 @@
 //! here is still a descendant of `workspace`, so it reaches `Workspace`'s private
 //! state directly and calls its neighbours through the same `pub(super)` doors.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use gpui::{Context, Window};
@@ -101,13 +101,15 @@ impl Workspace {
     }
 
     /// Open the note a wiki-link target refers to, if it exists.
-    pub(super) fn follow_link(&mut self, target: &str, cx: &mut Context<Self>) {
+    pub(super) fn follow_link(&mut self, target: &str, create: bool, cx: &mut Context<Self>) {
         match self.vault.resolve_link(target, &self.entries) {
             Ok(Some(entry)) => {
                 let path = entry.path.clone();
                 tracing::debug!(target, path = %path.display(), "following wiki-link");
                 self.open_note(&path, cx);
             }
+            // `gD`: the note the link asks for, made and then followed.
+            Ok(None) if create => self.make_link_note(target, cx),
             Ok(None) => {
                 tracing::debug!(target, "unresolved wiki-link");
                 self.say(format!("no note named {target}"), cx);
@@ -120,6 +122,44 @@ impl Workspace {
             }
         }
     }
+    /// The note a `gD` link asks for: created, then opened.
+    ///
+    /// It lands **beside the note the user is standing in** — a link written inside
+    /// `areas/bread-v2/bread-v2.md` most often wants a note of that area, and Shale
+    /// resolves links by shortest unique name anywhere in the vault, so the folder is
+    /// a choice about tidiness rather than about whether the link works. A target that
+    /// spells a path out (`[[areas/x/y]]`) is used verbatim, folders and all.
+    fn make_link_note(&mut self, target: &str, cx: &mut Context<Self>) {
+        let rel = if target.contains('/') {
+            PathBuf::from(target)
+        } else {
+            let dir = self
+                .note()
+                .map(|note| note.parent().map(Path::to_path_buf).unwrap_or_default())
+                .unwrap_or_default();
+            dir.join(target)
+        };
+        match self.vault.create_note(rel) {
+            Ok(created) => {
+                // The same bookkeeping `:new` does: the tree has to know the file
+                // exists, the index has to know it was created, and the selection
+                // follows it so the tree is not left pointing at nothing.
+                self.refresh_entries(cx);
+                self.index_created(&created);
+                self.tree_selection = Some(created.clone());
+                // The message goes after the open, as `:new` does it: opening a note
+                // says the note's name, and the creation is the thing worth saying.
+                self.open_note(&created, cx);
+                self.say(format!("created {}", rel_text(&created)), cx);
+            }
+            Err(err) => {
+                tracing::warn!(target, "could not create the note a link asked for: {err:#}");
+                self.say(format!("{err:#}"), cx);
+                cx.notify();
+            }
+        }
+    }
+
     pub(super) fn save(&mut self, _: &Save, _window: &mut Window, cx: &mut Context<Self>) {
         self.write_note(cx);
         cx.notify();

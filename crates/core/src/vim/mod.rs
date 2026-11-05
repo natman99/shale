@@ -85,8 +85,12 @@ pub enum Outcome {
     EnterInsert,
     /// Key not applicable (e.g. unbound); UI may fall back to default handling.
     Unhandled,
-    /// `gx` was typed: the UI should follow the link under the cursor.
+    /// `gx` or `gd` was typed: the UI should follow the link under the cursor.
     FollowLink,
+    /// `gD` was typed: follow the link under the cursor, making the note first when
+    /// the target resolves to nothing. A request rather than an edit, like
+    /// `space f` — the engine has no idea what the vault holds.
+    CreateLink,
     /// `space f` was typed: the UI should open its quick-open picker. The engine
     /// has no idea what notes exist, let alone where they live, so this is a
     /// request rather than an edit.

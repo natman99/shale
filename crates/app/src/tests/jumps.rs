@@ -103,6 +103,66 @@ fn a_link_then_ctrl_o_returns_to_the_same_byte(cx: &mut TestAppContext) {
     assert_eq!(lens(&window, cx), (1, 0), "and the chain flipped back");
 }
 
+/// A note in a folder, linking `[[shopping-list]]` — a note that exists nowhere in
+/// the vault. Same prefix as [`A`], so the cursor lands on the link the same way.
+const UNRESOLVED: &str = "line one\nsee [[shopping-list]] here\nline three\n";
+
+/// `gD` on a link that resolves to nothing: the note is made **beside the one in
+/// hand** — a link written inside `areas/bread-v2/a.md` wants a note of that area —
+/// then opened, and said about in the status bar. Following it again is now just a
+/// follow: the file is not written over.
+#[gpui::test]
+fn g_d_makes_the_note_a_link_asks_for(cx: &mut TestAppContext) {
+    let (dir, window) = vault_with(cx, &[("areas/bread-v2/a.md", UNRESOLVED)]);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    let cx = &mut cx;
+    let window = &window;
+
+    cx.simulate_keystrokes("space f enter");
+    assert_eq!(active(window, cx), "areas/bread-v2/a.md");
+    cx.simulate_keystrokes("j l l l l");
+    assert_eq!(
+        cursor(window, cx),
+        LINK,
+        "the cursor is on the `[[shopping-list]]` span"
+    );
+
+    cx.simulate_keystrokes("g D");
+    assert_eq!(
+        active(window, cx),
+        "areas/bread-v2/shopping-list.md",
+        "made beside the note in hand, and opened"
+    );
+    assert!(
+        dir.path()
+            .join("areas/bread-v2/shopping-list.md")
+            .exists(),
+        "the file is on disk where the status bar says it is"
+    );
+    assert_eq!(
+        status(window, cx),
+        "created areas/bread-v2/shopping-list.md",
+        "and the window said so"
+    );
+
+    // The link resolves now, so `gD` is a follow: the note that exists is opened and
+    // left alone.
+    cx.simulate_keystrokes("ctrl-o");
+    assert_eq!(active(window, cx), "areas/bread-v2/a.md", "`ctrl-o` back");
+    std::fs::write(
+        dir.path().join("areas/bread-v2/shopping-list.md"),
+        "written by hand\n",
+    )
+    .unwrap();
+    cx.simulate_keystrokes("g D");
+    assert_eq!(active(window, cx), "areas/bread-v2/shopping-list.md");
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("areas/bread-v2/shopping-list.md")).unwrap(),
+        "written by hand\n",
+        "the second `gD` followed the link rather than re-creating the note"
+    );
+}
+
 /// Choosing somewhere new makes the jumps the user stepped back over stale, so
 /// `ctrl-i` has nothing to offer afterwards — the same shape a browser's forward
 /// history has after a new page is visited.

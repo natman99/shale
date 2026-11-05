@@ -42,6 +42,10 @@ pub(crate) use crate::theme::DEFAULT_FONT_SIZE;
 pub enum EditorEvent {
     /// The user asked to follow the wiki-link to `target`.
     FollowLink { target: String },
+    /// The user asked to follow the wiki-link to `target`, making the note first if
+    /// it does not exist (`gD`). The editor does not know the vault: it reports what
+    /// is under the cursor and lets the window decide what creating means.
+    CreateLink { target: String },
     /// The note's text changed. The workspace uses this to keep the spell and
     /// grammar checker's copy of the document in step with the buffer.
     Changed,
@@ -1011,6 +1015,16 @@ impl MarkdownEditor {
     fn follow_link_at(&mut self, offset: usize, cx: &mut Context<Self>) {
         if let Some(link) = self.link_at(offset) {
             cx.emit(EditorEvent::FollowLink {
+                target: link.target.clone(),
+            });
+        } else {
+            tracing::debug!(offset, "no wiki-link at cursor");
+        }
+    }
+
+    fn create_link_at(&mut self, offset: usize, cx: &mut Context<Self>) {
+        if let Some(link) = self.link_at(offset) {
+            cx.emit(EditorEvent::CreateLink {
                 target: link.target.clone(),
             });
         } else {
