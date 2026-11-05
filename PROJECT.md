@@ -270,6 +270,12 @@ Rationale and the full milestone live in `graph-view-plan.md` (M2); these are th
 - **A projection answers about the picture it made, and about nothing else.** `proj::Projection` holds the nodes of the graph as it was when it was built, and its slots are that graph's slots. The frame the view holds can be bigger, smaller, or a different neighbourhood — which is what a pointer event meets when it lands between a widened frame arriving and that frame being painted. So every question a projection is asked walks its own `projected` (guarded by `radius`/`screen`/`view_z`), never the frame's node count; and `store_frame` drops the projection when the node count changes, alongside the hover/selection/drag it already cleared, because slot 3 of a two-hop neighbourhood is not slot 3 of a four-hop one.
 - **The crash this rule exists for:** `index out of bounds: the len is 12 but the index is 12` at `graph/proj.rs`, from pressing `]` in the projected view and moving the mouse before the next paint. `Projection::node_at` sized its hit bound by walking `frame.nodes` and indexing `self.projected[slot]`. Reproduced headlessly by holding a 61-node frame in front of a 2-node projection (`a_projection_only_ever_answers_about_the_picture_it_made`); the event-level race cannot be reproduced in gpui's harness, because a simulated keystroke paints.
 
+#### The live channel is kept current by drawing (binding, 2026-11-05)
+
+- **A window publishes its live snapshot on the frame that changed it, not on a beat.** The 250 ms refresh cost four wakeups a second at rest to learn that nobody had moved. `Workspace::render` publishes when the app's active window draws — or any window, when none is active: an unfocused app, a test context — so the answer is fresher on every visible change and costs nothing at rest, because an idle window draws nothing (measured: 0 renders over 15 s idle). `tests::live::the_answer_follows_what_the_window_draws` holds both halves, including "nothing republished while the window sat still", read through the `live_publishes` count because `updated_at` is epoch seconds and too coarse to show it.
+- **A thread that must be able to be told to stop is woken, not polled.** The accept loop slept 50 ms between nonblocking accepts: twenty wakes a second, 239 of them in 12 s, every one finding no client. It blocks in `accept` now, and `stop()` wakes it by connecting to its own port; the loop checks the stop flag before it looks at the connection, so the wake-up connection is closed unanswered. `stop` waits on a channel with a 2 s timeout rather than joining, so a listener that never wakes is a warning at shutdown instead of a window that will not close (measured: graceful exit in 535 ms). Connections are still served one at a time, inline, as they were: a second client has always waited for the first, bounded by `REQUEST_TIMEOUT`.
+- **The idle budget, measured** (one window, 1k-note vault, no interaction, `/proc` sampling): 11.3 → 7.2 wakeups/s, `accept4` + `clock_nanosleep` 40/s → 0, futex 54/s → 35/s, ~520 → ~424 syscalls/s. CPU is unchanged at ~0.55% because the vault walk dominates it. What is left at rest is the walk (1.3/s), the queue poll (1/s) and gpui re-arming timer fds.
+
 #### Pointer grammar (binding, ruled 2026-11-04)
 
 - **A press is not a grab.** A node is pinned and moved only after the pointer has travelled past `CLICK_SLOP`; below it the same press is a click and opens the note. **One threshold decides both halves**, so the click and the drag can never disagree about where the line is.
@@ -546,7 +552,7 @@ Workspace layout:
   `exit.rs` the termination-signal exit (polling the flag the handler raised, and
   what an exit owes the disk),
   `live.rs` the window's half of the live MCP channel (publishing what is on screen
-  on a quarter-second beat, owning the server, and taking port and lock down on
+  on the frame that changed it, owning the server, and taking port and lock down on
   every graceful exit),
   `review.rs` the window's half of agent edit review (reading the queue off disk and
   badging each hunk stale or clashing, the one-second beat that notices it, and what
@@ -621,8 +627,8 @@ Workspace layout:
   the requests the *server* sends the client; `wire.rs` the JSON-RPC framing, where
   `Content-Length` counts bytes; `mapping.rs` the UTF-16-position to buffer-byte
   `mapping.rs` the UTF-16-position to buffer-byte
-  translation), `live/` (the serving end of the live MCP channel: `mod.rs` the
-  loopback listener, the accept loop that can be told to stop, the token check and
+  translation),  `live/` (the serving end of the live MCP channel: `mod.rs` the
+  loopback listener, the accept loop that blocks until woken by a connect, the token check and
   the one-request-per-connection HTTP, and `state.rs` the `Snapshot` the window
   publishes and what each endpoint answers from it) and
   `review.rs` (the strip widget itself: the queue as rows, the marker, the collapsed

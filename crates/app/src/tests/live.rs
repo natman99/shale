@@ -35,9 +35,8 @@ fn the_window_answers_what_it_is_showing(cx: &mut TestAppContext) {
     assert_eq!(status["port"], lock.port);
     assert_eq!(status["overlay"], "none", "the note has the keyboard");
 
-    // `start_live` publishes once before it binds, so the first answer is already
-    // the window's; a publish asked for directly is how a test says "now" rather
-    // than waiting on the beat.
+    // In the app the window's first frame publishes it; a publish asked for directly is
+    // how a test says "now" without drawing a frame to get there.
     window
         .update(cx, |ws, _window, cx| {
             ws.open_note(&PathBuf::from("One.md"), cx);
@@ -66,10 +65,13 @@ fn the_window_answers_what_it_is_showing(cx: &mut TestAppContext) {
     );
 }
 
-/// The beat is what keeps the answer current: typing, then letting a refresh pass,
-/// moves the cursor the port reports without anything else being asked for.
+/// The answer is kept current by drawing: what the window drew is what the port
+/// reports, on the frame that drew it, with no beat in between. And a window that
+/// draws nothing publishes nothing — the idle-park contract reaches the live channel
+/// too, where the old 250 ms beat cost four wakeups a second to learn that the user
+/// had not moved.
 #[gpui::test]
-fn the_beat_keeps_the_answer_current(cx: &mut TestAppContext) {
+fn the_answer_follows_what_the_window_draws(cx: &mut TestAppContext) {
     let mut config = Config::default();
     config.spellcheck.enabled = false;
     config.index.enabled = false;
@@ -87,16 +89,40 @@ fn the_beat_keeps_the_answer_current(cx: &mut TestAppContext) {
     let clock = Clock(cx.executor());
     let cx = &mut VisualTestContext::from_window(window.into(), cx);
 
+    let before = window.update(cx, |ws, _window, _cx| ws.live_publishes()).unwrap();
     cx.simulate_keystrokes("i");
     cx.simulate_input("hello");
-    // Longer than the window's refresh beat, shorter than the autosave pause, so
-    // what arrives is the beat rather than a write.
-    clock.pause(cx, Duration::from_millis(300));
+    // The frame that draws the edit is the publish. No timer, no beat.
+    for _ in 0..2 {
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+    }
 
     let note = get(lock.port, &lock.token, PATH_NOTE).unwrap();
     assert_eq!(note["mode"], "insert", "the mode travels too");
     assert_eq!(note["cursor"]["col"], 5);
     assert_eq!(note["dirty"], true, "the edit has not been written yet");
+    assert!(
+        window
+            .update(cx, |ws, _window, _cx| ws.live_publishes())
+            .unwrap()
+            > before,
+        "the frame that drew the edit published it"
+    );
+
+    // At rest the answer stops being re-made: nothing is republishing what nobody
+    // changed. `updated_at` is epoch seconds, too coarse to show this, so the count
+    // of publishes is what the test reads.
+    let settled = window
+        .update(cx, |ws, _window, _cx| ws.live_publishes())
+        .unwrap();
+    clock.pause(cx, Duration::from_millis(600));
+    assert_eq!(
+        window
+            .update(cx, |ws, _window, _cx| ws.live_publishes())
+            .unwrap(),
+        settled,
+        "the window sat still and published anyway"
+    );
 
     window
         .update(cx, |ws, _window, cx| ws.stop_live(cx))

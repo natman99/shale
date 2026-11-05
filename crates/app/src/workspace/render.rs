@@ -344,6 +344,17 @@ impl Render for Workspace {
                 ws.refresh_graph(cx);
             });
         }
+        // The live channel's snapshot is kept current by drawing: a window publishes
+        // itself on the frame in which whatever changed became visible, and an idle
+        // window — which draws nothing, by the idle-park contract — publishes nothing.
+        // The old 250 ms beat cost four wakeups a second at rest to learn that the
+        // user had not moved. Only the window the app considers active publishes, so
+        // the answer stays the one the user is looking at; when no window is active
+        // (an unfocused app, a test context) the window drawing is the answer.
+        let active = cx.active_window().map(|w| w.window_id());
+        if active.is_none() || active == Some(window.window_handle().window_id()) {
+            self.publish_live(cx);
+        }
         self.sync_window_title(window);
         let tree = tree::build_tree(&self.entries, &self.dirs);
         let active = self.note();

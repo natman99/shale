@@ -44,10 +44,6 @@ const WATCH_INTERVAL_MAX: Duration = Duration::from_secs(15);
 /// which is the same ~0.3% idle the contract asks for at every vault size.
 const WATCH_DUTY: u32 = 300;
 
-/// How often the live channel republishes. Same as the old per-window beat:
-/// shorter than anything an agent can act on.
-const LIVE_REFRESH: Duration = Duration::from_millis(250);
-
 /// The daily backup poll (roadmap P1.6).
 const BACKUP_POLL: Duration = Duration::from_secs(3_600);
 
@@ -120,7 +116,7 @@ impl VaultServices {
         services.start_backups(cx);
         // Roadmap P2.3: the live channel. It comes up before any window exists;
         // the first beat with a window in it fills the snapshot.
-        services.start_live(cx);
+        services.start_live();
         services
     }
 
@@ -275,7 +271,7 @@ impl VaultServices {
     ///
     /// A failure here is a log line and a missing feature, exactly as it was
     /// per-window: nothing else depends on the channel.
-    fn start_live(&mut self, cx: &mut Context<Self>) {
+    fn start_live(&mut self) {
         if !self.config.mcp.live {
             tracing::debug!("the live MCP channel is off: [mcp] live = false");
             return;
@@ -288,36 +284,6 @@ impl VaultServices {
                 // is for the human wondering whether the channel came up at all.
                 tracing::debug!(port = server.port(), "the live MCP channel is up");
                 self.live = Some(server);
-                let watched = cx.entity().downgrade();
-                cx.spawn(async move |_ws, cx| {
-                    loop {
-                        cx.background_executor().timer(LIVE_REFRESH).await;
-                        let Some(services) = watched.upgrade() else {
-                            break;
-                        };
-                        // Publish from every window, and the active one
-                        // last: the snapshot ends as the window the desktop
-                        // says is active, while a window no desktop calls
-                        // active — an unfocused app, a test context — still
-                        // keeps the answer alive when it is there alone.
-                        let (all, active) = services
-                            .update(cx, |s, cx| {
-                                s.windows.retain(|w| w.upgrade().is_some());
-                                (
-                                    s.windows.clone(),
-                                    cx.active_window()
-                                        .and_then(|w| w.downcast::<Workspace>()),
-                                )
-                            });
-                        for ws in &all {
-                            let _ = ws.update(cx, |ws, cx| ws.publish_live(cx));
-                        }
-                        if let Some(active) = active {
-                            let _ = active.update(cx, |ws, _window, cx| ws.publish_live(cx));
-                        }
-                    }
-                })
-                .detach();
             }
             Err(err) => {
                 self.live_snapshot = None;

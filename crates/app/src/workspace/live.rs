@@ -124,7 +124,11 @@ impl Workspace {
             updated_at: shale_core::now_epoch(),
         };
         // The lock is held only long enough to swap the copy, so a request that
-        // arrives mid-publish is answered from the previous beat rather than waiting.
+        // arrives mid-publish is answered from the copy before it rather than waiting.
+        #[cfg(test)]
+        {
+            self.live_publishes += 1;
+        }
         if let Ok(mut slot) = shared.lock() {
             *slot = snapshot;
         }

@@ -447,6 +447,12 @@ impl Workspace {
         self.graph_view()?.read(cx).drawn_spread()
     }
 
+    /// How many times this window has published itself to the live channel.
+    #[cfg(test)]
+    pub(crate) fn live_publishes(&self) -> usize {
+        self.live_publishes
+    }
+
     /// Ask the projected picture the view is holding about a frame it is NOT holding.
     #[cfg(test)]
     pub(crate) fn graph_projection_hit(

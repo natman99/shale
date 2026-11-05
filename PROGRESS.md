@@ -1109,3 +1109,47 @@ What the numbers say:
 - ~7 wakeups/s remain with the live channel off, and they are not accounted for by the three beats
   (live 4 + walk 1.3 + queue 1). Unaccounted-for idle wakeups are the one thing this measurement
   cannot name; `strace -c -p` on a running window would.
+
+
+## The live channel goes quiet (2026-11-05)
+
+The idle measurement named two costs that were pure overhead, and both are now gone.
+
+**The 250 ms publish beat.** Every window copied itself into the vault's snapshot four times a
+second, whether or not anything had changed. The copy is now driven by drawing: `Workspace::render`
+publishes, gated on the app's active window (or any window when none is active, which is the
+unfocused-app and test case the old beat handled by publishing everything and the active one last).
+An idle window draws nothing — measured with a probe in `render`: **0 renders over 15 s** with the
+1k graph on screen — so an idle window publishes nothing. The answer is also *fresher* than it was:
+the frame that moved the cursor is the publish, rather than up to 250 ms later.
+
+**The accept loop's 50 ms poll.** `live/mod.rs` put the listener in nonblocking mode and slept
+between accepts: 20 wakes/s, and `strace` showed 239 `accept4` calls in 12 s, every one of them
+returning "nothing waiting". It blocks in `accept` now. `stop()` wakes it by connecting to its own
+port — the loop checks the stop flag before it looks at the connection, so that connection is closed
+unanswered — and waits on a channel with a 2 s timeout instead of joining, so a listener that never
+wakes becomes a warning at shutdown rather than a window that will not close. Measured: graceful
+exit in 535 ms, lockfile removed, `/status` and `/note` answering before and after.
+
+Connections are still served inline, one at a time — that was already true with the poll, and
+`REQUEST_TIMEOUT` (2 s) is what bounds how long one stalled client can hold the others.
+
+**The payoff, same method as the baseline** (one window, organic-1k, `--graph`, no interaction):
+
+| | before | after |
+|---|---|---|
+| wakeups/s (main thread) | 11.3 | **7.2** |
+| `accept4` + `clock_nanosleep` per s | 40 | **0** |
+| futex per s | 54 | 35 |
+| syscalls per s (all threads) | ~520 | ~424 |
+| CPU | 0.55% | 0.53% |
+
+CPU did not move because the vault walk dominates it; the win is wakeups, which is the battery
+number. What is left at rest: the walk (1.3/s), the queue poll (1/s, per window — next), and gpui
+re-arming a timer fd for each of them.
+
+The test that used to prove the beat worked (`the_beat_keeps_the_answer_current`) became
+`the_answer_follows_what_the_window_draws`, which asserts both that a drawn edit publishes and that
+600 ms of sitting still publishes nothing. The second half needed a publish counter: `updated_at` is
+epoch seconds, too coarse to show a republish. Mutation-checked: with the render-publish removed the
+test fails. app 464 / core 469.

@@ -161,6 +161,11 @@ pub(crate) struct Workspace {
     /// The local graph's centre moved and the picture has not been re-made yet. A frame
     /// flag, not a task: see [`Workspace::graph_local_follow`].
     graph_follow_pending: bool,
+    /// How many times this window has copied itself into the live snapshot. A test's
+    /// way of asking whether anything republished while the window sat still, which
+    /// the snapshot's own `updated_at` (epoch seconds) is too coarse to answer.
+    #[cfg(test)]
+    live_publishes: usize,
     /// The sim's beat: one task that ticks the layout while the graph tab is on screen
     /// and ends when the sim settles or the tab closes. One task, not one per tick —
     /// and it stops by itself, because a settled graph that keeps asking for frames is
@@ -486,6 +491,8 @@ impl Workspace {
             graph: None,
             graph_sim: None,
             graph_follow_pending: false,
+            #[cfg(test)]
+            live_publishes: 0,
             graph_beat: None,
             graph_build: None,
             graph_pending: Vec::new(),

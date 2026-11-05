@@ -30,7 +30,6 @@ use std::net::{TcpListener, TcpStream};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::thread::JoinHandle;
 use std::time::Duration;
 
 use anyhow::{Context as _, Result};
@@ -46,11 +45,11 @@ const MAX_HEAD: usize = 8 * 1024;
 /// the server.
 const REQUEST_TIMEOUT: Duration = Duration::from_millis(2000);
 
-/// How often the accept loop looks at the stop flag, since `accept` would otherwise
-/// block forever. One poll per request would be enough; this is the same shape as the
-/// termination-signal poll, which is the pattern in this crate for "a thread that
-/// must be able to be told to stop".
-const ACCEPT_POLL: Duration = Duration::from_millis(50);
+/// How long `stop` waits for the accept loop to notice it was told to stop. The wake
+/// is a connect to its own port, so this is a formality; it exists so a broken
+/// listener can turn into a log line at shutdown rather than a window that will not
+/// close.
+const SHUTDOWN_WAKE: Duration = Duration::from_secs(2);
 
 /// What the server answers with for its own version, so `shale://status` can name the
 /// build the user is looking at.
@@ -65,8 +64,9 @@ pub(crate) struct LiveServer {
     /// Which vault's `.shale/` the lock belongs to.
     vault_root: std::path::PathBuf,
     stop: Arc<AtomicBool>,
-    /// The accept loop, joined by [`LiveServer::stop`] so stopping really stops.
-    thread: Option<JoinHandle<()>>,
+    /// Filled when the accept loop has left its loop; [`LiveServer::stop`] waits on it
+    /// so stopping really stops.
+    done: std::sync::mpsc::Receiver<()>,
 }
 
 impl LiveServer {
@@ -81,10 +81,6 @@ impl LiveServer {
             .local_addr()
             .context("asking which port the live channel was given")?
             .port();
-        listener
-            .set_nonblocking(true)
-            .context("putting the live channel's listener in nonblocking mode")?;
-
         let token = shale_core::live::token();
         let stop = Arc::new(AtomicBool::new(false));
         let serving = Serving {
@@ -93,27 +89,43 @@ impl LiveServer {
             shared,
         };
         let thread_stop = Arc::clone(&stop);
+        let (done, waiting) = std::sync::mpsc::channel();
         let thread = std::thread::spawn(move || {
-            while !thread_stop.load(Ordering::Relaxed) {
+            // A blocking accept. The loop sleeps in the kernel until a client connects,
+            // rather than waking on a timer twenty times a second to ask whether one
+            // has: an idle vault has no agent asking, and it should cost nothing to
+            // know that. `stop` wakes this by connecting, which is the same "a thread
+            // that must be able to be told to stop" shape as the termination poll, with
+            // the poll taken out.
+            loop {
                 match listener.accept() {
-                    Ok((stream, _addr)) => serving.serve(stream),
-                    Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
-                        std::thread::sleep(ACCEPT_POLL)
+                    Ok((stream, _addr)) => {
+                        if thread_stop.load(Ordering::Relaxed) {
+                            // The connection `stop` made to wake us. Answered by being
+                            // closed.
+                            break;
+                        }
+                        serving.serve(stream);
                     }
+                    Err(_) if thread_stop.load(Ordering::Relaxed) => break,
                     Err(err) => {
                         tracing::warn!("the live channel stopped accepting: {err}");
                         break;
                     }
                 }
             }
+            let _ = done.send(());
         });
+        // The handle is not kept: the thread is waited on through `waiting`, which is
+        // how a shutdown that never arrives becomes a warning instead of a hang.
+        let _ = thread;
 
         let server = LiveServer {
             port,
             token,
             vault_root: vault_root.to_path_buf(),
             stop,
-            thread: Some(thread),
+            done: waiting,
         };
         Lock {
             pid: std::process::id(),
@@ -135,10 +147,16 @@ impl LiveServer {
     /// Stop listening and take the lock away, so the next `shale-mcp` to look finds
     /// nothing rather than a stale hint. A graceful exit runs this; a `kill -9` does
     /// not, which is exactly why the client probes instead of trusting the file.
-    pub(crate) fn stop(mut self) -> Result<()> {
+    pub(crate) fn stop(self) -> Result<()> {
         self.stop.store(true, Ordering::Relaxed);
-        if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
+        // Wake the blocking accept by connecting to the port. The loop checks the flag
+        // before it looks at the connection, so this one is dropped on the floor.
+        let addr = std::net::SocketAddr::new(std::net::Ipv4Addr::LOCALHOST.into(), self.port);
+        if let Err(err) = TcpStream::connect(addr) {
+            tracing::warn!("could not wake the live channel's accept loop: {err}");
+        }
+        if self.done.recv_timeout(SHUTDOWN_WAKE).is_err() {
+            tracing::warn!("the live channel's accept loop did not stop in time");
         }
         Lock::remove(&self.vault_root)
     }
