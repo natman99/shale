@@ -1036,3 +1036,41 @@ cover-growth rule and at +35.8 % with the old design, and passes at 0 % now. The
 one as the drift's earlier green-but-wrong tests: a test that cannot tell the fix from the bug is
 not a test, and the way to find out is to break the fix on purpose.
 app 464 / core 468.
+
+
+## An out-of-bounds crash on a graph interaction (2026-11-05)
+
+Reported unreproducibly: *"out of bounds crash on graph interaction. I was expanding the hop
+size with `]` after changing the graph to 3d."* — `index out of bounds: the len is 12 but the
+index is 12` at `crates/app/src/graph/proj.rs:204:61`.
+
+The line was `Projection::node_at` sizing its own hit bound:
+
+```rust
+let biggest = frame.nodes.iter().enumerate()
+    .map(|(slot, node)| node.radius * self.projected[slot].scale)
+```
+
+It walked **the frame's** nodes and indexed **its own** projection. A projection is a snapshot
+built at paint time; the view's `frame` is whatever the sim shipped most recently. Between a
+widened frame arriving and the next paint, the two have different lengths — 12 and 13 — and the
+pointer's question walks off the end of the projection. The `]` in the report is the trigger, and
+the mouse moving afterwards is the second half of it.
+
+Two changes:
+
+- `node_at` now walks `0..self.projected.len()` through the guarded `radius` accessor, so a
+  projection can only ever answer about the picture it made.
+- `store_frame` drops the projection when the node count changes, next to the hover/selection/drag
+  clearing that was already there for the same reason — slots are only meaningful within one
+  graph. The next paint builds a true one.
+
+**Why the repro is headless and not an event test:** gpui's `VisualTestContext` paints after a
+simulated keystroke and after a `window.update`, so the window between a frame arriving and that
+frame being painted cannot be reached from the event path — an attempt at exactly that
+(`simulate_keystrokes("]")` then a mouse move) came back green with the bug still in, because the
+projection had been rebuilt by then. What does reach it is the projection's own contract: hold a
+61-node frame, put it in front of the 2-node picture the view is still holding, and ask it what is
+under the middle of the canvas. With the old loop that panics with the reported shape (`len is 2
+but the index is 2`); with the fix it answers about the two nodes it actually projected.
+app 464 / core 469.

@@ -206,3 +206,34 @@ mod interactions;
 mod paint_bench;
 mod tab;
 mod three_d;
+
+/// A hub vault: sixty notes all hanging off one, so a depth step is a thirtyfold change
+/// in what the picture holds — the case the user reported as "the camera zooms in before
+/// zooming out" and "the dots pulsate as the camera moves".
+fn hub_vault(
+    cx: &mut TestAppContext,
+) -> (
+    tempfile::TempDir,
+    WindowHandle<Workspace>,
+    VisualTestContext,
+) {
+    let leaves = 60;
+    let mut notes: Vec<(String, String)> = vec![(
+        "hub.md".into(),
+        (1..=leaves)
+            .map(|i| format!("[[leaf{i}.md]] "))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    )];
+    for i in 1..=leaves {
+        notes.push((format!("leaf{i}.md"), "[[hub.md]]\n".into()));
+    }
+    let notes: Vec<(&str, &str)> = notes
+        .iter()
+        .map(|(name, text)| (name.as_str(), text.as_str()))
+        .collect();
+    let (dir, window) = vault_with(cx, &notes);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show(&mut cx, &window, "leaf1.md");
+    (dir, window, cx)
+}

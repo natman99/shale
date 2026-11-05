@@ -199,11 +199,15 @@ impl Projection {
     /// was built from, and a pointer beside an edge node is a pointer on that node.
     pub(crate) fn node_at(&self, frame: &GraphFrame, screen: [f32; 2], slop: f32) -> Option<usize> {
         let points: Vec<[f32; 2]> = self.projected.iter().map(|p| p.xy).collect();
-        let biggest = frame
-            .nodes
-            .iter()
-            .enumerate()
-            .map(|(slot, node)| drawn_radius(node.radius, self.projected[slot].scale))
+        // Walked over **this picture's** nodes, not the frame's. A projection is a
+        // snapshot of the graph as it was when it was built, and its slots are that
+        // graph's slots; the frame the view is holding now can be bigger, smaller, or a
+        // different neighbourhood altogether. Reaching for `frame.nodes.len()` here was
+        // the crash: "index out of bounds: the len is 12 but the index is 12", from a
+        // pointer event landing between a widened frame arriving and the frame being
+        // painted. [`Self::radius`] is the guarded door for the same question.
+        let biggest = (0..self.projected.len())
+            .map(|slot| self.radius(frame, slot))
             .fold(0.0, f32::max);
         let hit = self
             .grid

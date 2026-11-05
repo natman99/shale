@@ -772,37 +772,6 @@ fn the_drift_parks_itself_when_it_arrives(cx: &mut TestAppContext) {
 }
 
 
-/// A hub vault: sixty notes all hanging off one, so a depth step is a thirtyfold change
-/// in what the picture holds — the case the user reported as "the camera zooms in before
-/// zooming out" and "the dots pulsate as the camera moves".
-fn hub_vault(
-    cx: &mut TestAppContext,
-) -> (
-    tempfile::TempDir,
-    WindowHandle<Workspace>,
-    VisualTestContext,
-) {
-    let leaves = 60;
-    let mut notes: Vec<(String, String)> = vec![(
-        "hub.md".into(),
-        (1..=leaves)
-            .map(|i| format!("[[leaf{i}.md]] "))
-            .collect::<Vec<_>>()
-            .join("\n"),
-    )];
-    for i in 1..=leaves {
-        notes.push((format!("leaf{i}.md"), "[[hub.md]]\n".into()));
-    }
-    let notes: Vec<(&str, &str)> = notes
-        .iter()
-        .map(|(name, text)| (name.as_str(), text.as_str()))
-        .collect();
-    let (dir, window) = vault_with(cx, &notes);
-    let mut cx = VisualTestContext::from_window(window.into(), cx);
-    show(&mut cx, &window, "leaf1.md");
-    (dir, window, cx)
-}
-
 /// Drive a depth change and the layout together, one drift step per couple of sim ticks.
 /// `paint` runs the layout to rest in one go, which hides the thing being tested: the
 /// drift is only ever interesting while the layout is *still moving*, and a widened

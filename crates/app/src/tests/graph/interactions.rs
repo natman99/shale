@@ -709,3 +709,55 @@ fn a_press_that_barely_moves_never_grabs_the_node(cx: &mut TestAppContext) {
     );
     release(&mut cx, far, gpui::Modifiers::default());
 }
+
+/// A projection is a snapshot: it holds the nodes of the graph as it was when it was
+/// built, and its slots are that graph's slots. The frame the view is holding can be
+/// bigger, smaller, or a different neighbourhood — which is what a pointer event meets
+/// when it lands between a widened frame arriving and that frame being painted. Reaching
+/// past the picture's own end was the crash: "index out of bounds: the len is 12 but the
+/// index is 12", from pressing `]` in the projected view and moving the mouse.
+#[gpui::test]
+fn a_projection_only_ever_answers_about_the_picture_it_made(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = hub_vault(cx);
+    cx.simulate_keystrokes("space g");
+    paint(&mut cx, &window);
+    command_line("graph-local 1", &mut cx);
+    cx.simulate_keystrokes("space g");
+    paint(&mut cx, &window);
+    cx.simulate_keystrokes("3");
+    paint(&mut cx, &window);
+    // The picture on the shelf is the two-node one. Widen a hop and hold the frame that
+    // comes back WITHOUT shipping it: the view still paints two nodes.
+    let (_summary, wide) = window
+        .update(&mut cx, |ws, _window, cx| ws.graph_local_step(1, cx))
+        .unwrap()
+        .expect("a hop out is a step");
+    assert!(
+        wide.nodes.len() > 2,
+        "the frame must outgrow the picture for this to test anything: {}",
+        wide.nodes.len()
+    );
+    let box_px = window
+        .update(&mut cx, |ws, _window, cx| ws.graph_canvas(cx))
+        .unwrap()
+        .expect("the canvas has been measured by now");
+    let at = [
+        box_px[0] + box_px[2] / 2.0,
+        box_px[1] + box_px[3] / 2.0,
+    ];
+    // Before the fix this panicked inside the projection: it walked the frame's nodes and
+    // indexed its own.
+    let hit = window
+        .update(&mut cx, |ws, _window, cx| ws.graph_projection_hit(&wide, at, cx))
+        .unwrap();
+    // Whatever it answers, it can only answer about nodes it actually projected.
+    if let Some(slot) = hit {
+        assert!(
+            window
+                .update(&mut cx, |ws, _window, cx| ws.graph_node_screen(slot, cx))
+                .unwrap()
+                .is_some(),
+            "it returned slot {slot}, which is not in the picture it made"
+        );
+    }
+}

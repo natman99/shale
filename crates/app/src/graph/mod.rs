@@ -458,6 +458,12 @@ impl GraphView {
             self.hover = None;
             self.selected = None;
             self.drag = None;
+            // And the picture on the shelf goes with them. It was built from the graph
+            // that was last painted, so its slots are that graph's slots: slot 3 of a
+            // two-hop neighbourhood is not slot 3 of a four-hop one. Nothing may ask it
+            // about this frame — not even which of the nodes it happens to know is
+            // nearest — and the next paint builds a true one.
+            *self.projection.borrow_mut() = None;
         }
         self.frame = Some(frame);
     }
@@ -959,6 +965,16 @@ impl GraphView {
     #[cfg(test)]
     pub(crate) fn projection_slot(&self, slot: usize) -> Option<[f32; 2]> {
         (*self.projection.borrow()).as_ref()?.screen(slot)
+    }
+
+    /// The projected view's answer to "which node is under here", asked of a frame the
+    /// view is not holding. The test that pins the stale-projection crash needs to put a
+    /// bigger graph in front of the picture on the shelf, which is exactly what a pointer
+    /// event does when it lands between a frame arriving and that frame being painted.
+    #[cfg(test)]
+    pub(crate) fn projection_hit(&self, frame: &GraphFrame, screen: [f32; 2]) -> Option<usize> {
+        let projection = (*self.projection.borrow()).clone()?;
+        projection.node_at(frame, screen, HIT_SLOP_PX)
     }
 
     /// Where the projected view is looking: the user's camera if they turned or panned

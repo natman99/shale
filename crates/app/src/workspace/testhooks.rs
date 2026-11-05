@@ -447,6 +447,32 @@ impl Workspace {
         self.graph_view()?.read(cx).drawn_spread()
     }
 
+    /// Ask the projected picture the view is holding about a frame it is NOT holding.
+    #[cfg(test)]
+    pub(crate) fn graph_projection_hit(
+        &self,
+        frame: &crate::graph::GraphFrame,
+        screen: [f32; 2],
+        cx: &gpui::App,
+    ) -> Option<usize> {
+        self.graph_view()?.read(cx).projection_hit(frame, screen)
+    }
+
+    /// Ship a frame to the graph view without drawing it, the way the layout's beat
+    /// does. A test that wants the window between a frame arriving and the frame being
+    /// painted — where the projection on the view still belongs to the graph before it —
+    /// cannot get there through a keystroke, because a simulated keystroke paints.
+    #[cfg(test)]
+    pub(crate) fn graph_ship_frame(
+        &self,
+        frame: Rc<crate::graph::GraphFrame>,
+        cx: &mut Context<Workspace>,
+    ) {
+        if let Some(view) = self.graph_view().cloned() {
+            view.update(cx, |view, cx| view.set_frame(frame, cx));
+        }
+    }
+
     /// Run the layout for `ticks` ticks and ship the frame. `settle_graph` runs the sim
     /// to rest in one go, which is what a paint test wants and what a drift test does
     /// not: the drift needs to be watched while the layout is still moving.
