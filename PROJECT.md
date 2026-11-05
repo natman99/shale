@@ -239,6 +239,24 @@ Rationale and the full milestone live in `graph-view-plan.md` (M2); these are th
 - **Depth is 1–5 (`LOCAL_DEPTH_MAX`), default 2, clamped in the app.** Five is the point where "neighbourhood" stops being a word on a hub note; two reads as a picture where one reads as a list. `:graph-local 0` and `:graph-global` are the whole vault.
 - **A workspace→view write from tab plumbing is deferred one frame.** `graph_local_follow` runs from `mark_note_mru`, and a tab is very often activated *by the graph view itself* (a node click opens its note), so the view is already borrowed when it lands — `refresh_graph` writing to it there is a gpui double-borrow panic. The follow re-arms through a one-frame task holding a weak handle. Pinned by `the_local_graph_follows_the_note_being_read`.
 
+#### The centre mark (binding, ruled 2026-11-04)
+
+- **A neighbourhood names its centre.** When the graph is local, the node standing for the note the window is showing gets a halo of its own and a label the budget cannot cut, in **both** spaces. A local graph that does not say which dot it is local *to* makes the user find the note they were just reading by its shape.
+- **The mark is a lookup by path, never a remembered slot.** An index rebuild hands back a different slot order under the same path; the halo has to follow the note, not the number.
+- **The centre shares the hover's colour and differs by size** (`CENTRE_RING_PX` wider). Both marks mean "the note in question"; size is what keeps the pointer's answer and the window's answer apart when they land on different dots.
+
+#### The camera drift (binding, ruled 2026-11-04)
+
+- **A neighbourhood that changes size moves the camera.** A depth step, a re-centre or a toggle re-frames the view onto the neighbourhood it just changed. The lean is toward the **note**, not the whole vault: the framing is of the neighbourhood the frame now holds, whose middle the centre note is at by construction.
+- **The drift is a chase, not a tween.** Each tick re-derives the fit from the frame *as it is now* and takes a quarter of the remaining gap, because the neighbourhood is still spreading out under the forces when the drift starts. A fixed target would arrive at a framing the layout has already outgrown. It gives up after ~1.5 s so a long settle never leaves the camera chasing a graph.
+- **Any camera input from the user ends it.** A press, a wheel, a zoom or pan key, `f`. The view stops moving itself the moment they touch it.
+- **The drift never takes the angle away.** It lerps pan/zoom/distance and leaves yaw/pitch alone — the same contract as `f` in the projected view.
+
+#### Pointer grammar (binding, ruled 2026-11-04)
+
+- **A press is not a grab.** A node is pinned and moved only after the pointer has travelled past `CLICK_SLOP`; below it the same press is a click and opens the note. **One threshold decides both halves**, so the click and the drag can never disagree about where the line is.
+- **A drag begins at the node's own position, not the pointer's.** Pinning at the pointer is what made an unsteady click throw the layout around — worst in the projected view, where the world point under the cursor at the node's depth has nothing to do with the node.
+
 ### Database 
 Persist metadata about notes to a local sqlite DB. This, along with other vault metadata, should be kept in a `.shale` directory in the vault. Store modification and creation date, tags, names, and whatever else is relevant as the project continues. When Obsidian properties are added, these should be stored as well. Use incremental updating of the DB. When the app is launched, a background thread should go and check for modified files that weren't persisted (due to an external editor, etc) and update the vault in the background. This background thread should then end and further updates will be done as notes are updated.
 

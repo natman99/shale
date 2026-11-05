@@ -903,3 +903,44 @@ Pinned by `the_local_graph_reaches_the_note_on_screen`,
 the clamp, a missing centre staying inert, composition with the kind filters). Left undone
 on purpose: a depth slider (the keys and the command line do the job; the strip would need
 a second control kind) and per-pane centres. app 459 / core 464.
+
+### Four things from using the local graph: the click line, the centre mark, and a camera that follows the neighbourhood
+
+The first pass at M2b got back four reports from the person using it. Three fixes and one
+note-to-file.
+
+**A press is not a grab.** A node was pinned and snapped to the pointer on the first
+mouse-move of a press, so an unsteady click on a tag threw the layout around — worst in the
+projected view, where the world point under the cursor at the node's depth has nothing to do
+with the node. Now nothing happens until the pointer travels past `CLICK_SLOP` (raised 3→6
+px), and the same threshold decides both halves: under it the press is a click that opens the
+note, past it a drag that begins by pinning the node **where it already is**. One line, so
+the click and the drag can never disagree about where it is.
+
+**A neighbourhood names its centre.** The note the window is showing gets a halo wider than
+any hover's and a label the budget cannot cut, in both spaces — a local graph that does not
+say which dot it is local *to* makes the user find the note they were reading by its shape.
+The mark is a lookup by path, never a remembered slot: an index rebuild renumbers nodes under
+the same path.
+
+**The camera follows the neighbourhood, as a chase.** Widening the hops in the projected view
+grows a cloud straight off the screen, so a depth step, a re-centre or a toggle now drifts the
+view onto the neighbourhood it just changed — leaning toward the note, since the framing is of
+the neighbourhood the frame holds and the centre is at its middle. It re-derives the fit every
+tick instead of tweening to a fixed target, because the neighbourhood is still spreading out
+when the drift starts; it gives up after ~1.5 s; any camera input ends it; and it never touches
+yaw/pitch. `the_drift_arrives_where_fit_would` pins that it lands where `f` would have put the
+camera.
+
+**The follow was broken, and its own test could not tell.** `the_local_graph_follows_the_note_being_read`
+asserted the neighbourhood was three notes wide — which is true of the old centre and the new
+one alike. Reading *which* notes are shown found two real bugs. First, the follow re-centred on
+the tab being activated, which still held the note the user was leaving: the path is only set
+after `note_tab` has done its activation, so `mark_note_mru` runs again once it is. Second, the
+deferral was a background-executor timer, which gpui's test harness never pumps — so the
+re-centre never happened in a test, and the count assertion hid it. It is a frame flag consumed
+by `on_next_frame` now, the same idiom as `hover_stale` and `focus_stale`, and the lesson is
+written where it will be found: a background timer is not a one-frame deferral.
+
+Clicking a tag to filter by that tag is noted in `graph-view-plan.md` as unbuilt work.
+app 464 / core 463.

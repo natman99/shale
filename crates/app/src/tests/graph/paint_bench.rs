@@ -264,6 +264,7 @@ impl Render for PaintBench {
                                 *counts.borrow_mut() = (nodes, links);
                             }
                             let look = crate::graph::render::Look {
+                                centre: None,
                                 palette: palette.clone(),
                                 hover: Some(paint_frame.nodes.len() / 2),
                                 labels: Labels {
@@ -415,6 +416,7 @@ impl Render for PaintBench {
                                 &view,
                                 palette.as_ref(),
                                 None,
+                                None,
                                 window,
                             );
                         });
@@ -440,6 +442,7 @@ impl Render for PaintBench {
                                 palette.as_ref(),
                                 // No hover: this row measures the frame's own budget, and
                                 // the hovered label is one extra line of text either way.
+                                None,
                                 None,
                                 window,
                                 cx,

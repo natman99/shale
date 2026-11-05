@@ -70,6 +70,11 @@ impl Workspace {
                 }
                 self.checker_opened(path, &text, cx);
                 self.say(rel_text(path), cx);
+                // The tab's note is only *now* the note being read: `note_tab` above
+                // may have activated a tab that still held the previous one, and a
+                // local graph following from inside that activation would re-centre on
+                // the note the user is leaving. Mark again, once the path is set.
+                self.mark_note_mru(cx);
                 true
             }
             Err(err) => {

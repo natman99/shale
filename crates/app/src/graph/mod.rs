@@ -23,7 +23,7 @@ mod sim;
 
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use gpui::{
     canvas, div, prelude::*, App, Bounds, Context, FocusHandle, Focusable, IntoElement,
@@ -74,7 +74,17 @@ const HIT_SLOP_PX: f32 = 3.0;
 
 /// How far the pointer may travel between the button going down and coming back up and
 /// still count as a click rather than a drag.
-const CLICK_SLOP: f32 = 3.0;
+/// The line between a click and a drag, in screen px of pointer travel. Below it a
+/// press on a node is a click (it opens the note); past it the press becomes a drag and
+/// the node starts following the pointer.
+///
+/// The threshold exists because a press is not a grab. Before it, a node is not pinned
+/// and not moved at all — which matters most in the projected view, where the world point
+/// under the cursor at the node's depth can sit a long way from the node itself, so a
+/// press that pins and snaps on the first 1 px of jitter throws the layout across the
+/// screen. Ruled by the person using it: 3 px was small enough that an unsteady click
+/// still shifted the graph noticeably.
+const CLICK_SLOP: f32 = 6.0;
 
 /// How many px of a pixel-mode wheel equal one notch, so a trackpad's smooth scrolling
 /// zooms smoothly and a wheel's notch is about one step.
@@ -103,10 +113,33 @@ pub(crate) struct GraphSummary {
 }
 
 /// What a held button on the canvas is doing.
+/// A camera that is moving itself. The drift is a chase, not a tween: each tick
+/// re-derives the framing from the frame as it currently is, so a neighbourhood that is
+/// still spreading out under the forces gets followed rather than left behind.
+struct Reframe {
+    ticks: u32,
+}
+
+/// How the drift behaves. A quarter of the remaining gap per tick reaches the new
+/// framing in well under a second — enough to read as the view moving, not enough to
+/// feel like an animation the user is waiting on.
+const REFRAME_EASE: f32 = 0.25;
+const REFRAME_TICK: Duration = Duration::from_millis(16);
+/// The drift gives up after this many ticks (~1.5 s) even if the layout is still
+/// moving, so a long settle never leaves the camera chasing a graph forever.
+const REFRAME_MAX_TICKS: u32 = 90;
+/// A gap under this is the framing already: sub-pixel pans and 1% zooms are not worth
+/// another frame of repaint.
+const REFRAME_EPS_PX: f32 = 1.0;
+const REFRAME_EPS_ZOOM: f32 = 0.01;
+
 struct Drag {
     /// Where the button went down. A press that never travels past [`CLICK_SLOP`] is a
     /// click, and a click on a node opens the note it stands for.
     start: Point<Pixels>,
+    /// Whether the press has travelled far enough to be a drag. Until it has, a node is
+    /// neither pinned nor moved: the press is still, potentially, a click.
+    began: bool,
     /// Where the pointer was last, which is what the next move steps from.
     last: Point<Pixels>,
     /// The node under the button, if there was one. `None` moves the view instead of a
@@ -182,6 +215,11 @@ pub(crate) struct GraphView {
     /// is: the keyboard's zoom needs the middle of a space the view only learns about
     /// during a frame.
     canvas: Rc<RefCell<Option<Bounds<Pixels>>>>,
+    /// A camera moving itself to frame the neighbourhood (M2b). Aimed **each tick**
+    /// rather than once, because the neighbourhood it is chasing is still settling when
+    /// the drift starts. Cleared by any camera input from the user.
+    reframe: Option<Reframe>,
+    reframe_task: Option<gpui::Task<()>>,
     /// The links kept from the last paint, so a repaint that moved nothing does not
     /// tessellate 18k of them again. In a cell because the paint phase cannot reach into
     /// the entity it is painting; one per view because each view has its own camera.
@@ -249,6 +287,8 @@ impl GraphView {
             pending_fit: Rc::default(),
             pending_fit3: Rc::default(),
             projection: Rc::default(),
+            reframe: None,
+            reframe_task: None,
             canvas: Rc::default(),
             paint: Rc::new(RefCell::new(render::Cache::new())),
             bench: Rc::new(RefCell::new(bench::Bench::new())),
@@ -393,7 +433,7 @@ impl GraphView {
                 .update(cx, |ws, _cx| ws.graph_filter_state())
                 .ok()
             {
-                self.filter = filter;
+                self.adopt_filter(filter, cx);
             }
         }
         cx.notify();
@@ -420,7 +460,7 @@ impl GraphView {
                     .update(cx, |ws, _cx| ws.graph_filter_state())
                     .ok()
                 {
-                    self.filter = filter;
+                    self.adopt_filter(filter, cx);
                 }
                 cx.notify();
             }
@@ -439,11 +479,168 @@ impl GraphView {
                     .update(cx, |ws, _cx| ws.graph_filter_state())
                     .ok()
                 {
-                    self.filter = filter;
+                    self.adopt_filter(filter, cx);
                 }
                 cx.notify();
             }
         }
+    }
+
+    /// The neighbourhood moved under the user — a depth step, a re-centre, a toggle —
+    /// so the camera drifts to frame it. The lean is toward the **note**, not the whole
+    /// vault: the framing is of the neighbourhood the frame now holds, and the centre
+    /// note sits at the middle of that by construction. Ruled by the person using it:
+    /// expanding the hops in the projected view otherwise grows the cloud off the screen
+    /// and there is no way to compare one depth against the next.
+    fn followed_local(&mut self, before: &Option<shale_core::graph::filter::LocalScope>, cx: &mut Context<Self>) {
+        if before == &self.filter.local {
+            return;
+        }
+        self.reframe_to_neighbourhood(cx);
+    }
+
+    /// Take a filter the window or the strip answered with, and re-frame if the **local
+    /// scope** was the part that moved. Every place the view's filter changes goes
+    /// through here, so the drift can never be forgotten at a new entry point — and a
+    /// search or kind change, which is not a move through the neighbourhood, leaves the
+    /// camera exactly where the user left it.
+    fn adopt_filter(&mut self, filter: GraphFilter, cx: &mut Context<Self>) {
+        let before = self.filter.local.clone();
+        self.filter = filter;
+        self.followed_local(&before, cx);
+    }
+
+    /// Start the drift. The task is one loop for the whole drift, not a task per tick:
+    /// it re-arms itself every 16 ms and ends when the framing is reached, when the
+    /// user touches the camera, or when the view is gone.
+    fn reframe_to_neighbourhood(&mut self, cx: &mut Context<Self>) {
+        // A view that has never been framed will be framed by the prepaint anyway, and
+        // a canvas that has never been laid out has no bounds to aim at.
+        if self.frame.is_none() || self.canvas.borrow().is_none() {
+            return;
+        }
+        self.reframe = Some(Reframe { ticks: 0 });
+        if self.reframe_task.is_some() {
+            return;
+        }
+        // Weak, like the sim's beat: a view that is gone has no camera to drift, and a
+        // strong handle would be the task keeping it alive.
+        let weak = cx.entity().downgrade();
+        self.reframe_task = Some(cx.spawn(async move |_, cx| {
+            loop {
+                cx.background_executor().timer(REFRAME_TICK).await;
+                let Ok(done) = weak.update(cx, |view, cx| {
+                    let done = view.step_reframe();
+                    cx.notify();
+                    done
+                }) else {
+                    return;
+                };
+                if done {
+                    return;
+                }
+            }
+        }));
+    }
+
+    /// One tick of the drift.
+    fn step_reframe(&mut self) -> bool {
+        let Some(reframe) = self.reframe.as_ref() else {
+            self.reframe_task = None;
+            return true;
+        };
+        let ticks = reframe.ticks + 1;
+        let arrived = self.drift_camera();
+        if arrived || ticks >= REFRAME_MAX_TICKS {
+            self.reframe = None;
+            self.reframe_task = None;
+            return true;
+        }
+        self.reframe = Some(Reframe { ticks });
+        false
+    }
+
+    /// Take a quarter of the remaining gap toward the framing the neighbourhood wants
+    /// **right now**. Recomputing the target each tick rather than tweening to a fixed
+    /// one is what lets the camera follow a neighbourhood that is still spreading out
+    /// under the forces, instead of arriving at a framing it has already outgrown.
+    fn drift_camera(&mut self) -> bool {
+        let (Some(frame), Some(bounds)) = (self.frame.as_ref(), *self.canvas.borrow()) else {
+            return true;
+        };
+        let box_px = [
+            bounds.origin.x.as_f32(),
+            bounds.origin.y.as_f32(),
+            bounds.size.width.as_f32(),
+            bounds.size.height.as_f32(),
+        ];
+        match self.mode {
+            Dim::Two => {
+                let Some(current) = self.camera() else {
+                    return true;
+                };
+                let positions: Vec<[f32; 2]> =
+                    frame.nodes.iter().map(|node| node.position).collect();
+                let target = Camera::fit(&positions, box_px, FIT_MARGIN);
+                let pan = [
+                    current.pan[0] + (target.pan[0] - current.pan[0]) * REFRAME_EASE,
+                    current.pan[1] + (target.pan[1] - current.pan[1]) * REFRAME_EASE,
+                ];
+                let zoom = current.zoom + (target.zoom - current.zoom) * REFRAME_EASE;
+                let arrived = (target.pan[0] - pan[0]).abs() < REFRAME_EPS_PX
+                    && (target.pan[1] - pan[1]).abs() < REFRAME_EPS_PX
+                    && (target.zoom - zoom).abs() <= target.zoom * REFRAME_EPS_ZOOM;
+                self.camera = Some(if arrived {
+                    target
+                } else {
+                    Camera::new(pan, zoom)
+                });
+                arrived
+            }
+            Dim::Three => {
+                let Some(current) = self.camera3() else {
+                    return true;
+                };
+                let positions: Vec<[f32; 3]> = frame
+                    .nodes
+                    .iter()
+                    .map(|node| [node.position[0], node.position[1], node.depth])
+                    .collect();
+                // `fit` keeps the angle the user is at, so the drift frames the
+                // neighbourhood without taking their orientation away from them.
+                let mut target = current;
+                target.fit(&positions, box_px, FIT_MARGIN);
+                let pan = [
+                    current.pan[0] + (target.pan[0] - current.pan[0]) * REFRAME_EASE,
+                    current.pan[1] + (target.pan[1] - current.pan[1]) * REFRAME_EASE,
+                ];
+                let zoom = current.zoom + (target.zoom - current.zoom) * REFRAME_EASE;
+                let dist = current.dist + (target.dist - current.dist) * REFRAME_EASE;
+                let arrived = (target.pan[0] - pan[0]).abs() < REFRAME_EPS_PX
+                    && (target.pan[1] - pan[1]).abs() < REFRAME_EPS_PX
+                    && (target.zoom - zoom).abs() <= target.zoom * REFRAME_EPS_ZOOM
+                    && (target.dist - dist).abs() <= target.dist * REFRAME_EPS_ZOOM;
+                self.cam3 = Some(if arrived {
+                    target
+                } else {
+                    Cam3 {
+                        yaw: current.yaw,
+                        pitch: current.pitch,
+                        pan,
+                        zoom,
+                        dist,
+                    }
+                });
+                arrived
+            }
+        }
+    }
+
+    /// Any camera input from the user ends the drift: the view stops moving on its own
+    /// the moment they touch it.
+    fn cancel_reframe(&mut self) {
+        self.reframe = None;
+        self.reframe_task = None;
     }
 
     /// The view's own half of a mode change: which space to draw and hit-test in. The
@@ -459,6 +656,39 @@ impl GraphView {
         }
         self.mode = dim;
         *self.projection.borrow_mut() = None;
+    }
+
+    /// The node that stands for the note the window is showing, when the graph has been
+    /// narrowed to a neighbourhood around it. A lookup by path rather than a remembered
+    /// slot, because an index rebuild hands back a different slot order under the same
+    /// path — and the halo has to follow the note, not the number.
+    fn centre_slot(&self) -> Option<usize> {
+        let center = self.filter.local.as_ref()?.center.as_str();
+        self.frame
+            .as_ref()?
+            .nodes
+            .iter()
+            .enumerate()
+            .find(|(_, node)| node.path.as_deref() == Some(center))
+            .map(|(slot, _)| slot)
+    }
+
+    /// Whether the view is currently moving its own camera.
+    #[cfg(test)]
+    pub(crate) fn reframing(&self) -> bool {
+        self.reframe.is_some()
+    }
+
+    /// One tick of the drift, driven by hand: the test cares where the camera arrives,
+    /// not what the 16 ms timer is doing.
+    #[cfg(test)]
+    pub(crate) fn drift_step(&mut self) -> bool {
+        self.drift_camera()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn centre_mark(&self) -> Option<usize> {
+        self.centre_slot()
     }
 
     /// Where a node was painted in the last projected frame. The honest door for the
@@ -550,6 +780,8 @@ impl GraphView {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // A hand on the canvas is the end of the view moving itself.
+        self.cancel_reframe();
         let over = self.node_at(event.position);
         self.hover = over;
         let node = if matches!(event.button, MouseButton::Middle) {
@@ -560,29 +792,10 @@ impl GraphView {
         self.drag = Some(Drag {
             start: event.position,
             last: event.position,
+            began: false,
             node,
             button: event.button,
         });
-        if let Some(slot) = node {
-            // The node is pinned where it already is before the pointer moves it, so
-            // the forces stop fighting the drag from the first tick. In the projected
-            // view "where it is" is the point under the cursor at the node's own depth,
-            // which is what makes the press grab the dot the user aimed at rather than
-            // the world-space point that happens to project there.
-            let world = match self.mode {
-                Dim::Two => self
-                    .frame
-                    .as_ref()
-                    .and_then(|frame| frame.node_position(slot))
-                    .map(|position| [position[0], position[1], 0.0]),
-                Dim::Three => self.world_at_depth(event.position, slot),
-            };
-            if let Some(world) = world {
-                let _ = self.workspace.update(cx, |ws, cx| {
-                    ws.graph_drag_node(slot, world, cx);
-                });
-            }
-        }
         cx.notify();
     }
 
@@ -602,6 +815,25 @@ impl GraphView {
             drag.last = event.position;
             match drag.node {
                 Some(slot) => {
+                    // A press on a node becomes a drag only past the slop, and it begins
+                    // by pinning the node **where it already is** — not where the pointer
+                    // is. Pinning at the pointer is what made an unsteady click throw the
+                    // layout around, worst of all in the projected view, where the world
+                    // point under the cursor at the node's depth has nothing to do with
+                    // the node.
+                    if !drag.began {
+                        let travelled = (event.position.x - drag.start.x).as_f32().abs()
+                            + (event.position.y - drag.start.y).as_f32().abs();
+                        if travelled <= CLICK_SLOP {
+                            return;
+                        }
+                        drag.began = true;
+                        if let Some(node) = self.frame.as_ref().and_then(|f| f.nodes.get(slot)) {
+                            let _ = self.workspace.update(cx, |ws, cx| {
+                                ws.graph_drag_node(slot, [node.position[0], node.position[1], node.depth], cx);
+                            });
+                        }
+                    }
                     let world = match self.mode {
                         Dim::Two => self.world_at(event.position).map(|(world, _)| [world[0], world[1], 0.0]),
                         Dim::Three => self.world_at_depth(event.position, slot),
@@ -655,16 +887,19 @@ impl GraphView {
             cx.notify();
             return;
         };
+        // A press that never became a drag is a click, and a click on a node opens the
+        // note it stands for. One threshold decides both halves, so the two can never
+        // disagree about where the line is.
+        if !drag.began {
+            self.open_node(node, cx);
+            cx.notify();
+            return;
+        }
         // Shift means "leave it where I put it": the node stays pinned against the
         // forces, which is how the user arranges a graph by hand.
         let _ = self.workspace.update(cx, |ws, cx| {
             ws.graph_release_node(node, event.modifiers.shift, cx);
         });
-        let travelled = (event.position.x - drag.start.x).as_f32().abs()
-            + (event.position.y - drag.start.y).as_f32().abs();
-        if travelled <= CLICK_SLOP {
-            self.open_node(node, cx);
-        }
         cx.notify();
     }
 
@@ -684,6 +919,7 @@ impl GraphView {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.cancel_reframe();
         let notches = match event.delta {
             // The delta is passed through with its own sign, which on the real backends
             // means a **downward** wheel zooms **out** and an upward one zooms in — the
@@ -729,6 +965,7 @@ impl GraphView {
     /// `+` and `-`: the same zoom as the wheel, anchored at the middle of the canvas
     /// because the keyboard has no cursor to anchor it at.
     fn zoom(&mut self, action: &GraphZoom, _window: &mut Window, cx: &mut Context<Self>) {
+        self.cancel_reframe();
         let Some(center) = self.canvas_center() else {
             return;
         };
@@ -765,6 +1002,7 @@ impl GraphView {
     /// Once the user has moved the camera, the automatic framing is over — that is what
     /// makes `camera` mean "the user's".
     fn pan(&mut self, action: &GraphPan, _window: &mut Window, cx: &mut Context<Self>) {
+        self.cancel_reframe();
         let [dx, dy] = action.0;
         match self.mode {
             Dim::Two => {
@@ -841,6 +1079,7 @@ impl GraphView {
     /// recovery key for a view that has drifted off the graph, and losing the angle the
     /// user was looking at would make it a way to get lost rather than found.
     fn fit(&mut self, _: &GraphFit, _window: &mut Window, cx: &mut Context<Self>) {
+        self.cancel_reframe();
         self.camera = None;
         // In the projected view the angle survives and only the framing is redone.
         // Setting the orientation and clearing the camera is exactly what a restored
@@ -977,6 +1216,7 @@ impl Render for GraphView {
         let look = render::Look {
             palette: Rc::clone(&self.palette),
             hover: self.chosen(),
+            centre: self.centre_slot(),
             labels: render::Labels {
                 font: gpui::font(self.font.clone()),
                 size: self.font_size,

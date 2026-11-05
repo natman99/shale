@@ -336,6 +336,14 @@ impl Render for Workspace {
         if self.focus_stale {
             cx.on_next_frame(window, |ws, window, cx| ws.focus_active_tab(window, cx));
         }
+        // The same one-frame deferral for a neighbourhood that moved with the note: the
+        // picture is re-made outside whatever borrow the tab change arrived in.
+        if self.graph_follow_pending {
+            cx.on_next_frame(window, |ws, _window, cx| {
+                ws.graph_follow_pending = false;
+                ws.refresh_graph(cx);
+            });
+        }
         self.sync_window_title(window);
         let tree = tree::build_tree(&self.entries, &self.dirs);
         let active = self.note();

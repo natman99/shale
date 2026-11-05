@@ -349,6 +349,17 @@ fn shown(cx: &mut VisualTestContext, window: &WindowHandle<Workspace>) -> usize 
     counts(cx, window).map_or(0, |counts| counts.notes)
 }
 
+/// Which notes the picture is holding. The count is not enough where two
+/// neighbourhoods are the same size.
+fn shown_paths(cx: &mut VisualTestContext, window: &WindowHandle<Workspace>) -> Vec<String> {
+    window
+        .update(cx, |ws, _window, cx| ws.graph_paths(cx))
+        .unwrap()
+        .into_iter()
+        .flatten()
+        .collect()
+}
+
 /// `]` and `[` are the depth, and the depth is a hop count from the note on screen —
 /// three hops of a five-note chain is three notes, not three links and a cloud.
 #[gpui::test]
@@ -383,11 +394,24 @@ fn the_local_graph_follows_the_note_being_read(cx: &mut TestAppContext) {
     assert_eq!(shown(&mut cx, &window), 3, "two hops from n1");
 
     show(&mut cx, &window, "n4.md");
-    cx.run_until_parked();
+    // The re-centre is deferred to the next frame, so the test has to deliver the
+    // frame's callbacks and not just its draws.
+    repaint(&mut cx);
+    paint(&mut cx, &window);
+    // Which notes, not how many: both neighbourhoods are three notes wide, and a test
+    // that counts them passes whether the follow happened or not.
+    let mut names = shown_paths(&mut cx, &window);
+    names.sort();
     assert_eq!(
-        shown(&mut cx, &window),
-        3,
-        "and now it is two hops from n4 — n3, n4, n5"
+        names,
+        vec![
+            "n2.md".to_string(),
+            "n3.md".to_string(),
+            "n4.md".to_string(),
+            "n5.md".to_string()
+        ],
+        // n4 itself, n3 and n5 a hop away, and n2 two hops out.
+        "and now it is the neighbourhood of n4"
     );
 }
 
@@ -465,3 +489,142 @@ fn the_local_depth_comes_back_with_the_session(cx: &mut TestAppContext) {
         "the graph opens narrowed to two hops of the note the session was on"
     );
 }
+
+/// The neighbourhood says which dot it is a neighbourhood *of*. The note the window is
+/// showing carries a mark of its own — a halo wider than any hover's, and a name the
+/// label budget cannot cut — because a local graph that does not identify its centre
+/// makes the user find the note they were just reading by its shape.
+#[gpui::test]
+fn the_local_graph_marks_the_note_it_is_local_to(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = chain_vault(cx, "n1.md");
+    cx.simulate_keystrokes("space g");
+    paint(&mut cx, &window);
+    assert_eq!(
+        window
+            .update(&mut cx, |ws, _window, cx| ws.graph_centre_mark(cx))
+            .unwrap(),
+        None,
+        "the whole vault has no centre to mark"
+    );
+
+    cx.simulate_keystrokes("]");
+    let paths = window
+        .update(&mut cx, |ws, _window, cx| ws.graph_paths(cx))
+        .unwrap();
+    let marked = window
+        .update(&mut cx, |ws, _window, cx| ws.graph_centre_mark(cx))
+        .unwrap()
+        .expect("a neighbourhood marks its centre");
+    assert_eq!(
+        paths[marked].as_deref(),
+        Some("n1.md"),
+        "the mark is on the note being read"
+    );
+
+    show(&mut cx, &window, "n4.md");
+    repaint(&mut cx);
+    paint(&mut cx, &window);
+    let paths = window
+        .update(&mut cx, |ws, _window, cx| ws.graph_paths(cx))
+        .unwrap();
+    let marked = window
+        .update(&mut cx, |ws, _window, cx| ws.graph_centre_mark(cx))
+        .unwrap()
+        .expect("still marked after the window moved");
+    assert_eq!(
+        paths[marked].as_deref(),
+        Some("n4.md"),
+        "and the mark moved with the window"
+    );
+}
+
+/// A neighbourhood that changes size moves the camera — `]` widens the cloud and the
+/// view drifts to frame it — and the drift is a chase, not a promise: the moment the
+/// user takes the camera, it stops.
+#[gpui::test]
+fn the_local_graph_moves_the_camera_and_stops_when_touched(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = chain_vault(cx, "n1.md");
+    cx.simulate_keystrokes("space g");
+    paint(&mut cx, &window);
+    cx.simulate_keystrokes("]");
+    assert!(
+        window
+            .update(&mut cx, |ws, _window, cx| ws.graph_reframing(cx))
+            .unwrap(),
+        "the view is moving itself to the neighbourhood it just changed"
+    );
+
+    cx.simulate_keystrokes("f");
+    assert!(
+        !window
+            .update(&mut cx, |ws, _window, cx| ws.graph_reframing(cx))
+            .unwrap(),
+        "and it stopped the moment the user took the camera"
+    );
+}
+
+/// Widening the neighbourhood in the projected view grows a cloud that runs off the
+/// screen — the complaint that made the drift. It lands where `f` would have put the
+/// camera: the drift is a fit that takes a few frames to get there, not a different
+/// framing, and it never touches the angle the user is looking from.
+#[gpui::test]
+fn the_drift_arrives_where_fit_would(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = chain_vault(cx, "n1.md");
+    cx.simulate_keystrokes("space g");
+    cx.simulate_keystrokes("3");
+    paint(&mut cx, &window);
+    cx.simulate_keystrokes("]");
+    // Settle the layout the new hops brought in before the camera chases it, so the
+    // framing the drift aims at is the one `f` will find.
+    paint(&mut cx, &window);
+
+    let mut steps = 0;
+    while !window
+        .update(&mut cx, |ws, _window, cx| ws.graph_drift_step(cx))
+        .unwrap()
+    {
+        steps += 1;
+        assert!(steps < 300, "the drift never arrived");
+    }
+    let drifted = window
+        .update(&mut cx, |ws, _window, cx| ws.graph_camera3(cx))
+        .unwrap()
+        .expect("the projected view has a camera");
+    let drifted_dist = window
+        .update(&mut cx, |ws, _window, cx| ws.graph_eye_distance(cx))
+        .unwrap()
+        .expect("and an eye distance");
+
+    cx.simulate_keystrokes("f");
+    paint(&mut cx, &window);
+    let fitted = window
+        .update(&mut cx, |ws, _window, cx| ws.graph_camera3(cx))
+        .unwrap()
+        .expect("and `f` frames it");
+    let fitted_dist = window
+        .update(&mut cx, |ws, _window, cx| ws.graph_eye_distance(cx))
+        .unwrap()
+        .expect("from outside the cloud");
+
+    let (yaw, pitch, pan, zoom) = drifted;
+    let (fyaw, fpitch, fpan, fzoom) = fitted;
+    assert_eq!(
+        (yaw, pitch),
+        (fyaw, fpitch),
+        "the drift frames the neighbourhood without taking the angle away"
+    );
+    assert!(
+        (zoom - fzoom).abs() <= fzoom * 0.02,
+        "the drift's zoom {zoom} is where a fit would put it ({fzoom})"
+    );
+    assert!(
+        (pan[0] - fpan[0]).abs() < 2.0 && (pan[1] - fpan[1]).abs() < 2.0,
+        "the drift's pan {pan:?} is where a fit would put it ({fpan:?})"
+    );
+    assert!(
+        (drifted_dist - fitted_dist).abs() <= fitted_dist * 0.02,
+        "and the eye sits where a fit would sit: {drifted_dist} vs {fitted_dist}"
+    );
+}
+
+

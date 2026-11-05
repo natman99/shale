@@ -346,11 +346,15 @@ impl Workspace {
             center,
             depth: scope.depth,
         });
-        let weak = cx.entity().downgrade();
-        self.graph_follow = Some(cx.spawn(async move |_, cx| {
-            cx.background_executor().timer(TICK).await;
-            let _ = weak.update(cx, |ws, cx| ws.refresh_graph(cx));
-        }));
+        // Re-made on the **next frame**, not here. A tab is very often activated by the
+        // graph view itself — a node click opens its note — and the view is borrowed when
+        // that happens, so `refresh_graph` writing to it now would be a double borrow.
+        // The frame flag is how this codebase defers anything that needs to be one step
+        // outside the current borrow (`hover_stale`, `focus_stale`); a background timer
+        // looked like the same thing and is not: it never runs inside the test harness,
+        // which is how a follow that did nothing passed its own test.
+        self.graph_follow_pending = true;
+        cx.notify();
     }
 
     /// A new filter, from the strip: remember it on the window and re-make the picture.

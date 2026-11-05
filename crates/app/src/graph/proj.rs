@@ -32,7 +32,8 @@ use shale_core::theme::Palette;
 use super::cache::{Cache, Geometry, Key};
 use super::frame::GraphFrame;
 use super::render::{
-    label_runs, Labels, LinkPaths, Look, LABEL_SCALE, LINK_MIN_PX, LINK_WIDTH, RING_PX,
+    label_runs, Labels, LinkPaths, Look, CENTRE_RING_PX, LABEL_SCALE, LINK_MIN_PX,
+    LINK_WIDTH, RING_PX,
 };
 use super::sim::GRID_MAX_SPAN;
 
@@ -286,7 +287,15 @@ pub(crate) fn paint_graph3d(
             });
         }
         window.paint_layer(bounds, |window| {
-            paint_nodes3d(frame, projection, palette, look.hover, bounds, window);
+            paint_nodes3d(
+                frame,
+                projection,
+                palette,
+                look.hover,
+                look.centre,
+                bounds,
+                window,
+            );
         });
         window.paint_layer(bounds, |window| {
             paint_labels3d(
@@ -296,6 +305,7 @@ pub(crate) fn paint_graph3d(
                 palette,
                 bounds,
                 look.hover,
+                look.centre,
                 label_memory,
                 window,
                 cx,
@@ -424,9 +434,29 @@ fn paint_nodes3d(
     projection: &Projection,
     palette: &Palette,
     hover: Option<usize>,
+    centre: Option<usize>,
     bounds: Bounds<Pixels>,
     window: &mut Window,
 ) {
+    // The neighbourhood's centre, haloed wider than any hover: in a cloud of two hundred
+    // dots the one the window is showing has to be findable without a search.
+    if let Some(slot) = centre {
+        if let Some(center) = projection.screen(slot) {
+            let r = projection.radius(frame, slot) + RING_PX + CENTRE_RING_PX;
+            if on_screen(center, r, bounds) {
+                window.paint_quad(
+                    gpui::fill(
+                        Bounds {
+                            origin: point(px(center[0] - r), px(center[1] - r)),
+                            size: size(px(2.0 * r), px(2.0 * r)),
+                        },
+                        gpui::rgb(palette.graph_node_active),
+                    )
+                    .corner_radii(px(r)),
+                );
+            }
+        }
+    }
     if let Some(slot) = hover {
         if let Some(center) = projection.screen(slot) {
             let r = projection.radius(frame, slot) + RING_PX;
@@ -490,6 +520,7 @@ pub(crate) fn label_slots(
     projection: &Projection,
     bounds: Bounds<Pixels>,
     hover: Option<usize>,
+    centre: Option<usize>,
 ) -> Vec<usize> {
     // Ranked, then cut. The tuple *is* the ranking — degree first, and nearness (which
     // is what `alpha` reports) breaking a tie so a hub far away does not out-shout the
@@ -522,7 +553,7 @@ pub(crate) fn label_slots(
     // The hovered node is named whatever the budget and the size gate decided, in this
     // space especially: the node under the pointer may be a small, far one, and a ring
     // around an unnamed dot is a question with no answer.
-    if let Some(slot) = hover {
+    for slot in hover.into_iter().chain(centre) {
         if !chosen.contains(&slot) {
             chosen.push(slot);
         }
@@ -589,11 +620,12 @@ fn paint_labels3d(
     palette: &Palette,
     bounds: Bounds<Pixels>,
     hover: Option<usize>,
+    centre: Option<usize>,
     label_memory: &RefCell<Vec<usize>>,
     window: &mut Window,
     cx: &mut App,
 ) {
-    let mut chosen = label_slots(frame, projection, bounds, hover);
+    let mut chosen = label_slots(frame, projection, bounds, hover, centre);
     // Hysteresis, before anything else: the nodes this view named last frame get first
     // claim on the space, in the order they were named. Greedy placement without a
     // memory of the previous frame contests the same real estate afresh every tick, and
@@ -604,10 +636,17 @@ fn paint_labels3d(
     chosen = remembered_first(chosen, &remembered);
     drop(remembered);
     // The hovered label is placed **first**, so it keeps its space rather than being
-    // skipped because a hub happened to be measured before it.
-    if let Some(hovered) = hover {
-        chosen.retain(|slot| *slot != hovered);
-        chosen.insert(0, hovered);
+    // skipped because a hub happened to be measured before it — and the centre's right
+    // behind it, for the same reason.
+    let mut marks: Vec<usize> = Vec::new();
+    for slot in hover.into_iter().chain(centre) {
+        if !marks.contains(&slot) {
+            marks.push(slot);
+        }
+    }
+    for (rank, slot) in marks.iter().enumerate().rev() {
+        chosen.retain(|candidate| *candidate != *slot);
+        chosen.insert(rank.min(chosen.len()), *slot);
     }
     let label_size = px(labels.size * LABEL_SCALE);
     let text_system = window.text_system().clone();
@@ -699,7 +738,7 @@ mod tests {
         let frame = crowded_frame(LABEL_CAP_3D + extra);
         let projection = Projection::build(&frame, &Cam3::new());
 
-        let chosen = label_slots(&frame, &projection, canvas(), None);
+        let chosen = label_slots(&frame, &projection, canvas(), None, None);
         assert_eq!(
             chosen.len(),
             LABEL_CAP_3D,
@@ -730,7 +769,7 @@ mod tests {
             "the fixture is the crowded one; the gate is what excludes it below"
         );
 
-        let chosen = label_slots(&frame, &projection, canvas(), Some(hovered));
+        let chosen = label_slots(&frame, &projection, canvas(), Some(hovered), None);
         assert!(
             chosen.contains(&hovered),
             "the hovered node was left out of the frame's {} names",
@@ -798,9 +837,9 @@ mod tests {
             "the fixture must actually be below the gate"
         );
 
-        let plain = label_slots(&frame, &projection, canvas(), None);
+        let plain = label_slots(&frame, &projection, canvas(), None, None);
         assert!(!plain.contains(&7), "the gate excludes it for an ordinary frame");
-        let hovered = label_slots(&frame, &projection, canvas(), Some(7));
+        let hovered = label_slots(&frame, &projection, canvas(), Some(7), None);
         assert!(hovered.contains(&7), "but the hover names it anyway");
     }
 }

@@ -396,6 +396,22 @@ impl Workspace {
             .camera()
             .map(|camera| (camera.zoom, [camera.pan[0], camera.pan[1]]))
     }
+    /// Whether the view is moving its own camera right now (the local graph's drift).
+    #[cfg(test)]
+    pub(crate) fn graph_reframing(&self, cx: &gpui::App) -> bool {
+        self.graph_view().is_some_and(|view| view.read(cx).reframing())
+    }
+    /// One tick of that drift, by hand.
+    #[cfg(test)]
+    pub(crate) fn graph_drift_step(&self, cx: &mut gpui::App) -> bool {
+        self.graph_view()
+            .is_some_and(|view| view.update(cx, |view, _cx| view.drift_step()))
+    }
+    /// Which node carries the "this is the note the window is showing" mark, if any.
+    #[cfg(test)]
+    pub(crate) fn graph_centre_mark(&self, cx: &gpui::App) -> Option<usize> {
+        self.graph_view().and_then(|view| view.read(cx).centre_mark())
+    }
     /// Where a node is on screen, in window px: the way a test aims the pointer at a dot
     /// without working the camera out for itself.
     #[cfg(test)]

@@ -74,6 +74,10 @@ pub(crate) const LABEL_SCALE: f32 = 0.8;
 /// How much bigger than a node its hover ring is, in screen px. Two is enough to
 /// read as a ring at any zoom and small enough not to swallow a hub.
 pub(crate) const RING_PX: f32 = 2.0;
+/// How much wider the centre note's halo is than a hover's, in screen px. The two marks
+/// share a colour — both mean "the note in question" — so size is what keeps the
+/// pointer's answer and the window's answer apart when they land on different dots.
+pub(crate) const CENTRE_RING_PX: f32 = 3.0;
 
 /// Everything about *how* a frame is painted, as opposed to what is in it: the
 /// colours, the face the labels use, and which node (if any) the pointer or the
@@ -86,6 +90,11 @@ pub(crate) struct Look {
     /// The chosen node, as an index into the frame: ringed, with its links drawn in
     /// the active colour. `None` is an ordinary frame.
     pub(crate) hover: Option<usize>,
+    /// The note the **window** is showing, when the graph is a neighbourhood around it.
+    /// A halo of its own, wider than the hover's, and its name is always drawn: a local
+    /// graph that does not say which dot it is local *to* makes the user find the note
+    /// they were just reading by its shape.
+    pub(crate) centre: Option<usize>,
     /// The labels' face and size.
     pub(crate) labels: Labels,
 }
@@ -170,7 +179,15 @@ pub(crate) fn paint_frame(
         });
     }
     window.paint_layer(bounds, |window| {
-        paint_nodes(frame, &camera, &view, palette, look.hover, window);
+        paint_nodes(
+            frame,
+            &camera,
+            &view,
+            palette,
+            look.hover,
+            look.centre,
+            window,
+        );
     });
     window.paint_layer(bounds, |window| {
         paint_labels(
@@ -180,6 +197,7 @@ pub(crate) fn paint_frame(
             &look.labels,
             palette,
             look.hover,
+            look.centre,
             window,
             cx,
         );
@@ -331,8 +349,29 @@ pub(crate) fn paint_nodes(
     view: &Viewport,
     palette: &Palette,
     hover: Option<usize>,
+    centre: Option<usize>,
     window: &mut Window,
 ) {
+    // The centre first, so the hover's narrower ring sits inside it when both land on
+    // the same dot rather than fighting it for the same pixels.
+    if let Some(slot) = centre {
+        if let Some(node) = frame.nodes.get(slot) {
+            if view.holds(node, CULL_MARGIN) {
+                let center = camera.to_screen(node.position);
+                let r = node.radius * camera.zoom + RING_PX + CENTRE_RING_PX;
+                window.paint_quad(
+                    gpui::fill(
+                        Bounds {
+                            origin: point(px(center[0] - r), px(center[1] - r)),
+                            size: size(px(2.0 * r), px(2.0 * r)),
+                        },
+                        gpui::rgb(palette.graph_node_active),
+                    )
+                    .corner_radii(px(r)),
+                );
+            }
+        }
+    }
     if let Some(slot) = hover {
         if let Some(node) = frame.nodes.get(slot) {
             if view.holds(node, CULL_MARGIN) {
@@ -692,6 +731,7 @@ fn chosen_labels(
     camera: &Camera,
     view: &Viewport,
     hover: Option<usize>,
+    centre: Option<usize>,
 ) -> Vec<usize> {
     // `fade` is how far into the ramp this zoom is: 0 below [`LABEL_FADE_FROM`], where the
     // characters are smaller than the gap between two nodes and the labels are not worth
@@ -712,7 +752,7 @@ fn chosen_labels(
         .collect();
     chosen.sort_by_key(|slot| std::cmp::Reverse(frame.nodes[*slot].degree));
     chosen.truncate(cap);
-    if let Some(slot) = hover {
+    for slot in hover.into_iter().chain(centre) {
         if !chosen.contains(&slot) {
             chosen.push(slot);
         }
@@ -729,10 +769,11 @@ pub(crate) fn paint_labels(
     labels: &Labels,
     palette: &Palette,
     hover: Option<usize>,
+    centre: Option<usize>,
     window: &mut Window,
     cx: &mut App,
 ) {
-    let chosen = chosen_labels(frame, camera, view, hover);
+    let chosen = chosen_labels(frame, camera, view, hover, centre);
     if chosen.is_empty() {
         return;
     }

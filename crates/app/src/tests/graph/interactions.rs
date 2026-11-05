@@ -665,3 +665,47 @@ fn the_beat_runs_the_layout_to_rest_and_stops(cx: &mut TestAppContext) {
         "and the beat stopped rather than ticking a still graph"
     );
 }
+
+/// A press that barely moves is a click, not a grab. Until the pointer has travelled
+/// past the slop the node is **not pinned and not moved at all** — which matters most in
+/// the projected view, where the world point under the cursor at the node's depth can sit
+/// a long way from the node itself, so a press that grabbed on the first pixel of jitter
+/// threw the layout across the screen.
+#[gpui::test]
+fn a_press_that_barely_moves_never_grabs_the_node(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = linked_vault(cx);
+    cx.simulate_keystrokes("space g");
+    paint(&mut cx, &window);
+
+    let (slot, at) = node(&mut cx, &window, "b.md");
+    let before = sim_positions(&mut cx, &window)[slot];
+
+    press(&mut cx, at);
+    pointer(
+        &mut cx,
+        gpui::point(at.x + gpui::px(3.0), at.y + gpui::px(2.0)),
+        true,
+    );
+    assert!(
+        !window
+            .update(&mut cx, |ws, _window, _cx| ws.graph_pinned())
+            .unwrap()[slot],
+        "5 px of jitter is not a drag"
+    );
+    assert_eq!(
+        sim_positions(&mut cx, &window)[slot],
+        before,
+        "and the node did not move at all"
+    );
+
+    // Past the line, the very same press is a drag.
+    let far = gpui::point(at.x + gpui::px(30.0), at.y - gpui::px(20.0));
+    pointer(&mut cx, far, true);
+    assert!(
+        window
+            .update(&mut cx, |ws, _window, _cx| ws.graph_pinned())
+            .unwrap()[slot],
+        "past the slop, the press grabs the node"
+    );
+    release(&mut cx, far, gpui::Modifiers::default());
+}
