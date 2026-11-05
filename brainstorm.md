@@ -954,6 +954,26 @@ Milestones: **C1** viewer + jsoncanvas interop + link indexing/rename
 reuse), **C2** editing (Phase 5), **C3** typed edges + query nodes + MCP
 tools (Phase 6, rides `.shq` + typed edges + block anchors).
 
+## Idle cost (measured 2026-11-05)
+
+The idle baseline and what was cut from it are in `PROGRESS.md` ("What an idle Shale costs" and
+the two follow-ups). Two things came out of the measurement and are **not** scheduled:
+
+### Drop `harper-ls` after a long idle ❄️ (parked, user call 2026-11-05)
+The spell server is 141 MiB and 19 threads sitting at 0% CPU — about five times the whole app —
+and it starts even when the window opens on the graph tab. The fix is lazy: start on the first
+text-buffer paint, stop after some minutes with no text buffer focused, restart on demand. The
+hard part is honest: a restart costs a spawn plus an LSP handshake (~1s), which shows up as a
+missing underline for a moment, and stopping has to flush the diagnostics in flight. The user's
+ruling is "harper is fine for now" — memory is not the binding constraint today.
+
+### Skip the D-Bus connection when the vault names a palette ❄️ (parked, 2026-11-05)
+A `zbus::Connectio` thread is alive in every window, even when `.shale/config.toml` names a
+palette explicitly, because the desktop-following path (`theme = ""`) asks the portal for its
+dark-or-light setting. When a palette is named, that question is never asked, so the connection
+— and the thread — should not exist. Small, clean, and worth doing when something else touches
+theme loading.
+
 ## Explicitly out
 - Sync, mobile, plugins (see "MCP is the plugin system"), live web apps in notes
   (no webview; possible later: static readable-content cards via pulldown-cmark's

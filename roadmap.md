@@ -804,6 +804,11 @@ into the Phase 3 addendum. **P2.5a landed 2026-11-01, so Phase 2 is closed**
   canvas made gpui order by primitive *kind*, so every link landed on top of every node —
   hence one layer per phase. The fps / idle-sleep check is the remaining exit-criteria item;
   the `graph/bench.rs` readout stays, at the user's request.
+  **The idle-sleep half closed 2026-11-05**: a probe in `Workspace::render` counted **0 renders
+  over 15 s** with the 1k graph on screen, and the two idle pollers went — the live channel's
+  250 ms publish beat (now driven by drawing) and the accept loop's 50 ms poll (now a blocking
+  accept woken by a connect) — taking the window from 11.3 to 7.2 wakeups/s and ~520 to ~423
+  syscalls/s (`29f2d5b`, `82f3cc9`; numbers in `PROGRESS.md`). The fps half stays open.
 - **P3.5 Graph M2–M5** in the plan's order: local graph + projected 3D →
   constellations + static mode → heatmap/groups/arrows → signature features
   (thread, pulses+glow, MST star-lines, nebulae, hjkl + f-jump, illumination,
