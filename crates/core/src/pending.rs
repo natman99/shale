@@ -58,7 +58,10 @@ pub struct PendingEdit {
 }
 
 /// What reading the queue back found, including what it could not read.
-#[derive(Debug, Default)]
+///
+/// `Clone` because the vault's queue beat reads it once and hands the same read to every
+/// window on the vault.
+#[derive(Debug, Default, Clone)]
 pub struct Queue {
     /// The edits that parsed, oldest first.
     pub edits: Vec<PendingEdit>,

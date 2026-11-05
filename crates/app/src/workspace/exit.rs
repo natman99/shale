@@ -166,14 +166,14 @@ impl Workspace {
     /// a WAL full of unapplied writes — P1.8 the second, so the next window opens
     /// on this note, at this place, in this view, and P2.3 the third, so the next
     /// `shale-mcp` finds no port and no lock rather than a stale hint. P2.5a's part is
-    /// the last: stopping the beat, because the queue itself is *meant* to outlive the
-    /// window — the files stay, and the next launch reads them again.
+    /// nothing at all now that the queue beat belongs to the vault: the queue itself is
+    /// *meant* to outlive the window — the files stay, and the next launch reads them
+    /// again.
     pub(super) fn leave(&mut self, cx: &mut Context<Self>) {
         self.flush_index();
         self.save_session(cx);
         // The live channel belongs to the vault's services now; it comes down
         // with the last window, not with this one.
-        self.stop_pending_watch();
         // One process can hold several vault windows: leaving closes *this*
         // window, and the run ends on its own when the last one goes. The
         // close is deferred because `leave` often runs from inside this very

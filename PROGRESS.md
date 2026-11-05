@@ -1153,3 +1153,29 @@ The test that used to prove the beat worked (`the_beat_keeps_the_answer_current`
 600 ms of sitting still publishes nothing. The second half needed a publish counter: `updated_at` is
 epoch seconds, too coarse to show a republish. Mutation-checked: with the render-publish removed the
 test fails. app 464 / core 469.
+
+
+## The queue beat moves to the vault (2026-11-05)
+
+`start_pending_watch` ran from `Workspace::new`, so N windows on one vault read
+`.shale/pending-edits/` N times a second. The read moves to `VaultServices`
+(`start_queue_watch`, same 1 s), and what stays per window is the *judgement* — a hunk is
+stale against that window's buffers, which may be holding a note another window has already
+written out. `Workspace::scan_pending` is now "read then judge"; the beat calls
+`VaultServices::fan_out_queue` → `Workspace::apply_pending_queue`. The read stays on the main
+thread: the queue is a `read_dir` of a nearly-empty folder, not a walk of the vault, so the
+walk's reason for a background thread is not this one's.
+
+**The test was wrong before it was right.** `one_queue_reaches_every_window_on_the_vault`
+opened two windows with the test helper `open_window`, which calls `Workspace::new` — and
+`Workspace::new` builds its own `VaultServices`. Two windows, two beats, two one-window fan-out
+lists: the test passed, and mutating `fan_out_queue` to reach only the first window still
+passed. Rewritten through the registry (`open_vault_window` + `open_extra_window`, which is what
+shares services in the app), the same mutation fails on the second window's assertion. Written
+into `PROJECT.md` as a testing rule, because "use the test helper twice" looks like the same thing
+and is not.
+
+Also learned the easy way: gpui's test executor *does* pump a repeating beat — `Clock::pause`
+past the interval plus `run_until_parked` runs one pass of it. The old comment in `review.rs`
+("rather than waiting on simulated time") was about directness, not impossibility. app 464 /
+core 470.

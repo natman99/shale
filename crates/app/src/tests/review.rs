@@ -818,3 +818,64 @@ fn marker(
         .update(cx, |ws, _window, cx| ws.review_marker(cx))
         .unwrap()
 }
+
+/// The queue is read once per vault and handed to every window on it. It used to be a
+/// beat per window, so three windows over one vault read the same almost-always-empty
+/// folder three times a second — three times the work, not three opinions about it.
+/// What stays per window is the *judgement*: a hunk is stale against that window's
+/// buffers, which may be holding a note another window has already written out.
+///
+/// The two windows come through the registry, because that is what shares a vault's
+/// services: `Workspace::new` makes its own, so a test that opened two windows that way
+/// would have two beats and prove nothing.
+#[gpui::test]
+fn one_queue_reaches_every_window_on_the_vault(cx: &mut TestAppContext) {
+    let base = tempfile::tempdir().unwrap();
+    let root = base.path().join("vault");
+    std::fs::create_dir_all(root.join(".shale")).unwrap();
+    std::fs::write(root.join("One.md"), NOTE).unwrap();
+    std::fs::write(
+        root.join(".shale").join("config.toml"),
+        "[spellcheck]\nenabled = false\n[index]\nenabled = false\n[mcp]\nlive = false\n",
+    )
+    .unwrap();
+    cx.update(|cx| {
+        cx.bind_keys(keybindings());
+        cx.set_global(
+            crate::workspace::vaults::VaultWindows::new(std::sync::Arc::new(
+                std::sync::atomic::AtomicBool::new(false),
+            )),
+        );
+    });
+
+    let a = cx
+        .update(|cx| {
+            crate::workspace::vaults::open_vault_window(
+                &root,
+                crate::workspace::vaults::OpenOptions::default(),
+                cx,
+            )
+        })
+        .unwrap();
+    let b = cx
+        .update(|cx| crate::workspace::vaults::open_extra_window(&root, cx))
+        .unwrap();
+
+    // The proposal arrives after both windows have done their startup scan, so what
+    // puts it on screen can only be the vault's one beat.
+    queue(&root, "One.md", NOTE, EDITED);
+    let clock = Clock(cx.executor());
+    {
+        let mut vcx = VisualTestContext::from_window(a.into(), cx);
+        clock.pause(&mut vcx, Duration::from_millis(1_200));
+    }
+
+    let strip_up = |w: &WindowHandle<Workspace>, cx: &mut TestAppContext| {
+        w.update(cx, |ws, _window, cx| ws.review_active(cx)).unwrap()
+    };
+    assert!(strip_up(&a, cx), "the window the beat was driven through sees it");
+    assert!(
+        strip_up(&b, cx),
+        "and so does the other window on the same vault, unasked"
+    );
+}

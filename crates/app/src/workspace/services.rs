@@ -3,7 +3,8 @@
 //! multi-window plan).
 //!
 //! A window is chrome: tabs, a tree, an editor. A vault is a *place*, and a
-//! place gets one index, one watcher walk, one live MCP channel — twice of
+//! place gets one index, one watcher walk, one live MCP channel, one queue beat — twice
+//! of
 //! any of those is not a second opinion but a conflict: two SQLite writer
 //! threads on one database, two walks of one tree, two servers fighting over
 //! one `.shale` port lock. So those live here, in an entity the registry
@@ -46,6 +47,13 @@ const WATCH_DUTY: u32 = 300;
 
 /// The daily backup poll (roadmap P1.6).
 const BACKUP_POLL: Duration = Duration::from_secs(3_600);
+
+/// How often the vault looks at the agent-edit queue folder. Long enough that a poll of a
+/// folder that is almost always empty costs nothing a person would notice, short enough
+/// that a proposal is on screen before the agent that made it has reported back. Per
+/// vault rather than per window: three windows on one vault used to mean three `read_dir`s
+/// a second of the same folder.
+const PENDING_POLL: Duration = Duration::from_millis(1000);
 
 /// Everything a vault has exactly one of, shared by its windows.
 pub(crate) struct VaultServices {
@@ -117,6 +125,7 @@ impl VaultServices {
         // Roadmap P2.3: the live channel. It comes up before any window exists;
         // the first beat with a window in it fills the snapshot.
         services.start_live();
+        services.start_queue_watch(cx);
         services
     }
 
@@ -265,6 +274,45 @@ impl VaultServices {
             cx.background_executor().timer(BACKUP_POLL).await;
         })
         .detach();
+    }
+
+    /// Notice the agent-edit queue once per vault and hand the read to every window.
+    ///
+    /// This was a beat per window, so N windows read the same folder N times a second.
+    /// What belongs to a window is the *judgement* — a hunk is stale against that
+    /// window's buffers, which may be holding a note another window has already written
+    /// out — so the read moved here and the judgement stayed in
+    /// [`Workspace::apply_pending_queue`](Workspace::apply_pending_queue).
+    fn start_queue_watch(&mut self, cx: &mut Context<Self>) {
+        let watched = cx.entity().downgrade();
+        cx.spawn(async move |_services, cx| {
+            loop {
+                cx.background_executor().timer(PENDING_POLL).await;
+                let Some(services) = watched.upgrade() else {
+                    // The vault's last window closed; there is nobody left to show a
+                    // proposal to.
+                    break;
+                };
+                // The read stays on the main thread, as it was per window: the queue is
+                // a `read_dir` of a folder that is almost always empty, not a walk of
+                // the vault, and the walk's reason for a background thread — a big tree
+                // taking an unpredictable time — is not this folder's reason.
+                let _ = services.update(cx, |s, cx| {
+                    let queue = shale_core::pending::list(s.vault.root());
+                    s.fan_out_queue(queue, cx);
+                });
+            }
+        })
+        .detach();
+    }
+
+    /// Hand a queue that has already been read to every window on this vault, pruning
+    /// the windows that have closed.
+    pub(crate) fn fan_out_queue(&mut self, queue: shale_core::pending::Queue, cx: &mut App) {
+        self.windows.retain(|w| w.upgrade().is_some());
+        for ws in self.windows.clone() {
+            let _ = ws.update(cx, |ws, cx| ws.apply_pending_queue(queue.clone(), cx));
+        }
     }
 
     /// Start the live channel: bind the port and keep the snapshot warm.

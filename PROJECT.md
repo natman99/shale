@@ -555,8 +555,9 @@ Workspace layout:
   on the frame that changed it, owning the server, and taking port and lock down on
   every graceful exit),
   `review.rs` the window's half of agent edit review (reading the queue off disk and
-  badging each hunk stale or clashing, the one-second beat that notices it, and what
-  accept/reject/collapse/open do to the buffer, the disk and the queue file),
+  badging each hunk stale or clashing — the beat that notices it is the vault's, in
+  `services.rs` — and what accept/reject/collapse/open do to the buffer, the disk and
+  the queue file),
   `session.rs` the session file (capture, save on the autosave beat and every
   graceful exit, restore once in `new`),
   `tabs.rs` the tab bar and the content each tab owns (roadmap P3.1: **the editor
@@ -839,12 +840,22 @@ screenshot-window --id <id> --write-to-disk true` for a single window, and
   a command created find one file too many. `tests::mod`'s `workspace()` turns it off
   beside `spellcheck` and `index` for exactly that reason, and `tests/live.rs` turns
   it back on. A test that turns it on must not leave it running.
-- **The queue beat is on in every test window, on purpose.** Unlike the live channel
-  it starts no thread of its own beyond gpui's task, binds nothing, writes nothing,
-  and `pending::list` on a vault with no queue is one failed `read_dir` — it does not
-  create `.shale/pending-edits/`. So a test that counts files in the vault is safe,
-  and the review tests can drive the queue by writing files the way `shale-mcp` does
-  and calling `scan_pending` directly rather than waiting on simulated time.
+- **The queue beat is on in every test vault, on purpose.** Unlike the live channel it
+  starts no thread of its own beyond gpui's task, binds nothing, writes nothing, and
+  `pending::list` on a vault with no queue is one failed `read_dir` — it does not
+  create `.shale/pending-edits/`. So a test that counts files in the vault is safe, and
+  the review tests can drive the queue by writing files the way `shale-mcp` does and
+  calling `scan_pending` directly rather than waiting on simulated time. Where a test
+  wants the *beat* rather than a direct scan, `Clock::pause` past `PENDING_POLL` does
+  pump it: gpui's test executor makes a timer ready, and `run_until_parked` runs what
+  that woke.
+- **Two test windows made with `open_window` are two sets of vault services, not one.**
+  `Workspace::new` builds its own `VaultServices`; only the registry shares one between
+  the windows of a vault (`vaults::open_vault_window`, then `open_extra_window`). A test
+  that wants to prove something is per-vault — one queue beat, one walk, one live port —
+  must open its second window through the registry, or it passes while proving nothing:
+  `one_queue_reaches_every_window_on_the_vault` was that test until it was rewritten, and
+  the mutation that should have failed it (fan out to one window only) went green.
 - **A two-stroke keymap chord swallows its first key.** gpui holds the first keystroke
   of a multi-stroke binding as pending input and never delivers it as text, so binding
   `"[ a"` in `vim-normal` broke `f[` — the literal `[` no longer reached the editor's

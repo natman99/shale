@@ -23,7 +23,6 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 use gpui::{Context, Focusable, Window};
 use shale_core::diff::{self, Hunk};
@@ -35,45 +34,30 @@ use crate::editor::View;
 
 use super::Workspace;
 
-/// How often the window looks at the queue folder. Long enough that a poll of a folder
-/// that is almost always empty costs nothing a person would notice, short enough that a
-/// proposal is on screen before the agent that made it has reported back.
-const PENDING_POLL: Duration = Duration::from_millis(1000);
-
 impl Workspace {
-    /// Start noticing the queue: read it once, so a proposal left over from the last
-    /// session is on screen at startup, then keep reading it.
-    ///
-    /// Started from `Workspace::new`, and never turned off by a setting: an empty queue
-    /// costs one `read_dir` a second, and a proposal the user never sees is the failure
-    /// mode this feature exists to prevent.
-    pub(crate) fn start_pending_watch(&mut self, cx: &mut Context<Self>) {
-        self.scan_pending(cx);
-        self._pending = Some(cx.spawn(async move |ws, cx| {
-            loop {
-                cx.background_executor().timer(PENDING_POLL).await;
-                // The weak handle: when the window is gone there is nothing left to
-                // look at, and the beat ends with it.
-                if ws.update(cx, |ws, cx| ws.scan_pending(cx)).is_err() {
-                    break;
-                }
-            }
-        }));
-    }
-
-    /// Take the queue beat down. Every graceful exit runs this, in the same shape as
-    /// [`VaultServices::stop_live`](super::services); the weak handle is what stops it if nothing does.
-    pub(crate) fn stop_pending_watch(&mut self) {
-        self._pending = None;
-    }
-
     /// Read the queue off the disk and put it in front of the user.
+    ///
+    /// The immediate paths — startup, and whatever a hunk was just accepted or retracted
+    /// — run this. The beat that keeps noticing is the vault's, not the window's
+    /// ([`VaultServices::start_queue_watch`](super::services)): one `read_dir` a second
+    /// per vault however many windows are looking at it, fanned out to
+    /// [`apply_pending_queue`](Self::apply_pending_queue).
     ///
     /// Each note is read once per scan rather than once per hunk, and the note that is
     /// open is read from the **buffer**: what the user can see is what a hunk has to
     /// fit, so a hunk against a note they have since edited is stale, not applicable.
     pub(crate) fn scan_pending(&mut self, cx: &mut Context<Self>) {
-        let queue = pending::list(self.vault.root());
+        self.apply_pending_queue(pending::list(self.vault.root()), cx);
+    }
+
+    /// Judge a queue that has already been read and put it in front of the user. The
+    /// judgement is per window: a hunk is stale against *this* window's buffers, which
+    /// may be holding a note another window has already written to disk.
+    pub(crate) fn apply_pending_queue(
+        &mut self,
+        queue: pending::Queue,
+        cx: &mut Context<Self>,
+    ) {
         // A file that does not parse is said once, not once a second: it is a real
         // problem (a proposal the user cannot see) and a log line a person will act on.
         if queue.unreadable != self.pending_unreadable {

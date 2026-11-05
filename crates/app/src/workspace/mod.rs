@@ -268,9 +268,6 @@ pub(crate) struct Workspace {
     /// review keys move (see [`crate::review`] and [`review`]). It is always there;
     /// it is only drawn when the queue is not empty.
     review: Entity<crate::review::Review>,
-    /// The beat that notices the queue folder changing on disk. Kept so it is cancelled
-    /// with the window; it never ends on its own (see [`review`]).
-    _pending: Option<Task<()>>,
     /// The queue files the window could not read, which it complains about once rather
     /// than once a second.
     pending_unreadable: Vec<PathBuf>,
@@ -529,7 +526,6 @@ impl Workspace {
             _termination: None,
             live_snapshot,
             review,
-            _pending: None,
             pending_unreadable: Vec::new(),
             _prompt_events: None,
             status: "".into(),
@@ -549,9 +545,9 @@ impl Workspace {
         workspace.restore_session(cx);
         // Roadmap P2.5a: the queue of agent proposals is read before the window is on
         // screen, so a proposal that arrived while Shale was closed is on screen the
-        // moment it is — and the beat that keeps reading it is started here because a
-        // proposal nobody ever sees is the one failure this feature cannot have.
-        workspace.start_pending_watch(cx);
+        // moment it is. The beat that keeps reading it belongs to the vault, not here
+        // ([`VaultServices::start_queue_watch`](super::services)).
+        workspace.scan_pending(cx);
         // The first snapshot the live server can answer with: the channel itself
         // came up with the vault's services, and this fills it with the note the
         // session restored.
@@ -632,9 +628,9 @@ impl Workspace {
                 // The live channel does NOT go with this window: it belongs to
                 // the vault, and it comes down when the vault's last window
                 // closes (see [`services`]).
-                // ...and so does the queue beat. The queue itself stays: an unanswered
+                // The queue beat does not go with this window either: it belongs to
+                // the vault. The queue itself stays regardless — an unanswered
                 // proposal is on disk for the next window to offer again (P2.5a).
-                ws.stop_pending_watch();
                 true
             })
             .unwrap_or(true)
