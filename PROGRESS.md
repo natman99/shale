@@ -983,3 +983,56 @@ wrong: a `while !step()` loop that ran exactly one step, and a no-overshoot asse
 the camera against where it *started* instead of against where it was going. The assertion that
 holds is per-axis: the camera never gets to the far side of its target.
 app 464 / core 466.
+
+
+## The camera jolts the wrong way, and the dots pulsate (2026-11-04)
+
+The vibration from the timer-paced drift was gone. Two things were left, and the user described
+both precisely enough to chase: *"when I increase the number of links the camera seems to zoom in
+before zooming out"*, and *"the circles change size slightly throughout the camera movement... they
+pulsate and vibrate oddly... it also adds some desync in the halo effect"*.
+
+**The size complaint was real, and it was arithmetic.** A node's drawn radius is
+`radius × zoom × perspective(depth)`. The drift was springing zoom and eye distance as two separate
+springs toward two separately smoothed targets, so the two drivers of one number were free to
+disagree. Measured on a 61-note hub across one widening: the picture shrank 42 % while the hub's own
+dot **grew 4.5 %**. The halo was never out of step — it is drawn from the same projection, the same
+frame, the same radius as the dot — but a fixed 5 px ring is most of a 5 px dot and a hairline on a
+20 px one, so it read as a different mark at every zoom.
+
+**The jolt was the same disease one level up.** With two springs, the framing stalled for the first
+five frames while the new notes flew outward: the picture ballooned to **1526 px from a start of
+1124 (+36 %)** and was then pulled back to 853. Out-and-back on screen *is* "zoomed in before
+zooming out", whatever the camera's numbers did.
+
+Three changes, all measured:
+
+- **One spring in the projected view: the eye distance.** `Cam3::fit` split into `fit_dist` (where
+  the eye goes, from the bounding radius) and `fit_at_dist`/`fit_extent` (what the frame is, at a
+  distance it is given). The drift springs `dist` and re-fits zoom and pan at the distance the eye
+  has *reached*, so a node's dot and its picture can only ever move together.
+- **The framing may lag a shrink, never a growth.** The τ = 0.15 s smoothing exists for layout
+  jitter, and a neighbourhood the user just widened is a step, not jitter. The smoothed extent is
+  unioned with the content's extent each step. Peak picture during a widening: **1526 px → 1403 px →
+  1124 px** (no balloon at all; it shrinks monotonically to its framing).
+- **Sizes are damped, rings are proportional.** Positions use the perspective factor in full; drawn
+  radii use 40 % of the way to it (`PERSP_SIZE`), and the halo ring is `max(RING_PX, r × 0.25)`
+  instead of a fixed width.
+
+**A mechanism removed rather than kept.** The first answer to the jolt was a monotone-direction
+clamp: track whether the content was still moving and forbid the framing from reversing while it
+was. It compiled, it passed, it looked principled — and instrumented properly (counting only the
+steps where it actually overrode the smoothed value, not the ones where it merely ran) it **bound
+zero times** across widening, cliff-narrowing and graded-narrowing. The coherent camera had already
+made the reversal impossible. ~6.5 KB of state and two constants deleted.
+
+**And two tests that were decoration.** The first versions asserted a constant dot-to-picture ratio
+and a never-reversing zoom, and passed with the fixes disabled — including against the old
+four-spring design checked out of `32678c6`. They were rewritten against **real physics**: the
+layout advanced two ticks per drift step (`graph_run_for`) instead of a frame being nudged by hand,
+and the invariant moved from the camera's numbers to what is on screen — *the picture must not
+balloon past its starting size during a widening*. That one fails at +24.9 % without the
+cover-growth rule and at +35.8 % with the old design, and passes at 0 % now. The lesson is the same
+one as the drift's earlier green-but-wrong tests: a test that cannot tell the fix from the bug is
+not a test, and the way to find out is to break the fix on purpose.
+app 464 / core 468.

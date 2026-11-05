@@ -435,6 +435,33 @@ impl Workspace {
             crate::graph::Dim::Three => view.projection_slot(slot),
         }
     }
+    /// What the graph would draw for a note right now: `(screen centre, drawn radius)`.
+    #[cfg(test)]
+    pub(crate) fn graph_drawn_node(&self, path: &str, cx: &gpui::App) -> Option<([f32; 2], f32)> {
+        self.graph_view()?.read(cx).drawn_node(path)
+    }
+
+    /// The width of the whole picture on screen, in px.
+    #[cfg(test)]
+    pub(crate) fn graph_drawn_spread(&self, cx: &gpui::App) -> Option<f32> {
+        self.graph_view()?.read(cx).drawn_spread()
+    }
+
+    /// Run the layout for `ticks` ticks and ship the frame. `settle_graph` runs the sim
+    /// to rest in one go, which is what a paint test wants and what a drift test does
+    /// not: the drift needs to be watched while the layout is still moving.
+    #[cfg(test)]
+    pub(crate) fn graph_run_for(&mut self, ticks: usize, cx: &mut Context<Workspace>) {
+        let Some(sim) = self.graph_sim.as_mut() else {
+            return;
+        };
+        sim.advance(ticks);
+        let frame = std::rc::Rc::new(sim.frame());
+        if let Some(view) = self.graph_view().cloned() {
+            view.update(cx, |view, cx| view.set_frame(frame, cx));
+        }
+    }
+
     /// The projected camera as `(yaw, pitch, pan, zoom)`, for the mode tests: the angle
     /// an orbit made, and the framing a fit made.
     #[cfg(test)]

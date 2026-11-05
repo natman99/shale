@@ -770,3 +770,160 @@ fn the_drift_parks_itself_when_it_arrives(cx: &mut TestAppContext) {
         "the drift left no next-frame work behind, so the window can idle"
     );
 }
+
+
+/// A hub vault: sixty notes all hanging off one, so a depth step is a thirtyfold change
+/// in what the picture holds — the case the user reported as "the camera zooms in before
+/// zooming out" and "the dots pulsate as the camera moves".
+fn hub_vault(
+    cx: &mut TestAppContext,
+) -> (
+    tempfile::TempDir,
+    WindowHandle<Workspace>,
+    VisualTestContext,
+) {
+    let leaves = 60;
+    let mut notes: Vec<(String, String)> = vec![(
+        "hub.md".into(),
+        (1..=leaves)
+            .map(|i| format!("[[leaf{i}.md]] "))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    )];
+    for i in 1..=leaves {
+        notes.push((format!("leaf{i}.md"), "[[hub.md]]\n".into()));
+    }
+    let notes: Vec<(&str, &str)> = notes
+        .iter()
+        .map(|(name, text)| (name.as_str(), text.as_str()))
+        .collect();
+    let (dir, window) = vault_with(cx, &notes);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show(&mut cx, &window, "leaf1.md");
+    (dir, window, cx)
+}
+
+/// Drive a depth change and the layout together, one drift step per couple of sim ticks.
+/// `paint` runs the layout to rest in one go, which hides the thing being tested: the
+/// drift is only ever interesting while the layout is *still moving*, and a widened
+/// neighbourhood spends its first half-second flying outward.
+fn drift_under_physics(
+    window: &WindowHandle<Workspace>,
+    cx: &mut VisualTestContext,
+) -> Vec<(f32, f32, f32)> {
+    let mut trace: Vec<(f32, f32, f32)> = Vec::new();
+    let mut steps = 0;
+    while window
+        .update(cx, |ws, _window, cx| ws.graph_drift_step(cx))
+        .unwrap()
+    {
+        steps += 1;
+        assert!(steps < 300, "the drift never arrived");
+        window
+            .update(cx, |ws, _window, cx| ws.graph_run_for(2, cx))
+            .unwrap();
+        let zoom = window
+            .update(cx, |ws, _window, cx| ws.graph_camera3(cx))
+            .unwrap()
+            .unwrap()
+            .3;
+        let dot = window
+            .update(cx, |ws, _window, cx| ws.graph_drawn_node("hub.md", cx))
+            .unwrap()
+            .unwrap()
+            .1;
+        let spread = window
+            .update(cx, |ws, _window, cx| ws.graph_drawn_spread(cx))
+            .unwrap()
+            .unwrap();
+        trace.push((zoom, dot, spread));
+    }
+    assert!(steps > 10, "a drift this short proves nothing: {steps}");
+    trace
+}
+
+/// Widening a local graph is the case the user reported as "the camera zooms in before it
+/// zooms out". The eye distance is the one thing the drift springs; the framing is fitted
+/// at it, so the two can never pull the picture in opposite directions, and the zoom
+/// travels one way for the whole move.
+#[gpui::test]
+fn a_widening_moves_the_camera_one_way_only(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = hub_vault(cx);
+    cx.simulate_keystrokes("space g");
+    paint(&mut cx, &window);
+    command_line("graph-local 1", &mut cx);
+    cx.simulate_keystrokes("space g");
+    paint(&mut cx, &window);
+    cx.simulate_keystrokes("3");
+    paint(&mut cx, &window);
+    cx.simulate_keystrokes("] ]");
+    let trace = drift_under_physics(&window, &mut cx);
+
+    // What the user sees is the picture, not the camera's numbers. Widening must not
+    // make it bigger: the report was "when I increase the number of links the camera
+    // seems to zoom in before zooming out", and what was happening was the picture
+    // ballooning 36% past its size while the framing stalled, then being pulled back.
+    // Out-and-back on screen is the jolt, whatever the zoom did on the way.
+    let start = trace[0].2;
+    let peak = trace.iter().fold(0.0f32, |a, t| a.max(t.2));
+    assert!(
+        peak <= start * 1.02,
+        "the picture ballooned {:.1}% past its starting size before settling: {:?}",
+        (peak / start - 1.0) * 100.0,
+        trace.iter().map(|t| t.2).collect::<Vec<_>>()
+    );
+    assert!(
+        trace.last().unwrap().2 < start * 0.9,
+        "and a widening ends with the picture framed, not merely un-balloonéd: {start} -> {}",
+        trace.last().unwrap().2
+    );
+}
+
+/// The other half of the report: "the circles change size... they pulsate". A node's dot
+/// and the picture it sits in are the same projection read two ways, so they may differ by
+/// the damped size perspective and nothing more — the dot may never move against its
+/// picture. Measured before this was fixed: the picture shrank 42% across one widening
+/// while this node's dot grew 4.5%.
+#[gpui::test]
+fn a_nodes_dot_never_fights_its_picture(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = hub_vault(cx);
+    cx.simulate_keystrokes("space g");
+    paint(&mut cx, &window);
+    command_line("graph-local 1", &mut cx);
+    cx.simulate_keystrokes("space g");
+    paint(&mut cx, &window);
+    cx.simulate_keystrokes("3");
+    paint(&mut cx, &window);
+    cx.simulate_keystrokes("] ]");
+    let trace = drift_under_physics(&window, &mut cx);
+
+    let dots: Vec<f32> = trace.iter().map(|t| t.1).collect();
+    // A node's size may change because the node itself moved in depth — that is honest
+    // 3D, and the hub does. What it may not do is *vibrate*: change direction more than
+    // once across the whole move. Two springs pulling a node's size in opposite
+    // directions is exactly that, and it is what the report called pulsation.
+    let mut turns = 0;
+    let mut rising = 0.0f32;
+    for pair in dots.windows(2) {
+        let step = pair[1] - pair[0];
+        if step.abs() < 0.005 {
+            continue;
+        }
+        let sign = step.signum();
+        if sign != rising && rising != 0.0 {
+            turns += 1;
+        }
+        rising = sign;
+    }
+    assert!(turns <= 1, "the dot changed direction {turns} times as the camera moved: {dots:?}");
+    // And it may not end up changed by more than the picture it sits in.
+    let dot_move = (dots.last().unwrap() - dots[0]).abs() / dots[0];
+    let picture_move = (trace.last().unwrap().2 - trace[0].2).abs() / trace[0].2;
+    assert!(
+        dot_move <= picture_move,
+        "the dot changed by {:.1}% while the whole picture changed by {:.1}%",
+        dot_move * 100.0,
+        picture_move * 100.0
+    );
+}
+

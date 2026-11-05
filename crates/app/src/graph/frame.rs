@@ -40,6 +40,9 @@ pub(crate) struct GraphNode {
 
 /// A snapshot of the window's simulation and the graph it is a simulation of.
 ///
+/// `Clone` because it is pure data, and forking one is what a test needs in order to
+/// move the content under a running drift.
+///
 /// Slot order is the sim's, so an edge is a pair of indexes into `nodes`. The
 /// window rebuilds this whenever the sim moves or the graph changes underneath it.
 pub(crate) struct GraphFrame {

@@ -32,8 +32,8 @@ use shale_core::theme::Palette;
 use super::cache::{Cache, Geometry, Key};
 use super::frame::GraphFrame;
 use super::render::{
-    label_runs, Labels, LinkPaths, Look, CENTRE_RING_PX, LABEL_SCALE, LINK_MIN_PX,
-    LINK_WIDTH, RING_PX,
+    label_runs, ring_px, Labels, LinkPaths, Look, CENTRE_RING_PX, LABEL_SCALE, LINK_MIN_PX,
+    LINK_WIDTH,
 };
 use super::sim::GRID_MAX_SPAN;
 
@@ -131,7 +131,7 @@ impl Projection {
             .nodes
             .iter()
             .zip(&projected)
-            .map(|(node, p)| node.radius * p.scale)
+            .map(|(node, p)| drawn_radius(node.radius, p.scale))
             .fold(0.0, f32::max);
         let wanted = (2.0 * biggest).max(8.0);
         let cell = match bounds {
@@ -172,11 +172,12 @@ impl Projection {
         self.projected.get(slot).map(|p| p.view_z)
     }
 
-    /// A node's radius as drawn: its world radius times the perspective factor, so a
-    /// near hub is a bigger dot than the same hub far away.
+    /// A node's radius as drawn: its world radius times a **damped** perspective factor,
+    /// so a near hub is a bigger dot than the same hub far away without the whole cloud
+    /// resizing every time the eye moves. See [`PERSP_SIZE`].
     fn radius(&self, frame: &GraphFrame, slot: usize) -> f32 {
         match (frame.nodes.get(slot), self.projected.get(slot)) {
-            (Some(node), Some(p)) => node.radius * p.scale,
+            (Some(node), Some(p)) => drawn_radius(node.radius, p.scale),
             _ => 0.0,
         }
     }
@@ -202,7 +203,7 @@ impl Projection {
             .nodes
             .iter()
             .enumerate()
-            .map(|(slot, node)| node.radius * self.projected[slot].scale)
+            .map(|(slot, node)| drawn_radius(node.radius, self.projected[slot].scale))
             .fold(0.0, f32::max);
         let hit = self
             .grid
@@ -312,6 +313,25 @@ pub(crate) fn paint_graph3d(
             );
         });
     });
+}
+
+/// How much of the perspective factor a drawn dot carries. Positions are projected in
+/// full — the cloud is where it is — but the dot size carries only this fraction of it.
+///
+/// At the full factor every node in the cloud resizes whenever the eye moves, because
+/// `dist/(dist - view_z)` is a function of the eye distance and not only of where the node
+/// sits: measured on a 61-note hub, a widening that shrank the picture by 42% grew the
+/// hub's own dot by 4.5%, and a layout still settling under the forces swings every node's
+/// depth, which at full factor is a ±7% swing in every dot at once — the whole graph
+/// pulsing. Damped to 0.4, the depth cue between a near hub and a far one survives at
+/// roughly half strength and the pulsing stops being legible as motion.
+const PERSP_SIZE: f32 = 0.4;
+
+/// A world radius at a perspective factor, damped by [`PERSP_SIZE`]. The single place
+/// this is computed, so the dot that is drawn, the dot that is hit-tested, and the grid
+/// cell that indexes them can never disagree about how big a node is.
+pub(crate) fn drawn_radius(world: f32, scale: f32) -> f32 {
+    world * (1.0 + PERSP_SIZE * (scale - 1.0))
 }
 
 /// Whether a projected point with radius `r` is anywhere in the canvas.
@@ -442,7 +462,8 @@ fn paint_nodes3d(
     // dots the one the window is showing has to be findable without a search.
     if let Some(slot) = centre {
         if let Some(center) = projection.screen(slot) {
-            let r = projection.radius(frame, slot) + RING_PX + CENTRE_RING_PX;
+            let r = projection.radius(frame, slot);
+            let r = r + ring_px(r) + CENTRE_RING_PX;
             if on_screen(center, r, bounds) {
                 window.paint_quad(
                     gpui::fill(
@@ -459,7 +480,8 @@ fn paint_nodes3d(
     }
     if let Some(slot) = hover {
         if let Some(center) = projection.screen(slot) {
-            let r = projection.radius(frame, slot) + RING_PX;
+            let r = projection.radius(frame, slot);
+            let r = r + ring_px(r);
             if on_screen(center, r, bounds) {
                 window.paint_quad(
                     gpui::fill(

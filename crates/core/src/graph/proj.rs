@@ -235,21 +235,47 @@ impl Cam3 {
         let radius = Self::bounding_radius(pos).max(1.0);
         self.dist = (radius * FIT_DIST).clamp(radius * DOLLY_NEAR, radius * DOLLY_FAR);
         // 2. Then the framing, at whatever angle the user is already at.
-        let t = self.trig();
+        let (rlo, rhi) = self.raw_extent(pos);
+        self.fit_extent(rlo, rhi, bounds, margin);
+    }
+
+    /// The extent of `pos` in **raw** units — the space `zoom` multiplies — at this
+    /// camera's angle and eye distance.
+    ///
+    /// It is a function of `dist` on purpose, and that is the whole reason the framing
+    /// cannot be remembered independently of it: the same cloud measures a different
+    /// size depending on how far back the eye sits. A caller easing the eye distance
+    /// therefore re-measures here at each new distance and hands the answer to
+    /// [`Cam3::fit_extent`], which is what keeps a node's drawn size and the size of
+    /// the picture in agreement instead of two separate springs pulling them apart.
+    pub fn raw_extent(&self, pos: &[[f32; 3]]) -> ([f32; 2], [f32; 2]) {
+        // Measured from a camera with the angle and distance we have and nothing
+        // applied on top: no pan to subtract, no zoom to divide back out. Cancelling
+        // them after the fact is not exact under a perspective divide, and the
+        // inexactness made the answer depend on which camera the fit started from.
+        let probe = Cam3 {
+            yaw: self.yaw,
+            pitch: self.pitch,
+            dist: self.dist,
+            ..Cam3::new()
+        };
+        let t = probe.trig();
         let (mut lo, mut hi) = ([f32::MAX; 2], [f32::MIN; 2]);
         for p in pos {
-            let pr = self.project_with(*p, t.0, t.1, t.2, t.3);
+            let pr = probe.project_with(*p, t.0, t.1, t.2, t.3);
             lo[0] = lo[0].min(pr.xy[0]);
             lo[1] = lo[1].min(pr.xy[1]);
             hi[0] = hi[0].max(pr.xy[0]);
             hi[1] = hi[1].max(pr.xy[1]);
         }
-        // Undo the current pan/zoom to get the raw extent, then re-fit.
-        let raw = |v: f32, axis: usize| (v - self.pan[axis]) / self.zoom;
-        let (rlo, rhi) = (
-            [raw(lo[0], 0), raw(lo[1], 1)],
-            [raw(hi[0], 0), raw(hi[1], 1)],
-        );
+        (lo, hi)
+    }
+
+    /// The framing half of [`Cam3::fit`]: given a raw extent as [`Cam3::raw_extent`]
+    /// measures it, set zoom and pan so that extent fills `bounds`. Split out because
+    /// the eye distance and the framing are one decision and not two — whoever moves
+    /// one derives the other from here.
+    pub fn fit_extent(&mut self, rlo: [f32; 2], rhi: [f32; 2], bounds: [f32; 4], margin: f32) {
         let w = (rhi[0] - rlo[0]).max(1.0);
         let h = (rhi[1] - rlo[1]).max(1.0);
         self.zoom = ((bounds[2] - 2.0 * margin) / w)

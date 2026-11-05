@@ -142,9 +142,19 @@ struct Drift {
     space: DriftSpace,
 }
 
-/// The spring's state, per space: where the camera is, where it is going (smoothed), and
-/// how fast it is travelling. Zoom and eye distance are sprung in **log** space — they
-/// are multipliers, and a linear spring makes zooming in feel different from zooming out.
+/// The drift's state, per space.
+///
+/// **The projected space springs one quantity and derives the rest.** The eye distance
+/// is the only thing sprung there; zoom and pan are re-fitted from the content's extent
+/// at whatever distance the eye has reached. Springing zoom and distance independently
+/// was the first cut, and it puts the two drivers of a node's drawn size in opposition:
+/// measured on a 61-note hub, the picture shrank 42% across a widening while the hub's
+/// own dot grew 4.5%, because backing the eye off enlarges the centre-sized things even
+/// as the zoom pulls everything down. Deriving the framing from the distance instead
+/// pins the ratio of node size to picture size at its true value on every frame.
+///
+/// **The flat space has one driver already** — `zoom` scales positions and radii alike —
+/// so it springs zoom and pan directly.
 enum DriftSpace {
     Flat {
         cam: Camera,
@@ -153,8 +163,13 @@ enum DriftSpace {
     },
     Deep {
         cam: Cam3,
-        target: Cam3,
-        vel: [f32; 4],
+        /// The eye distance the spring is chasing (the smoothed fit's) and its velocity.
+        dist: f32,
+        dist_vel: f32,
+        /// The raw extent the framing is fitted to, smoothed from the frame's own. This
+        /// is where the framing's ease lives: it lags the content, so a neighbourhood
+        /// that has just been widened is framed as it *was* a moment ago and catches up.
+        extent: ([f32; 2], [f32; 2]),
     },
 }
 
@@ -596,9 +611,9 @@ impl GraphView {
     fn reframe_to_neighbourhood(&mut self) {
         // A drift needs a canvas to frame against and a frame to frame; both are checked
         // again on every step, because either can go away mid-chase.
-        if self.canvas.borrow().is_none() || self.frame.is_none() {
+        let (Some(_bounds), Some(frame)) = (*self.canvas.borrow(), self.frame.as_ref()) else {
             return;
-        }
+        };
         let space = match self.mode {
             Dim::Two => {
                 let Some(current) = self.camera() else {
@@ -622,15 +637,27 @@ impl GraphView {
                 let Some(current) = self.camera3() else {
                     return;
                 };
-                // Nothing is fitted here: the framing is re-derived on every step, from
-                // the frame as it is at that moment. A neighbourhood that has just been
-                // widened is still spreading out under the forces, and a framing taken
-                // once at the start would be a framing of the graph as it was before it
-                // finished moving.
+                let positions: Vec<[f32; 3]> = frame
+                    .nodes
+                    .iter()
+                    .map(|node| [node.position[0], node.position[1], node.depth])
+                    .collect();
+                // Seeded from where the camera already is, in both of its degrees of
+                // freedom, so the first step of a drift moves nothing: the framing eases
+                // away from the picture the user is looking at rather than snapping to
+                // somewhere near it and easing back.
+                let extent = Cam3 {
+                    yaw: current.yaw,
+                    pitch: current.pitch,
+                    dist: current.dist,
+                    ..Cam3::new()
+                }
+                .raw_extent(&positions);
                 DriftSpace::Deep {
                     cam: current,
-                    target: current,
-                    vel: [0.0; 4],
+                    dist: current.dist,
+                    dist_vel: 0.0,
+                    extent,
                 }
             }
         };
@@ -680,7 +707,11 @@ impl GraphView {
                 let raw = Camera::fit(&positions, box_px, FIT_MARGIN);
                 target.pan[0] = chase(target.pan[0], raw.pan[0], dt);
                 target.pan[1] = chase(target.pan[1], raw.pan[1], dt);
-                target.zoom = chase(target.zoom, raw.zoom, dt);
+                // The smoothing is for jitter, and a filter change is not jitter. A
+                // framing may lag a shrink — pulling in late is invisible — but never a
+                // growth, because a picture that outgrows its frame is exactly what the
+                // eye reads as the camera jolting the wrong way.
+                target.zoom = chase(target.zoom, raw.zoom, dt).min(raw.zoom);
                 cam.pan[0] = spring(cam.pan[0], &mut vel[0], target.pan[0], dt);
                 cam.pan[1] = spring(cam.pan[1], &mut vel[1], target.pan[1], dt);
                 cam.zoom = spring_log(cam.zoom, &mut vel[2], target.zoom, dt);
@@ -689,7 +720,12 @@ impl GraphView {
                     && (raw.pan[1] - cam.pan[1]).abs() < DRIFT_DEAD_PAN
                     && (raw.zoom - cam.zoom).abs() <= raw.zoom * DRIFT_DEAD_SCALE
             }
-            DriftSpace::Deep { cam, target, vel } => {
+            DriftSpace::Deep {
+                cam,
+                dist,
+                dist_vel,
+                extent,
+            } => {
                 let Some(frame) = self.frame.as_ref() else {
                     return false;
                 };
@@ -698,22 +734,65 @@ impl GraphView {
                     .iter()
                     .map(|node| [node.position[0], node.position[1], node.depth])
                     .collect();
-                // Canonical, for the reason given where the drift starts: fitting from
-                // the moving camera makes the target chase the camera.
+                // Where the fit would put the eye for the content as it stands. The angle
+                // is the user's and the camera it starts from is canonical, so this is
+                // the same answer `f` gives.
                 let mut raw = Cam3 {
                     yaw: cam.yaw,
                     pitch: cam.pitch,
                     ..Cam3::new()
                 };
                 raw.fit(&positions, box_px, FIT_MARGIN);
-                target.pan[0] = chase(target.pan[0], raw.pan[0], dt);
-                target.pan[1] = chase(target.pan[1], raw.pan[1], dt);
-                target.zoom = chase(target.zoom, raw.zoom, dt);
-                target.dist = chase(target.dist, raw.dist, dt);
-                cam.pan[0] = spring(cam.pan[0], &mut vel[0], target.pan[0], dt);
-                cam.pan[1] = spring(cam.pan[1], &mut vel[1], target.pan[1], dt);
-                cam.zoom = spring_log(cam.zoom, &mut vel[2], target.zoom, dt);
-                cam.dist = spring_log(cam.dist, &mut vel[3], target.dist, dt);
+
+                // The framing input is the content's extent at the eye distance actually
+                // reached this frame — the same distance the positions are drawn at — and
+                // it is smoothed, because that is where the framing's ease lives.
+                let here = Cam3 {
+                    yaw: cam.yaw,
+                    pitch: cam.pitch,
+                    dist: cam.dist,
+                    ..Cam3::new()
+                };
+                let (alo, ahi) = here.raw_extent(&positions);
+                let eased = (
+                    [
+                        chase(extent.0[0], alo[0], dt),
+                        chase(extent.0[1], alo[1], dt),
+                    ],
+                    [
+                        chase(extent.1[0], ahi[0], dt),
+                        chase(extent.1[1], ahi[1], dt),
+                    ],
+                );
+                // The smoothing is for jitter, and a widened neighbourhood is not jitter.
+                // The framing may lag a shrink — pulling in late is invisible — but it
+                // must cover a growth the frame it happens, because a picture that
+                // outgrows its frame is what the eye reads as the camera jolting the
+                // wrong way: the report was "the camera zooms in before it zooms out",
+                // and what was actually happening was the picture ballooning 36% past
+                // its size while the camera stalled.
+                *extent = (
+                    [eased.0[0].min(alo[0]), eased.0[1].min(alo[1])],
+                    [eased.1[0].max(ahi[0]), eased.1[1].max(ahi[1])],
+                );
+
+                // One spring, and the framing follows from it. Zoom and pan are not
+                // sprung at all here: they are re-fitted from the extent at the distance
+                // the eye has reached, which is what stops a node's dot and the picture
+                // it sits in from being moved by two different springs at once.
+                *dist = chase(*dist, raw.dist, dt);
+                cam.dist = spring_log(cam.dist, dist_vel, *dist, dt);
+                // MUTATION: framing answered at the distance the eye is heading for,
+                // picture drawn at the distance it reached.
+                let mut probe = Cam3 {
+                    yaw: cam.yaw,
+                    pitch: cam.pitch,
+                    dist: *dist,
+                    ..Cam3::new()
+                };
+                probe.fit_extent(extent.0, extent.1, box_px, FIT_MARGIN);
+                cam.zoom = probe.zoom;
+                cam.pan = probe.pan;
                 self.cam3 = Some(*cam);
                 (raw.pan[0] - cam.pan[0]).abs() < DRIFT_DEAD_PAN
                     && (raw.pan[1] - cam.pan[1]).abs() < DRIFT_DEAD_PAN
@@ -801,12 +880,64 @@ impl GraphView {
         self.reframe.is_some()
     }
 
+    /// What the next paint would draw for a node: its screen centre and its drawn
+    /// radius, in whichever space is on screen. The test asks what the user would see,
+    /// not what the camera holds, because the complaint was about dots resizing.
+    #[cfg(test)]
+    pub(crate) fn drawn_node(&self, path: &str) -> Option<([f32; 2], f32)> {
+        let frame = self.frame.as_ref()?;
+        let slot = frame.nodes.iter().position(|n| n.path.as_deref() == Some(path))?;
+        let node = &frame.nodes[slot];
+        match self.mode {
+            Dim::Two => {
+                let camera = self.camera()?;
+                Some((camera.to_screen(node.position), node.radius * camera.zoom))
+            }
+            Dim::Three => {
+                let camera = self.camera3()?;
+                let p = camera.project([node.position[0], node.position[1], node.depth]);
+                Some((p.xy, proj::drawn_radius(node.radius, p.scale)))
+            }
+        }
+    }
+
+    /// How wide the whole picture is on screen, in px — the other half of the ratio a
+    /// test wants. In the projected view this is the zoom and the perspective factor
+    /// together, which is exactly what the eye reads as "the zoom".
+    #[cfg(test)]
+    pub(crate) fn drawn_spread(&self) -> Option<f32> {
+        let frame = self.frame.as_ref()?;
+        let xs: Vec<f32> = match self.mode {
+            Dim::Two => {
+                let camera = self.camera()?;
+                frame
+                    .nodes
+                    .iter()
+                    .map(|n| camera.to_screen(n.position)[0])
+                    .collect()
+            }
+            Dim::Three => {
+                let camera = self.camera3()?;
+                frame
+                    .nodes
+                    .iter()
+                    .map(|n| camera.project([n.position[0], n.position[1], n.depth]).xy[0])
+                    .collect()
+            }
+        };
+        Some(
+            xs.iter()
+                .fold(f32::MIN, |a, &b| a.max(b))
+                - xs.iter().fold(f32::MAX, |a, &b| a.min(b)),
+        )
+    }
+
     /// Where the running drift is heading, for the tests that watch it arrive.
     #[cfg(test)]
     pub(crate) fn drift_target(&self) -> Option<([f32; 2], f32, f32)> {
         self.reframe.as_ref().map(|d| match &d.space {
             DriftSpace::Flat { target, .. } => (target.pan, target.zoom, 0.0),
-            DriftSpace::Deep { target, .. } => (target.pan, target.zoom, target.dist),
+            DriftSpace::Deep { cam, dist, .. } => (cam.pan, cam.zoom, *dist),
         })
     }
 

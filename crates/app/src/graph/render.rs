@@ -78,6 +78,20 @@ pub(crate) const RING_PX: f32 = 2.0;
 /// share a colour — both mean "the note in question" — so size is what keeps the
 /// pointer's answer and the window's answer apart when they land on different dots.
 pub(crate) const CENTRE_RING_PX: f32 = 3.0;
+/// How wide a ring is as a fraction of the node it rings, floored at [`RING_PX`].
+///
+/// A constant pixel width is a different mark at different zooms — 5 px is most of a 5 px
+/// dot and a hairline on a 20 px one — and during a camera move the node is resizing under
+/// it, which is what made the centre halo read as though it had fallen out of step with the
+/// note it rings. It never had: the ring and the dot come out of the same projection, in
+/// the same frame, from the same radius. What was moving was the dot under a fixed ring.
+pub(crate) const RING_FRACTION: f32 = 0.2;
+
+/// The ring around a node of drawn radius `r`. One function so the flat and projected
+/// views cannot drift apart on how a mark is sized.
+pub(crate) fn ring_px(r: f32) -> f32 {
+    RING_PX.max(r * RING_FRACTION)
+}
 
 /// Everything about *how* a frame is painted, as opposed to what is in it: the
 /// colours, the face the labels use, and which node (if any) the pointer or the
@@ -358,7 +372,8 @@ pub(crate) fn paint_nodes(
         if let Some(node) = frame.nodes.get(slot) {
             if view.holds(node, CULL_MARGIN) {
                 let center = camera.to_screen(node.position);
-                let r = node.radius * camera.zoom + RING_PX + CENTRE_RING_PX;
+                let r = node.radius * camera.zoom;
+                let r = r + ring_px(r) + CENTRE_RING_PX;
                 window.paint_quad(
                     gpui::fill(
                         Bounds {
@@ -376,7 +391,8 @@ pub(crate) fn paint_nodes(
         if let Some(node) = frame.nodes.get(slot) {
             if view.holds(node, CULL_MARGIN) {
                 let center = camera.to_screen(node.position);
-                let r = node.radius * camera.zoom + RING_PX;
+                let r = node.radius * camera.zoom;
+                let r = r + ring_px(r);
                 window.paint_quad(
                     gpui::fill(
                         Bounds {
