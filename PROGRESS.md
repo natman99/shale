@@ -626,3 +626,102 @@ Tests: app 439 (new: two windows on one vault keep alpha/beta in separate
 slots, close both, reopen, each wakes in its own room — and the frame is in
 the file), core 457 (new: slots do not overwrite each other; a pre-slots
 file becomes slot 0).
+
+## P3.6 — projected 3D as a mode (2026-11-04)
+
+The graph tab turns. `2` and `3` in the graph context, `:graph2d` / `:graph3d`
+from the command line, and a palette row for each. 2D stays the default and the
+flat path is untouched by the existence of the other one.
+
+**Where the mode lives: the window, not the view.** One graph per window means
+one set of positions, so "show me 3D" is a request to run *these* bodies in a
+third axis, not a request for a second physics. `Workspace::graph_dim` owns it;
+`GraphSim::build` is the thing that notices (`Dim` is its fourth argument) and
+`Physics` — `Two(Sim<2>)` / `Three(Sim<3>)` — is the app-side seam that keeps
+one of the two alive without making every caller generic over `D`. Positions are
+spoken of as three axes in both arms, which is why the frame, the drag and the
+mode switch all have one shape to carry. The view asks through
+`Workspace::graph_set_mode`, the same never-touches-the-view door the filter
+uses, because the ask starts inside the view's own action handler.
+
+**A switch carries; it does not re-seed.** `GraphSim::build` now has four cases
+instead of three: no previous, same shape, changed shape, **changed space**. The
+fourth carries the arrangement by node identity, takes the missing axis from the
+fresh sim's own seeded placement, and re-heats at `SWITCH_HEAT = 0.5` — above
+`REHEAT = 0.3` (a flat layout has no depth to reveal, so a nudge will not open
+the third axis) and below full heat (the map the user was reading is worth more
+than a fresh scramble). Hand-pinned nodes stay pinned. Test
+`turning_the_graph_carries_the_arrangement` reads the sim *before* the executor
+runs, so it asserts the copy is exact rather than "close".
+
+**One projection per frame, shared by the paint and the pointer.**
+`crates/app/src/graph/proj.rs`: `Projection::build` projects every node of the
+frame with the camera the canvas chose, indexes the projected points with the
+same `GRID_MAX_SPAN` cell floor the flat frame uses, and sorts the painter's
+order. The canvas hands it from prepaint to paint through a `Space` enum
+(`Flat(Camera)` / `Deep(Rc<Projection>)`) and stores it in a cell the pointer's
+handlers read, so what the user clicked and what the user saw are one answer.
+The hit test is `GraphFrame::node_at`'s shape — including the clamp-to-box retry
+that fixes thread 38 — on projected points with radii scaled by
+`Projected::scale`.
+
+**The cache learned that a camera rotates.** `cache::Key` carries a `Geometry`
+(`Flat(Camera)` / `Deep(Cam3)`) instead of a `Camera`. A still projected camera
+replays its link batch; an orbiting one pays the rebuild, which is the honest
+cost of turning the graph rather than a thing to hide.
+
+**Depth is real; the interleaving is not.** Nodes sort far→near and take radius
+and alpha from the perspective factor. Links stay in their own layer under all
+of them, because putting links between nodes by depth means one layer for both,
+and gpui orders primitives in one layer by *kind* — the bug that put every link
+on top of every node (thread 43). `paint_nodes3d` says so in its own doc comment
+rather than letting the picture look like an accident.
+
+**Gestures, decided rather than drifted:** the middle button pans in both spaces
+(it is the pan button, and its meaning does not move with the mode); over empty
+canvas the left button pans the flat view and **orbits** the projected one;
+`hjkl` step in **screen** directions, because in a rotating world `l` means "the
+next node to the right of what I have"; `f` re-frames and **keeps the angle**,
+which is what makes it the recovery key rather than a second way to get lost.
+
+**A binding rule changed on the way, and it is worth the paragraph.** The draft
+rule said a restored camera that contains no node falls back to fit. Built that
+way first — a one-shot guard in `render` — and it was wrong: the layout is
+seeded and deterministic, so a restored view that misses the graph is almost
+always a view the user chose before closing, and reframing under them is a fight
+with a deliberate pan. The 3D case the rule was written for cannot arise once
+the session keeps only the angle: the framing is re-derived from the layout every
+launch, so a restored 3D view is on the graph by construction. PROJECT.md's
+"2D / 3D mode rules" now says the restored camera is the user's and stays.
+
+**Session:** the graph tab's seat grows `mode` (`"2d"` / `"3d"`) and
+`orientation` (yaw, pitch — and deliberately no pan or zoom). Both optional and
+skipped when absent, so every session file written before this reads exactly as
+it did.
+
+Tests: app 448 (new `tests/graph/three_d.rs`: the turn and the turn back; the
+carried arrangement and the surviving pin; the pointer landing on the dot it was
+aimed at in a space where world position and screen position have nothing to do
+with each other; orbit vs pan; `f` keeping the angle; the seat writing the angle
+and the next window opening turned; and the idle rule in the projected space —
+`a_settled_projected_graph_stops_painting`, because a projected paint *writes* a
+`Projection`, which is exactly where "the paint asks for the next paint" would
+begin), core 457.
+
+**The gate, measured** (release test binary, `5k` fixture at whole-vault zoom,
+three runs each, machine load average ~7 on 16 cores — so read these as bands,
+not points; thread 43's rule that sweep rows are not comparable holds):
+
+| space | whole frame | whole frame, cached |
+| --- | --- | --- |
+| flat (production path) | 2.41–2.74 ms | 2.05–2.79 ms |
+| projected | 3.36–3.71 ms | 3.07–3.36 ms |
+
+The 2D row sits in the band thread 43 recorded (2.3–2.6 ms), so the flat path
+did not move. The projected frame costs **~1 ms more at the worst zoom**, for a
+comparable picture (4.7k nodes, ~16.8k links drawn against 18.5k) — that is the
+`project_all`, the painter's sort, and the grid over projected points, and it
+stays inside the 60 Hz budget on a 5,261-note stress vault. Closer in the 3D
+rows read cheaper (0.53–0.70 ms) but they are **not the same picture**:
+`Cam3::fit` frames the sphere, so the same nominal zoom shows far less
+(64n/51l against 1136n/7291l at 3.0x). No claim is made from that pair.

@@ -341,6 +341,14 @@ pub(crate) fn keybindings() -> Vec<KeyBinding> {
     // the popup's row numbers are. `+` and `-` are literal keys — shift+`=` reaches us
     // as `+`, the same way `$` does in the note.
     let graph = crate::graph::CONTEXT;
+    // `2` and `3` turn the graph between its two spaces (roadmap P3.6). They are pushed
+    // one by one like the zoom steps, because the action carries the space. Bare digits
+    // because nothing else in this context wants them: the graph has no counts, no
+    // registers and no windows of its own, and the filter strip — the only place a digit
+    // could be typed as text — has a context of its own.
+    for (key, dim) in [("2", crate::graph::Dim::Two), ("3", crate::graph::Dim::Three)] {
+        keys.push(KeyBinding::new(key, GraphMode(dim), Some(graph)));
+    }
     for (key, factor) in [("+", ZOOM_STEP), ("-", 1.0 / ZOOM_STEP)] {
         keys.push(KeyBinding::new(key, GraphZoom(factor), Some(graph)));
     }

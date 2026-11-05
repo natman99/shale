@@ -1,0 +1,518 @@
+//! Projected 3D for the graph tab (roadmap P3.6, `graph-view-plan.md` M2a).
+//!
+//! The physics already runs in three axes when the tab asks for it
+//! ([`super::sim::GraphSim`]); this is the half that turns those positions into a
+//! picture. core's [`Cam3`] does the math — rotate, perspective divide, painter
+//! order — and this module does the three things a tab needs around it:
+//!
+//! * **One projection per picture**, built when the frame or the camera changes and
+//!   kept in the view, so the paint and the pointer answer to the *same* projected
+//!   points. A hit test against world positions would ask where the user clicked and
+//!   get an answer from where the graph used to be.
+//! * **The hit test in screen space**, over a [`Grid`] built from the projected
+//!   points — the binding rule in PROJECT.md ("2D / 3D mode rules"): a grid built
+//!   from the *layout's* bounds misses the nodes on the edge of what the screen
+//!   shows, which is the thread-38 bug wearing a new costume.
+//! * **The paint, far→near.** Nodes sort by view depth and take their radius and
+//!   alpha from the perspective factor. Links stay in their own layer *under* the
+//!   nodes: gpui orders primitives inside one layer by kind, so interleaving links
+//!   and nodes by depth would undo the batching win that took a 5k frame from
+//!   14.8 ms to 2.3 (PROJECT.md thread 43). v1 approximates, and says so.
+
+use std::rc::Rc;
+
+use gpui::{point, px, size, App, Bounds, ContentMask, Pixels, Window};
+use shale_core::graph::geom::Grid;
+use shale_core::graph::proj::{Cam3, Projected};
+use shale_core::graph::NodeKind;
+use shale_core::theme::Palette;
+
+use super::cache::{Cache, Geometry, Key};
+use super::frame::GraphFrame;
+use super::render::{
+    label_runs, Labels, LinkPaths, Look, LABEL_CAP, LABEL_SCALE, LINK_MIN_PX, LINK_WIDTH, RING_PX,
+};
+use super::sim::GRID_MAX_SPAN;
+
+/// The smallest projected dot that earns a label, in screen px. Below this the
+/// characters are wider than the node they name, which is the same reason the 2D
+/// renderer fades its label count out at low zoom — here the perspective factor does
+/// the fading per node instead of the zoom doing it per frame.
+const LABEL_MIN_DOT_PX: f32 = 1.5;
+
+/// The alpha a node keeps at the far end of the depth range. Nearer nodes come back
+/// toward 1.0; nothing goes fully transparent, because a node you cannot see is a
+/// note that has stopped existing.
+const DEEP_ALPHA: f32 = 0.45;
+
+/// The frame's nodes as the screen sees them, with the index the pointer needs.
+///
+/// Built once per (frame, camera) pair and shared by the paint and the hit test, so
+/// the two can never disagree about where a node is.
+pub(crate) struct Projection {
+    /// One entry per node, in the frame's slot order: screen px, view depth, and
+    /// the perspective factor the radius and the label size are multiplied by.
+    projected: Vec<Projected>,
+    /// Node indexes far→near — the order the nodes are painted in.
+    order: Vec<u32>,
+    /// The shallowest and deepest `view_z`, so the alpha ramp is relative to this
+    /// graph rather than to a world-unit constant.
+    depth_range: (f32, f32),
+    /// The spatial index over the **projected** points.
+    grid: Grid,
+    /// The box those points occupy, for the same reason the 2D frame carries its
+    /// layout bounds: [`Grid`] has no answer for a query outside the box it was
+    /// built from, and the pointer is outside it constantly.
+    bounds: Option<([f32; 2], [f32; 2])>,
+    /// The camera this was projected with. Part of the paint cache's key: a rotation
+    /// moves every vertex, so a cached batch belongs to one camera and nothing else.
+    camera: Cam3,
+}
+
+impl Projection {
+    /// Project every node of `frame` with `camera`, and index the result.
+    pub(crate) fn build(frame: &GraphFrame, camera: &Cam3) -> Self {
+        let (sy, cy, sp, cp) = camera.trig();
+        let projected: Vec<Projected> = frame
+            .nodes
+            .iter()
+            .map(|node| {
+                camera.project_with([node.position[0], node.position[1], node.depth], sy, cy, sp, cp)
+            })
+            .collect();
+
+        // The projected box and the depth ramp, in one pass.
+        let mut bounds = None;
+        let mut depth_range = (f32::MAX, f32::MIN);
+        for p in &projected {
+            depth_range.0 = depth_range.0.min(p.view_z);
+            depth_range.1 = depth_range.1.max(p.view_z);
+            bounds = match bounds {
+                None => Some(([p.xy[0], p.xy[1]], [p.xy[0], p.xy[1]])),
+                Some((mut lo, mut hi)) => {
+                    lo[0] = lo[0].min(p.xy[0]);
+                    lo[1] = lo[1].min(p.xy[1]);
+                    hi[0] = hi[0].max(p.xy[0]);
+                    hi[1] = hi[1].max(p.xy[1]);
+                    Some((lo, hi))
+                }
+            };
+        }
+        if projected.is_empty() {
+            depth_range = (0.0, 0.0);
+        }
+
+        // Painter's order: far first, so the near nodes land on top. Same rule as
+        // core's `Cam3::painter_order`, applied to the depths we already have rather
+        // than re-projecting.
+        let mut order: Vec<u32> = (0..projected.len() as u32).collect();
+        order.sort_by(|a, b| {
+            projected[*a as usize]
+                .view_z
+                .partial_cmp(&projected[*b as usize].view_z)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        // The hit-test grid, over the projected points. Cells about twice the largest
+        // projected dot, with the same span floor the 2D frame uses: `Grid::build`
+        // allocates a bucket per cell, and a layout that has flown apart would ask for
+        // gigabytes (PROJECT.md thread 39).
+        let biggest = frame
+            .nodes
+            .iter()
+            .zip(&projected)
+            .map(|(node, p)| node.radius * p.scale)
+            .fold(0.0, f32::max);
+        let wanted = (2.0 * biggest).max(8.0);
+        let cell = match bounds {
+            Some(([lo_x, lo_y], [hi_x, hi_y])) => {
+                let floor = (hi_x - lo_x).max(hi_y - lo_y) / GRID_MAX_SPAN;
+                wanted.max(floor)
+            }
+            None => wanted,
+        };
+        let points: Vec<[f32; 2]> = projected.iter().map(|p| p.xy).collect();
+        let grid = Grid::build(&points, cell);
+
+        Self {
+            projected,
+            order,
+            depth_range,
+            grid,
+            bounds,
+            camera: *camera,
+        }
+    }
+
+    /// The camera this picture was made for — the paint cache's key, and the session's
+    /// orientation memory.
+    pub(crate) fn camera(&self) -> Cam3 {
+        self.camera
+    }
+
+    /// Where a node landed on screen, in window px.
+    pub(crate) fn screen(&self, slot: usize) -> Option<[f32; 2]> {
+        self.projected.get(slot).map(|p| p.xy)
+    }
+
+    /// A node's view-space depth, which is the invariant a drag holds: the world point
+    /// under the cursor moves as the world rotates, but the depth the perspective divide
+    /// used does not.
+    pub(crate) fn view_z(&self, slot: usize) -> Option<f32> {
+        self.projected.get(slot).map(|p| p.view_z)
+    }
+
+    /// A node's radius as drawn: its world radius times the perspective factor, so a
+    /// near hub is a bigger dot than the same hub far away.
+    fn radius(&self, frame: &GraphFrame, slot: usize) -> f32 {
+        match (frame.nodes.get(slot), self.projected.get(slot)) {
+            (Some(node), Some(p)) => node.radius * p.scale,
+            _ => 0.0,
+        }
+    }
+
+    /// How opaque a node at `slot` is, from where it sits in this graph's depth range.
+    fn alpha(&self, slot: usize) -> f32 {
+        let (lo, hi) = self.depth_range;
+        if hi - lo < 1.0 {
+            return 1.0;
+        }
+        let t = (self.projected[slot].view_z - lo) / (hi - lo);
+        DEEP_ALPHA + (1.0 - DEEP_ALPHA) * t
+    }
+
+    /// The node under a screen point, generous by `slop` **screen** px.
+    ///
+    /// The shape of this is the 2D frame's [`GraphFrame::node_at`] on purpose, including
+    /// the clamp-to-box retry: the grid answers "nothing" for a query outside the box it
+    /// was built from, and a pointer beside an edge node is a pointer on that node.
+    pub(crate) fn node_at(&self, frame: &GraphFrame, screen: [f32; 2], slop: f32) -> Option<usize> {
+        let points: Vec<[f32; 2]> = self.projected.iter().map(|p| p.xy).collect();
+        let biggest = frame
+            .nodes
+            .iter()
+            .enumerate()
+            .map(|(slot, node)| node.radius * self.projected[slot].scale)
+            .fold(0.0, f32::max);
+        let hit = self
+            .grid
+            .nearest(&points, screen, biggest + slop, None)
+            .or_else(|| {
+                let (lo, hi) = self.bounds?;
+                let clamped = [
+                    screen[0].clamp(lo[0], hi[0]),
+                    screen[1].clamp(lo[1], hi[1]),
+                ];
+                if clamped == screen {
+                    return None;
+                }
+                self.grid.nearest(&points, clamped, biggest + slop, None)
+            });
+        hit.map(|slot| slot as usize)
+            .filter(|&slot| match self.screen(slot) {
+                Some(xy) => {
+                    let dx = xy[0] - screen[0];
+                    let dy = xy[1] - screen[1];
+                    (dx * dx + dy * dy).sqrt() <= self.radius(frame, slot) + slop
+                }
+                None => false,
+            })
+    }
+
+    /// The nearest node to a screen point, however far: the keyboard's way in.
+    pub(crate) fn nearest(&self, screen: [f32; 2]) -> Option<usize> {
+        self.projected
+            .iter()
+            .enumerate()
+            .min_by(|(_, a), (_, b)| {
+                distance(a.xy, screen).total_cmp(&distance(b.xy, screen))
+            })
+            .map(|(slot, _)| slot)
+    }
+
+    /// `h`/`j`/`k`/`l` in 3D: the nearest node in that **screen** direction, within
+    /// core's ±30° cone. The directions are screen directions here, not world ones —
+    /// in a rotating world, `l` means "the next node to the right of what I have",
+    /// which is what a person pressing `l` means.
+    pub(crate) fn node_toward(&self, from: usize, dir: [f32; 2]) -> Option<usize> {
+        if from >= self.projected.len() {
+            return None;
+        }
+        let points: Vec<[f32; 2]> = self.projected.iter().map(|p| p.xy).collect();
+        self.grid
+            .in_cone(&points, from as u32, dir, None)
+            .map(|slot| slot as usize)
+    }
+
+}
+
+// ----- the paint ------------------------------------------------------------
+
+/// The 3D frame: links, the chosen node's links, nodes far→near, labels — each phase
+/// in its own [`gpui::Window::paint_layer`], for the same reason the 2D frame is
+/// layered (thread 43).
+///
+/// The caller hands over a [`Projection`] it built with the same camera it will use
+/// for the pointer, so what the user clicked and what the user saw are one answer.
+pub(crate) fn paint_graph3d(
+    bounds: Bounds<Pixels>,
+    frame: &Rc<GraphFrame>,
+    projection: &Projection,
+    look: &Look,
+    cache: &mut Cache,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    window.with_content_mask(Some(ContentMask { bounds }), |window| {
+        let palette = look.palette.as_ref();
+        let key = Key::new(frame, Geometry::Deep(projection.camera()), bounds);
+
+        window.paint_layer(bounds, |window| {
+            paint_links3d(cache, &key, frame, projection, palette.graph_edge, bounds, window);
+        });
+        if let Some(slot) = look.hover {
+            window.paint_layer(bounds, |window| {
+                paint_hover_links3d(frame, projection, slot, palette.graph_node_active, bounds, window);
+            });
+        }
+        window.paint_layer(bounds, |window| {
+            paint_nodes3d(frame, projection, palette, look.hover, bounds, window);
+        });
+        window.paint_layer(bounds, |window| {
+            paint_labels3d(frame, projection, &look.labels, palette, bounds, window, cx);
+        });
+    });
+}
+
+/// Whether a projected point with radius `r` is anywhere in the canvas.
+fn on_screen(xy: [f32; 2], r: f32, bounds: Bounds<Pixels>) -> bool {
+    let lo_x = bounds.origin.x.as_f32();
+    let lo_y = bounds.origin.y.as_f32();
+    let hi_x = lo_x + bounds.size.width.as_f32();
+    let hi_y = lo_y + bounds.size.height.as_f32();
+    xy[0] + r >= lo_x && xy[0] - r <= hi_x && xy[1] + r >= lo_y && xy[1] - r <= hi_y
+}
+
+/// Every link, projected, in as few paths as gpui allows — the same batching the 2D
+/// renderer uses, and the same cache, now keyed on the 3D camera: **a rotation moves
+/// every vertex**, so a batch belongs to one orientation and nothing else. A still
+/// camera replays it; an orbiting one pays the rebuild, which is the honest cost of
+/// turning the graph.
+fn paint_links3d(
+    cache: &mut Cache,
+    key: &Key,
+    frame: &GraphFrame,
+    projection: &Projection,
+    color: u32,
+    bounds: Bounds<Pixels>,
+    window: &mut Window,
+) {
+    let color = gpui::rgb(color);
+    if let Some(paths) = cache.links(key) {
+        for path in paths {
+            window.paint_path(path.clone(), color);
+        }
+        return;
+    }
+    let keep = cache.worth_keeping(key);
+    let mut links = LinkPaths::new(px(LINK_WIDTH.max(LINK_MIN_PX)), frame.edges.len());
+    for &[from, to] in &frame.edges {
+        let (Some(a), Some(b)) = (projection.screen(from as usize), projection.screen(to as usize))
+        else {
+            continue;
+        };
+        // Cull on the pair's box, exactly as the 2D pass does: a hub's links are long
+        // and cross the pane from off-screen, so the box is the whole test (thread 42).
+        if boxes_miss(a, b, bounds) {
+            continue;
+        }
+        links.segment(a, b);
+    }
+    let paths = links.into_paths();
+    if keep {
+        for path in &paths {
+            window.paint_path(path.clone(), color);
+        }
+        cache.store_links(key.clone(), paths);
+    } else {
+        for path in paths {
+            window.paint_path(path, color);
+        }
+    }
+    cache.used(key.clone());
+}
+
+/// Whether a segment's bounding box misses the canvas. The 2D renderer's note on this
+/// applies verbatim in 3D: the exact clip was measured and lost, because a graph is
+/// not a scene of short local segments.
+fn boxes_miss(a: [f32; 2], b: [f32; 2], bounds: Bounds<Pixels>) -> bool {
+    let lo_x = bounds.origin.x.as_f32();
+    let lo_y = bounds.origin.y.as_f32();
+    let hi_x = lo_x + bounds.size.width.as_f32();
+    let hi_y = lo_y + bounds.size.height.as_f32();
+    a[0].max(b[0]) < lo_x
+        || a[0].min(b[0]) > hi_x
+        || a[1].max(b[1]) < lo_y
+        || a[1].min(b[1]) > hi_y
+}
+
+/// The chosen node's links, in the active colour: the same answer as the 2D hover
+/// pass, projected. Not cached, for the same reason (the hover slot decides it, and
+/// the phase is a fraction of the frame).
+fn paint_hover_links3d(
+    frame: &GraphFrame,
+    projection: &Projection,
+    slot: usize,
+    color: u32,
+    bounds: Bounds<Pixels>,
+    window: &mut Window,
+) {
+    let Some(far) = projection.screen(slot) else {
+        return;
+    };
+    let mut links = LinkPaths::new(px(LINK_WIDTH.max(LINK_MIN_PX)), 64);
+    for &[from, to] in &frame.edges {
+        let other = match (from as usize, to as usize) {
+            (a, b) if a == slot => b,
+            (a, b) if b == slot => a,
+            _ => continue,
+        };
+        let Some(near) = projection.screen(other) else {
+            continue;
+        };
+        if boxes_miss(far, near, bounds) {
+            continue;
+        }
+        links.segment(far, near);
+    }
+    let color = gpui::rgb(color);
+    for path in links.into_paths() {
+        window.paint_path(path, color);
+    }
+}
+
+/// The nodes, far→near, each one a disc sized and dimmed by its depth.
+///
+/// **The depth order is real; the interleaving with links is not.** Nodes paint over
+/// all links, near or far, because putting links between nodes by depth would mean
+/// one layer for both, and gpui orders primitives in one layer by *kind* — which is
+/// the bug that put every link on top of every node (thread 43). The depth still
+/// reads, from the size ramp and the alpha ramp; what it cannot do is hide a far node
+/// behind a near one's link.
+fn paint_nodes3d(
+    frame: &GraphFrame,
+    projection: &Projection,
+    palette: &Palette,
+    hover: Option<usize>,
+    bounds: Bounds<Pixels>,
+    window: &mut Window,
+) {
+    if let Some(slot) = hover {
+        if let Some(center) = projection.screen(slot) {
+            let r = projection.radius(frame, slot) + RING_PX;
+            if on_screen(center, r, bounds) {
+                window.paint_quad(
+                    gpui::fill(
+                        Bounds {
+                            origin: point(px(center[0] - r), px(center[1] - r)),
+                            size: size(px(2.0 * r), px(2.0 * r)),
+                        },
+                        gpui::rgb(palette.graph_node_active),
+                    )
+                    .corner_radii(px(r)),
+                );
+            }
+        }
+    }
+    for &slot in &projection.order {
+        let slot = slot as usize;
+        let Some(node) = frame.nodes.get(slot) else {
+            continue;
+        };
+        let fill = match node.kind {
+            NodeKind::Note => palette.graph_node,
+            NodeKind::Attachment => palette.graph_attachment,
+            NodeKind::Tag => palette.graph_tag,
+            NodeKind::Ghost => palette.graph_ghost,
+        };
+        let Some(center) = projection.screen(slot) else {
+            continue;
+        };
+        let r = projection.radius(frame, slot);
+        if !on_screen(center, r, bounds) {
+            continue;
+        }
+        let mut color = gpui::rgb(fill);
+        color.a = projection.alpha(slot);
+        window.paint_quad(
+            gpui::fill(
+                Bounds {
+                    origin: point(px(center[0] - r), px(center[1] - r)),
+                    size: size(px(2.0 * r), px(2.0 * r)),
+                },
+                color,
+            )
+            .corner_radii(px(r)),
+        );
+    }
+}
+
+/// The labels: at most [`LABEL_CAP`], on the nodes big enough on screen to name,
+/// highest degree first — the 2D rule, with the perspective factor deciding who is
+/// too small to name instead of the zoom deciding it for the whole frame at once.
+fn paint_labels3d(
+    frame: &GraphFrame,
+    projection: &Projection,
+    labels: &Labels,
+    palette: &Palette,
+    bounds: Bounds<Pixels>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let mut chosen: Vec<usize> = frame
+        .nodes
+        .iter()
+        .enumerate()
+        .filter(|(slot, _)| {
+            projection
+                .screen(*slot)
+                .is_some_and(|xy| on_screen(xy, projection.radius(frame, *slot), bounds))
+                && projection.radius(frame, *slot) >= LABEL_MIN_DOT_PX
+        })
+        .map(|(slot, node)| (slot, node.degree))
+        // Nearness breaks a degree tie, so a hub far away does not out-shout the
+        // note the user is actually looking at.
+        .map(|(slot, degree)| (std::cmp::Reverse(degree), std::cmp::Reverse(projection.alpha(slot).to_be_bytes()), slot))
+        .map(|(_, _, slot)| slot)
+        .collect();
+    chosen.truncate(LABEL_CAP);
+
+    let label_size = px(labels.size * LABEL_SCALE);
+    let text_system = window.text_system().clone();
+    for slot in chosen {
+        let Some(node) = frame.nodes.get(slot) else {
+            continue;
+        };
+        let Some(center) = projection.screen(slot) else {
+            continue;
+        };
+        let r = projection.radius(frame, slot);
+        let label = node.label.clone();
+        let runs = label_runs(palette, labels, &label);
+        let shaped = text_system.shape_line(label, label_size, &runs, None);
+        let origin = point(
+            px(center[0] - shaped.width.as_f32() / 2.0),
+            px(center[1] + r + labels.size),
+        );
+        if let Err(err) = shaped.paint(origin, px(labels.size), gpui::TextAlign::Left, None, window, cx)
+        {
+            tracing::warn!("a graph label could not be painted: {err:#}");
+            break;
+        }
+    }
+}
+
+/// Straight-line distance in screen px.
+fn distance(a: [f32; 2], b: [f32; 2]) -> f32 {
+    ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2)).sqrt()
+}

@@ -213,6 +213,7 @@ impl Workspace {
             | ex::Ex::TabClose
             | ex::Ex::TabOnly
             | ex::Ex::Graph
+            | ex::Ex::GraphMode(_)
             | ex::Ex::Split
             | ex::Ex::VSplit
             | ex::Ex::WindowClose

@@ -21,7 +21,7 @@ use shale_core::graph::geom::Camera;
 use shale_core::graph::NodeKind;
 use shale_core::theme::Palette;
 
-pub(crate) use super::cache::{Cache, Key};
+pub(crate) use super::cache::{Cache, Geometry, Key};
 use super::frame::{GraphFrame, GraphNode};
 
 /// The most labels drawn in one frame, highest degree first. A 2k-node vault at
@@ -69,11 +69,11 @@ pub(crate) struct Labels {
 }
 
 /// How much smaller a label is than the note's text, so the dots stay the subject.
-const LABEL_SCALE: f32 = 0.8;
+pub(crate) const LABEL_SCALE: f32 = 0.8;
 
 /// How much bigger than a node its hover ring is, in screen px. Two is enough to
 /// read as a ring at any zoom and small enough not to swallow a hub.
-const RING_PX: f32 = 2.0;
+pub(crate) const RING_PX: f32 = 2.0;
 
 /// Everything about *how* a frame is painted, as opposed to what is in it: the
 /// colours, the face the labels use, and which node (if any) the pointer or the
@@ -144,7 +144,7 @@ pub(crate) fn paint_frame(
 ) {
     let palette = look.palette.as_ref();
     let view = Viewport::new(bounds, &camera);
-    let key = Key::new(frame, camera, bounds);
+    let key = Key::new(frame, Geometry::Flat(camera), bounds);
 
     window.paint_layer(bounds, |window| {
         paint_links(
@@ -435,7 +435,7 @@ const _: () = assert!(LINKS_PER_PATH * LINK_VERTICES < PATH_VERTEX_LIMIT);
 ///   a crate boundary, where it is six calls a link and 111k calls a frame.
 ///
 /// It batches because [`PATH_VERTEX_LIMIT`] says a whole vault does not fit in one path.
-struct LinkPaths {
+pub(crate) struct LinkPaths {
     /// Half the stroke width in screen px: how far each corner sits from the line between
     /// the two nodes.
     half: f32,
@@ -454,12 +454,16 @@ struct LinkPaths {
 impl LinkPaths {
     /// A builder for links `width` wide, whose batches are sized for `links` of them.
     ///
+    /// `pub(crate)` rather than private so the 3D pass (roadmap P3.6) batches its
+    /// projected links through the same hand-built vertex shape, the same ceiling and
+    /// the same batching — one link format in the crate, not two that can drift.
+    ///
     /// The hint is not a cap — a batch that outgrows it is closed and the next started —
     /// it is what the vertex array is reserved for. A whole-vault pass wants
     /// [`LINKS_PER_PATH`]; a hub's links want its degree, and reserving 6000 vertices for
     /// a batch that draws forty of them is an allocation the hover would pay for every
     /// time the pointer moves.
-    fn new(width: Pixels, links: usize) -> Self {
+    pub(crate) fn new(width: Pixels, links: usize) -> Self {
         Self {
             half: width.as_f32() / 2.0,
             path: None,
@@ -470,7 +474,7 @@ impl LinkPaths {
     }
 
     /// The quad for the segment from `a` to `b`, both in window px.
-    fn segment(&mut self, a: [f32; 2], b: [f32; 2]) {
+    pub(crate) fn segment(&mut self, a: [f32; 2], b: [f32; 2]) {
         let Some(quad) = stroke_quad(a, b, self.half) else {
             // Two nodes sitting on each other. Stroking that would need a direction, and
             // there is not one.
@@ -529,7 +533,7 @@ impl LinkPaths {
     /// The closed batches. It finishes first rather than trusting the caller to: a frame
     /// that stopped mid-scan would otherwise lose the last links it drew, which is what
     /// the `Drop` impl this replaces used to guarantee.
-    fn into_paths(mut self) -> Vec<Path<Pixels>> {
+    pub(crate) fn into_paths(mut self) -> Vec<Path<Pixels>> {
         self.finish();
         self.closed
     }
@@ -657,7 +661,7 @@ pub(crate) fn stroke_quad(a: [f32; 2], b: [f32; 2], half: f32) -> Option<[[f32; 
 /// covering zero bytes is stepped over, which leaves every glyph at the painter's initial
 /// colour — `black()`. Leaving `len` at its default is how the labels came out near-black
 /// on a dark canvas for as long as they have been drawn, whatever colour was asked for.
-fn label_runs(palette: &Palette, labels: &Labels, text: &str) -> [TextRun; 1] {
+pub(crate) fn label_runs(palette: &Palette, labels: &Labels, text: &str) -> [TextRun; 1] {
     [TextRun {
         len: text.len(),
         color: gpui::rgb(palette.graph_text).into(),

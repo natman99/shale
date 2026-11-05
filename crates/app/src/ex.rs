@@ -101,6 +101,10 @@ pub(crate) enum Ex {
     /// a second `:graph` moves the frame to the graph that is already open (roadmap
     /// P3.4).
     Graph,
+    /// `graph2d` / `graph3d`: turn the graph tab between its two spaces (roadmap P3.6).
+    /// The space is an argument in all but spelling, so it travels as a payload on one
+    /// variant rather than two names that could drift.
+    GraphMode(bool),
     /// The panes (roadmap P3.2). vim's window commands, spelled the way vim does:
     /// `split`/`sp` stacks a second pane under this one, `vsplit`/`vs` puts one
     /// beside it, `close`/`clo` closes this pane (its notes written first), and
@@ -151,6 +155,8 @@ impl Ex {
             Ex::TabOnly => "tab.only",
             Ex::TabMove(_) => "tab.move",
             Ex::Graph => "graph.open",
+            Ex::GraphMode(false) => "graph.flat",
+            Ex::GraphMode(true) => "graph.projected",
             Ex::Split => "window.split",
             Ex::VSplit => "window.vsplit",
             Ex::WindowClose => "window.close",
@@ -187,6 +193,7 @@ impl Ex {
             | Ex::TabClose
             | Ex::TabOnly
             | Ex::Graph
+            | Ex::GraphMode(_)
             | Ex::Split
             | Ex::VSplit
             | Ex::WindowClose
@@ -300,6 +307,8 @@ pub(crate) fn parse(line: &str) -> Ex {
         // The graph. `g` is the letter the chord already uses (`space g`), and the
         // command line is exact, so it cannot collide with anything else.
         "graph" | "g" => Ex::Graph,
+        "graph2d" => Ex::GraphMode(false),
+        "graph3d" => Ex::GraphMode(true),
         // The tabs (roadmap P3.1). vim's spellings, abbreviated the way vim allows,
         // and `:tabmove` is the only one that takes a number.
         "tabnew" | "tabedit" => Ex::TabNew,

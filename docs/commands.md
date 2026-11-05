@@ -62,6 +62,8 @@ as you would type it.
 | `window.only` | Close every pane but this one | `ctrl-w o` | `:only`, `:on` | — |
 | `tab.move` | Move this tab to a position | — | `:tabmove <n>` | `<n>` |
 | `graph.open` | Show the vault's link graph | `space g` | `:graph`, `:g` | — |
+| `graph.flat` | Graph: flat view | `2 (graph)` | `:graph2d` | — |
+| `graph.projected` | Graph: projected 3D view | `3 (graph)` | `:graph3d` | — |
 
 The palette does not list `app.quit-force`, `note.write-quit`, `theme.export`, `review.next`, `review.prev`, `review.accept`, `review.reject`, `review.open-note`, `review.collapse`, `tab.next`, `tab.prev`, `tab.only`, `window.only`, `tab.move`: `note.write-quit` is save and then quit, two
 actions rather than one, `app.quit-force` is the exit that throws unsaved

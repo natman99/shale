@@ -263,6 +263,14 @@ pub(crate) struct GraphZoom(pub f32);
 #[action(namespace = shale, no_json)]
 pub(crate) struct GraphPan(pub [f32; 2]);
 
+/// Which space the graph tab shows: the flat graph or the projected one (roadmap
+/// P3.6). One action with the space as its payload rather than two names, because the
+/// tab's `2`/`3` keys and the `:graph2d` / `:graph3d` commands are the same request
+/// with a different value.
+#[derive(Clone, PartialEq, gpui::Action)]
+#[action(namespace = shale, no_json)]
+pub(crate) struct GraphMode(pub crate::graph::Dim);
+
 /// Moving the graph's keyboard selection (`h`/`j`/`k`/`l`), as a direction the core
 /// cone search points along.
 #[derive(Clone, PartialEq, gpui::Action)]

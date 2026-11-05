@@ -37,10 +37,10 @@ use shale_core::theme::Palette;
 use shale_core::vault::Vault;
 
 use crate::graph::render::{
-    paint_hover_links, paint_labels, paint_links, paint_nodes, stroke_quad, Cache, Key, Labels,
-    Viewport, CULL_MARGIN, LINK_MIN_PX, LINK_WIDTH,
+    paint_hover_links, paint_labels, paint_links, paint_nodes, stroke_quad, Cache, Geometry, Key,
+    Labels, Viewport, CULL_MARGIN, LINK_MIN_PX, LINK_WIDTH,
 };
-use crate::graph::{GraphFrame, GraphSim};
+use crate::graph::{paint_graph3d, Dim, GraphFrame, GraphSim, Projection};
 
 /// The margin [`Camera::fit`] is given, matching what the graph tab asks for, so the bench
 /// frames the layout the way the tab does.
@@ -93,6 +93,13 @@ const CACHE: usize = 128;
 const BUFFERS: usize = 256;
 const ALL: usize = LINKS | HOVER_LINKS | NODES | LABELS;
 
+/// What the bench canvas is drawing, handed from its prepaint to its paint: the flat
+/// graph through the 2D camera, or the projected graph through the tab's 3D path.
+enum BenchSpace {
+    Flat(Camera),
+    Deep(Rc<Projection>),
+}
+
 /// A view that paints one graph frame and nothing else, so the numbers are the graph's
 /// rather than the sidebar's, the tab bar's and the editor's.
 struct PaintBench {
@@ -105,6 +112,11 @@ struct PaintBench {
     /// The framing, worked out on the first frame and reused after it. Shared with the
     /// canvas's prepaint closure, which is `'static`.
     fitted: Rc<RefCell<Option<Camera>>>,
+    /// The same, for the projected view (roadmap P3.6): fitted once and kept, so the
+    /// measurement is the frame rather than the fit.
+    fitted3: Rc<RefCell<Option<shale_core::graph::proj::Cam3>>>,
+    /// Which space this window paints: flat, or projected with the tab's own 3D path.
+    deep: bool,
     /// How much of the frame survives culling at this zoom — `(nodes, links)` — counted by
     /// the paint closure. The timings only mean anything next to these.
     counts: Rc<RefCell<(usize, usize)>>,
@@ -135,6 +147,8 @@ impl Render for PaintBench {
         let counts = self.counts.clone();
         let hits = self.hits.clone();
         let fitted = self.fitted.clone();
+        let fitted3 = self.fitted3.clone();
+        let deep = self.deep;
         let palette = self.palette.clone();
         let labels = Labels {
             font: self.labels.font.clone(),
@@ -153,8 +167,46 @@ impl Render for PaintBench {
                     // whole graph on the first frames and then drives the camera the user
                     // set. Re-fitting every frame would measure a walk over every node that
                     // the live app does not pay.
+                    if deep {
+                        let box_px = [
+                            bounds.origin.x.as_f32(),
+                            bounds.origin.y.as_f32(),
+                            bounds.size.width.as_f32(),
+                            bounds.size.height.as_f32(),
+                        ];
+                        // Copied out before the match: `Cam3` is `Copy`, and holding a
+                        // `borrow()` across the arm that writes the cell is the oldest
+                        // `RefCell` trap there is.
+                        let fitted = *fitted3.borrow();
+                        let camera = match fitted {
+                            Some(camera) => camera,
+                            None => {
+                                let positions: Vec<[f32; 3]> = fit_frame
+                                    .nodes
+                                    .iter()
+                                    .map(|node| {
+                                        [node.position[0], node.position[1], node.depth]
+                                    })
+                                    .collect();
+                                let mut camera = shale_core::graph::proj::Cam3::new();
+                                camera.fit(&positions, box_px, FIT_MARGIN);
+                                if zoom != 1.0 {
+                                    camera.zoom_at(
+                                        [box_px[0] + box_px[2] / 2.0, box_px[1] + box_px[3] / 2.0],
+                                        zoom,
+                                    );
+                                }
+                                *fitted3.borrow_mut() = Some(camera);
+                                camera
+                            }
+                        };
+                        // One projection per frame, exactly as the tab builds it — so the
+                        // projection's own walk over the nodes is in the measurement
+                        // rather than pretending not to be.
+                        return BenchSpace::Deep(Rc::new(Projection::build(&fit_frame, &camera)));
+                    }
                     if let Some(camera) = fitted.borrow().as_ref() {
-                        return *camera;
+                        return BenchSpace::Flat(*camera);
                     }
                     let positions: Vec<[f32; 2]> =
                         fit_frame.nodes.iter().map(|node| node.position).collect();
@@ -176,9 +228,78 @@ impl Render for PaintBench {
                         camera.zoom_at(center, zoom);
                     }
                     *fitted.borrow_mut() = Some(camera);
-                    camera
+                    BenchSpace::Flat(camera)
                 },
-                move |bounds, camera, window, cx| {
+                move |bounds, space, window, cx| {
+                    // The projected frame, painted by the tab's own path: the same four
+                    // layers, the same cache, the same cull. The phase flags do not apply
+                    // to it — the tab draws all four every frame — but `CACHE` does, which
+                    // is the row that says what the link cache is worth when the camera is
+                    // still (roadmap P3.6).
+                    let camera = match space {
+                        BenchSpace::Deep(projection) => {
+                            {
+                                let lo_x = bounds.origin.x.as_f32();
+                                let lo_y = bounds.origin.y.as_f32();
+                                let hi_x = lo_x + bounds.size.width.as_f32();
+                                let hi_y = lo_y + bounds.size.height.as_f32();
+                                let on = |at: [f32; 2]| {
+                                    at[0] >= lo_x && at[0] <= hi_x && at[1] >= lo_y && at[1] <= hi_y
+                                };
+                                let nodes = (0..paint_frame.nodes.len())
+                                    .filter(|slot| projection.screen(*slot).is_some_and(on))
+                                    .count();
+                                let links = paint_frame
+                                    .edges
+                                    .iter()
+                                    .filter(|&&[a, b]| {
+                                        projection.screen(a as usize).is_some_and(on)
+                                            && projection.screen(b as usize).is_some_and(on)
+                                    })
+                                    .count();
+                                *counts.borrow_mut() = (nodes, links);
+                            }
+                            let look = crate::graph::render::Look {
+                                palette: palette.clone(),
+                                hover: Some(paint_frame.nodes.len() / 2),
+                                labels: Labels {
+                                    font: labels.font.clone(),
+                                    size: labels.size,
+                                },
+                            };
+                            if phases & CACHE != 0 {
+                                let key = Key::new(
+                                    &paint_frame,
+                                    Geometry::Deep(projection.camera()),
+                                    bounds,
+                                );
+                                if paint_cache.borrow().links(&key).is_some() {
+                                    *hits.borrow_mut() += 1;
+                                }
+                                paint_graph3d(
+                                    bounds,
+                                    &paint_frame,
+                                    &projection,
+                                    &look,
+                                    &mut paint_cache.borrow_mut(),
+                                    window,
+                                    cx,
+                                );
+                            } else {
+                                paint_graph3d(
+                                    bounds,
+                                    &paint_frame,
+                                    &projection,
+                                    &look,
+                                    &mut Cache::new(),
+                                    window,
+                                    cx,
+                                );
+                            }
+                            return;
+                        }
+                        BenchSpace::Flat(camera) => camera,
+                    };
                     // Counted every frame, whatever the phases asked for: the cost of a
                     // phase is the cost of what it draws, and a zoom that draws 1% of the
                     // vault is not comparable to one that draws all of it.
@@ -220,7 +341,11 @@ impl Render for PaintBench {
                                 );
                                 return;
                             }
-                            let key = Key::new(&paint_frame, camera, bounds);
+                            let key = Key::new(
+                                &paint_frame,
+                                crate::graph::render::Geometry::Flat(camera),
+                                bounds,
+                            );
                             // A cache per frame is the same as no cache, and says so: the
                             // cached rows are the ones that keep one across the frames.
                             let cached = paint_cache.borrow().links(&key).is_some();
@@ -345,13 +470,13 @@ fn phase(
 
 /// A settled layout over the vault at `root`, built the way the tab builds it: index, sim,
 /// driven to rest, then the frame the tab would be handed.
-fn settled_frame(root: &std::path::Path) -> GraphFrame {
+fn settled_frame(root: &std::path::Path, dim: Dim) -> GraphFrame {
     let vault = Vault::open(root).expect("the fixture is a vault");
     let notes = vault.list_markdown().expect("listing the vault");
     let attachments = vault.list_attachments().expect("listing the vault");
     let index = GraphIndex::build(&vault, &notes, &attachments).expect("building the index");
     let visible = vec![true; index.graph().node_count()];
-    let mut sim = GraphSim::build(&index, None, &visible);
+    let mut sim = GraphSim::build(&index, None, &visible, dim);
     // The layout is measured at rest: a settling graph is a different workload (it also
     // pays for the sim), and the exit criterion is about holding 60 fps while it moves,
     // which the beat's own tick budget covers.
@@ -378,6 +503,7 @@ fn bench_window(
     frame: &Rc<GraphFrame>,
     zoom: f32,
     phases: usize,
+    deep: bool,
 ) -> BenchWindow {
     let view = PaintBench {
         frame: frame.clone(),
@@ -387,6 +513,8 @@ fn bench_window(
             size: 14.0,
         },
         fitted: Rc::new(RefCell::new(None)),
+        fitted3: Rc::default(),
+        deep,
         counts: Rc::new(RefCell::new((0, 0))),
         hits: Rc::new(RefCell::new(0)),
         phases,
@@ -415,8 +543,9 @@ fn measure(
     frame: &Rc<GraphFrame>,
     zoom: f32,
     phases: usize,
+    deep: bool,
 ) -> (Duration, usize, (usize, usize), usize) {
-    let mut bench = bench_window(cx, frame, zoom, phases);
+    let mut bench = bench_window(cx, frame, zoom, phases, deep);
 
     for _ in 0..WARMUP {
         repaint(&bench.window, &mut bench.visual);
@@ -461,7 +590,7 @@ fn repaint(window: &WindowHandle<PaintBench>, cx: &mut VisualTestContext) {
 /// the table looks like it is reporting; [`graph_paint_cache_pays_for_itself`] is the one
 /// that alternates the variants in one window and can be trusted to compare them.
 fn sweep(cx: &mut TestAppContext, root: &std::path::Path) {
-    let frame = Rc::new(settled_frame(root));
+    let frame = Rc::new(settled_frame(root, Dim::Two));
     eprintln!(
         "\n{} — {} nodes, {} links",
         root.display(),
@@ -500,7 +629,43 @@ fn sweep(cx: &mut TestAppContext, root: &std::path::Path) {
                 LINKS | HOVER_LINKS | NODES_PATH | LABELS | LAYER,
             ),
         ] {
-            let (per_frame, quads, (nodes, links), hits) = measure(cx, &frame, zoom, phases);
+            let (per_frame, quads, (nodes, links), hits) = measure(cx, &frame, zoom, phases, false);
+            eprintln!(
+                "{zoom:>5.1}x {name:>10}  {:>10.3} ms  {:>10}  {:>6}n {:>5}l  {:>4}",
+                per_frame.as_secs_f64() * 1000.0,
+                quads,
+                nodes,
+                links,
+                hits
+            );
+        }
+    }
+}
+
+/// The same sweep for the projected view (roadmap P3.6): the frame the 3D tab draws, at
+/// the same zooms, so the two tables can be read against each other.
+///
+/// Two rows rather than the flat table's seventeen. The phase-by-phase breakdown exists to
+/// find a slow phase, and the projected frame has the same four phases as the flat one;
+/// what is new is the projection and the depth sort, which are inside the whole-frame
+/// number, and the link cache keyed on a **camera that rotates**, which is what the
+/// `cache` column reports: it answers every frame while the camera is still, and never
+/// while it moves, which is the honest cost of turning the graph.
+fn sweep3d(cx: &mut TestAppContext, root: &std::path::Path) {
+    let frame = Rc::new(settled_frame(root, Dim::Three));
+    eprintln!(
+        "\n{} — {} nodes, {} links, projected 3D",
+        root.display(),
+        frame.nodes.len(),
+        frame.edges.len()
+    );
+    eprintln!(
+        "  {:>7}  {:>12}  {:>10}  {:>13}  {:>7}",
+        "zoom", "per frame", "quads", "drawn", "cache"
+    );
+    for zoom in ZOOMS {
+        for (name, phases) in [("whole", ALL), ("whole+cache", ALL | CACHE)] {
+            let (per_frame, quads, (nodes, links), hits) = measure(cx, &frame, zoom, phases, true);
             eprintln!(
                 "{zoom:>5.1}x {name:>10}  {:>10.3} ms  {:>10}  {:>6}n {:>5}l  {:>4}",
                 per_frame.as_secs_f64() * 1000.0,
@@ -518,6 +683,7 @@ fn sweep(cx: &mut TestAppContext, root: &std::path::Path) {
 #[ignore]
 fn graph_paint_bench_5k(cx: &mut TestAppContext) {
     sweep(cx, &fixture("5k"));
+    sweep3d(cx, &fixture("5k"));
 }
 
 /// The 1k fixture, for telling "cost per node" from "cost per link".
@@ -525,6 +691,7 @@ fn graph_paint_bench_5k(cx: &mut TestAppContext) {
 #[ignore]
 fn graph_paint_bench_1k(cx: &mut TestAppContext) {
     sweep(cx, &fixture("1k"));
+    sweep3d(cx, &fixture("1k"));
 }
 
 /// The cache question, measured the only way this machine allows: one window, one picture,
@@ -538,7 +705,7 @@ fn graph_paint_bench_1k(cx: &mut TestAppContext) {
 #[gpui::test]
 #[ignore]
 fn graph_paint_cache_pays_for_itself(cx: &mut TestAppContext) {
-    let frame = Rc::new(settled_frame(&fixture("5k")));
+    let frame = Rc::new(settled_frame(&fixture("5k"), Dim::Two));
     eprintln!(
         "\ncache A/B — {} nodes, {} links — {} rounds of {} frames, fastest kept",
         frame.nodes.len(),
@@ -548,7 +715,7 @@ fn graph_paint_cache_pays_for_itself(cx: &mut TestAppContext) {
     );
     for zoom in ZOOMS {
         for (name, phases) in [("links", LINKS | LAYER), ("whole", ALL | LAYER)] {
-            let mut bench = bench_window(cx, &frame, zoom, phases);
+            let mut bench = bench_window(cx, &frame, zoom, phases, false);
             for _ in 0..WARMUP {
                 repaint(&bench.window, &mut bench.visual);
             }

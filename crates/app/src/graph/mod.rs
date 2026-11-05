@@ -17,6 +17,7 @@ mod bench;
 mod cache;
 mod frame;
 mod panel;
+mod proj;
 pub(crate) mod render;
 mod sim;
 
@@ -31,15 +32,17 @@ use gpui::{
 };
 use shale_core::graph::filter::GraphFilter;
 use shale_core::graph::geom::{Camera, MIN_ZOOM, ZOOM_STEP};
+use shale_core::graph::proj::Cam3;
 use shale_core::theme::Palette;
 
-use crate::acts::{GraphFit, GraphOpen, GraphPan, GraphSelect, GraphZoom};
+use crate::acts::{GraphFit, GraphMode, GraphOpen, GraphPan, GraphSelect, GraphZoom};
 use crate::field::Field;
 use crate::workspace::Workspace;
 
 pub(crate) use frame::GraphFrame;
+pub(crate) use proj::{paint_graph3d, Projection};
 pub(crate) use panel::FILTER_CONTEXT;
-pub(crate) use sim::GraphSim;
+pub(crate) use sim::{Dim, GraphSim};
 
 /// The key context the graph's bindings live in. It is a context of its own for the
 /// same reason the picker and the prompt are: gpui enables a context's bindings
@@ -106,6 +109,10 @@ struct Drag {
     /// node: that is the left button over the background, and every middle-button press,
     /// which pans wherever it lands.
     node: Option<usize>,
+    /// Which button started it. The middle one pans in both spaces; the left one pans
+    /// the flat view and **orbits** the projected one, which is the one gesture whose
+    /// meaning changes with the mode (roadmap P3.6).
+    button: MouseButton,
 }
 
 /// The graph tab: a camera over the window's graph.
@@ -143,6 +150,26 @@ pub(crate) struct GraphView {
     /// being painted, and the first frame is the only one that does not already know
     /// the canvas's bounds.
     pending_fit: Rc<RefCell<Option<Camera>>>,
+    /// Which space this view is showing — the window's graph mode, pushed in when the
+    /// tab opens and when `2`/`3` turn it. The camera, the hit test and the paint all
+    /// follow it; the physics follows it through the window.
+    mode: Dim,
+    /// Where the **user** put the projected view — by an orbit, a pan or a wheel.
+    /// `None` means "keep framing the whole graph", for the same reason the flat
+    /// camera's `None` does: the layout is still moving while it settles.
+    cam3: Option<Cam3>,
+    /// The angle the last session was looking at, and **only** the angle. A restored
+    /// pan and zoom would be a camera pointed at wherever the graph used to be, and in
+    /// three axes that is a screenful of nothing rather than a graph slightly off
+    /// centre; the framing is re-derived from the layout every launch (PROJECT.md,
+    /// "2D / 3D mode rules").
+    orientation: Option<(f32, f32)>,
+    /// The last framing the canvas fitted in the projected space, for the session file.
+    pending_fit3: Rc<RefCell<Option<Cam3>>>,
+    /// The picture as the last frame projected it: built while prepainting, and read
+    /// back by the pointer's handlers, so what the user clicked and what the user saw
+    /// are the same points rather than two answers that can drift apart.
+    projection: Rc<RefCell<Option<Rc<proj::Projection>>>>,
     /// The canvas's bounds, recorded while prepainting, for the same reason the fit
     /// is: the keyboard's zoom needs the middle of a space the view only learns about
     /// during a frame.
@@ -186,6 +213,7 @@ pub(crate) struct GraphView {
 impl GraphView {
     pub(crate) fn new(
         workspace: WeakEntity<Workspace>,
+        mode: Dim,
         palette: Rc<Palette>,
         font: SharedString,
         font_size: f32,
@@ -200,7 +228,12 @@ impl GraphView {
             building: false,
             frame: None,
             camera: None,
+            mode,
+            cam3: None,
+            orientation: None,
             pending_fit: Rc::default(),
+            pending_fit3: Rc::default(),
+            projection: Rc::default(),
             canvas: Rc::default(),
             paint: Rc::new(RefCell::new(render::Cache::new())),
             bench: Rc::new(RefCell::new(bench::Bench::new())),
@@ -290,6 +323,68 @@ impl GraphView {
         self.camera = camera;
     }
 
+    /// Which space this view is showing.
+    pub(crate) fn mode(&self) -> Dim {
+        self.mode
+    }
+
+    /// `2` and `3`: turn the graph into the other space.
+    ///
+    /// The ask goes to the window first, because it is the window's **simulation** that
+    /// changes space — one graph per window means one set of positions — and the picture
+    /// that comes back is the switched one.
+    fn turn(&mut self, action: &GraphMode, _window: &mut Window, cx: &mut Context<Self>) {
+        if self.mode == action.0 {
+            return;
+        }
+        self.set_mode(action.0);
+        if let Some((summary, frame)) = self
+            .workspace
+            .update(cx, |ws, cx| ws.graph_set_mode(action.0, cx))
+            .ok()
+            .flatten()
+        {
+            self.set_summary(summary, cx);
+            self.store_frame(frame);
+        }
+        cx.notify();
+    }
+
+    /// The view's own half of a mode change: which space to draw and hit-test in. The
+    /// other half — running the physics in that space — is the window's, and it is the
+    /// window that calls this when a session is being restored, where the sim is already
+    /// being built in the right space and the view only has to agree.
+    ///
+    /// The projection is dropped rather than re-projected: it belongs to the old space,
+    /// and the next frame builds the new one from the frame the window ships.
+    pub(crate) fn set_mode(&mut self, dim: Dim) {
+        if self.mode == dim {
+            return;
+        }
+        self.mode = dim;
+        *self.projection.borrow_mut() = None;
+    }
+
+    /// Where a node was painted in the last projected frame. The honest door for the
+    /// tests that aim the pointer: it reports the very points the paint used, not a
+    /// re-projection that could have drifted from them.
+    #[cfg(test)]
+    pub(crate) fn projection_slot(&self, slot: usize) -> Option<[f32; 2]> {
+        (*self.projection.borrow()).as_ref()?.screen(slot)
+    }
+
+    /// Where the projected view is looking: the user's camera if they turned or panned
+    /// it, and otherwise the framing the canvas last chose for itself.
+    pub(crate) fn camera3(&self) -> Option<Cam3> {
+        self.cam3.or(*self.pending_fit3.borrow())
+    }
+
+    /// Restore the projected view's **angle** from the last session, leaving the framing
+    /// to be re-derived. `None` is the default orientation.
+    pub(crate) fn set_orientation(&mut self, yaw_pitch: Option<(f32, f32)>) {
+        self.orientation = yaw_pitch;
+    }
+
     /// The middle of the canvas in window-absolute px, which is the space the camera
     /// was fitted against. `None` before the first frame has been laid out.
     fn canvas_center(&self) -> Option<[f32; 2]> {
@@ -314,8 +409,32 @@ impl GraphView {
     /// is still hittable when the whole vault is in view.
     fn node_at(&self, screen: Point<Pixels>) -> Option<usize> {
         let frame = self.frame.as_ref()?;
-        let (world, camera) = self.world_at(screen)?;
-        frame.node_at(world, HIT_SLOP_PX / camera.zoom)
+        match self.mode {
+            Dim::Two => {
+                let (world, camera) = self.world_at(screen)?;
+                frame.node_at(world, HIT_SLOP_PX / camera.zoom)
+            }
+            Dim::Three => {
+                // The projected view answers in **screen** px, against the very points
+                // the last frame painted — so the slop needs no division by the zoom,
+                // and the answer cannot disagree with what is on screen.
+                let projection = (*self.projection.borrow()).clone()?;
+                projection.node_at(frame, [screen.x.as_f32(), screen.y.as_f32()], HIT_SLOP_PX)
+            }
+        }
+    }
+
+    /// The world point a screen px lands on at a node's own view depth — the projected
+    /// drag's inverse. The depth is the invariant while the world turns under the
+    /// cursor, which is what keeps a dragged node under the pointer instead of sliding
+    /// off it. `None` while there is no projection to ask.
+    fn world_at_depth(&self, screen: Point<Pixels>, slot: usize) -> Option<[f32; 3]> {
+        let camera = self.camera3()?;
+        let view_z = (*self.projection.borrow()).as_ref()?.view_z(slot)?;
+        Some(camera.screen_to_world_at_depth(
+            [screen.x.as_f32(), screen.y.as_f32()],
+            view_z,
+        ))
     }
 
     /// The node the pointer's press should act on, and the keyboard's answer to the
@@ -346,13 +465,25 @@ impl GraphView {
             start: event.position,
             last: event.position,
             node,
+            button: event.button,
         });
         if let Some(slot) = node {
             // The node is pinned where it already is before the pointer moves it, so
-            // the forces stop fighting the drag from the first tick.
-            if let Some(position) = self.frame.as_ref().and_then(|f| f.node_position(slot)) {
+            // the forces stop fighting the drag from the first tick. In the projected
+            // view "where it is" is the point under the cursor at the node's own depth,
+            // which is what makes the press grab the dot the user aimed at rather than
+            // the world-space point that happens to project there.
+            let world = match self.mode {
+                Dim::Two => self
+                    .frame
+                    .as_ref()
+                    .and_then(|frame| frame.node_position(slot))
+                    .map(|position| [position[0], position[1], 0.0]),
+                Dim::Three => self.world_at_depth(event.position, slot),
+            };
+            if let Some(world) = world {
                 let _ = self.workspace.update(cx, |ws, cx| {
-                    ws.graph_drag_node(slot, position, cx);
+                    ws.graph_drag_node(slot, world, cx);
                 });
             }
         }
@@ -375,14 +506,34 @@ impl GraphView {
             drag.last = event.position;
             match drag.node {
                 Some(slot) => {
-                    if let Some((world, _)) = self.world_at(event.position) {
+                    let world = match self.mode {
+                        Dim::Two => self.world_at(event.position).map(|(world, _)| [world[0], world[1], 0.0]),
+                        Dim::Three => self.world_at_depth(event.position, slot),
+                    };
+                    if let Some(world) = world {
                         let _ = self.workspace.update(cx, |ws, cx| {
                             ws.graph_drag_node(slot, world, cx);
                         });
                     }
                 }
                 None => {
-                    if let Some(mut camera) = self.camera() {
+                    // The middle button pans in both spaces — it is the pan button, and
+                    // its meaning does not move with the mode. Over the background the
+                    // left button pans the flat view and **orbits** the projected one:
+                    // turning the world is what makes the third axis legible, and a
+                    // left drag over empty space has nothing else it could mean.
+                    let middle = matches!(drag.button, MouseButton::Middle);
+                    if self.mode == Dim::Three && !middle {
+                        if let Some(mut camera) = self.camera3() {
+                            camera.orbit_by(step[0], step[1]);
+                            self.cam3 = Some(camera);
+                        }
+                    } else if self.mode == Dim::Three {
+                        if let Some(mut camera) = self.camera3() {
+                            camera.pan_by(step);
+                            self.cam3 = Some(camera);
+                        }
+                    } else if let Some(mut camera) = self.camera() {
                         camera.pan_by(step);
                         self.camera = Some(camera);
                     }
@@ -441,15 +592,26 @@ impl GraphView {
         if notches == 0.0 {
             return;
         }
-        let Some(mut camera) = self.camera() else {
-            return;
-        };
         let factor = ZOOM_STEP.powf(notches.clamp(-WHEEL_NOTCH_CLAMP, WHEEL_NOTCH_CLAMP));
-        camera.zoom_at(
-            [event.position.x.as_f32(), event.position.y.as_f32()],
-            factor,
-        );
-        self.camera = Some(camera);
+        let anchor = [event.position.x.as_f32(), event.position.y.as_f32()];
+        match self.mode {
+            Dim::Two => {
+                let Some(mut camera) = self.camera() else {
+                    return;
+                };
+                camera.zoom_at(anchor, factor);
+                self.camera = Some(camera);
+            }
+            Dim::Three => {
+                // core's 3D zoom anchors on the **projected** point, so the node under
+                // the cursor is the one that stays under it, at its own depth.
+                let Some(mut camera) = self.camera3() else {
+                    return;
+                };
+                camera.zoom_at(anchor, factor);
+                self.cam3 = Some(camera);
+            }
+        }
         cx.notify();
     }
 
@@ -459,11 +621,22 @@ impl GraphView {
         let Some(center) = self.canvas_center() else {
             return;
         };
-        let Some(mut camera) = self.camera() else {
-            return;
-        };
-        camera.zoom_at(center, action.0);
-        self.camera = Some(camera);
+        match self.mode {
+            Dim::Two => {
+                let Some(mut camera) = self.camera() else {
+                    return;
+                };
+                camera.zoom_at(center, action.0);
+                self.camera = Some(camera);
+            }
+            Dim::Three => {
+                let Some(mut camera) = self.camera3() else {
+                    return;
+                };
+                camera.zoom_at(center, action.0);
+                self.cam3 = Some(camera);
+            }
+        }
         cx.notify();
     }
 
@@ -479,12 +652,23 @@ impl GraphView {
     /// Once the user has moved the camera, the automatic framing is over — that is what
     /// makes `camera` mean "the user's".
     fn pan(&mut self, action: &GraphPan, _window: &mut Window, cx: &mut Context<Self>) {
-        let Some(mut camera) = self.camera() else {
-            return;
-        };
         let [dx, dy] = action.0;
-        camera.pan_by([-dx, -dy]);
-        self.camera = Some(camera);
+        match self.mode {
+            Dim::Two => {
+                let Some(mut camera) = self.camera() else {
+                    return;
+                };
+                camera.pan_by([-dx, -dy]);
+                self.camera = Some(camera);
+            }
+            Dim::Three => {
+                let Some(mut camera) = self.camera3() else {
+                    return;
+                };
+                camera.pan_by([-dx, -dy]);
+                self.cam3 = Some(camera);
+            }
+        }
         cx.notify();
     }
 
@@ -501,10 +685,17 @@ impl GraphView {
                 let Some(center) = self.canvas_center() else {
                     return;
                 };
-                let Some(camera) = self.camera() else {
-                    return;
+                let found = match self.mode {
+                    Dim::Two => self
+                        .camera()
+                        .and_then(|camera| frame.nearest(camera.to_world(center))),
+                    // The projected view asks the same question in screen px: the node
+                    // nearest the middle of what is on screen, not of the world.
+                    Dim::Three => (*self.projection.borrow())
+                        .as_ref()
+                        .and_then(|projection| projection.nearest(center)),
                 };
-                match frame.nearest(camera.to_world(center)) {
+                match found {
                     Some(slot) => slot,
                     None => return,
                 }
@@ -513,7 +704,16 @@ impl GraphView {
         // Nothing in that direction is not a reason to lose the selection: the user
         // keeps the node they had and can try the other way. This is also what makes
         // the first press of any direction choose something.
-        let next = frame.node_toward(from, action.0).unwrap_or(from);
+        // The directions are screen directions in the projected view: `l` means "the
+        // next node to the right of what I have", which is what a hand on `l` means in
+        // a world that rotates.
+        let next = match self.mode {
+            Dim::Two => frame.node_toward(from, action.0),
+            Dim::Three => (*self.projection.borrow())
+                .as_ref()
+                .and_then(|projection| projection.node_toward(from, action.0)),
+        }
+        .unwrap_or(from);
         if Some(next) != self.selected {
             self.selected = Some(next);
             cx.notify();
@@ -522,8 +722,21 @@ impl GraphView {
 
     /// `f`: frame the whole graph again, which is what clearing the user's camera
     /// means — while there is none, every frame re-fits.
+    ///
+    /// Both spaces, because `f` means the same thing whichever is on screen. In the
+    /// projected one the **angle survives** and only the framing is redone: `f` is the
+    /// recovery key for a view that has drifted off the graph, and losing the angle the
+    /// user was looking at would make it a way to get lost rather than found.
     fn fit(&mut self, _: &GraphFit, _window: &mut Window, cx: &mut Context<Self>) {
         self.camera = None;
+        // In the projected view the angle survives and only the framing is redone.
+        // Setting the orientation and clearing the camera is exactly what a restored
+        // session does, so "this angle, framed fresh" is one path rather than two.
+        if let Some(camera) = self.camera3() {
+            self.orientation = Some((camera.yaw, camera.pitch));
+        }
+        self.cam3 = None;
+        *self.projection.borrow_mut() = None;
         cx.notify();
     }
 
@@ -603,6 +816,18 @@ impl Focusable for GraphView {
     }
 }
 
+/// What the canvas decided this frame is drawn in, handed from prepaint to paint.
+///
+/// One enum rather than two canvases, because the tab is one element and the mode is
+/// per-window state: switching spaces is a re-render of the same canvas, not a swap of
+/// elements that would throw away the link cache and the canvas's layout.
+enum Space {
+    /// The flat graph, through the 2D camera.
+    Flat(Camera),
+    /// The projected graph — or nothing, while there is no frame to project.
+    Deep(Option<Rc<proj::Projection>>),
+}
+
 /// One count in the summary row: the number in the node colour, its label in the
 /// chrome's quiet colour, so the row reads as data with captions rather than prose.
 fn stat(palette: &Palette, value: impl std::fmt::Display, label: &'static str) -> gpui::Div {
@@ -627,6 +852,11 @@ impl Render for GraphView {
         let painted = frame.clone();
         let camera = self.camera;
         let pending_fit = Rc::clone(&self.pending_fit);
+        let mode = self.mode;
+        let cam3 = self.cam3;
+        let orientation = self.orientation;
+        let pending_fit3 = Rc::clone(&self.pending_fit3);
+        let projection_cell = Rc::clone(&self.projection);
         let canvas_bounds = Rc::clone(&self.canvas);
         let bench = Rc::clone(&self.bench);
         let paint = Rc::clone(&self.paint);
@@ -689,6 +919,7 @@ impl Render for GraphView {
             .on_action(cx.listener(Self::select))
             .on_action(cx.listener(Self::open))
             .on_action(cx.listener(Self::fit))
+            .on_action(cx.listener(Self::turn))
             // `/` is handled on the window rather than on the canvas because the strip it
             // opens is a sibling of the canvas, and the handler is the same either way.
             .on_action(cx.listener(Self::open_panel))
@@ -756,49 +987,115 @@ impl Render for GraphView {
                                 // Where the canvas is, for the keyboard's zoom and for
                                 // the tests that aim the pointer at a node.
                                 *canvas_bounds.borrow_mut() = Some(bounds);
-                                // The camera for this frame: the user's, or a first
-                                // look that fits the whole graph into what there is to
-                                // draw it in.
-                                let fitted = match camera {
-                                    Some(camera) => camera,
-                                    None => {
-                                        let positions: Vec<[f32; 2]> = frame
-                                            .as_ref()
-                                            .map(|frame| {
-                                                frame.nodes.iter().map(|n| n.position).collect()
-                                            })
-                                            .unwrap_or_default();
-                                        let camera = Camera::fit(
-                                            &positions,
-                                            [
-                                                bounds.origin.x.as_f32(),
-                                                bounds.origin.y.as_f32(),
-                                                bounds.size.width.as_f32(),
-                                                bounds.size.height.as_f32(),
-                                            ],
-                                            FIT_MARGIN,
-                                        );
-                                        *pending_fit.borrow_mut() = Some(camera);
-                                        camera
+                                let box_px = [
+                                    bounds.origin.x.as_f32(),
+                                    bounds.origin.y.as_f32(),
+                                    bounds.size.width.as_f32(),
+                                    bounds.size.height.as_f32(),
+                                ];
+                                match mode {
+                                    Dim::Two => {
+                                        // The camera for this frame: the user's, or a
+                                        // first look that fits the whole graph into what
+                                        // there is to draw it in.
+                                        // The camera for this frame: the user's, or a
+                                        // first look that fits the whole graph into what
+                                        // there is to draw it in.
+                                        let fitted = match camera {
+                                            Some(camera) => camera,
+                                            None => {
+                                                let positions = frame
+                                                    .as_ref()
+                                                    .map(|frame| frame.positions())
+                                                    .unwrap_or_default();
+                                                let camera =
+                                                    Camera::fit(&positions, box_px, FIT_MARGIN);
+                                                *pending_fit.borrow_mut() = Some(camera);
+                                                camera
+                                            }
+                                        };
+                                        Space::Flat(fitted)
                                     }
-                                };
-                                fitted
+                                    Dim::Three => {
+                                        // The same rule in three axes: the user's camera
+                                        // if they turned, panned or zoomed it, and
+                                        // otherwise a framing re-derived from the layout
+                                        // at the angle the last session left. No
+                                        // "middle of nowhere" guard is needed here,
+                                        // because the session remembers only the angle
+                                        // and the framing is always re-fitted — which is
+                                        // the whole point of that rule.
+                                        let Some(frame) = frame.as_ref() else {
+                                            *projection_cell.borrow_mut() = None;
+                                            return Space::Deep(None);
+                                        };
+                                        let positions: Vec<[f32; 3]> = frame
+                                            .nodes
+                                            .iter()
+                                            .map(|node| {
+                                                [node.position[0], node.position[1], node.depth]
+                                            })
+                                            .collect();
+                                        let camera = match cam3 {
+                                            Some(camera) => camera,
+                                            None => {
+                                                let mut camera = match orientation {
+                                                    Some((yaw, pitch)) => Cam3 {
+                                                        yaw,
+                                                        pitch,
+                                                        ..Cam3::new()
+                                                    },
+                                                    None => Cam3::new(),
+                                                };
+                                                camera.fit(&positions, box_px, FIT_MARGIN);
+                                                *pending_fit3.borrow_mut() = Some(camera);
+                                                camera
+                                            }
+                                        };
+                                        // One projection per frame, shared with the
+                                        // pointer's handlers: the paint and the hit test
+                                        // answer from the same projected points.
+                                        let projection =
+                                            Rc::new(proj::Projection::build(frame, &camera));
+                                        *projection_cell.borrow_mut() =
+                                            Some(Rc::clone(&projection));
+                                        Space::Deep(Some(projection))
+                                    }
+                                }
                             },
-                            move |bounds, camera, window, cx| {
+                            move |bounds, space, window, cx| {
                                 // Timed, not sampled: the number the strip shows is the
                                 // cost of the paints themselves, not of the frame around
                                 // them.
                                 let started = Instant::now();
-                                if let Some(frame) = &painted {
-                                    render::paint_graph(
-                                        bounds,
-                                        camera,
-                                        frame,
-                                        &look,
-                                        &mut paint.borrow_mut(),
-                                        window,
-                                        cx,
-                                    );
+                                match space {
+                                    Space::Flat(camera) => {
+                                        if let Some(frame) = &painted {
+                                            render::paint_graph(
+                                                bounds,
+                                                camera,
+                                                frame,
+                                                &look,
+                                                &mut paint.borrow_mut(),
+                                                window,
+                                                cx,
+                                            );
+                                        }
+                                    }
+                                    Space::Deep(Some(projection)) => {
+                                        if let Some(frame) = &painted {
+                                            proj::paint_graph3d(
+                                                bounds,
+                                                frame,
+                                                &projection,
+                                                &look,
+                                                &mut paint.borrow_mut(),
+                                                window,
+                                                cx,
+                                            );
+                                        }
+                                    }
+                                    Space::Deep(None) => {}
                                 }
                                 bench.borrow_mut().time(started);
                             },

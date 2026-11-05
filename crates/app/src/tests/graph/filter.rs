@@ -267,6 +267,8 @@ fn the_filter_comes_back_with_the_session(cx: &mut TestAppContext) {
             view: String::new(),
             graph: true,
             camera: None,
+            mode: None,
+            orientation: None,
         }],
         active_tab: Some(0),
         graph_filter: Some(GraphFilterSeat {

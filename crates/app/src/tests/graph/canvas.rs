@@ -210,6 +210,8 @@ fn the_graphs_camera_comes_back_with_the_session(cx: &mut TestAppContext) {
                 view: "live".into(),
                 graph: false,
                 camera: None,
+                mode: None,
+                orientation: None,
             },
             Tab {
                 path: None,
@@ -219,6 +221,8 @@ fn the_graphs_camera_comes_back_with_the_session(cx: &mut TestAppContext) {
                     pan: [120.0, 40.0],
                     zoom: 2.0,
                 }),
+                mode: None,
+                orientation: None,
             },
         ],
         active_tab: Some(1),

@@ -836,6 +836,13 @@ into the Phase 3 addendum. **P2.5a landed 2026-11-01, so Phase 2 is closed**
   **Gate:** the 2D numbers in thread 43 must not move, and the 3D frame is
   benched (`crates/app/src/tests/graph/paint_bench.rs`) and idle-park-checked
   before the mode is called done.
+  **Landed 2026-11-04.** `2`/`3` in the graph context and `:graph2d`/`:graph3d`
+  turn the tab; the mode is the *window's* (one sim per window), the session
+  carries it beside the angle, and the projected path is `crates/app/src/graph/proj.rs`
+  — one `Projection` per frame, shared by the paint and the pointer. One binding
+  rule changed on the way: the "camera showing nothing falls back to fit" guard
+  was ruled out (see PROJECT.md "2D / 3D mode rules") because it fights a
+  deliberate pan, and the orientation-only memory makes it unnecessary in 3D.
 
 **Sequencing ruling (2026-11-04):** P3.6 goes **before** P3.2's leftovers and
 before the addendum. The rule it breaks, named plainly: *each phase's exit

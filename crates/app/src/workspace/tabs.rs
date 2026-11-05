@@ -722,6 +722,25 @@ impl Pane {
                     }
                     TabContent::Note { .. } => None,
                 },
+                // The graph's space, and — in the projected one — only the angle it was
+                // turned to. The framing is left out on purpose: see the seat's own note
+                // in core (roadmap P3.6).
+                mode: match &tab.content {
+                    TabContent::Graph(view) => Some(match view.read(cx).mode() {
+                        crate::graph::Dim::Two => "2d".to_string(),
+                        crate::graph::Dim::Three => "3d".to_string(),
+                    }),
+                    TabContent::Note { .. } => None,
+                },
+                orientation: match &tab.content {
+                    TabContent::Graph(view) => view.read(cx).camera3().map(|camera| {
+                        shale_core::session::Orientation {
+                            yaw: camera.yaw,
+                            pitch: camera.pitch,
+                        }
+                    }),
+                    TabContent::Note { .. } => None,
+                },
             })
             .collect()
     }
@@ -739,6 +758,11 @@ pub(crate) struct TabState {
     pub(crate) graph: bool,
     /// Where the graph tab was looking, for the session file. `None` for a note tab.
     pub(crate) camera: Option<shale_core::session::GraphSeat>,
+    /// Which space the graph tab was in, `"2d"` or `"3d"`. `None` for a note tab.
+    pub(crate) mode: Option<String>,
+    /// The angle the projected view was turned to. `None` for a note tab, and for a
+    /// flat graph that has never been rotated.
+    pub(crate) orientation: Option<shale_core::session::Orientation>,
     /// Whether its note is ahead of the disk: the dot on the tab.
     pub(crate) dirty: bool,
     /// Which of the three views the tab is in, since a tab keeps its own.

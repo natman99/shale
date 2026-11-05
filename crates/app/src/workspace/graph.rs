@@ -97,7 +97,14 @@ impl Workspace {
         // handle back would be a cycle neither half could break.
         let window = cx.entity().downgrade();
         let view = cx.new(|cx| {
-            crate::graph::GraphView::new(window, Rc::clone(&self.palette), family, size, cx)
+            crate::graph::GraphView::new(
+                window,
+                self.graph_dim,
+                Rc::clone(&self.palette),
+                family,
+                size,
+                cx,
+            )
         });
         let index = if self.pane().tabs.is_empty() {
             0
@@ -184,11 +191,20 @@ impl Workspace {
         let visible = self.graph_visibility();
         let summary = self.graph_summary(&visible)?;
         let previous = self.graph_sim.take();
+        if let Some(previous) = previous.as_ref() {
+            if previous.dim() != self.graph_dim {
+                // Worth one line: a switch re-heats the layout at its own heat, and a
+                // graph that moved for no visible reason is the kind of thing a log is
+                // for (roadmap P3.6).
+                tracing::debug!(dim = ?self.graph_dim, "the graph changes space");
+            }
+        }
         if let Some(index) = self.graph.as_ref() {
             self.graph_sim = Some(crate::graph::GraphSim::build(
                 index,
                 previous.as_ref(),
                 &visible,
+                self.graph_dim,
             ));
         }
         let frame = self
@@ -241,6 +257,65 @@ impl Workspace {
         let built = self.rebuild_graph();
         self.pump_graph(cx);
         built
+    }
+
+    /// A new mode, from the graph tab: run the window's physics in the other space.
+    ///
+    /// Like [`Workspace::graph_set_filter`], the window owns this rather than the view,
+    /// because it is the **simulation** that changes space — one graph per window means
+    /// one set of positions, and a second view asking for 3D is asking these bodies to
+    /// run in 3D. And like the filter, the ask arrives from inside the view's own
+    /// handler, so this door never touches the view: the counts and the picture go back
+    /// to the caller.
+    ///
+    /// `None` when the mode did not change, which is what makes a repeated ask cheap.
+    pub(crate) fn graph_set_mode(
+        &mut self,
+        dim: crate::graph::Dim,
+        cx: &mut Context<Self>,
+    ) -> Option<(crate::graph::GraphSummary, Rc<crate::graph::GraphFrame>)> {
+        if self.graph_dim == dim {
+            return None;
+        }
+        self.graph_dim = dim;
+        // `rebuild_graph` is the whole switch: `GraphSim::build` sees the space change,
+        // carries the arrangement and the pins, seeds the new axis, and re-heats at
+        // [`crate::graph::GraphSim`'s switch heat].
+        let built = self.rebuild_graph();
+        self.pump_graph(cx);
+        built
+    }
+
+    /// Which space this window's graph runs in, for the session file and the tests.
+    pub(crate) fn graph_mode(&self) -> crate::graph::Dim {
+        self.graph_dim
+    }
+
+    /// Restore the graph's space from the session file.
+    ///
+    /// Unlike [`Workspace::graph_set_mode`] — the door the tab's `2`/`3` keys come
+    /// through, which never touches the view because the ask starts inside it — this one
+    /// runs while the window is restoring tabs, so it pushes the mode into the view as
+    /// well as setting it on the sim. Order matters: the sim is built in the restored
+    /// space **before** the tab's first frame, so the first thing painted is already
+    /// three-dimensional rather than flat for one frame and turned on the next.
+    pub(crate) fn graph_restore_mode(&mut self, dim: crate::graph::Dim, cx: &mut Context<Self>) {
+        if self.graph_dim == dim {
+            return;
+        }
+        self.graph_dim = dim;
+        let built = self.rebuild_graph();
+        self.pump_graph(cx);
+        let Some(view) = self.graph_view().cloned() else {
+            return;
+        };
+        view.update(cx, |view, cx| {
+            view.set_mode(dim);
+            if let Some((summary, frame)) = built {
+                view.set_summary(summary, cx);
+                view.set_frame(frame, cx);
+            }
+        });
     }
 
     /// Start the sim's beat if it has work to do.
@@ -324,7 +399,7 @@ impl Workspace {
     /// second borrow of the entity that is calling, and gpui would stop. The beat does
     /// the shipping instead: the next tick sends a new frame, and a drag keeps the sim
     /// hot, so the next tick is never more than a tick away.
-    pub(crate) fn graph_drag_node(&mut self, slot: usize, world: [f32; 2], cx: &mut Context<Self>) {
+    pub(crate) fn graph_drag_node(&mut self, slot: usize, world: [f32; 3], cx: &mut Context<Self>) {
         let Some(sim) = self.graph_sim.as_mut() else {
             return;
         };

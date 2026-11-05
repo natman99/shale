@@ -25,6 +25,7 @@ use std::rc::Rc;
 
 use gpui::{Bounds, Path, Pixels};
 use shale_core::graph::geom::Camera;
+use shale_core::graph::proj::Cam3;
 
 use super::frame::GraphFrame;
 
@@ -41,18 +42,25 @@ pub(crate) struct Key {
     /// hands over a fresh `Rc` with every frame precisely so that identity means
     /// something.
     frame: Rc<GraphFrame>,
-    /// The camera that placed it: a pan or a zoom moves every vertex.
-    camera: Camera,
+    /// The camera that placed it — in whichever space the tab is showing. A pan, a
+    /// zoom, or a **rotation** moves every vertex, which is why the 3D camera is part
+    /// of the key rather than a detail of the projection (roadmap P3.6): a cached
+    /// batch belongs to one orientation and to nothing else.
+    geometry: Geometry,
     /// The canvas it was culled to, which is also the content mask it was clipped by.
     bounds: Bounds<Pixels>,
 }
 
 impl Key {
     /// The key for the picture this paint is about to draw.
-    pub(crate) fn new(frame: &Rc<GraphFrame>, camera: Camera, bounds: Bounds<Pixels>) -> Self {
+    pub(crate) fn new(
+        frame: &Rc<GraphFrame>,
+        geometry: Geometry,
+        bounds: Bounds<Pixels>,
+    ) -> Self {
         Self {
             frame: frame.clone(),
-            camera,
+            geometry,
             bounds,
         }
     }
@@ -60,8 +68,30 @@ impl Key {
     /// Whether two keys describe the same picture, and so the same geometry.
     fn same(&self, other: &Self) -> bool {
         Rc::ptr_eq(&self.frame, &other.frame)
-            && self.camera == other.camera
+            && same_geometry(&self.geometry, &other.geometry)
             && self.bounds == other.bounds
+    }
+}
+
+/// Which space a cached batch was tessellated in.
+#[derive(Clone, Copy)]
+pub(crate) enum Geometry {
+    /// The flat graph, seen through the 2D camera.
+    Flat(Camera),
+    /// The projected graph, seen through the 3D camera.
+    Deep(Cam3),
+}
+
+/// Cameras are compared field by field: `Camera` already derives what it needs, and
+/// core's `Cam3` is a plain `Copy` struct that does not, and stays that way.
+fn same_geometry(a: &Geometry, b: &Geometry) -> bool {
+    match (a, b) {
+        (Geometry::Flat(a), Geometry::Flat(b)) => a == b,
+        (Geometry::Deep(a), Geometry::Deep(b)) => {
+            a.yaw == b.yaw && a.pitch == b.pitch && a.pan == b.pan && a.zoom == b.zoom && a.dist == b.dist
+        }
+        // A mode switch is a new picture even when the pan and zoom match.
+        _ => false,
     }
 }
 
@@ -142,15 +172,43 @@ mod tests {
     fn key(frame: &Rc<GraphFrame>, zoom: f32) -> Key {
         Key::new(
             frame,
-            Camera {
+            Geometry::Flat(Camera {
                 pan: [0.0, 0.0],
                 zoom,
-            },
+            }),
             Bounds {
                 origin: point(px(0.0), px(0.0)),
                 size: size(px(100.0), px(100.0)),
             },
         )
+    }
+
+    /// A batch tessellated for the flat view is not a batch the projected view can
+    /// replay, even at the same pan and zoom: the third axis moved every vertex.
+    #[test]
+    fn a_flat_batch_never_answers_a_projected_picture() {
+        let frame = Rc::new(GraphFrame::empty());
+        let bounds = Bounds {
+            origin: point(px(0.0), px(0.0)),
+            size: size(px(100.0), px(100.0)),
+        };
+        let mut cache = Cache::new();
+        cache.store_links(
+            Key::new(
+                &frame,
+                Geometry::Flat(Camera {
+                    pan: [50.0, 50.0],
+                    zoom: 1.0,
+                }),
+                bounds,
+            ),
+            vec![gpui::Path::new(point(px(0.0), px(0.0)))],
+        );
+        let deep = Key::new(&frame, Geometry::Deep(Cam3::new()), bounds);
+        assert!(
+            cache.links(&deep).is_none(),
+            "the other space is a different picture"
+        );
     }
 
     /// A batch held for one picture is answered to that picture and to nothing else: the

@@ -65,6 +65,30 @@ pub struct Tab {
     /// a window, so it belongs here rather than in the config.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub camera: Option<GraphSeat>,
+    /// Which space the graph tab was in: `"2d"` or `"3d"` (roadmap P3.6). `None` is the
+    /// flat graph — which is also what every session written before a graph could be
+    /// turned restores to, and the reason this is a string rather than a field with a
+    /// default that would rewrite itself on every save.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
+    /// The **angle** the projected view was at, and only the angle: yaw and pitch in
+    /// radians. The pan and the zoom are deliberately not remembered in this space —
+    /// a camera restored to where the graph used to be is a screenful of nothing, and
+    /// in three axes there is no `f` key a user who cannot see the graph is going to
+    /// press. The framing is re-derived from the layout every launch (PROJECT.md,
+    /// "2D / 3D mode rules").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub orientation: Option<Orientation>,
+}
+
+/// The projected view's orientation, as the session remembers it: which way the world
+/// was turned, nothing else.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Orientation {
+    /// Rotation about the vertical axis, radians.
+    pub yaw: f32,
+    /// Rotation about the horizontal axis, radians.
+    pub pitch: f32,
 }
 
 /// The graph tab's camera, as the session remembers it.
@@ -293,12 +317,16 @@ mod tests {
                     view: "live".into(),
                     graph: false,
                     camera: None,
+                    mode: None,
+                    orientation: None,
                 },
                 Tab {
                     path: Some(PathBuf::from("notes/idea.md")),
                     view: "raw".into(),
                     graph: false,
                     camera: None,
+                    mode: None,
+                    orientation: None,
                 },
             ],
             active_tab: Some(1),

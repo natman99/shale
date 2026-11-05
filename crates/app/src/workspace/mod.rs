@@ -177,6 +177,10 @@ pub(crate) struct Workspace {
     /// mask it produces decides which nodes the **simulation** contains as well as which
     /// ones get painted, and the session file records it beside the camera.
     graph_filter: shale_core::graph::filter::GraphFilter,
+    /// Which space the window's graph physics runs in — the graph tab's 2D/3D mode
+    /// (roadmap P3.6). One per window because the simulation is one per window: a
+    /// second view of the same vault looks at the same positions, in the same space.
+    graph_dim: crate::graph::Dim,
     expanded: HashSet<PathBuf>,
     /// The window's panes. **One today** — P3.2a introduced the pane as the
     /// owner of a tab row before P3.2b adds the split commands that make more
@@ -480,6 +484,7 @@ impl Workspace {
             graph_pending: Vec::new(),
             // Everything on, which is Obsidian's default graph and core's.
             graph_filter: shale_core::graph::filter::GraphFilter::default(),
+            graph_dim: crate::graph::Dim::Two,
             expanded,
             // The window starts with no tabs and gets its first one below, which is
             // the same door `ctrl-t` uses: one place decides what a new tab's editor

@@ -402,9 +402,39 @@ impl Workspace {
     pub(crate) fn graph_node_screen(&self, slot: usize, cx: &gpui::App) -> Option<[f32; 2]> {
         let view = self.graph_view()?;
         let view = view.read(cx);
-        let camera = view.camera()?;
-        let position = view.frame()?.node_position(slot)?;
-        Some(camera.to_screen(position))
+        match view.mode() {
+            crate::graph::Dim::Two => {
+                let camera = view.camera()?;
+                let position = view.frame()?.node_position(slot)?;
+                Some(camera.to_screen(position))
+            }
+            // The projected view answers from the projection the last frame built —
+            // the same points the paint used, which is the only answer a pointer test
+            // can aim at.
+            crate::graph::Dim::Three => view.projection_slot(slot),
+        }
+    }
+    /// The projected camera as `(yaw, pitch, pan, zoom)`, for the mode tests: the angle
+    /// an orbit made, and the framing a fit made.
+    #[cfg(test)]
+    pub(crate) fn graph_camera3(&self, cx: &gpui::App) -> Option<(f32, f32, [f32; 2], f32)> {
+        self.graph_view()?.read(cx).camera3().map(|camera| {
+            (
+                camera.yaw,
+                camera.pitch,
+                [camera.pan[0], camera.pan[1]],
+                camera.zoom,
+            )
+        })
+    }
+    /// The layout's third axis, straight off the window's sim: how a test tells a graph
+    /// that opened up from one that stayed flat.
+    #[cfg(test)]
+    pub(crate) fn graph_depths(&self) -> Vec<f32> {
+        self.graph_sim
+            .as_ref()
+            .map(|sim| sim.positions3().iter().map(|p| p[2]).collect())
+            .unwrap_or_default()
     }
     /// The canvas's bounds, for the tests that click in the middle of the graph.
     #[cfg(test)]
@@ -423,7 +453,7 @@ impl Workspace {
     pub(crate) fn graph_pinned(&self) -> Vec<bool> {
         self.graph_sim
             .as_ref()
-            .map(|sim| sim.pinned().to_vec())
+            .map(|sim| sim.pinned())
             .unwrap_or_default()
     }
     /// The simulation's positions, straight off the window rather than from the frame

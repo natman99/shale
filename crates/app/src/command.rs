@@ -719,6 +719,27 @@ const ALL: &[Command] = &[
         in_palette: true,
         action: Some(|| Box::new(OpenGraph)),
     },
+    // The graph's two spaces (roadmap P3.6). They are commands as well as keys because
+    // a mode you can only reach with a bare digit is a mode nobody finds; the palette
+    // says what the words are, and `:graph3d` is what a config or a macro wants.
+    Command {
+        id: "graph.flat",
+        label: "Graph: flat view",
+        keys: "2 (graph)",
+        ex: &["graph2d"],
+        args: "",
+        in_palette: true,
+        action: Some(|| Box::new(GraphMode(crate::graph::Dim::Two))),
+    },
+    Command {
+        id: "graph.projected",
+        label: "Graph: projected 3D view",
+        keys: "3 (graph)",
+        ex: &["graph3d"],
+        args: "",
+        in_palette: true,
+        action: Some(|| Box::new(GraphMode(crate::graph::Dim::Three))),
+    },
 ];
 
 #[cfg(test)]

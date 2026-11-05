@@ -85,6 +85,8 @@ impl Workspace {
                 view: tab.view,
                 graph: tab.graph,
                 camera: tab.camera,
+                mode: tab.mode,
+                orientation: tab.orientation,
             })
             .collect();
         Session {
@@ -203,6 +205,19 @@ impl Workspace {
                     // and the one-per-window rule means a file that somehow names two
                     // graph tabs restores one.
                     self.open_graph(cx);
+                    // The space first: the sim has to be running in it before the tab's
+                    // first frame, so the graph opens three-dimensional rather than flat
+                    // for one frame and turned on the next (roadmap P3.6).
+                    if let Some(mode) = tab.mode.as_deref() {
+                        self.graph_restore_mode(
+                            if mode == "3d" {
+                                crate::graph::Dim::Three
+                            } else {
+                                crate::graph::Dim::Two
+                            },
+                            cx,
+                        );
+                    }
                     // Where the user had left the view. Set before anything is painted,
                     // so the first frame uses their camera rather than a fresh fit that
                     // the next frame would have to undo.
@@ -211,6 +226,15 @@ impl Workspace {
                             view.set_camera(Some(shale_core::graph::geom::Camera::new(
                                 seat.pan, seat.zoom,
                             )))
+                        });
+                    }
+                    // The projected view's angle, and only its angle: the framing comes
+                    // back from the layout rather than from the file, which is what keeps
+                    // a restored 3D view from opening on a screenful of nothing.
+                    if let (Some(angle), Some(view)) = (tab.orientation, self.graph_view().cloned())
+                    {
+                        view.update(cx, |view, _cx| {
+                            view.set_orientation(Some((angle.yaw, angle.pitch)))
                         });
                     }
                     continue;

@@ -19,6 +19,10 @@ use shale_core::graph::NodeKind;
 pub(crate) struct GraphNode {
     /// World position, straight out of the simulation.
     pub(crate) position: [f32; 2],
+    /// The third axis: 0 for every node of a flat layout, and the axis the 3D mode
+    /// projects (roadmap P3.6). The 2D path never reads it, which is what lets one
+    /// frame serve both views.
+    pub(crate) depth: f32,
     /// Radius in world units (`4 + 2·√degree`), so a hub is a bigger dot.
     pub(crate) radius: f32,
     /// Note, attachment, ghost or tag — what decides the fill.
