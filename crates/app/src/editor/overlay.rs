@@ -26,6 +26,7 @@ use std::rc::Rc;
 
 use gpui::{Context, SharedString};
 use shale_core::diff::{self, Hunk};
+use shale_core::transclude::{Body, EmbedLine, EmbedRow};
 
 use crate::line::phantom::{PhantomKind, PhantomLine};
 use crate::line::DisplayLine;
@@ -194,6 +195,37 @@ impl MarkdownEditor {
         out
     }
 
+    /// What the transclusions would paint, for the tests: the row that asks, then the
+    /// body it brings, indented by how deep each row sits, a stopped embed in brackets.
+    #[cfg(test)]
+    pub(crate) fn embed_shape(&mut self) -> Vec<String> {
+        let Some(vault) = self.vault.as_ref() else {
+            return Vec::new();
+        };
+        if self.view == View::Raw {
+            return Vec::new();
+        }
+        let mut out = Vec::new();
+        for (row, body) in self.embeds.resolve(vault, self.buffer.text()) {
+            match body {
+                Body::Nothing => {}
+                Body::Badge(name) => out.push(format!("embed row {row}: badge {name}")),
+                Body::Lines(lines) => {
+                    out.push(format!("embed row {row}"));
+                    for EmbedLine { depth, row } in lines {
+                        let text = match row {
+                            EmbedRow::Text(text) => text,
+                            // Brackets because a stopped embed is a name, not a line.
+                            EmbedRow::Badge(text) => format!("[{text}]"),
+                        };
+                        out.push(format!("{}{text}", "  ".repeat(depth)));
+                    }
+                }
+            }
+        }
+        out
+    }
+
     /// The proposal the cursor is standing on, if any — which is what decides whether
     /// `za` collapses a proposal or folds a section, and which hunk the strip's `y`/`x`
     /// should act on when the note has the keyboard.
@@ -236,15 +268,43 @@ impl MarkdownEditor {
 }
 
 /// One phantom block: the lines one hunk would add, or the count it shows when the user
-/// collapsed it.
+/// collapsed it — or the body of a `![[transclusion]]`, which hangs off the row that
+/// asks for it the same way (roadmap P4.0a).
+///
+/// The two share a type because the geometry is the same in both cases: rows that are
+/// not in the buffer, painted beside a host row, invisible to everything that moves
+/// through the note. What differs is where the text came from and how it is dressed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Block {
-    /// The lines to paint. Empty when the block is collapsed.
-    pub(crate) lines: Vec<String>,
+    /// The lines to paint. Empty when the block is collapsed or is a bare badge.
+    pub(crate) lines: Vec<BlockLine>,
     /// Set when collapsed: the `−N +M` that stands in for the lines.
     pub(crate) badge: Option<String>,
     /// The hunk the strip's marker is on, which paints a wider bar.
     pub(crate) current: bool,
+    pub(crate) kind: BlockKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BlockKind {
+    /// A queued proposal's additions: the palette's green, no markdown styling (proposed
+    /// text is a change being offered, not the note's prose), no indent.
+    Proposal,
+    /// Another note's lines: the note's own colours and markdown, stepped right by depth.
+    Embed,
+}
+
+/// One row of a phantom block.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct BlockLine {
+    pub(crate) text: String,
+    /// How many embeds deep this row is: 0 for a proposal's rows, 1 for the body of the
+    /// host's own `![[…]]`, deeper for an embed inside that.
+    pub(crate) depth: usize,
+    /// A row that names an embed rather than carrying its content — an embed past the
+    /// depth cap, or one already on the chain. It wears the link colour, because the
+    /// name is the thing the reader can act on.
+    pub(crate) badge: bool,
 }
 
 /// Where the overlay's pieces go in one frame.
@@ -267,7 +327,7 @@ impl MarkdownEditor {
     /// which is what keeps it in the right place when the rows around it are folded away
     /// or hidden by live preview. With nothing visible above it — an addition at the top
     /// of the note — it hangs before the first visible line instead.
-    pub(crate) fn frame(&self, display: &[DisplayLine]) -> Frame {
+    pub(crate) fn frame(&mut self, display: &[DisplayLine]) -> Frame {
         let mut frame = Frame {
             struck: HashMap::new(),
             after: HashMap::new(),
@@ -303,8 +363,16 @@ impl MarkdownEditor {
                         Vec::new()
                     } else {
                         lines
+                            .into_iter()
+                            .map(|text| BlockLine {
+                                text,
+                                depth: 0,
+                                badge: false,
+                            })
+                            .collect()
                     },
                     current: placed.current,
+                    kind: BlockKind::Proposal,
                 };
                 // The last visible row above the anchor: `visible` is in buffer order, so
                 // walking backwards finds it without scanning the whole note again.
@@ -319,7 +387,60 @@ impl MarkdownEditor {
                 }
             }
         }
+        self.embed_frame(display, &mut frame, &last_of);
         frame
+    }
+
+    /// The transclusions (roadmap P4.0a): a row that is nothing but `![[…]]` shows the
+    /// body of what it points at **under itself**.
+    ///
+    /// The host row stays on screen — it is the author's own text, editable, and the
+    /// thing that says where the borrowed lines come from. The body hangs after it, which
+    /// is the same anchor a proposal's additions use, so one insertion pass draws both.
+    ///
+    /// Raw mode shows none of it: raw mode is the file as it sits on disk, and an embed's
+    /// body is not in this file.
+    fn embed_frame(
+        &mut self,
+        _display: &[DisplayLine],
+        frame: &mut Frame,
+        last_of: &HashMap<usize, usize>,
+    ) {
+        let Some(vault) = self.vault.as_ref() else {
+            return;
+        };
+        if self.view == View::Raw {
+            return;
+        }
+        for (row, body) in self.embeds.resolve(vault, self.buffer.text()) {
+            // A row folded away has no display line to hang a body under, and painting
+            // one anyway would show content from behind a closed fold.
+            let Some(&host) = last_of.get(&row) else {
+                continue;
+            };
+            let block = match body {
+                Body::Nothing => continue,
+                Body::Badge(name) => Block {
+                    lines: Vec::new(),
+                    badge: Some(name),
+                    current: false,
+                    kind: BlockKind::Embed,
+                },
+                Body::Lines(rows) => Block {
+                    lines: rows
+                        .into_iter()
+                        .map(|EmbedLine { depth, row }| match row {
+                            EmbedRow::Text(text) => BlockLine { text, depth, badge: false },
+                            EmbedRow::Badge(text) => BlockLine { text, depth, badge: true },
+                        })
+                        .collect(),
+                    badge: None,
+                    current: false,
+                    kind: BlockKind::Embed,
+                },
+            };
+            frame.after.entry(host).or_default().push(block);
+        }
     }
 
     /// The phantom rows for a run of blocks, in order: a collapsed block's count first
@@ -328,30 +449,69 @@ impl MarkdownEditor {
     /// They are shaped at the note's body size rather than the host row's, because the
     /// lines a proposal brings are new text, not a heading the note already had.
     pub(crate) fn phantom_lines(&self, blocks: &[Block]) -> Vec<PhantomLine> {
-        blocks
-            .iter()
-            .flat_map(|block| {
-                block
-                    .badge
-                    .clone()
-                    .map(|text| PhantomLine {
-                        text: text.into(),
-                        family: self.font_family.clone(),
-                        size: self.font_size,
-                        palette: Rc::clone(&self.palette),
-                        kind: PhantomKind::Badge,
-                        current: block.current,
+        let mut out = Vec::new();
+        for block in blocks {
+            if let Some(badge) = block.badge.clone() {
+                out.push(PhantomLine {
+                    text: badge.into(),
+                    family: self.font_family.clone(),
+                    size: self.font_size,
+                    palette: Rc::clone(&self.palette),
+                    kind: match block.kind {
+                        BlockKind::Proposal => PhantomKind::Badge,
+                        BlockKind::Embed => PhantomKind::EmbedBadge,
+                    },
+                    current: block.current,
+                    indent: 0,
+                    spans: Vec::new(),
+                });
+            }
+            // An embed's markdown is scanned over the **whole body at once**, then cut
+            // per row: a fence that opens on one row and closes on another is only
+            // visible to a scan that sees both, and styling each row alone would paint
+            // the second half of a code block as prose.
+            let joined: String = block
+                .lines
+                .iter()
+                .map(|line| format!("{}\n", line.text))
+                .collect();
+            let body: Vec<(usize, usize, shale_core::mdstyle::Style)> =
+                if block.kind == BlockKind::Embed {
+                    shale_core::mdstyle::style_spans(&joined)
+                        .into_iter()
+                        .map(|span| (span.start, span.end, span.style))
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+            let mut offset = 0usize;
+            for line in &block.lines {
+                let len = line.text.len();
+                // Spans that begin inside this row, re-based onto it and clipped to it.
+                let spans = body
+                    .iter()
+                    .filter(|(start, _, _)| *start >= offset && *start < offset + len)
+                    .map(|(start, end, style)| {
+                        (*start - offset, (*end).min(offset + len) - offset, *style)
                     })
-                    .into_iter()
-                    .chain(block.lines.iter().map(|line| PhantomLine {
-                        text: line.clone().into(),
-                        family: self.font_family.clone(),
-                        size: self.font_size,
-                        palette: Rc::clone(&self.palette),
-                        kind: PhantomKind::Added,
-                        current: block.current,
-                    }))
-            })
-            .collect()
+                    .collect();
+                out.push(PhantomLine {
+                    text: line.text.clone().into(),
+                    family: self.font_family.clone(),
+                    size: self.font_size,
+                    palette: Rc::clone(&self.palette),
+                    kind: match (block.kind, line.badge) {
+                        (BlockKind::Proposal, _) => PhantomKind::Added,
+                        (BlockKind::Embed, true) => PhantomKind::EmbedBadge,
+                        (BlockKind::Embed, false) => PhantomKind::Embed,
+                    },
+                    current: block.current,
+                    indent: line.depth,
+                    spans,
+                });
+                offset += len + 1; // the newline the join put back
+            }
+        }
+        out
     }
 }

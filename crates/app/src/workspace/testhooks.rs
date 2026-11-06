@@ -211,6 +211,16 @@ impl Workspace {
             .map(|editor| editor.read_with(cx, |editor, _cx| editor.overlay_shape()))
             .unwrap_or_default()
     }
+    /// What the note on screen would paint for its transclusions (roadmap P4.0a).
+    /// `&mut C` because resolving fills the editor's body cache, which is the point of
+    /// the test: the cache is the difference between a view and a disk read per frame.
+    #[cfg(test)]
+    pub(crate) fn embed_shape<C: gpui::AppContext>(&self, cx: &mut C) -> Vec<String> {
+        self.editor()
+            .map(|editor| editor.update(cx, |editor, _cx| editor.embed_shape()))
+            .unwrap_or_default()
+    }
+
     /// The buffer rows the vim engine currently treats as under review.
     #[cfg(test)]
     pub(crate) fn review_lines<C: gpui::AppContext>(&self, cx: &C) -> Vec<(usize, usize)> {

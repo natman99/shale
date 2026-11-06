@@ -1,14 +1,19 @@
-//! A phantom line: text a queued proposal would put in the note, painted where it would
-//! land without being in the buffer at all (roadmap P2.5b).
+//! A phantom line: text painted inside the note that is not in the note's buffer.
+//!
+//! Two things put rows here. A queued proposal's additions, where they would land
+//! (roadmap P2.5b). And a `![[transclusion]]`'s body, the lines of another note shown
+//! under the line that asks for them (roadmap P4.0a) — which is the same rendering
+//! problem wearing a different hat: the rows must take the note's font and styling, must
+//! not enter the buffer, and must stay invisible to `j`/`k`, search, folds and the ruler.
 //!
 //! It is a separate element rather than a [`super::LineElement`] because a LineElement is
 //! a piece of the buffer: it carries byte ranges for the cursor, the selection, clicks,
 //! the IME and the wrap model to be answered against. A phantom line has no bytes to
-//! answer with — it is not in the note, and `j`/`k`, search and folds must keep skipping
-//! it — so it shapes and paints a string and asks nothing of the buffer.
+//! answer with, so it shapes and paints a string and asks nothing of the buffer.
 //!
-//! It is shaped at the note's own family and size, which is what lets a proposal read as
-//! part of the note rather than as a panel pasted over it.
+//! It is shaped at the note's own family and size, which is what lets it read as part of
+//! the note rather than as a panel pasted over it. An embed's rows also carry the source
+//! note's markdown styling, because a heading inside an embedded note is still a heading.
 
 use std::rc::Rc;
 
@@ -22,6 +27,10 @@ use shale_core::theme::Palette;
 use crate::line::marks;
 use crate::theme::{self, RunStyle};
 
+/// How far right each level of embed steps. Deliberately smaller than a list
+/// indent: this is a seam between notes, not a nesting structure inside one.
+const INDENT_STEP: f32 = 14.0;
+
 /// What kind of phantom row this is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PhantomKind {
@@ -29,10 +38,17 @@ pub(crate) enum PhantomKind {
     Added,
     /// The `−N +M` a collapsed hunk shows instead of its lines.
     Badge,
+    /// A line of another note, shown under the `![[…]]` that asks for it. Styled by
+    /// its own markdown, in the note's own colours: an embed is content, not a proposal,
+    /// so it takes none of the diff hues.
+    Embed,
+    /// An embed that stopped expanding: its name, and nothing else.
+    EmbedBadge,
 }
 
 pub(crate) struct PhantomLine {
-    /// The line the proposal would put there, or the count a collapsed hunk shows.
+    /// The line the proposal would put there, the count a collapsed hunk shows, or a
+    /// line of an embedded note.
     pub(crate) text: SharedString,
     /// The note's own font family and size, so the row measures like the text beside it.
     pub(crate) family: SharedString,
@@ -42,6 +58,19 @@ pub(crate) struct PhantomLine {
     /// The hunk the review strip's marker is on: a wider bar, so the strip and the note
     /// point at the same change rather than at two nearby ones.
     pub(crate) current: bool,
+    /// How many levels of embed deep this row is. 0 for a proposal's rows, which belong
+    /// at the note's own margin; 1 for the body of the host's own `![[…]]`, deeper for
+    /// an embed inside that. The indent is what makes a nested embed readable without a
+    /// box around each level.
+    pub(crate) indent: usize,
+    /// Markdown spans over `text`, in byte offsets, for an embed's rows: the source
+    /// note's own styling, so a heading inside an embedded note is still a heading.
+    ///
+    /// The caller computes these over the **whole embed body** and slices them per row,
+    /// because a fence that opens on one row and closes on another is only visible to a
+    /// scan that sees both. An empty list means "plain", which is what a proposal's rows
+    /// are: proposed text is not styled, it is a change being offered.
+    pub(crate) spans: Vec<(usize, usize, shale_core::mdstyle::Style)>,
 }
 
 impl PhantomLine {
@@ -52,11 +81,23 @@ impl PhantomLine {
     /// The bar's colour: the palette's green for an addition, its amber for a count.
     /// A proposed change is not an error, and neither is a collapsed one, which is why
     /// neither takes the red — `design-language.md` §1.
+    ///
+    /// An embed takes neither: its rows are the note's content, not a change to it. Its
+    /// rule is the quiet border colour, whose only job is to show where borrowed text
+    /// starts and stops.
     fn bar(&self) -> u32 {
         match self.kind {
             PhantomKind::Added => self.palette.diff_add,
             PhantomKind::Badge => self.palette.diff_changed,
+            PhantomKind::Embed | PhantomKind::EmbedBadge => self.palette.ui_border,
         }
+    }
+
+    /// Where the row's text starts: the note's column, stepped right for each level of
+    /// embed. The rule stays in the gutter whatever the indent, so a nested embed reads
+    /// as one block with one edge rather than a stack of boxes.
+    fn text_x(&self, bounds: Bounds<Pixels>) -> Pixels {
+        bounds.left() + px(self.indent as f32 * INDENT_STEP)
     }
 }
 
@@ -103,19 +144,41 @@ impl Element for PhantomLine {
         _cx: &mut App,
     ) -> Self::PrepaintState {
         let base_font = font(self.family.clone());
-        let style = RunStyle {
-            color: match self.kind {
-                PhantomKind::Added => self.palette.diff_add,
-                PhantomKind::Badge => self.palette.diff_changed,
-            },
-            ..RunStyle::plain(&self.palette)
+        let runs = if self.kind == PhantomKind::Embed {
+            // The source note's markdown, in the note's own colours. `build_runs` is the
+            // same function the note's own lines go through, which is the point: an
+            // embedded heading and a local heading must not be two different renderings
+            // of the same thing.
+            super::runs::build_runs(
+                self.text.as_ref(),
+                &super::runs::LineStyles {
+                    spans: self.spans.clone(),
+                    links: Vec::new(),
+                    marks: Vec::new(),
+                    hits: Vec::new(),
+                    active: Vec::new(),
+                    diff: None,
+                },
+                &base_font,
+                &self.palette,
+                1.0,
+            )
+        } else {
+            let style = RunStyle {
+                color: match self.kind {
+                    PhantomKind::Added => self.palette.diff_add,
+                    PhantomKind::Badge => self.palette.diff_changed,
+                    // A stopped embed is a name the reader can act on, so it wears the
+                    // link colour rather than a diff colour.
+                    PhantomKind::EmbedBadge => self.palette.link,
+                    PhantomKind::Embed => self.palette.ui_fg,
+                },
+                ..RunStyle::plain(&self.palette)
+            };
+            vec![style.text_run(self.text.len(), &base_font)]
         };
-        window.text_system().shape_line(
-            self.text.clone(),
-            px(self.size),
-            &[style.text_run(self.text.len(), &base_font)],
-            None,
-        )
+        window.text_system()
+            .shape_line(self.text.clone(), px(self.size), &runs, None)
     }
 
     fn paint(
@@ -128,6 +191,11 @@ impl Element for PhantomLine {
         window: &mut Window,
         cx: &mut App,
     ) {
+        // The bar, continued down the phantom rows so the block reads as one thing: for
+        // a proposal, the struck lines and their replacements; for an embed, every row of
+        // the borrowed body however deeply nested. It sits in the gutter whatever the
+        // row's indent, so nesting steps the text and not the edge it hangs from.
+        //
         // The hunk's bar, continued down the phantom rows so the proposal reads as one
         // block: struck lines, then the lines that would replace them. It sits in the
         // gutter, at the same x the struck rows put theirs, and the phantom text stays in
@@ -143,7 +211,7 @@ impl Element for PhantomLine {
             rgb(self.bar()),
         ));
         if let Err(err) = line.paint(
-            gpui::point(bounds.left(), bounds.top()),
+            gpui::point(self.text_x(bounds), bounds.top()),
             self.height(),
             gpui::TextAlign::default(),
             None,

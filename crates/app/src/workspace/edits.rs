@@ -458,9 +458,16 @@ impl Workspace {
             let Some(editor) = tab.editor() else {
                 continue;
             };
+            let path = tab.path().map(|p| p.to_path_buf());
+            let notes = self.entries.clone();
             editor.update(cx, |editor, cx| {
                 editor.set_known_links(self.known.clone(), cx);
                 editor.set_vault(Rc::clone(&vault), self.attachments.clone(), cx);
+                // The disk moved, so every embed body this note is showing is a guess
+                // about another file (roadmap P4.0a). `set_embed_context` refreshes the
+                // note list; `invalidate_embeds` drops the bodies the old list answered.
+                editor.set_embed_context(path.as_deref(), notes, cx);
+                editor.invalidate_embeds(cx);
             });
         }
         cx.notify();

@@ -13,6 +13,7 @@
 
 mod actions;
 mod input;
+pub(crate) mod embeds;
 pub(crate) mod overlay;
 mod render;
 mod wrap;
@@ -216,6 +217,9 @@ pub struct MarkdownEditor {
     /// by proposal id and hunk. Transient: it belongs to the frame, not to the queue,
     /// and a proposal that goes stale and comes back is offered open again.
     collapsed_inline: HashSet<(SharedString, usize)>,
+    /// The bodies of this note's `![[transclusions]]`, cached across frames and dropped
+    /// when the vault changes (roadmap P4.0a).
+    embeds: embeds::Cache,
     dirty: bool,
 }
 
@@ -253,6 +257,7 @@ impl MarkdownEditor {
             cursor_dim: false,
             pending_edits: Vec::new(),
             collapsed_inline: HashSet::new(),
+            embeds: embeds::Cache::new(),
             dirty: false,
         }
     }
@@ -266,6 +271,26 @@ impl MarkdownEditor {
 
     /// Tell the editor which vault the note came from and what attachments it
     /// holds, so a row that is only an image embed can be painted as the picture.
+    /// What the editor cannot discover for itself about transclusion: which note it is
+    /// showing (the first link in the chain that stops an embed loop) and what notes the
+    /// vault holds (what a link target resolves against).
+    pub(crate) fn set_embed_context(
+        &mut self,
+        host: Option<&std::path::Path>,
+        notes: Vec<shale_core::vault::VaultEntry>,
+        cx: &mut Context<Self>,
+    ) {
+        self.embeds.set_host(host.unwrap_or(std::path::Path::new("")));
+        self.embeds.set_entries(notes);
+        cx.notify();
+    }
+
+    /// The vault moved: every cached embed body is now a guess.
+    pub(crate) fn invalidate_embeds(&mut self, cx: &mut Context<Self>) {
+        self.embeds.invalidate();
+        cx.notify();
+    }
+
     pub fn set_vault(
         &mut self,
         vault: Rc<Vault>,

@@ -272,6 +272,10 @@ impl Workspace {
         // settings the session is already using.
         editor.update(cx, |editor, cx| {
             editor.set_vault(Rc::clone(&self.vault), self.attachments.clone(), cx);
+            // A tab that has no path yet can still hold `![[embeds]]`: they resolve
+            // against the vault's notes, with no host for the loop chain until the tab
+            // gets a name (roadmap P4.0a).
+            editor.set_embed_context(None, self.entries.clone(), cx);
             editor.set_known_links(self.known.clone(), cx);
             editor.set_palette(Rc::clone(&self.palette), cx);
             editor.set_font_size(self.config.appearance.font_size, cx);

@@ -996,7 +996,27 @@ edges, query nodes, MCP canvas tools) is P6.10.
   editable transclusion as one of the two pillars of "custom renderer as advantage,
   not liability", and P4.3/P5/P6.10 all lean on a resolver that no phase owned and no
   code has. Split by dependency:
-  - **P4.0a read-only embeds — NEXT UP (started 2026-11-06).** `![[note]]` and
+  - **P4.0a read-only embeds — mostly landed (2026-11-06).** What ships: the
+    resolver (`crates/core/src/transclude.rs` — parse, resolve through the vault's
+    link table, cut the anchored section, expand nested embeds, depth cap, chain),
+    the body cache (`crates/app/src/editor/embeds.rs` — references re-scanned from
+    the buffer every frame, bodies cached and dropped when the vault or the host
+    changes), and the paint (`PhantomKind::Embed` — the body hangs under its
+    `![[…]]` row with a rule in the gutter, stepped right per nesting level, styled
+    by the source note's markdown). Badges cover the cap and the chain. 14 core + 9
+    app tests.
+    **What is left in this item, in the order they bite:**
+    1. **Marker hiding.** An embed's rows show their own `#`, `**` and backticks
+       while the host note hides them, so an embedded heading reads raw next to a
+       live one. The spans are already computed over the whole body; what is missing
+       is the `PieceMap` treatment the note's own rows get. This is the one a user
+       sees immediately — confirmed in a live window, not inferred.
+    2. **`gd` on an embed** jumps into the embedded note, and `gd` on a wikilink
+       *inside* an embed jumps to that link. Needs a hit-test from a phantom row
+       back to the body row under it.
+    3. Click-to-open and the hover preview card (P6.2's embed case).
+    4. `![[query-name]]` for `.shq` results waits on P4.3; block refs (`^abc`) on P4.9.
+    Original framing: `![[note]]` and
     `![[note#heading]]` resolve through the existing link resolver and paint the
     target's lines inside the host; the host's buffer is untouched, the embed is a
     view. **It rides P2.5b's phantom rows** (`crates/app/src/editor/overlay.rs`,
@@ -1318,7 +1338,10 @@ P7.3 / P7.4. P7.6 gates on the same provenance/filter work as P4.8.
 9. **Daily-note defaults** (P4.11) — folder, filename format, and whether the template
    hook is P6.4's variable syntax or a plain file copy. Deciding the format late means
    migrating a year of notes.
-10. **Embed badge vs stub** (P4.0a) — a too-deep embed shows a name badge today in the
-    ruling. Unsettled: whether a *broken* embed (`![[missing]]`) shows the same badge,
-    a distinct one, or offers `gD`-style creation. Same surface, two very different
-    messages; decide before it is painted.
+10. **Embed badge vs stub** (P4.0a) — **partly settled in code (2026-11-06):** a
+    too-deep embed and an embed already on the chain show a name badge (the author's
+    alias if they gave one); a *broken* embed and an anchor that names no heading show
+    nothing at all, leaving the `![[…]]` line as written, because raw text is the honest
+    placeholder and an empty block reads as a successful embed. Still unsettled: whether
+    a broken embed should get its own badge, a distinct one, or offer `gD`-style
+    creation — that is P6.9's pass, and the code leaves the room for it.

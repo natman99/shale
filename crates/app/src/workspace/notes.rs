@@ -66,6 +66,9 @@ impl Workspace {
         // The graph tab is never turned into a note tab, so a note opened while the
         // graph is on screen moves the frame first (see [`Workspace::note_tab`]).
         let index = self.note_tab(cx);
+        // The note list an embed target resolves against, taken before the tab is
+        // borrowed (roadmap P4.0a).
+        let notes = self.entries.clone();
         match self.vault.read(path) {
             Ok(text) => {
                 tracing::debug!(path = %path.display(), bytes = text.len(), "opened note");
@@ -74,7 +77,12 @@ impl Workspace {
                 } = &mut self.pane_mut().tabs[index].content
                 {
                     *slot = Some(path.clone());
-                    editor.update(cx, |editor, cx| editor.set_text(text.clone(), cx));
+                    editor.update(cx, |editor, cx| {
+                        editor.set_text(text.clone(), cx);
+                        // What this note embeds is resolved relative to *it*, and its
+                        // links resolve against the notes on disk now.
+                        editor.set_embed_context(Some(path), notes.clone(), cx);
+                    });
                 }
                 // A note that has just come into the view needs its proposals now, not
                 // on the next tick of the queue beat (roadmap P2.5b).
