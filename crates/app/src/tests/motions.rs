@@ -763,6 +763,39 @@ fn text_objects_through_the_keymap(cx: &mut TestAppContext) {
 /// `;` and `,` repeat the last find, and they are new bindings: the point of this
 /// test is that the keystroke reaches the engine at all.
 #[gpui::test]
+fn registers_through_the_keymap(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.bind_keys(keybindings()));
+
+    let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+    let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+    editor
+        .update(cx, |editor, window, cx| {
+            editor.set_text("one two three".to_string(), cx);
+            let focus = editor.focus_handle(cx);
+            window.focus(&focus, cx);
+        })
+        .unwrap();
+    let text =
+        |cx: &mut VisualTestContext| editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
+
+    // `"ay` yanks into register `a`, `dw` deletes into the unnamed register, and
+    // `"ap` pastes `a` back. The `"` prefix needs no new binding: `"` is already
+    // bound so the quote text object can reach the engine.
+    cx.simulate_keystrokes(r#"0 " a y w d w " a p"#);
+    assert_eq!(text(cx), "tone wo three", "register a survived the delete");
+
+    // The black hole: `"_dw` deletes without touching the unnamed register, so the
+    // earlier yank is still what `p` pastes.
+    editor
+        .update(cx, |editor, _window, cx| {
+            editor.set_text("one two three".to_string(), cx);
+        })
+        .unwrap();
+    cx.simulate_keystrokes(r#"0 y w " _ d w p"#);
+    assert_eq!(text(cx), "tone wo three", "the black hole left the yank alone");
+}
+
+#[gpui::test]
 fn find_repeats_through_the_keymap(cx: &mut TestAppContext) {
     cx.update(|cx| cx.bind_keys(keybindings()));
 

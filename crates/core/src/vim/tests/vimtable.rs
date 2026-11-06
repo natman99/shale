@@ -78,6 +78,17 @@ const CASES: &[(&str, usize, &str)] = &[
     ("a (b c) d\n", 4, "ci("),
     ("a (b c) d\n", 4, "yi("),
     ("hello world foo bar\n", 0, "y2iw"),
+    // Registers. The rules here came out of vim's own `:reg` dump, and the
+    // harness has to run vim with -N -u NONE -i NONE to see them at all.
+    ("one two three\n", 0, r#""aywp"#),
+    ("one two three\n", 0, r#""ayw"0p"#),
+    ("one two three\n", 0, r#"ywp"#),
+    ("one two three\n", 0, r#"dw"1p"#),
+    ("one two three\n", 0, r#"dw"-p"#),
+    ("one\ntwo\nthree\n", 0, r#"dd"1p"#),
+    ("one\ntwo\nthree\n", 0, r#"dd"2p"#),
+    ("one\ntwo\nthree\n", 0, r#""add"1p"#),
+    ("one two three\n", 0, r#"yw"_dwp"#),
 ];
 
 #[test]

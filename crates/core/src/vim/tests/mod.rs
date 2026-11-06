@@ -15,6 +15,7 @@ mod objects;
 mod tables;
 mod find_repeat;
 mod gv;
+mod registers;
 mod join;
 mod pairs;
 mod vimtable;

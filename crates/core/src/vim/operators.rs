@@ -9,11 +9,36 @@ use crate::mdstyle;
 use crate::table;
 use crate::table::Located;
 
-use super::{repeat, Key, Operator, Outcome, Pending, Register, Vim};
+use super::{repeat, Key, OpKind, Operator, Outcome, Pending, Register, Vim};
 
 impl Vim {
-    /// Apply `op` over `count` repetitions of the motion `key`.
+    /// Apply `op` over `count` repetitions of the motion `key`, then file the
+    /// text it took into the registers vim would have used.
     pub(super) fn apply_operator(
+        &mut self,
+        op: Operator,
+        count: usize,
+        key: Key,
+        buf: &mut Buffer,
+    ) -> Outcome {
+        let before = self.begin_register_op();
+        // A yank does not move the cursor: `0ywp` pastes where the yank started,
+        // not where its motion ended. Verified against vim.
+        let mark = buf.cursor();
+        let outcome = self.apply_operator_inner(op, count, key, buf);
+        if op == Operator::Yank {
+            buf.set_cursor(mark);
+        }
+        let kind = match op {
+            Operator::Yank => OpKind::Yank,
+            Operator::Delete => OpKind::Delete,
+            Operator::Change => OpKind::Change,
+        };
+        self.commit_register_op(kind, before);
+        outcome
+    }
+
+    fn apply_operator_inner(
         &mut self,
         op: Operator,
         count: usize,
@@ -267,9 +292,10 @@ impl Vim {
         Outcome::Stay
     }
 
-    /// Paste the register after (`p`) or before (`P`) the cursor.
+    /// Paste the register after (`p`) or before (`P`) the cursor — the register a
+    /// `"` prefix chose if there was one, the unnamed one otherwise.
     pub(super) fn paste(&mut self, after: bool, buf: &mut Buffer) {
-        let Some(reg) = self.register.clone() else {
+        let Some(reg) = self.paste_register() else {
             return;
         };
         let len = buf.text().len();

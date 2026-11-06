@@ -5,7 +5,7 @@
 
 use crate::buffer::Buffer;
 
-use super::{Key, Mode, Outcome, Pending, Register, VisualRecord, Vim};
+use super::{Key, Mode, OpKind, Outcome, Pending, Register, VisualRecord, Vim};
 
 impl Vim {
     /// Visual mode: motions extend the selection, operators act on it.
@@ -107,24 +107,35 @@ impl Vim {
                 };
                 let linewise = self.mode == Mode::VisualLine;
                 let text = buf.text()[lo..hi].to_string();
+                let before = self.begin_register_op();
                 self.exit_visual(buf);
-                match key {
-                    Key::Char('y') => self.register = Some(Register { text, linewise }),
+                let kind = match key {
+                    Key::Char('y') => {
+                        self.register = Some(Register { text, linewise });
+                        OpKind::Yank
+                    }
                     Key::Char('p') => {
+                        let reg = self.paste_register().map(|r| r.text).unwrap_or_default();
                         buf.delete_range(lo, hi);
-                        let reg = self.register.clone().map(|r| r.text).unwrap_or_default();
                         buf.insert_at(lo, &reg);
+                        // The selection the paste overwrote goes to the unnamed
+                        // register, as it does in vim.
+                        self.register = Some(Register { text, linewise });
+                        OpKind::Delete
                     }
                     Key::Char('c') | Key::Char('s') => {
                         self.register = Some(Register { text, linewise });
                         buf.delete_range(lo, hi);
+                        self.commit_register_op(OpKind::Change, before);
                         return Outcome::EnterInsert;
                     }
                     _ => {
                         self.register = Some(Register { text, linewise });
                         buf.delete_range(lo, hi);
+                        OpKind::Delete
                     }
-                }
+                };
+                self.commit_register_op(kind, before);
                 Outcome::Stay
             }
             // Everything else is a motion.

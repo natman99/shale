@@ -1489,6 +1489,23 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   with the cursor on the end it was on. The memory is of the last *area*, kept even
   when an operator consumed it, so `viwd` then `gvd` deletes the same text twice, as
   in vim. No new bindings: `g` and `v` already reach the engine.
+- **Registers — done**: `"` before an operator or a paste picks the register. `a`-`z`,
+  `0`, `1`-`9`, `"-`, `"_`. No new bindings: `"` was already bound so the quote text
+  object could reach the engine, and the engine now reads a bare `"` as the register
+  prefix. Three rules were read out of vim's own `:reg` dump rather than assumed, and
+  two are not what you would guess: a `"`-named register **also** fills the unnamed
+  one (the prefix picks an *extra* register, it does not hide the operation), and a
+  delete reaches the numbered list only when it took a whole line or crossed one — a
+  small charwise delete goes to `"-` and leaves the numbers alone.
+- **A yank does not move the cursor** (fixed alongside): `0ywp` pastes where the yank
+  started, not where its motion ended.
+- **The cross-check harness was lying by omission** until 2026-11-05: `vim -es` runs
+  in *compatible* mode and loads the user's vimrc and viminfo, which is a different
+  vim from the one anyone types in — compatible mode does not fill numbered registers
+  at all. Both `scripts/vimcrosscheck.py` and the scratch probe now run
+  `vim -es -N -u NONE -i NONE`. The count went 53/55 → 62/64 with the nine register
+  cases added; the two holdouts are still the `"` quote object and the paragraph
+  object.
 - **Not implemented yet in vim mode** (re-checked 2026-11-05 against the engine: still
   only the unnamed register, no case/replace operators, no blockwise visual): `C`/`S` in visual, repeating a text
   object in visual to extend it, `i[`/`a[` in visual mode (the `[`/`]` bindings live

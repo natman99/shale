@@ -61,6 +61,12 @@ the pane you are standing in — the tab is stolen whole
 
 ## The note — normal mode
 
+**Registers.** `"` before an operator or a paste picks the register it works with:
+`"ayw` yanks the word into `a`, `"ap` pastes it back. `a`-`z` are yours, `0` holds
+the last plain yank, `1`-`9` the recent line deletes, `"-` the most recent small
+delete (`dw`, `d$`), `"_` is a black hole that swallows what you delete into it. A
+named register also fills the unnamed one, so `"ayw` then a plain `p` still pastes.
+
 **Motions.** `h` `j` `k` `l` (screen-line aware across soft wraps), `w` `b` `e`,
 `W` `B` `E` (a WORD is delimited only by blanks, so `**bold**`, `[[a link]]` and
 `code.rs` are one step rather than three), `0` `^` `$`, `gg` / `G`, `f` `t` `F` `T`

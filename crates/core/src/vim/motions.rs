@@ -260,6 +260,21 @@ impl Vim {
             return self.apply_operator(op, count * motion_count, key, buf);
         }
 
+        // A `"` in progress takes the register name, and the count typed before
+        // it (`"a3p`) belongs to what follows.
+        if let Pending::Register { count } = self.pending {
+            self.pending = Pending::None;
+            self.count = None;
+            return match key {
+                Key::Char(c) if Vim::register_name(c) => {
+                    self.pending_register = Some(c);
+                    self.count = Some(count);
+                    Outcome::Stay
+                }
+                _ => Outcome::Unhandled,
+            };
+        }
+
         if let Pending::Goto { count } = self.pending {
             self.pending = Pending::None;
             let count = self.count.take().unwrap_or(count);
@@ -423,6 +438,14 @@ impl Vim {
             }
             Key::Char('g') => {
                 self.pending = Pending::Goto { count };
+                return Outcome::Stay;
+            }
+            // `"` picks the register the next operator or paste works with. The
+            // double-quote text object is spelled `i"` / `a"`, which the
+            // text-object path resolves before this arm is reached, so a bare `"`
+            // is free to mean vim's register prefix.
+            Key::Char('"') => {
+                self.pending = Pending::Register { count };
                 return Outcome::Stay;
             }
             Key::Char('z') => {

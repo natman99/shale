@@ -52,7 +52,12 @@ def vim_answer(text, cursor, keys):
     row = text[:cursor].count("\n") + 1
     col = cursor - text[:cursor].rfind("\n")  # 1-based column of the byte offset
     script = ["normal! gg", f"call cursor({row},{col})", f"normal! {keys}"]
-    args = ["vim", "-es", str(src)]
+    # -N: not compatible mode (compatible mode leaves numbered registers 1-9
+    #     unused, so it is a different vim from the one users run).
+    # -u NONE / -i NONE: no vimrc, no viminfo. Without these the user's own
+    #     settings and previous session leak into the answer, which is how a
+    #     cross-check starts lying without saying so.
+    args = ["vim", "-es", "-N", "-u", "NONE", "-i", "NONE", str(src)]
     for line in script:
         args += ["-c", line]
     args += ["-c", f"w! {dst}", "-c", "q!"]

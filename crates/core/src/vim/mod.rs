@@ -4,6 +4,8 @@
 //! mode; in insert mode all text goes to the buffer directly and only
 //! [`Vim::handle_insert_key`] is consulted.
 
+use std::collections::HashMap;
+
 use crate::buffer::Buffer;
 
 mod motions;
@@ -83,6 +85,8 @@ enum Pending {
     Operator { op: Operator, count: usize },
     /// `g` typed, waiting for a second `g` or `x`.
     Goto { count: usize },
+    /// `"` typed, waiting for the register name that follows it.
+    Register { count: usize },
     /// `f`/`t`/`F`/`T` typed, waiting for the character to find. `op` is set for
     /// `dfw`-style commands, so the operator resumes once the search resolves.
     Find {
@@ -183,6 +187,16 @@ pub enum Outcome {
     ToggleTree,
 }
 
+/// What an operation did to the text it took, which decides which of vim's
+/// automatic registers it lands in: a yank also fills `0`, a delete also pushes
+/// the recent-delete list, a change neither.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OpKind {
+    Yank,
+    Delete,
+    Change,
+}
+
 /// The unnamed register, holding the last yank or delete.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Register {
@@ -219,6 +233,13 @@ pub struct Vim {
     last_find: Option<FindRecord>,
     /// The selection `gv` would put back.
     last_visual: Option<VisualRecord>,
+    /// Named and numbered registers, keyed by vim's name: `a`-`z` are the named
+    /// ones, `0` holds the last yank, `1`-`9` the recent deletes (newest first),
+    /// `_` is the black hole, which swallows what it is given. The unnamed
+    /// register is `self.register` above.
+    registers: HashMap<char, Register>,
+    /// The register a `"` prefix chose for the next operator or paste.
+    pending_register: Option<char>,
     /// The key just typed was a plain `space` motion, so the next key may be one
     /// of Shale's leader chords (`f` quick-open, `s` vault search, and the three
     /// views `r` / `l` / `p`) rather than a find. The space motion itself is
@@ -255,6 +276,8 @@ impl Vim {
             insert_session: false,
             last_find: None,
             last_visual: None,
+            registers: HashMap::new(),
+            pending_register: None,
             after_space: false,
             after_bracket: None,
         }
@@ -304,7 +327,10 @@ impl Vim {
     pub fn waiting_for_literal(&self) -> bool {
         matches!(
             self.pending,
-            Pending::Find { .. } | Pending::TextObject { .. } | Pending::Replace { .. }
+            Pending::Find { .. }
+            | Pending::TextObject { .. }
+            | Pending::Replace { .. }
+            | Pending::Register { .. }
         )
     }
 
@@ -314,6 +340,96 @@ impl Vim {
     /// because `space p` is the preview chord and `dip` is the paragraph object.
     pub fn awaiting_chord(&self) -> bool {
         self.after_space || self.after_bracket.is_some() || !matches!(self.pending, Pending::None)
+    }
+
+    /// Whether `c` is a name vim accepts after `"`.
+    fn register_name(c: char) -> bool {
+        matches!(c, 'a'..='z' | '0'..='9' | '_' | '-' | '"')
+    }
+
+    /// Snapshot the unnamed register before an operation. A `"`-chosen register
+    /// takes the text without the unnamed register being clobbered, which is what
+    /// vim does, and this is what puts it back.
+    fn begin_register_op(&self) -> Option<Register> {
+        self.register.clone()
+    }
+
+    /// File what the operation just left in the unnamed register. The rules here
+    /// were read out of vim's own `:reg` output, and two of them are not what you
+    /// would guess:
+    ///
+    /// - A `"`-named register takes the text *and the unnamed register does too*
+    ///   (`"ayw` then `p` pastes it), but it does not touch the automatic ones.
+    /// - Only a yank with no target fills `0`.
+    /// - A delete fills the recent-delete list `1`-`9` only when it took a whole
+    ///   line or crossed one. A small charwise delete — `dw`, `d$` — goes to the
+    ///   small-delete register `"-` instead, and the numbered ones stay put.
+    fn commit_register_op(&mut self, kind: OpKind, before: Option<Register>) {
+        let target = self.pending_register.take();
+        let fresh = match self.register.clone() {
+            Some(fresh) => fresh,
+            None => return,
+        };
+        // An operation that was cancelled before it took anything leaves the
+        // unnamed register holding what it already held; filing that would
+        // overwrite the target with stale text. The check is against the target,
+        // not just the unnamed register: `"ayw` then `"bw` on the same word is a
+        // real yank into a register that has never held it.
+        let unchanged = Some(&fresh) == before.as_ref()
+            && target.is_none_or(|name| self.registers.get(&name) == Some(&fresh));
+        if unchanged {
+            return;
+        }
+        // The black hole swallows the text and leaves the unnamed register as it
+        // was. `""` names the unnamed register itself, which is what happens with
+        // no prefix at all.
+        if target == Some('_') {
+            self.register = before;
+            return;
+        }
+        let target = target.filter(|name| *name != '"');
+        if let Some(name) = target {
+            self.registers.insert(name, fresh.clone());
+        }
+        if kind == OpKind::Yank && target.is_none() {
+            self.registers.insert('0', fresh.clone());
+        }
+        if kind == OpKind::Delete {
+            let big = fresh.linewise || fresh.text.contains('\n');
+            if big {
+                for slot in (2..=9).rev() {
+                    let from = char::from_digit(slot - 1, 10).unwrap();
+                    let to = char::from_digit(slot, 10).unwrap();
+                    if let Some(prev) = self.registers.get(&from) {
+                        let prev = prev.clone();
+                        self.registers.insert(to, prev);
+                    }
+                }
+                self.registers.insert('1', fresh);
+            } else {
+                self.registers.insert('-', fresh);
+            }
+        }
+    }
+
+    /// The register a paste would take: the one a `"` prefix chose, or the unnamed
+    /// one.
+    fn paste_register(&mut self) -> Option<Register> {
+        match self.pending_register.take() {
+            Some(name) => self.registers.get(&name).cloned(),
+            None => self.register.clone(),
+        }
+    }
+
+    /// Every register the engine holds, for tests and for a `:reg`-style command.
+    pub fn register_dump(&self) -> Vec<(char, String)> {
+        let mut rows: Vec<(char, String)> = self
+            .registers
+            .iter()
+            .map(|(name, reg)| (*name, reg.text.clone()))
+            .collect();
+        rows.sort();
+        rows
     }
 
     /// The unnamed register's text, if anything has been yanked or deleted. The UI
