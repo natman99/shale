@@ -49,7 +49,9 @@ and live MCP per vault), per-window session slots, and remembered window frames
 exit path was re-measured clean (PROGRESS.md, 2026-11-04). Still unbuilt from
 the original Goals list: Database tables/Obsidian-bases (P4.3 `.shq`), PDF
 export, Templates, tree-sitter code highlighting.
-**What is being built now (2026-11-06): P4.0a, read-only transclusion** — the first
+**What is being built now (2026-11-06): P4.0a, read-only transclusion** (mostly landed;
+its P4.0b design pass is also done — `transclusion-plan.md` — and if P4.0b is picked up,
+**P4.17, the buffer registry, is its first commit**) — the first
 Phase 4 item, chosen because P4.3, P5 and canvas C3 all wait on that resolver and
 because P2.5b's phantom rows already solved the hard rendering problem it shares
 (content painted inside a note that is not in the note's buffer). P3.2's
@@ -1036,13 +1038,25 @@ edges, query nodes, MCP canvas tools) is P6.10.
     (clickable, no content). `gd` on an embed jumps into the embedded note; `gd` with
     the cursor on a wikilink *inside* an embed jumps to that link. This half alone
     unblocks `![[query-name]]` in P4.3 and the embed case of P6.2.
-  - **P4.0b editable in place.** Edits flow to the source buffer. The hard parts are
-    ruled, not guessed: undo is buffer-local with a seam indicator (when local undo is
-    exhausted the next `ctrl-z` reports "next undo is in `[[morgoth]]`" instead of
-    beeping); each note keeps its own dirty state; save/autosave covers host + embeds
-    together; closing a host with a dirty embed warns through the dirty-tab machinery;
-    the host never *silently* saves the embed. **The interaction design pass is still
-    owed** (cursor handoff, scroll sync) — the behavior is decided, the feel is not.
+  - **P4.0b editable in place.** **Interaction design pass done 2026-11-06** — rulings,
+    a 36-case edge ledger and milestones M0-M4 are in `transclusion-plan.md`; eight open
+    questions there await a ruling (Q1-Q8). Behavior was already ruled (undo buffer-local
+    with a seam indicator; per-note dirty state; save/autosave covering host + embeds;
+    closing a host with a dirty embed warns; never *silently* saving the embed). Ruled now:
+    enter by click or `ctrl-]`, exit with `ctrl-o` (the jump chain, not a new stack), one
+    level of editing, one scroll axis (the host's), the seam stops everything
+    buffer-scoped, one caret per note per window, dirty display transitive.
+    **Its first commit is a refactor, not a feature.** An editable embed would be the
+    second holder of a note the one-note-per-window invariant forbids (`open_note` *steals*
+    a tab so a note is open once per window), and `shale_core::Buffer` holds model
+    (`text`/`undo`/`redo`), caret (`cursor`/`selection`/`desired_col`) **and per-view state**
+    (`display_segments`, `folds`, `read_only`) in one bag, held **by value** inside
+    `MarkdownEditor` — while `dirty` sits on the wrong side, per-view in the editor. So:
+    **M0** lift the per-view trio into a `ViewState` (~14 core sites, nearly free), **M1**
+    put the model in a per-window registry keyed by path (`Entity<Buffer>`; 132
+    `self.buffer` sites in 6 app files, 0 in tests) and move `dirty` onto the entry, then
+    **M2** the row list spans buffers, **M3** entry/exit, **M4** the save story. Building
+    the visible feature first turns the tab-plus-embed collision into shipped behavior.
   - **Test bar:** dirty state across the boundary is one of the cases the "app-side
     testing bar" rule names — a headless integration test, not eyeballs.
 - **P4.1 Time machine** (brainstorm ✅): diff-based snapshots in `.shale`,
@@ -1140,6 +1154,21 @@ edges, query nodes, MCP canvas tools) is P6.10.
   Saved, named graph filters over the existing filter model — the constellation filter
   and `region:` props already do the mechanics; a lens is a saved filter with a name
   and a keybinding. Tag colouring rides P4.4's "color assignment → graph groups".
+
+- **P4.17 One note, one buffer per window (the registry)** — **added 2026-11-06 by the
+  P4.0b design pass; it is P4.0b's first commit, not a later cleanup.** A per-window
+  `path → Entity<Buffer>` registry that tabs *and* embeds borrow from, so a note is open
+  once per window whether it got there by tab or by embed. Today `MarkdownEditor` holds a
+  `Buffer` by value and each tab owns its editor, so two views of one note means two
+  copies of the text with two undo stacks and two dirty flags. Prerequisite: M0, lifting
+  `display_segments`, `folds`/`fold_cache` and `read_only` out of `Buffer` into per-view
+  state (they are per-view today — two panes at different widths wrap the same text
+  differently, and one note can be Preview in a tab and Live in an embed). `dirty` moves the
+  other way, onto the entry. `apply_disk_changes` then walks the registry instead of the tab
+  list, and both write paths (`write_tab`, `autosave`) cover entries no tab holds.
+  **Worth landing on its own:** it is also what makes a preview pane beside a live editor,
+  the same note in two panes, and cross-window consistency possible at all, and it retires
+  the last-writer-wins hazard between a dirty tab and an outside write.
 
 **Exit criteria:** restore any note to any retained point; a `.shq` embedded in
 three notes renders live and refreshes on edit; tag rename rewrites every note
@@ -1379,3 +1408,12 @@ P7.3 / P7.4. P7.6 gates on the same provenance/filter work as P4.8.
     placeholder and an empty block reads as a successful embed. Still unsettled: whether
     a broken embed should get its own badge, a distinct one, or offer `gD`-style
     creation — that is P6.9's pass, and the code leaves the room for it.
+11. **Editable-embed edge cases** (P4.0b / P4.17) — **Q1-Q8 in `transclusion-plan.md`
+    §7**, each with a recommendation: where a dirty embed with no tab lives (recommend:
+    materialise a tab), the same note embedded twice in one host (recommend: first
+    occurrence real, later a badge), whether clicking host text exits an embed (recommend:
+    yes), which note `:rename` / `:w <name>` act on from inside an embed, what happens when
+    the section an entered embed was cut from disappears under the caret (recommend: exit
+    with a status line), whether agent proposals paint inside embeds (recommend: defer to
+    P4.2), what `:q` closes from inside an embed (recommend: the host's tab), and whether
+    the entered embed rides the session file (recommend: no).

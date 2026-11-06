@@ -314,7 +314,7 @@ Asked 2026-11-05 ("do we have copy and paste in the file tree?") — no: the tre
   unaffected).
 
 ### Editable transclusion ✅ (roadmap **P4.0** — a read-only embeds, b editable in
-place; the interaction design pass is owed before b)
+place; the interaction design pass is **done 2026-11-06**, in `transclusion-plan.md`)
 - `![[note#section]]` rendered live and editable in place; edits flow to the
   source buffer. Cheap for us (we own buffer + renderer); this pattern is unusual
   because web-tech editors (Obsidian) make it hard — for us it's natural.
@@ -336,6 +336,23 @@ place; the interaction design pass is owed before b)
   embeds render as a **badge/sticker showing the note name** (clickable, but no
   content). `gd` on an embed jumps into the embedded note; `gd` with the cursor
   on a wikilink *inside* an embed jumps to that link instead.
+- **Interaction pass ruled (2026-11-06), full text in `transclusion-plan.md`:**
+  - **Enter** by clicking inside the body, or `ctrl-]` on the embed's own `![[…]]` row
+    (vim's tag jump, free in Shale; `gr` rejected — it is vim's virtual replace).
+    **Exit** with `ctrl-o`: vim records tag jumps in the jump list, so this is what a vim
+    user already does, and Shale's jump chain already lands on the exact byte — the embed
+    stack *is* the jump chain, not a second stack. `<esc>` never exits.
+  - **One level of editing** (level-1 embeds only; nested stay read-only), and the status
+    bar names the note the caret is in.
+  - **One scroll axis: the host's.** No nested scroll fields — "feels too much like a
+    browser and it gets confusing fast". A long embed is scrolled *through*.
+  - **The seam is a buffer boundary and everything buffer-scoped stops there** — motions,
+    counts, `gg`/`G`, search, folds, the ruler, undo. Stated so screen motions fall out:
+    *the view scrolls freely; the caret never crosses the seam on its own.*
+  - **One caret per note per window.** The caret stays in `Buffer`; a tab and an embed of
+    one note share text *and* caret. Per-view carets are the expensive half, not taken.
+  - **Dirty display is transitive, dirty state is per file**: the host tab's dot lights if
+    the host or any embed it renders is dirty; `:w` inside an embed writes both.
 
 ### Focus / typewriter mode ✅ (semantic version ruled 2026-10-29)
 - **Dim by semantic unit, not distance:** everything except the current unit

@@ -1528,7 +1528,23 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   `PieceMap` path, spans re-based onto the painted text, curly quotes, and heading text
   sized by level — because an embedded heading at body size reads as wrong even once its
   `#` is gone. `gd` into an embed and click-to-open are still open.
-- **Inline review overlay (roadmap P2.5b) — done**: a queued proposal is now painted in
+- **Editable transclusion (roadmap P4.0b) — design pass done 2026-11-06, nothing built;
+  `transclusion-plan.md` is canonical.** The binding rule that gates the build: **a note is
+  open once per window, whether it got there by tab or by embed.** An editable embed is the
+  first second holder that invariant would forbid, so the registry (roadmap **P4.17**:
+  per-window `path → Entity<Buffer>`, borrowed by tabs and embeds alike) is P4.0b's *first*
+  commit, not a later cleanup — building the visible feature first ships the tab-plus-embed
+  collision as a bug. That requires splitting what `shale_core::Buffer` conflates: model
+  (`text`/`undo`/`redo`) to the registry, per-view state (`display_segments`, `folds`,
+  `read_only`) out to the view, and `dirty` — which sits per-view in the editor today — onto
+  the entry. The caret deliberately stays in the buffer: **one caret per note per window**,
+  the same invariant the tab bar already enforces. Interaction rulings: enter by click or
+  `ctrl-]` (vim's tag jump), exit by `ctrl-o` (the jump chain, not a new stack), one level of
+  editing, one scroll axis (the host's), and **the seam is a buffer boundary — everything
+  buffer-scoped stops there**, stated as *the view scrolls freely, the caret never crosses on
+  its own* so `ctrl-d`/`ctrl-f` fall out correctly. Eight edge-case questions await a ruling
+  (§7 of the plan, and roadmap open decision 11).
+- **Inline review overlay (roadmap P2.5b) — done: a queued proposal is now painted in
   the note it belongs to, not only in the strip. The ruled shape that made this cheap:
   a **removal is not phantom** — the line is already in the buffer, so the note's own row
   is struck through in `diff_delete` with the hunk's bar down its left edge. Only
