@@ -6,7 +6,7 @@
 //! stepping: they move the cursor from cell to cell without ever landing in the
 //! padding or on the delimiter row.
 
-use crate::buffer::Buffer;
+use crate::buffer::{Buffer, ViewSlot};
 use crate::table::{self, Cell, Located, Table};
 
 use super::{repeat, Key, Outcome, Vim};
@@ -24,6 +24,7 @@ impl Vim {
         tables: &[Table],
         loc: Located,
         buf: &mut Buffer,
+        view: &ViewSlot,
     ) -> Option<Outcome> {
         let Key::Char(c) = key else {
             return None;
@@ -44,19 +45,19 @@ impl Vim {
                 // Walking off the top of the table leaves it: whatever part of the
                 // count the table did not use becomes the ordinary up motion.
                 Some(leftover) if leftover > 0 => {
-                    repeat(leftover, || buf.move_up());
-                    step_past_rule(table, buf, false);
+                    repeat(leftover, || buf.move_up(view));
+                    step_past_rule(table, buf, view, false);
                 }
                 Some(_) => {}
-                None => buf.move_up(),
+                None => buf.move_up(view),
             },
             'J' => match step_cell_rows(table, loc, count, buf) {
                 Some(leftover) if leftover > 0 => {
-                    repeat(leftover, || buf.move_down());
-                    step_past_rule(table, buf, true);
+                    repeat(leftover, || buf.move_down(view));
+                    step_past_rule(table, buf, view, true);
                 }
                 Some(_) => {}
-                None => buf.move_down(),
+                None => buf.move_down(view),
             },
             'D' => {
                 // Each delete re-locates the cursor, which can shift the table's
@@ -143,15 +144,15 @@ fn step_cell_rows(table: &Table, loc: Located, delta: isize, buf: &mut Buffer) -
 /// if the ordinary line motion landed there, step once more in the same
 /// direction. `table` describes the buffer as the motion saw it (no edits are
 /// involved), so its row offsets are still exact.
-fn step_past_rule(table: &Table, buf: &mut Buffer, down: bool) {
+fn step_past_rule(table: &Table, buf: &mut Buffer, view: &ViewSlot, down: bool) {
     if table
         .row_at(buf.cursor())
         .is_some_and(|row| table.is_delimiter(row))
     {
         if down {
-            buf.move_down();
+            buf.move_down(view);
         } else {
-            buf.move_up();
+            buf.move_up(view);
         }
     }
 }

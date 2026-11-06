@@ -6,6 +6,7 @@
 //! engine actually implements.
 
 use super::*;
+use crate::buffer::ViewSlot;
 
 #[test]
 fn r_replaces_the_character_under_the_cursor() {
@@ -70,7 +71,7 @@ fn r_does_not_take_apart_a_table() {
     let mut vim = Vim::new();
     let mut b = table_buf();
     b.set_cursor(2); // the `a` of the first cell
-    // Replacing across the cell's edge stops at the content: the pipe stays.
+                     // Replacing across the cell's edge stops at the content: the pipe stays.
     type_keys(&mut vim, "4rx", &mut b);
     assert_eq!(
         b.text(),
@@ -116,7 +117,7 @@ fn tilde_repeats_over_the_word() {
     type_keys(&mut vim, ".", &mut b);
     assert_eq!(b.text(), "ABC def");
     assert_eq!(b.cursor(), 3); // the space
-    // The next `.` switches the space — a no-op — and steps again.
+                               // The next `.` switches the space — a no-op — and steps again.
     type_keys(&mut vim, ".", &mut b);
     assert_eq!(b.text(), "ABC def");
     assert_eq!(b.cursor(), 4);
@@ -126,15 +127,15 @@ fn tilde_repeats_over_the_word() {
 fn s_is_cl() {
     let mut vim = Vim::new();
     let mut b = buf();
-    let outcome = vim.handle_normal_key(Key::Char('s'), &mut b);
+    let outcome = vim.handle_normal_key(Key::Char('s'), &mut b, &ViewSlot::new());
     assert_eq!(outcome, Outcome::EnterInsert);
     assert_eq!(b.text(), "ello world\nsecond line\nthird");
     assert_eq!(vim.register_text(), Some("h"));
 
     let mut vim = Vim::new();
     let mut b = buf();
-    vim.handle_normal_key(Key::Char('2'), &mut b);
-    vim.handle_normal_key(Key::Char('s'), &mut b);
+    vim.handle_normal_key(Key::Char('2'), &mut b, &ViewSlot::new());
+    vim.handle_normal_key(Key::Char('s'), &mut b, &ViewSlot::new());
     assert_eq!(b.text(), "llo world\nsecond line\nthird");
     assert_eq!(vim.register_text(), Some("he"));
 }
@@ -144,7 +145,7 @@ fn c_is_c_dollar_and_d_is_d_dollar() {
     let mut vim = Vim::new();
     let mut b = buf();
     b.set_cursor(6); // the `w` of "world"
-    let outcome = vim.handle_normal_key(Key::Char('C'), &mut b);
+    let outcome = vim.handle_normal_key(Key::Char('C'), &mut b, &ViewSlot::new());
     assert_eq!(outcome, Outcome::EnterInsert);
     assert_eq!(b.text(), "hello \nsecond line\nthird");
     assert_eq!(vim.register_text(), Some("world"));
@@ -185,9 +186,13 @@ fn x_is_dh_and_leaves_the_register_when_there_is_nothing_to_delete() {
 fn s_capital_is_cc_and_y_capital_is_yy() {
     let mut vim = Vim::new();
     let mut b = buf();
-    let outcome = vim.handle_normal_key(Key::Char('S'), &mut b);
+    let outcome = vim.handle_normal_key(Key::Char('S'), &mut b, &ViewSlot::new());
     assert_eq!(outcome, Outcome::EnterInsert);
-    assert_eq!(b.text(), "\nsecond line\nthird", "the line is emptied, not deleted");
+    assert_eq!(
+        b.text(),
+        "\nsecond line\nthird",
+        "the line is emptied, not deleted"
+    );
     assert_eq!(vim.register_text(), Some("hello world\n"));
 
     let mut vim = Vim::new();
@@ -198,10 +203,7 @@ fn s_capital_is_cc_and_y_capital_is_yy() {
     // A linewise register pastes as its own line, which is the point of `Y` being
     // `yy` rather than `y$`.
     type_keys(&mut vim, "p", &mut b);
-    assert_eq!(
-        b.text(),
-        "hello world\nhello world\nsecond line\nthird"
-    );
+    assert_eq!(b.text(), "hello world\nhello world\nsecond line\nthird");
 }
 
 #[test]
@@ -235,10 +237,10 @@ fn an_operator_over_nothing_registers_nothing() {
     // insert mode over the empty range.
     let mut vim = Vim::new();
     let mut b = buf();
-    let outcome = vim.handle_normal_key(Key::Char('0'), &mut b);
+    let outcome = vim.handle_normal_key(Key::Char('0'), &mut b, &ViewSlot::new());
     assert_eq!(outcome, Outcome::Stay);
-    vim.handle_normal_key(Key::Char('c'), &mut b);
-    let outcome = vim.handle_normal_key(Key::Char('0'), &mut b);
+    vim.handle_normal_key(Key::Char('c'), &mut b, &ViewSlot::new());
+    let outcome = vim.handle_normal_key(Key::Char('0'), &mut b, &ViewSlot::new());
     assert_ne!(outcome, Outcome::EnterInsert);
     assert_eq!(b.text(), "hello world\nsecond line\nthird");
     assert_eq!(vim.register_text(), None);

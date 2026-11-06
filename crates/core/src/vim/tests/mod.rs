@@ -5,20 +5,20 @@
 //! helpers here build the buffers every subject needs; the subjects are the
 //! submodules.
 
-use crate::buffer::Buffer;
+use crate::buffer::{Buffer, ViewSlot};
 use crate::vim::*;
 
 mod chords;
 mod edits;
-mod motions;
-mod objects;
-mod tables;
 mod find_repeat;
 mod gv;
+mod join;
+mod motions;
+mod objects;
+mod pairs;
 mod registers;
 mod review;
-mod join;
-mod pairs;
+mod tables;
 mod vimtable;
 mod visual;
 mod words;
@@ -50,12 +50,23 @@ fn table_buf_with_context() -> Buffer {
 
 /// Feed a sequence of alt-held printable keys.
 fn type_alt_keys(vim: &mut Vim, c: char, b: &mut Buffer) {
-    vim.handle_normal_key(Key::AltChar(c), b);
+    vim.handle_normal_key(Key::AltChar(c), b, &ViewSlot::new());
 }
 
 /// Feed a sequence of normal-mode keys.
+///
+/// The keys are typed against an **unwrapped** layout: every buffer row is one
+/// display line, which is what the engine's tests assume unless they say
+/// otherwise. A test that cares about soft wrap calls [`type_keys_in`] with a
+/// `ViewSlot` whose segments it measured — the same split the app has, where the
+/// view owns the layout and the buffer answers through it.
 fn type_keys(vim: &mut Vim, keys: &str, b: &mut Buffer) {
+    type_keys_in(vim, keys, b, &ViewSlot::new());
+}
+
+/// As [`type_keys`], with the layout the keys are typed against.
+fn type_keys_in(vim: &mut Vim, keys: &str, b: &mut Buffer, view: &ViewSlot) {
     for c in keys.chars() {
-        vim.handle_normal_key(Key::Char(c), b);
+        vim.handle_normal_key(Key::Char(c), b, view);
     }
 }

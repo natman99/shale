@@ -6,7 +6,7 @@
 //! are in [`crate::vim::operators`], and the table commands in
 //! [`crate::vim::tables`].
 
-use crate::buffer::Buffer;
+use crate::buffer::{Buffer, ViewSlot};
 use crate::table;
 use crate::table::Located;
 
@@ -15,7 +15,12 @@ use super::{char_range, repeat, FindRecord, Key, Mode, Operator, Outcome, Pendin
 
 impl Vim {
     /// The normal-mode state machine: motions, operators and insert transitions.
-    pub(super) fn handle_motion_key(&mut self, key: Key, buf: &mut Buffer) -> Outcome {
+    pub(super) fn handle_motion_key(
+        &mut self,
+        key: Key,
+        buf: &mut Buffer,
+        view: &ViewSlot,
+    ) -> Outcome {
         // The table under the cursor, if any. Parsed per key: the scan is cheap
         // (it bails out at once when the text has no pipe) and every table edit
         // below invalidates it anyway.
@@ -28,7 +33,7 @@ impl Vim {
         if let Key::Char(c @ '0'..='9') = key {
             if !self.waiting_for_literal() {
                 if c == '0' && self.count.is_none() && self.pending == Pending::None {
-                    self.zero_motion(buf);
+                    self.zero_motion(buf, view);
                     return Outcome::Stay;
                 }
                 self.count = Some(self.count.unwrap_or(0) * 10 + (c as usize - '0' as usize));
@@ -115,7 +120,11 @@ impl Vim {
             // The markdown objects and a table cell are single constructs, so a
             // count there is ignored rather than guessed at.
             if matches!(scope, 'w' | 'W' | 'p') {
-                let units = if inner { count } else { count.saturating_mul(2) };
+                let units = if inner {
+                    count
+                } else {
+                    count.saturating_mul(2)
+                };
                 // The object just taken covers unit 1 for `i` and units 1 and 2
                 // for `a` (the word and its gap), so the units left to take start
                 // after that.
@@ -257,7 +266,7 @@ impl Vim {
             self.pending = Pending::None;
             let motion_count = self.count.take().unwrap_or(1);
             // Vim multiplies a count given on both sides of the operator.
-            return self.apply_operator(op, count * motion_count, key, buf);
+            return self.apply_operator(op, count * motion_count, key, buf, view);
         }
 
         // A `"` in progress takes the register name, and the count typed before
@@ -379,7 +388,7 @@ impl Vim {
         // motions below, which is what lets the cursor reach a table's delimiter
         // row when live preview is drawing it.
         if let Some(loc) = located {
-            if let Some(outcome) = self.table_command(key, count, &tables, loc, buf) {
+            if let Some(outcome) = self.table_command(key, count, &tables, loc, buf, view) {
                 return outcome;
             }
         }
@@ -388,8 +397,8 @@ impl Vim {
         match key {
             // Motions
             Key::Char('h') => repeat(count, || buf.move_left()),
-            Key::Char('j') => repeat(count, || buf.move_down()),
-            Key::Char('k') => repeat(count, || buf.move_up()),
+            Key::Char('j') => repeat(count, || buf.move_down(view)),
+            Key::Char('k') => repeat(count, || buf.move_up(view)),
             Key::Char('l') => repeat(count, || buf.move_right_stay_on_line()),
             // The leader, and nothing else. `space` arms the chords (`space f`
             // quick-open, `space s` vault search, the note's three views, `space y`
@@ -419,8 +428,8 @@ impl Vim {
                 };
                 return Outcome::Stay;
             }
-            Key::Char('^') => buf.first_non_blank(),
-            Key::Char('$') => buf.line_last_char_motion(),
+            Key::Char('^') => buf.first_non_blank(view),
+            Key::Char('$') => buf.line_last_char_motion(view),
             // `;` and `,` repeat the last find, forwards and backwards. The
             // inclusivity comes from the original command, so `;` after `tw` is
             // still exclusive and — sitting just before the character it is
@@ -482,14 +491,26 @@ impl Vim {
                 self.switch_case(count, located, buf);
                 return Outcome::Stay;
             }
-            Key::Char('s') => return self.apply_operator(Operator::Change, count, Key::Char('l'), buf),
-            Key::Char('C') => return self.apply_operator(Operator::Change, count, Key::Char('$'), buf),
-            Key::Char('D') => return self.apply_operator(Operator::Delete, count, Key::Char('$'), buf),
-            Key::Char('X') => return self.apply_operator(Operator::Delete, count, Key::Char('h'), buf),
+            Key::Char('s') => {
+                return self.apply_operator(Operator::Change, count, Key::Char('l'), buf, view)
+            }
+            Key::Char('C') => {
+                return self.apply_operator(Operator::Change, count, Key::Char('$'), buf, view)
+            }
+            Key::Char('D') => {
+                return self.apply_operator(Operator::Delete, count, Key::Char('$'), buf, view)
+            }
+            Key::Char('X') => {
+                return self.apply_operator(Operator::Delete, count, Key::Char('h'), buf, view)
+            }
             // `S` and `Y` are the linewise shorthands: the doubled operator letter is
             // exactly the linewise form `apply_operator` already implements.
-            Key::Char('S') => return self.apply_operator(Operator::Change, count, Key::Char('c'), buf),
-            Key::Char('Y') => return self.apply_operator(Operator::Yank, count, Key::Char('y'), buf),
+            Key::Char('S') => {
+                return self.apply_operator(Operator::Change, count, Key::Char('c'), buf, view)
+            }
+            Key::Char('Y') => {
+                return self.apply_operator(Operator::Yank, count, Key::Char('y'), buf, view)
+            }
             // `J` joins the line below onto this one. It is its own operator —
             // there is no motion to wait for — and the count is how many lines the
             // result spans, so `3J` takes two breaks. `.` replays it the way it
@@ -639,10 +660,10 @@ impl Vim {
     /// The `0` motion: the start of the screen line, or the first content
     /// character of the cell when the cursor is inside a table (its padding is
     /// not a place a cursor should come to rest).
-    pub(super) fn zero_motion(&self, buf: &mut Buffer) {
+    pub(super) fn zero_motion(&self, buf: &mut Buffer, view: &ViewSlot) {
         match table::locate(&table::tables(buf.text()), buf.cursor()) {
             Some(loc) => buf.set_cursor(loc.cell.cursor()),
-            None => buf.line_start_motion(),
+            None => buf.line_start_motion(view),
         }
     }
 }

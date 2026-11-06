@@ -3,19 +3,24 @@
 //! The selection lives on [`Buffer`]; the engine only keeps the anchor honest,
 //! which is what [`Vim::reanchor`] is for after a motion has moved the cursor.
 
-use crate::buffer::Buffer;
+use crate::buffer::{Buffer, ViewSlot};
 
-use super::{Key, Mode, OpKind, Outcome, Pending, Register, VisualRecord, Vim};
+use super::{Key, Mode, OpKind, Outcome, Pending, Register, Vim, VisualRecord};
 
 impl Vim {
     /// Visual mode: motions extend the selection, operators act on it.
-    pub(super) fn handle_visual_key(&mut self, key: Key, buf: &mut Buffer) -> Outcome {
+    pub(super) fn handle_visual_key(
+        &mut self,
+        key: Key,
+        buf: &mut Buffer,
+        view: &ViewSlot,
+    ) -> Outcome {
         // A digit extends the count, unless it is the argument of a half-typed
         // command (`f0`).
         if let Key::Char(c @ '0'..='9') = key {
             if !self.waiting_for_literal() {
                 if c == '0' && self.count.is_none() {
-                    self.zero_motion(buf);
+                    self.zero_motion(buf, view);
                     return self.reanchor(buf);
                 }
                 self.count = Some(self.count.unwrap_or(0) * 10 + (c as usize - '0' as usize));
@@ -26,7 +31,7 @@ impl Vim {
         // A half-typed command takes the next key as its argument, whatever it
         // is: `fv` finds a literal `v` even though `v` is a bound key.
         if self.waiting_for_literal() {
-            return self.visual_motion(key, buf);
+            return self.visual_motion(key, buf, view);
         }
 
         match key {
@@ -139,16 +144,16 @@ impl Vim {
                 Outcome::Stay
             }
             // Everything else is a motion.
-            _ => self.visual_motion(key, buf),
+            _ => self.visual_motion(key, buf, view),
         }
     }
 
     /// Runs a motion while in visual mode. Motions measure from the cursor, so
     /// the selection is cleared first and then re-anchored where it was.
-    fn visual_motion(&mut self, key: Key, buf: &mut Buffer) -> Outcome {
+    fn visual_motion(&mut self, key: Key, buf: &mut Buffer, view: &ViewSlot) -> Outcome {
         let anchor = buf.selection().map(|(a, _)| a);
         buf.clear_selection();
-        let outcome = self.handle_motion_key(key, buf);
+        let outcome = self.handle_motion_key(key, buf, view);
         // A text object sets its own selection; a plain motion only moves the
         // head.
         if buf.selection().is_none() {

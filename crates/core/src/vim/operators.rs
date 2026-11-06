@@ -4,7 +4,7 @@
 //! A motion decides *where*; this decides *what happens* to the bytes in between,
 //! and records them so `.` and `p` can use them again.
 
-use crate::buffer::Buffer;
+use crate::buffer::{Buffer, ViewSlot};
 use crate::mdstyle;
 use crate::table;
 use crate::table::Located;
@@ -20,12 +20,13 @@ impl Vim {
         count: usize,
         key: Key,
         buf: &mut Buffer,
+        view: &ViewSlot,
     ) -> Outcome {
         let before = self.begin_register_op();
         // A yank does not move the cursor: `0ywp` pastes where the yank started,
         // not where its motion ended. Verified against vim.
         let mark = buf.cursor();
-        let outcome = self.apply_operator_inner(op, count, key, buf);
+        let outcome = self.apply_operator_inner(op, count, key, buf, view);
         if op == Operator::Yank {
             buf.set_cursor(mark);
         }
@@ -44,6 +45,7 @@ impl Vim {
         count: usize,
         key: Key,
         buf: &mut Buffer,
+        view: &ViewSlot,
     ) -> Outcome {
         // Where the cursor sits in a table, if anywhere: a linewise delete
         // removes rows and must leave the cursor in the cell that took their
@@ -118,9 +120,9 @@ impl Vim {
             Key::Char('h') => repeat(count, || buf.move_left()),
             Key::Char('l') => repeat(count, || buf.move_right_stay_on_line()),
             Key::Char(' ') => repeat(count, || buf.move_right_stay_on_line()),
-            Key::Char('0') => buf.line_start_motion(),
-            Key::Char('^') => buf.first_non_blank(),
-            Key::Char('$') => buf.line_last_char_motion(),
+            Key::Char('0') => buf.line_start_motion(view),
+            Key::Char('^') => buf.first_non_blank(view),
+            Key::Char('$') => buf.line_last_char_motion(view),
             Key::Char('G') => buf.goto_line(count.saturating_sub(1)),
             Key::Char('f') | Key::Char('F') | Key::Char('t') | Key::Char('T') => {
                 // The operator waits for the search character, e.g. `dfw`.

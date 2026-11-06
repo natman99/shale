@@ -417,7 +417,7 @@ impl MarkdownEditor {
             self.wrap_cache = Some((change_id, width, measured));
         }
 
-        self.buffer.set_display_segments(segments.clone());
+        self.slot.set_segments(segments.clone());
         let mut out = Vec::new();
         for (row, starts) in segments.iter().enumerate() {
             let row_end = self.buffer.line_end(row);

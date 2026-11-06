@@ -212,16 +212,17 @@ fn find_char_motions() {
 #[test]
 fn dollar_is_last_char() {
     let mut b = Buffer::new("abcd\nxy".to_string());
+    let mut v = ViewSlot::new();
     b.set_cursor(0);
-    b.line_last_char_motion();
+    b.line_last_char_motion(&v);
     assert_eq!(b.cursor(), 3);
-    b.move_down();
-    b.line_last_char_motion();
+    b.move_down(&v);
+    b.line_last_char_motion(&v);
     assert_eq!(b.cursor(), 6);
     // An empty line stays at the line start.
     let mut b = Buffer::new("a\n\nb".to_string());
     b.set_cursor(2);
-    b.line_last_char_motion();
+    b.line_last_char_motion(&v);
     assert_eq!(b.cursor(), 2);
 }
 
@@ -229,14 +230,15 @@ fn dollar_is_last_char() {
 #[test]
 fn vertical_motions_keep_desired_column() {
     let mut b = Buffer::new("aaaaaaaa\nb\ncccccccc".to_string());
+    let mut v = ViewSlot::new();
     b.set_cursor(7); // col 7 of the first line
-    b.move_down(); // clamped onto the short line
+    b.move_down(&v); // clamped onto the short line
     assert_eq!(b.row_col(b.cursor()), (1, 1));
-    b.move_down(); // restores col 7 on the third line
+    b.move_down(&v); // restores col 7 on the third line
     assert_eq!(b.row_col(b.cursor()), (2, 7));
     // A horizontal motion resets the target column.
-    b.line_start_motion();
-    b.move_up();
+    b.line_start_motion(&v);
+    b.move_up(&v);
     assert_eq!(b.row_col(b.cursor()), (1, 0));
 }
 
@@ -244,27 +246,36 @@ fn vertical_motions_keep_desired_column() {
 fn vertical_motions_cross_wrapped_display_lines() {
     // One buffer row wrapped into three display lines, then a normal row.
     let mut b = Buffer::new("aaa bbb ccc\nd".to_string());
-    b.set_display_segments(vec![vec![0, 4, 8], vec![12]]);
-    assert_eq!(b.display_line_count(), 4);
-    assert_eq!(b.display_range(1), Some((4, 8)));
-    assert_eq!(b.display_index_for(9), 2);
+    let mut v = ViewSlot::new();
+    v.set_segments(vec![vec![0, 4, 8], vec![12]]);
+    assert_eq!(b.display_line_count(&v), 4);
+    assert_eq!(b.display_range(&v, 1), Some((4, 8)));
+    assert_eq!(b.display_index_for(&v, 9), 2);
 
     b.set_cursor(0);
-    b.move_down();
+    b.move_down(&v);
     assert_eq!(b.cursor(), 4, "j steps onto the wrapped segment");
-    b.move_down();
+    b.move_down(&v);
     assert_eq!(b.cursor(), 8);
-    b.move_down();
+    b.move_down(&v);
     assert_eq!(b.cursor(), 12, "and then onto the next buffer row");
-    b.move_up();
+    b.move_up(&v);
     assert_eq!(b.cursor(), 8);
 
     // The column being aimed for is relative to the display line.
     b.set_cursor(9); // one byte into the "ccc" segment
-    assert_eq!(b.desired_col, Some(1));
-    b.move_down();
+    assert_eq!(
+        b.desired_col, None,
+        "placing the caret does not state an aim; the first vertical motion does"
+    );
+    b.move_down(&v);
+    assert_eq!(
+        b.desired_col,
+        Some(1),
+        "latched from where the caret landed"
+    );
     assert_eq!(b.cursor(), 13, "clamped to the short row");
-    b.move_up();
+    b.move_up(&v);
     assert_eq!(b.cursor(), 9, "and restored when coming back");
 }
 
@@ -273,26 +284,27 @@ fn a_collapsed_row_takes_no_display_line() {
     // A fenced block whose ``` lines live preview does not draw at all: five
     // buffer rows, three display lines.
     let mut b = Buffer::new("one\n```\ncode\n```\ntwo".to_string());
-    b.set_display_segments(vec![vec![0], vec![], vec![8], vec![], vec![17]]);
-    assert_eq!(b.display_line_count(), 3);
+    let mut v = ViewSlot::new();
+    v.set_segments(vec![vec![0], vec![], vec![8], vec![], vec![17]]);
+    assert_eq!(b.display_line_count(&v), 3);
     assert_eq!(
-        b.display_range(1),
+        b.display_range(&v, 1),
         Some((8, 12)),
         "the code line follows `one`"
     );
-    assert_eq!(b.display_index_for(17), 2);
+    assert_eq!(b.display_index_for(&v, 17), 2);
     assert_eq!(
-        b.display_index_for(4),
+        b.display_index_for(&v, 4),
         1,
         "an offset inside a collapsed row resolves to the line after it"
     );
 
     b.set_cursor(0);
-    b.move_down();
+    b.move_down(&v);
     assert_eq!(b.cursor(), 8, "j steps over the collapsed fence");
-    b.move_down();
+    b.move_down(&v);
     assert_eq!(b.cursor(), 17, "and over the closing one");
-    b.move_up();
+    b.move_up(&v);
     assert_eq!(b.cursor(), 8);
 }
 
@@ -301,14 +313,19 @@ fn desired_column_counts_characters_not_bytes() {
     // 'é' is two bytes and one cell, so a byte column and a character column
     // disagree from the second character onwards.
     let mut b = Buffer::new("a\u{e9}\u{e9}\nxy".to_string());
+    let mut v = ViewSlot::new();
     // row 0: a(0) \u{e9}(1..3) \u{e9}(3..5), newline at 5; row 1 starts at 6.
     b.set_cursor(3);
-    assert_eq!(b.display_col(3), 2, "the second \u{e9} is the third cell");
-    assert_eq!(b.desired_col, Some(2));
+    assert_eq!(
+        b.display_col(&v, 3),
+        2,
+        "the second \u{e9} is the third cell"
+    );
 
-    b.move_down();
+    b.move_down(&v);
+    assert_eq!(b.desired_col, Some(2), "the aim is counted in cells");
     assert_eq!(b.cursor(), 8, "two cells into the short row");
-    b.move_up();
+    b.move_up(&v);
     assert_eq!(
         b.cursor(),
         3,
@@ -321,19 +338,20 @@ fn screen_line_motions_respect_soft_wrap() {
     // "aaaa   bbbb" wrapped after the first space run, so the second display
     // line starts with blanks, plus a tab-indented second row.
     let mut b = Buffer::new("aaaa   bbbb\n\tzz".to_string());
-    b.set_display_segments(vec![vec![0, 5], vec![12]]);
-    assert_eq!(b.display_range(1), Some((5, 11)));
+    let mut v = ViewSlot::new();
+    v.set_segments(vec![vec![0, 5], vec![12]]);
+    assert_eq!(b.display_range(&v, 1), Some((5, 11)));
 
     b.set_cursor(9);
-    b.line_start_motion();
+    b.line_start_motion(&v);
     assert_eq!(b.cursor(), 5, "0 goes to the display line start");
 
     b.set_cursor(9);
-    b.line_last_char_motion();
+    b.line_last_char_motion(&v);
     assert_eq!(b.cursor(), 10, "$ goes to the display line's last char");
 
     b.set_cursor(9);
-    b.first_non_blank();
+    b.first_non_blank(&v);
     assert_eq!(b.cursor(), 7, "^ skips blanks inside the display line");
 
     b.set_cursor(9);
@@ -346,37 +364,39 @@ fn screen_line_motions_respect_soft_wrap() {
 
     // On a row's last display line the screen motions are the row bounds.
     b.set_cursor(13);
-    b.line_last_char_motion();
+    b.line_last_char_motion(&v);
     assert_eq!(b.cursor(), 14);
-    b.line_start_motion();
+    b.line_start_motion(&v);
     assert_eq!(b.cursor(), 12);
-    b.first_non_blank();
+    b.first_non_blank(&v);
     assert_eq!(b.cursor(), 13, "^ skips the leading tab");
 }
 
 #[test]
 fn line_motions() {
     let mut b = buf();
+    let mut v = ViewSlot::new();
     b.set_cursor(15);
-    b.line_start_motion();
+    b.line_start_motion(&v);
     assert_eq!(b.cursor(), 12);
     b.line_end_motion();
     assert_eq!(b.cursor(), 23);
-    b.move_up();
+    b.move_up(&v);
     assert_eq!(b.row_col(b.cursor()), (0, 11));
-    b.first_non_blank();
+    b.first_non_blank(&v);
     assert_eq!(b.cursor(), 0);
 }
 
 #[test]
 fn enter_motion() {
     let mut b = Buffer::new("aaa\n  indented\nzzz".to_string());
+    let mut v = ViewSlot::new();
     b.set_cursor(0);
-    b.next_line_first_non_blank();
+    b.next_line_first_non_blank(&v);
     assert_eq!(b.cursor(), 6); // 'i' of "indented"
-    b.next_line_first_non_blank();
+    b.next_line_first_non_blank(&v);
     assert_eq!(b.cursor(), 15); // 'z' of "zzz"
-    b.next_line_first_non_blank(); // stays at last line
+    b.next_line_first_non_blank(&v); // stays at last line
     assert_eq!(b.cursor(), 15);
 }
 
@@ -699,4 +719,3 @@ fn a_read_only_buffer_refuses_every_edit_and_nothing_else() {
     assert_eq!(b.text(), "another note\n", "and that still works");
     assert!(b.is_read_only(), "with the buffer still protected");
 }
-

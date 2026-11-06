@@ -57,8 +57,13 @@ impl MarkdownEditor {
                 // while `g t`/`g T` keep changing tabs and `g f` keeps
                 // following links. Space is the leader, `/` searches, `n` and
                 // `N` repeat it, and escape is escape.
-                Key::Char(' ') | Key::Char('/') | Key::Char('g') | Key::Char('G')
-                | Key::Char('n') | Key::Char('N') | Key::Escape => {}
+                Key::Char(' ')
+                | Key::Char('/')
+                | Key::Char('g')
+                | Key::Char('G')
+                | Key::Char('n')
+                | Key::Char('N')
+                | Key::Escape => {}
                 // Everything else — caret motions, operators, counts, mode
                 // switches — is disabled: preview scrolls, it does not move.
                 _ => return,
@@ -77,7 +82,9 @@ impl MarkdownEditor {
         // and the key goes back to vim with no gap in between.
         self.vim.set_review_lines(self.review_lines());
         let before = self.buffer.text().to_string();
-        let outcome = self.vim.handle_normal_key(key, &mut self.buffer);
+        let outcome = self
+            .vim
+            .handle_normal_key(key, &mut self.buffer, &self.slot);
         let changed = self.buffer.text() != before;
         if changed {
             self.mark_dirty(cx);
@@ -287,7 +294,7 @@ impl MarkdownEditor {
         if self.vim.mode() == Mode::Insert {
             return;
         }
-        self.buffer.next_line_first_non_blank();
+        self.buffer.next_line_first_non_blank(&self.slot);
         self.ensure_cursor_visible();
         cx.notify();
     }
@@ -352,7 +359,7 @@ impl MarkdownEditor {
             self.preview_scroll(-self.line_height_px(), cx);
             return;
         }
-        self.buffer.move_up();
+        self.buffer.move_up(&self.slot);
         self.ensure_cursor_visible();
         cx.notify();
     }
@@ -367,7 +374,7 @@ impl MarkdownEditor {
             self.preview_scroll(self.line_height_px(), cx);
             return;
         }
-        self.buffer.move_down();
+        self.buffer.move_down(&self.slot);
         self.ensure_cursor_visible();
         cx.notify();
     }

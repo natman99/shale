@@ -174,7 +174,7 @@ impl Render for MarkdownEditor {
         // frame's text, so a hunk that no longer fits the note is simply not here — the
         // strip still lists it, badged stale.
         let frame = self.frame(&display_lines);
-        let cursor_display = self.buffer.display_index_for(cursor);
+        let cursor_display = self.buffer.display_index_for(&self.slot, cursor);
         // Focus mode: one alpha per buffer row, measured from the block (or the
         // heading section) the cursor is in. Raw mode is the file as it sits on
         // disk, so it never fades anything.
@@ -250,51 +250,37 @@ impl Render for MarkdownEditor {
             )
             // The text-object characters. Which object a pair character names is
             // the engine's call, and one it does not have is refused there.
-            .on_action(
-                cx.listener(|this, _: &VimOpenParen, window, cx| {
-                    this.normal(Key::Char('('), window, cx)
-                }),
-            )
-            .on_action(
-                cx.listener(|this, _: &VimCloseParen, window, cx| {
-                    this.normal(Key::Char(')'), window, cx)
-                }),
-            )
-            .on_action(
-                cx.listener(|this, _: &VimOpenBrace, window, cx| {
-                    this.normal(Key::Char('{'), window, cx)
-                }),
-            )
-            .on_action(
-                cx.listener(|this, _: &VimCloseBrace, window, cx| {
-                    this.normal(Key::Char('}'), window, cx)
-                }),
-            )
+            .on_action(cx.listener(|this, _: &VimOpenParen, window, cx| {
+                this.normal(Key::Char('('), window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &VimCloseParen, window, cx| {
+                this.normal(Key::Char(')'), window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &VimOpenBrace, window, cx| {
+                this.normal(Key::Char('{'), window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &VimCloseBrace, window, cx| {
+                this.normal(Key::Char('}'), window, cx)
+            }))
             .on_action(
                 cx.listener(|this, _: &VimLess, window, cx| {
                     this.normal(Key::Char('<'), window, cx)
                 }),
             )
-            .on_action(
-                cx.listener(|this, _: &VimGreater, window, cx| {
-                    this.normal(Key::Char('>'), window, cx)
-                }),
-            )
+            .on_action(cx.listener(|this, _: &VimGreater, window, cx| {
+                this.normal(Key::Char('>'), window, cx)
+            }))
             .on_action(
                 cx.listener(|this, _: &VimQuote, window, cx| {
                     this.normal(Key::Char('"'), window, cx)
                 }),
             )
-            .on_action(
-                cx.listener(|this, _: &VimApostrophe, window, cx| {
-                    this.normal(Key::Char('\''), window, cx)
-                }),
-            )
-            .on_action(
-                cx.listener(|this, _: &VimSemicolon, window, cx| {
-                    this.normal(Key::Char(';'), window, cx)
-                }),
-            )
+            .on_action(cx.listener(|this, _: &VimApostrophe, window, cx| {
+                this.normal(Key::Char('\''), window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &VimSemicolon, window, cx| {
+                this.normal(Key::Char(';'), window, cx)
+            }))
             .on_action(
                 cx.listener(|this, _: &VimComma, window, cx| {
                     this.normal(Key::Char(','), window, cx)
@@ -426,9 +412,11 @@ impl Render for MarkdownEditor {
             .on_action(cx.listener(|this, _: &VimUpperL, window, cx| {
                 this.normal(Key::Char('L'), window, cx)
             }))
-            .on_action(cx.listener(|this, _: &VimTilde, window, cx| {
-                this.normal(Key::Char('~'), window, cx)
-            }))
+            .on_action(
+                cx.listener(|this, _: &VimTilde, window, cx| {
+                    this.normal(Key::Char('~'), window, cx)
+                }),
+            )
             .on_action(cx.listener(|this, _: &VimUpperS, window, cx| {
                 this.normal(Key::Char('S'), window, cx)
             }))
@@ -691,13 +679,10 @@ impl Render for MarkdownEditor {
                         let editor = cx.entity();
                         // A row a queued proposal would take away: struck through, in
                         // the palette's red, with the hunk's bar down its left edge.
-                        let diff = frame
-                            .struck
-                            .get(&dl.row)
-                            .map(|current| DiffRow {
-                                color: self.palette.diff_delete,
-                                current: *current,
-                            });
+                        let diff = frame.struck.get(&dl.row).map(|current| DiffRow {
+                            color: self.palette.diff_delete,
+                            current: *current,
+                        });
                         let before = frame
                             .before
                             .get(&index)

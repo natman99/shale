@@ -1,9 +1,14 @@
 //! Cursor motions, in the terms the vim engine thinks in: sideways, by screen
 //! line, by word, and `f`/`t`/`F`/`T`.
 //!
-//! Every motion leaves `desired_col` behind, which is what makes `j`/`k` walk a
-//! wrapped paragraph back to the same column instead of hugging the margin.
+//! The vertical motions carry `desired_col` — the column they are aiming for — which
+//! is what makes `j`/`k` walk a wrapped paragraph back to the same column instead of
+//! hugging the margin. It is latched from the [`ViewSlot`] driving the caret, because a
+//! column is a position on a *display* line and a display line belongs to a view: the
+//! methods that need one take it as an argument, so a display question can never be
+//! answered from another view's wrap points.
 
+use super::view::ViewSlot;
 use super::words::{class_of, WordClass};
 use super::Buffer;
 
@@ -29,42 +34,52 @@ impl Buffer {
             self.set_cursor(self.next_char_boundary(self.cursor));
         }
     }
-    pub fn move_up(&mut self) {
-        let index = self.display_index_for(self.cursor);
+    pub fn move_up(&mut self, view: &ViewSlot) {
+        let index = self.display_index_for(view, self.cursor);
         if index == 0 {
             return;
         }
-        self.move_display_to(index - 1);
+        self.move_display_to(view, index - 1);
     }
-    pub fn move_down(&mut self) {
-        let index = self.display_index_for(self.cursor);
-        if index + 1 >= self.display_line_count() {
+    pub fn move_down(&mut self, view: &ViewSlot) {
+        let index = self.display_index_for(view, self.cursor);
+        if index + 1 >= self.display_line_count(view) {
             return;
         }
-        self.move_display_to(index + 1);
+        self.move_display_to(view, index + 1);
     }
     /// Move to display line `index`, keeping the column we are aiming for and
     /// clamping to that line's width (vim's behaviour across soft wraps).
-    fn move_display_to(&mut self, index: usize) {
-        let Some((start, end)) = self.display_range(index) else {
+    ///
+    /// The aim is latched on the way through the first time it is needed, then
+    /// kept: that is what lets `jj` walk a wrapped paragraph back to the column it
+    /// started from instead of hugging the margin after the first step lands on a
+    /// short row.
+    fn move_display_to(&mut self, view: &ViewSlot, index: usize) {
+        let Some((start, end)) = self.display_range(view, index) else {
             return;
         };
-        let target = self
-            .desired_col
-            .unwrap_or_else(|| self.display_col(self.cursor));
+        let target = match self.desired_col {
+            Some(col) => col,
+            None => {
+                let col = self.display_col(view, self.cursor);
+                self.desired_col = Some(col);
+                col
+            }
+        };
         let offset = self.offset_for_char_col(start, end, target);
         self.set_cursor_keep_desired(offset);
     }
     /// Move to the first character of the current *display* line (vim `0`,
     /// which is a screen-line motion when the row wraps).
-    pub fn line_start_motion(&mut self) {
-        let start = self.display_start(self.cursor);
+    pub fn line_start_motion(&mut self, view: &ViewSlot) {
+        let start = self.display_start(view, self.cursor);
         self.set_cursor(start);
     }
     /// Move to the first non-blank of the current *display* line (vim `^`).
-    pub fn first_non_blank(&mut self) {
-        let start = self.display_start(self.cursor);
-        let end = self.display_end(self.cursor);
+    pub fn first_non_blank(&mut self, view: &ViewSlot) {
+        let start = self.display_start(view, self.cursor);
+        let end = self.display_end(view, self.cursor);
         let rel = self.text[start..end]
             .find(|c: char| !c.is_whitespace())
             .unwrap_or(0);
@@ -87,9 +102,9 @@ impl Buffer {
     }
     /// Move to the last character of the current *display* line (vim `$`), which
     /// unlike [`Self::line_end_motion`] does not land past the final character.
-    pub fn line_last_char_motion(&mut self) {
-        let start = self.display_start(self.cursor);
-        let end = self.display_end(self.cursor);
+    pub fn line_last_char_motion(&mut self, view: &ViewSlot) {
+        let start = self.display_start(view, self.cursor);
+        let end = self.display_end(view, self.cursor);
         if end > start {
             self.set_cursor(self.prev_char_boundary(end));
         } else {
@@ -120,11 +135,11 @@ impl Buffer {
         self.set_cursor(self.text.len());
     }
     /// Move to the first non-blank of the next line (vim Enter).
-    pub fn next_line_first_non_blank(&mut self) {
+    pub fn next_line_first_non_blank(&mut self, view: &ViewSlot) {
         let (row, _) = self.row_col(self.cursor);
         if row + 1 < self.line_count() {
             self.set_cursor(self.line_start(row + 1));
-            self.first_non_blank();
+            self.first_non_blank(view);
         }
     }
     /// Move to the start of the next word (vim `w`).

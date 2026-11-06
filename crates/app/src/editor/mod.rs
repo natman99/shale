@@ -12,8 +12,8 @@
 //! - [`overlay`]: a queued agent proposal painted in the note (roadmap P2.5b)
 
 mod actions;
-mod input;
 pub(crate) mod embeds;
+mod input;
 pub(crate) mod overlay;
 mod render;
 mod wrap;
@@ -24,7 +24,7 @@ use std::rc::Rc;
 use gpui::{
     App, Context, EventEmitter, FocusHandle, Focusable, Pixels, ScrollHandle, SharedString,
 };
-use shale_core::buffer::Buffer;
+use shale_core::buffer::{Buffer, ViewSlot};
 use shale_core::markdown::{extract_wikilinks, WikiLink};
 use shale_core::mdstyle::{quotes, style_spans, Style, StyleSpan};
 use shale_core::vault::VaultEntry;
@@ -135,6 +135,12 @@ pub struct MarkdownEditor {
     /// during paint, so it is crate-visible.
     pub(crate) focus_handle: FocusHandle,
     buffer: Buffer,
+    /// How *this* view lays out `buffer`: the soft-wrap break points measured at
+    /// this width. It sits beside the buffer rather than inside it because the same
+    /// note can be laid out two ways at once — two panes at different widths, a tab
+    /// and an embed — and a display question asked of the wrong layout answers with
+    /// another view's line breaks. Every display-aware buffer call names this slot.
+    slot: ViewSlot,
     vim: Vim,
     /// The text Shale last put on the system clipboard, or last read from it. It is
     /// what makes the mirror cheap and honest: a yank only writes when its text
@@ -234,6 +240,7 @@ impl MarkdownEditor {
         Self {
             focus_handle: cx.focus_handle(),
             buffer: Buffer::default(),
+            slot: ViewSlot::new(),
             vim: Vim::new(),
             clipboard_mirror: None,
             scroll_handle: ScrollHandle::default(),
@@ -286,7 +293,8 @@ impl MarkdownEditor {
         notes: Vec<shale_core::vault::VaultEntry>,
         cx: &mut Context<Self>,
     ) {
-        self.embeds.set_host(host.unwrap_or(std::path::Path::new("")));
+        self.embeds
+            .set_host(host.unwrap_or(std::path::Path::new("")));
         self.embeds.set_entries(notes);
         cx.notify();
     }
@@ -363,6 +371,11 @@ impl MarkdownEditor {
 
     pub fn set_text(&mut self, text: String, cx: &mut Context<Self>) {
         self.buffer.set_text(text);
+        // Another note, another layout: the break points were measured against the
+        // text that was here, so they are meaningless until the next paint measures
+        // this one. (They used to be cleared inside `Buffer::set_text`; the layout
+        // is the view's, not the text's, so the view clears its own.)
+        self.slot.clear();
         self.vim.enter_normal();
         self.dirty = false;
         // A different document, so the old note's underlines and matches are
@@ -568,7 +581,7 @@ impl MarkdownEditor {
 
     #[cfg(test)]
     pub fn display_line_count(&self) -> usize {
-        self.buffer.display_line_count()
+        self.buffer.display_line_count(&self.slot)
     }
 
     /// The width soft wrap was computed against: the scroll container's bounds
@@ -647,8 +660,8 @@ impl MarkdownEditor {
     /// The byte ranges of the display lines the buffer currently models.
     #[cfg(test)]
     pub fn display_ranges(&self) -> Vec<(usize, usize)> {
-        (0..self.buffer.display_line_count())
-            .filter_map(|i| self.buffer.display_range(i))
+        (0..self.buffer.display_line_count(&self.slot))
+            .filter_map(|i| self.buffer.display_range(&self.slot, i))
             .collect()
     }
 
@@ -892,8 +905,8 @@ impl MarkdownEditor {
     pub fn display_position(&self) -> (usize, usize) {
         let cursor = self.buffer.cursor();
         (
-            self.buffer.display_index_for(cursor),
-            self.buffer.display_col(cursor),
+            self.buffer.display_index_for(&self.slot, cursor),
+            self.buffer.display_col(&self.slot, cursor),
         )
     }
 
@@ -1101,7 +1114,9 @@ impl MarkdownEditor {
     /// minimum: when typewriter scroll has already put the caret in the middle of
     /// the window there is nothing for it to do, so the two can both run.
     fn ensure_cursor_visible(&self) {
-        let index = self.buffer.display_index_for(self.buffer.cursor());
+        let index = self
+            .buffer
+            .display_index_for(&self.slot, self.buffer.cursor());
         self.scroll_handle.scroll_to_item(index);
     }
 }

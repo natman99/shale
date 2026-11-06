@@ -202,7 +202,7 @@ impl EntityInputHandler for MarkdownEditor {
         _cx: &mut Context<Self>,
     ) -> Option<Bounds<Pixels>> {
         let start = self.offset_from_utf16(range_utf16.start);
-        let index = self.buffer.display_index_for(start);
+        let index = self.buffer.display_index_for(&self.slot, start);
         let hit = self.hit_lines.iter().find(|h| h.index == index)?;
         let x = hit.x_for_offset(start);
         Some(Bounds::from_corners(

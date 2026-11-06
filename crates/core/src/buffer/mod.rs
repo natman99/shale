@@ -10,6 +10,8 @@ struct Snapshot {
     selection: Option<(usize, usize)>,
 }
 
+pub use view::ViewSlot;
+
 /// Byte offsets are always clamped to character boundaries.
 #[derive(Debug, Clone)]
 pub struct Buffer {
@@ -27,12 +29,10 @@ pub struct Buffer {
     /// every character in our monospace font, so a character column is the
     /// column the user sees, while a byte column is not.
     desired_col: Option<usize>,
-    /// Per buffer row, the absolute byte offsets where wrapped display lines
-    /// begin (supplied by the UI, which knows the pixel width). Empty means the
-    /// row is a single display line.
-    display_segments: Vec<Vec<usize>>,
     /// Which heading sections the user has folded shut. View state like
-    /// `display_segments`: it changes what is drawn, never the text.
+    /// [`view::ViewSlot`]'s wrap points: it changes what is drawn, never the text.
+    /// (Folds move into the slot too; they are threaded one step at a time because
+    /// the caret math and the paint both consult them.)
     folds: fold::FoldState,
     /// The foldable regions of the current text, cached until the text changes
     /// (they are derived from the markdown scan, so recomputing them per key
@@ -60,9 +60,11 @@ impl Default for Buffer {
 
 mod display;
 mod edits;
+// The per-view half of the display model lives here, outside the text.
 mod folds;
 mod lines;
 mod motions;
+mod view;
 mod words;
 
 /// The word boundary before an offset, shared by the buffer's backward word
@@ -79,7 +81,6 @@ impl Buffer {
             undo: Vec::new(),
             redo: Vec::new(),
             desired_col: None,
-            display_segments: Vec::new(),
             folds: fold::FoldState::default(),
             fold_cache: None,
             group_open: false,
@@ -97,7 +98,6 @@ impl Buffer {
         self.cursor = 0;
         self.selection = None;
         self.desired_col = None;
-        self.display_segments = Vec::new();
         // Another note, another set of folds: they are keyed on heading text, so
         // carrying them over would fold unrelated rows.
         self.folds.clear();
@@ -115,7 +115,14 @@ impl Buffer {
     pub fn set_cursor(&mut self, offset: usize) {
         self.cursor = self.clamp(offset);
         self.selection = None;
-        self.desired_col = Some(self.display_col(self.cursor));
+        // The vertical target column is *not* recomputed here: it is a display
+        // column, and a display column belongs to a view, which this method does
+        // not know. [`Self::move_display_to`] latches it from the view driving the
+        // caret the first time a vertical motion needs it, which is the same number
+        // this used to store eagerly — and it means a typed edit, which moves the
+        // caret without a motion, re-aims at the column the caret is actually on
+        // (what vim does) instead of the one the caret was on before typing.
+        self.desired_col = None;
     }
     /// Move the cursor without disturbing the vertical target column, for
     /// motions that clamp against a shorter line.

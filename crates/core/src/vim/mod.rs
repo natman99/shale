@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 
-use crate::buffer::Buffer;
+use crate::buffer::{Buffer, ViewSlot};
 
 mod motions;
 mod operators;
@@ -372,9 +372,9 @@ impl Vim {
         matches!(
             self.pending,
             Pending::Find { .. }
-            | Pending::TextObject { .. }
-            | Pending::Replace { .. }
-            | Pending::Register { .. }
+                | Pending::TextObject { .. }
+                | Pending::Replace { .. }
+                | Pending::Register { .. }
         )
     }
 
@@ -528,7 +528,10 @@ impl Vim {
     }
 
     /// Handle a key press while in normal or visual mode.
-    pub fn handle_normal_key(&mut self, key: Key, buf: &mut Buffer) -> Outcome {
+    /// `view` is the display state of the view whose caret this keystroke drives:
+    /// the motions that move by screen line need its wrap points, and a display
+    /// question asked without a view could be answered from another view's layout.
+    pub fn handle_normal_key(&mut self, key: Key, buf: &mut Buffer, view: &ViewSlot) -> Outcome {
         // The `space` leader's chords, one key after the motion that started
         // them. Only a plain space motion arms them: `d space` or `f ` never do.
         let after_space = std::mem::take(&mut self.after_space);
@@ -580,7 +583,7 @@ impl Vim {
             };
         }
         if self.mode.is_visual() {
-            return self.handle_visual_key(key, buf);
+            return self.handle_visual_key(key, buf, view);
         }
         // The review overlay's layer of the keys (roadmap P2.5b, ruled in brainstorm.md
         // "Agent edit review"): on a line a proposal is sitting on, bare `y` and `x`
@@ -591,10 +594,7 @@ impl Vim {
         // Only a plain one: a count (`2y`) or a pending operator (`d`) means the user is
         // still spelling a vim command, and visual mode means the selection is what they
         // are holding, so both keep vim's keys.
-        if self.pending == Pending::None
-            && self.count.is_none()
-            && self.on_review_line(buf)
-        {
+        if self.pending == Pending::None && self.count.is_none() && self.on_review_line(buf) {
             match key {
                 Key::Char('y') => return Outcome::ReviewAccept,
                 Key::Char('x') => return Outcome::ReviewReject,
@@ -602,11 +602,11 @@ impl Vim {
             }
         }
         if key == Key::Char('.') && !self.waiting_for_literal() {
-            return self.repeat_last(buf);
+            return self.repeat_last(buf, view);
         }
         let before = buf.text().to_string();
         self.command.push(Cmd::Key(key));
-        let outcome = self.handle_motion_key(key, buf);
+        let outcome = self.handle_motion_key(key, buf, view);
         // The command is over once nothing is pending: keep it for `.` if it
         // changed the buffer. One that drops into insert mode stays open until
         // the insert session ends, so the typed text becomes part of it.
@@ -625,7 +625,7 @@ impl Vim {
 
     /// Replay the last change (vim's `.`). The recorded keys never leave the
     /// engine in insert mode, because the typed text is part of the recording.
-    pub fn repeat_last(&mut self, buf: &mut Buffer) -> Outcome {
+    pub fn repeat_last(&mut self, buf: &mut Buffer, view: &ViewSlot) -> Outcome {
         let Some(cmd) = self.last_command.clone() else {
             return Outcome::Unhandled;
         };
@@ -634,7 +634,7 @@ impl Vim {
         for step in &cmd {
             match step {
                 Cmd::Key(key) => {
-                    self.handle_motion_key(*key, buf);
+                    self.handle_motion_key(*key, buf, view);
                 }
                 Cmd::Text(text) => buf.insert(text),
             }

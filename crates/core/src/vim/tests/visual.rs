@@ -1,6 +1,7 @@
 //! Visual mode: `v`, `V`, and what an operator does to a selection.
 
 use super::*;
+use crate::buffer::ViewSlot;
 
 /// `f`/`t`/`F`/`T` as motions and as operator arguments.
 /// `iw`/`aw` and `ip`/`ap`: the operator waits for the object's scope, then
@@ -68,7 +69,7 @@ fn visual_mode() {
     let mut b = buf();
     type_keys(&mut v, "vl", &mut b);
     assert_eq!(
-        v.handle_normal_key(Key::Char('I'), &mut b),
+        v.handle_normal_key(Key::Char('I'), &mut b, &ViewSlot::new()),
         Outcome::EnterInsert
     );
     assert_eq!(b.cursor(), 0);
@@ -78,7 +79,7 @@ fn visual_mode() {
     let mut b = buf();
     type_keys(&mut v, "vl", &mut b);
     assert_eq!(
-        v.handle_normal_key(Key::Char('A'), &mut b),
+        v.handle_normal_key(Key::Char('A'), &mut b, &ViewSlot::new()),
         Outcome::EnterInsert
     );
     assert_eq!(b.cursor(), 11, "`A` goes to the end of the line");
@@ -98,7 +99,7 @@ fn visual_mode() {
     v = Vim::new();
     let mut b = buf();
     type_keys(&mut v, "vl", &mut b);
-    v.handle_normal_key(Key::Escape, &mut b);
+    v.handle_normal_key(Key::Escape, &mut b, &ViewSlot::new());
     assert_eq!(v.mode(), Mode::Normal);
     assert_eq!(b.selection(), None);
 }
@@ -190,7 +191,7 @@ fn repeat_last_change() {
     let mut b = buf();
     type_keys(&mut v, "2w", &mut b);
     assert_eq!(
-        v.handle_normal_key(Key::Char('.'), &mut b),
+        v.handle_normal_key(Key::Char('.'), &mut b, &ViewSlot::new()),
         Outcome::Unhandled
     );
 }
