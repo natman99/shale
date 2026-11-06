@@ -31,7 +31,8 @@ underlined.
 | document | what it answers |
 | --- | --- |
 | [getting-started.md](getting-started.md) | opening a vault, the parts of the window, the first note, where state lives |
-| [keys.md](keys.md) | every keystroke, grouped by what has the keyboard |
+| [keys.md](keys.md) | the keys, explained: what each one is for and why it sits where it does |
+| [keymap.md](keymap.md) | every binding, by surface — the exhaustive list (**generated** — see below) |
 | [commands.md](commands.md) | every command: its id, its keys, its `:` spelling, its argument (**generated** — see below) |
 | [notes.md](notes.md) | notes, folders, the tree, saving and naming, wiki-links, search, word counts |
 | [windows-panes-tabs.md](windows-panes-tabs.md) | windows, vaults, splits, tabs, and what comes back next launch |
@@ -40,18 +41,26 @@ underlined.
 | [config.md](config.md) | `<vault>/.shale/config.toml`, themes, fonts |
 | [state-files.md](state-files.md) | everything Shale writes to disk, and what is safe to delete |
 
-## The one generated file
+## The generated files
 
-`commands.md` is generated from the command table in
-`crates/app/src/command.rs`. A test fails when the table and the file disagree,
-and this rewrites the file:
+Two documents are built from the code rather than written:
+
+| document | generated from |
+| --- | --- |
+| `commands.md` | the command table in `crates/app/src/command.rs` |
+| `keymap.md` | the bindings built in `crates/app/src/workspace/keys.rs`, grouped by gpui context |
+
+A test fails when the code and its file disagree, and this rewrites both:
 
 ```sh
 SHALE_UPDATE_DOCS=1 cargo test -p shale-app
 ```
 
-That is why the other documents point at it instead of re-listing the commands:
-a hand-copied list is the thing that goes stale.
+That is why the other documents point at these instead of re-listing commands or
+keys: a hand-copied list is the thing that goes stale. `keymap.md` covers what
+**gpui** binds; the vim engine's own vocabulary (counts, `space` and `g` chords,
+marks, text objects) is reached through keys gpui hands to the engine, so it lives
+in `keys.md` instead.
 
 ## Owed
 

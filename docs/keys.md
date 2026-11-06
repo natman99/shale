@@ -13,6 +13,13 @@ Three prefixes are worth knowing before the tables:
 - **`ctrl-w` is the window alphabet** (panes and panels). A lone `ctrl-w` is
   pending input, and is replayed if the next key does not finish a chord.
 
+This page is the explanation. The exhaustive list is generated from the keymap
+itself: [keymap.md](keymap.md) is built from the bindings in
+`crates/app/src/workspace/keys.rs`, grouped by the same contexts, and a test fails
+when the two disagree — so if a key is bound, it is in that table. What that table
+cannot say is *why* a key is where it is, or what the vim engine does with a key
+that gpui never sees; that is this page's job.
+
 A key that only works in the file tree says so here, and says so in
 [commands.md](commands.md), which is generated from the command table and is the
 authority on ids and `:` spellings.

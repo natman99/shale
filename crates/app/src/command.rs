@@ -115,6 +115,13 @@ impl Command {
             .expect("a palette or no-argument command always has an action"))()
     }
 
+    /// The name gpui gives the action that runs this command, for the keymap's docs
+    /// to join a binding to the command it reaches. `None` for a command-line
+    /// composite that is not one action (`:wq`).
+    pub(crate) fn action_name(self) -> Option<&'static str> {
+        self.action.map(|make| make().name())
+    }
+
     /// The command an id names, if any. The command line and (roadmap P2.3) the
     /// MCP surface look commands up this way.
     pub(crate) fn by_id(id: &str) -> Option<Command> {
