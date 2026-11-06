@@ -50,7 +50,7 @@ fn table_buf_with_context() -> Buffer {
 
 /// Feed a sequence of alt-held printable keys.
 fn type_alt_keys(vim: &mut Vim, c: char, b: &mut Buffer) {
-    vim.handle_normal_key(Key::AltChar(c), b, &ViewSlot::new());
+    vim.handle_normal_key(Key::AltChar(c), b, &mut ViewSlot::new());
 }
 
 /// Feed a sequence of normal-mode keys.
@@ -61,11 +61,11 @@ fn type_alt_keys(vim: &mut Vim, c: char, b: &mut Buffer) {
 /// `ViewSlot` whose segments it measured — the same split the app has, where the
 /// view owns the layout and the buffer answers through it.
 fn type_keys(vim: &mut Vim, keys: &str, b: &mut Buffer) {
-    type_keys_in(vim, keys, b, &ViewSlot::new());
+    type_keys_in(vim, keys, b, &mut ViewSlot::new());
 }
 
 /// As [`type_keys`], with the layout the keys are typed against.
-fn type_keys_in(vim: &mut Vim, keys: &str, b: &mut Buffer, view: &ViewSlot) {
+fn type_keys_in(vim: &mut Vim, keys: &str, b: &mut Buffer, view: &mut ViewSlot) {
     for c in keys.chars() {
         vim.handle_normal_key(Key::Char(c), b, view);
     }

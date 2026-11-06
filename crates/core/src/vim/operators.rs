@@ -20,7 +20,7 @@ impl Vim {
         count: usize,
         key: Key,
         buf: &mut Buffer,
-        view: &ViewSlot,
+        view: &mut ViewSlot,
     ) -> Outcome {
         let before = self.begin_register_op();
         // A yank does not move the cursor: `0ywp` pastes where the yank started,
@@ -45,7 +45,7 @@ impl Vim {
         count: usize,
         key: Key,
         buf: &mut Buffer,
-        view: &ViewSlot,
+        view: &mut ViewSlot,
     ) -> Outcome {
         // Where the cursor sits in a table, if anywhere: a linewise delete
         // removes rows and must leave the cursor in the cell that took their

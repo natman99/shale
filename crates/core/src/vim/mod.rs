@@ -531,7 +531,7 @@ impl Vim {
     /// `view` is the display state of the view whose caret this keystroke drives:
     /// the motions that move by screen line need its wrap points, and a display
     /// question asked without a view could be answered from another view's layout.
-    pub fn handle_normal_key(&mut self, key: Key, buf: &mut Buffer, view: &ViewSlot) -> Outcome {
+    pub fn handle_normal_key(&mut self, key: Key, buf: &mut Buffer, view: &mut ViewSlot) -> Outcome {
         // The `space` leader's chords, one key after the motion that started
         // them. Only a plain space motion arms them: `d space` or `f ` never do.
         let after_space = std::mem::take(&mut self.after_space);
@@ -625,7 +625,7 @@ impl Vim {
 
     /// Replay the last change (vim's `.`). The recorded keys never leave the
     /// engine in insert mode, because the typed text is part of the recording.
-    pub fn repeat_last(&mut self, buf: &mut Buffer, view: &ViewSlot) -> Outcome {
+    pub fn repeat_last(&mut self, buf: &mut Buffer, view: &mut ViewSlot) -> Outcome {
         let Some(cmd) = self.last_command.clone() else {
             return Outcome::Unhandled;
         };

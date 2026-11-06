@@ -9,9 +9,9 @@ fn gx_requests_link_follow() {
     let mut vim = Vim::new();
     let mut b = buf();
     b.set_cursor(20);
-    vim.handle_normal_key(Key::Char('g'), &mut b, &ViewSlot::new());
+    vim.handle_normal_key(Key::Char('g'), &mut b, &mut ViewSlot::new());
     assert_eq!(
-        vim.handle_normal_key(Key::Char('x'), &mut b, &ViewSlot::new()),
+        vim.handle_normal_key(Key::Char('x'), &mut b, &mut ViewSlot::new()),
         Outcome::FollowLink
     );
     // The motion-less `gx` leaves the cursor where it was.
@@ -24,16 +24,16 @@ fn gd_and_g_capital_requests_the_same_link_and_the_creating_one() {
     let mut vim = Vim::new();
     let mut b = buf();
     b.set_cursor(20);
-    vim.handle_normal_key(Key::Char('g'), &mut b, &ViewSlot::new());
+    vim.handle_normal_key(Key::Char('g'), &mut b, &mut ViewSlot::new());
     // `gd` — go to definition, the LSP habit — is the same request as `gx`.
     assert_eq!(
-        vim.handle_normal_key(Key::Char('d'), &mut b, &ViewSlot::new()),
+        vim.handle_normal_key(Key::Char('d'), &mut b, &mut ViewSlot::new()),
         Outcome::FollowLink
     );
-    vim.handle_normal_key(Key::Char('g'), &mut b, &ViewSlot::new());
+    vim.handle_normal_key(Key::Char('g'), &mut b, &mut ViewSlot::new());
     // `gD` asks for the same thing with the note made first if there isn't one.
     assert_eq!(
-        vim.handle_normal_key(Key::Char('D'), &mut b, &ViewSlot::new()),
+        vim.handle_normal_key(Key::Char('D'), &mut b, &mut ViewSlot::new()),
         Outcome::CreateLink
     );
     assert_eq!(b.cursor(), 20, "neither chord moves the cursor");
@@ -48,7 +48,7 @@ fn upper_k_requests_the_checkers_note() {
     // The engine has nothing to look up and no idea what the word means: it
     // hands the request to the window and leaves the cursor alone.
     assert_eq!(
-        vim.handle_normal_key(Key::Char('K'), &mut b, &ViewSlot::new()),
+        vim.handle_normal_key(Key::Char('K'), &mut b, &mut ViewSlot::new()),
         Outcome::Hover
     );
     assert_eq!(b.cursor(), 2);
@@ -64,7 +64,7 @@ fn upper_k_in_a_table_moves_a_row_instead() {
     let mut b = table_buf();
     b.set_cursor(b.text().find('1').unwrap());
     assert_eq!(
-        vim.handle_normal_key(Key::Char('K'), &mut b, &ViewSlot::new()),
+        vim.handle_normal_key(Key::Char('K'), &mut b, &mut ViewSlot::new()),
         Outcome::Stay,
         "the table answered it"
     );
@@ -84,14 +84,14 @@ fn g_t_and_upper_t_ask_for_the_next_and_previous_tab() {
     let mut vim = Vim::new();
     let mut b = buf();
     b.set_cursor(2);
-    vim.handle_normal_key(Key::Char('g'), &mut b, &ViewSlot::new());
+    vim.handle_normal_key(Key::Char('g'), &mut b, &mut ViewSlot::new());
     assert_eq!(
-        vim.handle_normal_key(Key::Char('t'), &mut b, &ViewSlot::new()),
+        vim.handle_normal_key(Key::Char('t'), &mut b, &mut ViewSlot::new()),
         Outcome::TabNext
     );
-    vim.handle_normal_key(Key::Char('g'), &mut b, &ViewSlot::new());
+    vim.handle_normal_key(Key::Char('g'), &mut b, &mut ViewSlot::new());
     assert_eq!(
-        vim.handle_normal_key(Key::Char('T'), &mut b, &ViewSlot::new()),
+        vim.handle_normal_key(Key::Char('T'), &mut b, &mut ViewSlot::new()),
         Outcome::TabPrev
     );
     // Neither moves the cursor: the window decides what tab is on screen.
@@ -103,9 +103,12 @@ fn g_t_and_upper_t_ask_for_the_next_and_previous_tab() {
 fn za_folds_and_unfolds_the_section_the_cursor_is_in() {
     let mut vim = Vim::new();
     let mut b = note_buf();
+    // A fold belongs to the view the keys were typed against, so the test holds
+    // that view open and asks the buffer through it.
+    let mut screen = ViewSlot::new();
     b.goto_line(3); // `body`, inside `## Sub`
-    type_keys(&mut vim, "za", &mut b);
-    let view = b.fold_view();
+    type_keys_in(&mut vim, "za", &mut b, &mut screen);
+    let view = b.fold_view(&mut screen);
     assert_eq!(
         view.marker[2],
         Some(2),
@@ -113,25 +116,26 @@ fn za_folds_and_unfolds_the_section_the_cursor_is_in() {
     );
     assert_eq!(b.row_col(b.cursor()).0, 2);
     assert_eq!(b.text(), note_buf().text(), "a fold never touches the text");
-    type_keys(&mut vim, "za", &mut b);
-    assert!(!b.has_closed_folds());
+    type_keys_in(&mut vim, "za", &mut b, &mut screen);
+    assert!(!b.has_closed_folds(&screen));
 }
 
 #[test]
 fn zc_zo_and_zd_close_and_open_a_fold() {
     let mut vim = Vim::new();
     let mut b = note_buf();
+    let mut screen = ViewSlot::new();
     b.goto_line(0);
-    type_keys(&mut vim, "zc", &mut b);
-    assert_eq!(b.fold_view().marker[0], Some(4));
+    type_keys_in(&mut vim, "zc", &mut b, &mut screen);
+    assert_eq!(b.fold_view(&mut screen).marker[0], Some(4));
     // The cursor sits on the fold's heading row, which is where `zo` and `zd`
     // apply.
-    type_keys(&mut vim, "zo", &mut b);
-    assert!(!b.has_closed_folds());
-    type_keys(&mut vim, "zc", &mut b);
-    assert!(b.has_closed_folds());
-    type_keys(&mut vim, "zd", &mut b);
-    assert!(!b.has_closed_folds());
+    type_keys_in(&mut vim, "zo", &mut b, &mut screen);
+    assert!(!b.has_closed_folds(&screen));
+    type_keys_in(&mut vim, "zc", &mut b, &mut screen);
+    assert!(b.has_closed_folds(&screen));
+    type_keys_in(&mut vim, "zd", &mut b, &mut screen);
+    assert!(!b.has_closed_folds(&screen));
 }
 
 #[test]
@@ -143,17 +147,17 @@ fn space_f_asks_the_ui_for_the_quick_open_picker() {
     // The leader is armed and nothing else happens: a lone `space` waits for its
     // second key rather than moving the cursor under the user.
     assert_eq!(
-        vim.handle_normal_key(Key::Char(' '), &mut b, &ViewSlot::new()),
+        vim.handle_normal_key(Key::Char(' '), &mut b, &mut ViewSlot::new()),
         Outcome::Stay
     );
     assert_eq!(b.cursor(), 0, "space moves nothing");
     assert_eq!(
-        vim.handle_normal_key(Key::Char('f'), &mut b, &ViewSlot::new()),
+        vim.handle_normal_key(Key::Char('f'), &mut b, &mut ViewSlot::new()),
         Outcome::QuickOpen
     );
     // The chord is not a change, so `.` has nothing to replay.
     assert_eq!(
-        vim.repeat_last(&mut b, &ViewSlot::new()),
+        vim.repeat_last(&mut b, &mut ViewSlot::new()),
         Outcome::Unhandled
     );
 }
@@ -166,17 +170,17 @@ fn g_f_asks_the_ui_for_the_quick_open_picker() {
     assert_eq!(b.cursor(), 0);
     // `g` arms the goto chord, exactly as it does for `gg` and `gx`.
     assert_eq!(
-        vim.handle_normal_key(Key::Char('g'), &mut b, &ViewSlot::new()),
+        vim.handle_normal_key(Key::Char('g'), &mut b, &mut ViewSlot::new()),
         Outcome::Stay
     );
     assert_eq!(b.cursor(), 0, "`g` alone does not move");
     assert_eq!(
-        vim.handle_normal_key(Key::Char('f'), &mut b, &ViewSlot::new()),
+        vim.handle_normal_key(Key::Char('f'), &mut b, &mut ViewSlot::new()),
         Outcome::QuickOpen
     );
     // The chord is not a change, so `.` has nothing to replay.
     assert_eq!(
-        vim.repeat_last(&mut b, &ViewSlot::new()),
+        vim.repeat_last(&mut b, &mut ViewSlot::new()),
         Outcome::Unhandled
     );
 }
@@ -191,11 +195,11 @@ fn a_lone_space_moves_nothing() {
     let mut b = note_buf();
     b.goto_line(0);
     // `l` is the right motion, and still moves.
-    vim.handle_normal_key(Key::Char('l'), &mut b, &ViewSlot::new());
+    vim.handle_normal_key(Key::Char('l'), &mut b, &mut ViewSlot::new());
     let moved = b.cursor();
     assert!(moved > 0, "`l` moved right");
     assert_eq!(
-        vim.handle_normal_key(Key::Char(' '), &mut b, &ViewSlot::new()),
+        vim.handle_normal_key(Key::Char(' '), &mut b, &mut ViewSlot::new()),
         Outcome::Stay
     );
     assert_eq!(b.cursor(), moved, "space moved nothing");
@@ -206,11 +210,11 @@ fn a_lone_space_moves_nothing() {
     let mut vim = Vim::new();
     let mut b = table_buf();
     b.set_cursor(2);
-    vim.handle_normal_key(Key::Char('l'), &mut b, &ViewSlot::new());
+    vim.handle_normal_key(Key::Char('l'), &mut b, &mut ViewSlot::new());
     assert!(b.cursor() > 2, "`l` steps the cell");
     b.set_cursor(2);
     assert_eq!(
-        vim.handle_normal_key(Key::Char(' '), &mut b, &ViewSlot::new()),
+        vim.handle_normal_key(Key::Char(' '), &mut b, &mut ViewSlot::new()),
         Outcome::Stay
     );
     assert_eq!(b.cursor(), 2, "space stepped no cell");
@@ -222,16 +226,16 @@ fn space_s_asks_the_ui_for_vault_search() {
     let mut b = note_buf();
     b.goto_line(0);
     assert_eq!(
-        vim.handle_normal_key(Key::Char(' '), &mut b, &ViewSlot::new()),
+        vim.handle_normal_key(Key::Char(' '), &mut b, &mut ViewSlot::new()),
         Outcome::Stay
     );
     assert_eq!(
-        vim.handle_normal_key(Key::Char('s'), &mut b, &ViewSlot::new()),
+        vim.handle_normal_key(Key::Char('s'), &mut b, &mut ViewSlot::new()),
         Outcome::SearchVault
     );
     // The chord is not a change, so `.` has nothing to replay.
     assert_eq!(
-        vim.repeat_last(&mut b, &ViewSlot::new()),
+        vim.repeat_last(&mut b, &mut ViewSlot::new()),
         Outcome::Unhandled
     );
 }
@@ -248,17 +252,17 @@ fn the_space_leader_asks_the_ui_for_each_view() {
     ] {
         // As with the other chords, the leader arms without moving anything first.
         assert_eq!(
-            vim.handle_normal_key(Key::Char(' '), &mut b, &ViewSlot::new()),
+            vim.handle_normal_key(Key::Char(' '), &mut b, &mut ViewSlot::new()),
             Outcome::Stay
         );
         assert_eq!(
-            vim.handle_normal_key(Key::Char(key), &mut b, &ViewSlot::new()),
+            vim.handle_normal_key(Key::Char(key), &mut b, &mut ViewSlot::new()),
             want,
             "space {key}"
         );
         // A chord is not a change, so `.` has nothing to replay.
         assert_eq!(
-            vim.repeat_last(&mut b, &ViewSlot::new()),
+            vim.repeat_last(&mut b, &mut ViewSlot::new()),
             Outcome::Unhandled
         );
     }
@@ -270,26 +274,26 @@ fn space_g_asks_the_ui_for_the_graph() {
     let mut b = note_buf();
     b.goto_line(0);
     assert_eq!(
-        vim.handle_normal_key(Key::Char(' '), &mut b, &ViewSlot::new()),
+        vim.handle_normal_key(Key::Char(' '), &mut b, &mut ViewSlot::new()),
         Outcome::Stay
     );
     assert_eq!(
-        vim.handle_normal_key(Key::Char('g'), &mut b, &ViewSlot::new()),
+        vim.handle_normal_key(Key::Char('g'), &mut b, &mut ViewSlot::new()),
         Outcome::OpenGraph,
         "the leader's `g` is the graph, not the start of a `g` command"
     );
     // A chord, not a change, and it leaves nothing pending: the graph is the window's
     // answer, and the next key starts a fresh command.
     assert_eq!(
-        vim.repeat_last(&mut b, &ViewSlot::new()),
+        vim.repeat_last(&mut b, &mut ViewSlot::new()),
         Outcome::Unhandled
     );
     let before = b.text().to_string();
     assert_eq!(
-        vim.handle_normal_key(Key::Char('d'), &mut b, &ViewSlot::new()),
+        vim.handle_normal_key(Key::Char('d'), &mut b, &mut ViewSlot::new()),
         Outcome::Stay
     );
-    vim.handle_normal_key(Key::Char('w'), &mut b, &ViewSlot::new());
+    vim.handle_normal_key(Key::Char('w'), &mut b, &mut ViewSlot::new());
     assert_ne!(b.text(), before, "`dw` still works after the chord");
 }
 
@@ -299,33 +303,33 @@ fn space_y_asks_the_ui_for_the_system_clipboard() {
     let mut b = note_buf();
     b.goto_line(0);
     assert_eq!(
-        vim.handle_normal_key(Key::Char(' '), &mut b, &ViewSlot::new()),
+        vim.handle_normal_key(Key::Char(' '), &mut b, &mut ViewSlot::new()),
         Outcome::Stay
     );
     assert_eq!(
-        vim.handle_normal_key(Key::Char('y'), &mut b, &ViewSlot::new()),
+        vim.handle_normal_key(Key::Char('y'), &mut b, &mut ViewSlot::new()),
         Outcome::YankClipboard
     );
     // A chord, not a change — and not a yank either. The engine's own register is
     // still empty, because `space y` asks the window for the *system* clipboard
     // rather than remembering anything itself.
     assert_eq!(
-        vim.repeat_last(&mut b, &ViewSlot::new()),
+        vim.repeat_last(&mut b, &mut ViewSlot::new()),
         Outcome::Unhandled
     );
     assert_eq!(vim.register_text(), None);
 
     // Plain `y` is still vim's yank operator, and its text is what the window then
     // has to offer the clipboard.
-    vim.handle_normal_key(Key::Char('y'), &mut b, &ViewSlot::new());
-    vim.handle_normal_key(Key::Char('y'), &mut b, &ViewSlot::new());
+    vim.handle_normal_key(Key::Char('y'), &mut b, &mut ViewSlot::new());
+    vim.handle_normal_key(Key::Char('y'), &mut b, &mut ViewSlot::new());
     assert_eq!(vim.register_text(), Some("# Top\n"));
 
     // The other direction: the clipboard fills the register, and `p` pastes it.
     // Text that arrives with its own line break is linewise, so it lands on a line
     // of its own rather than in the middle of one.
     vim.set_register("from outside\n");
-    vim.handle_normal_key(Key::Char('p'), &mut b, &ViewSlot::new());
+    vim.handle_normal_key(Key::Char('p'), &mut b, &mut ViewSlot::new());
     assert_eq!(
         b.text(),
         "# Top\nfrom outside\nintro\n## Sub\nbody\ndeep\n# Other\ntail\n",
@@ -394,19 +398,19 @@ fn the_engine_says_when_a_key_arrives_mid_command() {
     let mut b = note_buf();
     assert!(!vim.awaiting_chord());
 
-    vim.handle_normal_key(Key::Char(' '), &mut b, &ViewSlot::new());
+    vim.handle_normal_key(Key::Char(' '), &mut b, &mut ViewSlot::new());
     assert!(vim.awaiting_chord(), "the leader waits for its second key");
-    vim.handle_normal_key(Key::Char('p'), &mut b, &ViewSlot::new());
+    vim.handle_normal_key(Key::Char('p'), &mut b, &mut ViewSlot::new());
     assert!(
         !vim.awaiting_chord(),
         "and a chord ends when it is answered"
     );
 
-    vim.handle_normal_key(Key::Char('d'), &mut b, &ViewSlot::new());
+    vim.handle_normal_key(Key::Char('d'), &mut b, &mut ViewSlot::new());
     assert!(vim.awaiting_chord(), "an operator waits for its motion");
-    vim.handle_normal_key(Key::Char('i'), &mut b, &ViewSlot::new());
+    vim.handle_normal_key(Key::Char('i'), &mut b, &mut ViewSlot::new());
     assert!(vim.awaiting_chord(), "a text object waits for its scope");
-    vim.handle_normal_key(Key::Char('w'), &mut b, &ViewSlot::new());
+    vim.handle_normal_key(Key::Char('w'), &mut b, &mut ViewSlot::new());
     assert!(
         !vim.awaiting_chord(),
         "and the command is over once it lands"
@@ -419,21 +423,21 @@ fn only_a_plain_space_arms_the_quick_open_chord() {
     let mut b = note_buf();
     b.goto_line(0);
     // `f` on its own still starts a find.
-    vim.handle_normal_key(Key::Char('f'), &mut b, &ViewSlot::new());
+    vim.handle_normal_key(Key::Char('f'), &mut b, &mut ViewSlot::new());
     assert_eq!(vim.pending_motion(), Some('f'));
     vim.enter_normal();
     // `d space` deletes to the right and does not arm the chord, so the
     // next `f` is a find.
-    vim.handle_normal_key(Key::Char('d'), &mut b, &ViewSlot::new());
-    vim.handle_normal_key(Key::Char(' '), &mut b, &ViewSlot::new());
+    vim.handle_normal_key(Key::Char('d'), &mut b, &mut ViewSlot::new());
+    vim.handle_normal_key(Key::Char(' '), &mut b, &mut ViewSlot::new());
     assert_eq!(vim.pending_motion(), None);
-    vim.handle_normal_key(Key::Char('f'), &mut b, &ViewSlot::new());
+    vim.handle_normal_key(Key::Char('f'), &mut b, &mut ViewSlot::new());
     assert_eq!(vim.pending_motion(), Some('f'));
     vim.enter_normal();
     // Escape after a space drops the chord too.
-    vim.handle_normal_key(Key::Char(' '), &mut b, &ViewSlot::new());
+    vim.handle_normal_key(Key::Char(' '), &mut b, &mut ViewSlot::new());
     vim.enter_normal();
-    vim.handle_normal_key(Key::Char('f'), &mut b, &ViewSlot::new());
+    vim.handle_normal_key(Key::Char('f'), &mut b, &mut ViewSlot::new());
     assert_eq!(
         vim.pending_motion(),
         Some('f'),
@@ -445,9 +449,10 @@ fn only_a_plain_space_arms_the_quick_open_chord() {
 fn zm_and_zr_fold_and_unfold_every_section() {
     let mut vim = Vim::new();
     let mut b = note_buf();
+    let mut screen = ViewSlot::new();
     b.goto_line(4);
-    type_keys(&mut vim, "zM", &mut b);
-    let view = b.fold_view();
+    type_keys_in(&mut vim, "zM", &mut b, &mut screen);
+    let view = b.fold_view(&mut screen);
     assert_eq!(view.marker[0], Some(4));
     assert_eq!(
         view.marker[2], None,
@@ -455,25 +460,26 @@ fn zm_and_zr_fold_and_unfold_every_section() {
     );
     assert_eq!(view.marker[5], Some(2));
     assert_eq!(b.row_col(b.cursor()).0, 0);
-    type_keys(&mut vim, "zR", &mut b);
-    assert!(!b.has_closed_folds());
+    type_keys_in(&mut vim, "zR", &mut b, &mut screen);
+    assert!(!b.has_closed_folds(&screen));
 }
 
 #[test]
 fn z_waits_for_its_fold_command() {
     let mut vim = Vim::new();
     let mut b = note_buf();
+    let mut screen = ViewSlot::new();
     b.goto_line(0);
-    type_keys(&mut vim, "z", &mut b);
+    type_keys_in(&mut vim, "z", &mut b, &mut screen);
     assert_eq!(vim.pending_motion(), Some('z'));
     // An unbound command letter cancels it without touching anything.
     assert_eq!(
-        vim.handle_normal_key(Key::Char('q'), &mut b, &ViewSlot::new()),
+        vim.handle_normal_key(Key::Char('q'), &mut b, &mut ViewSlot::new()),
         Outcome::Unhandled
     );
     assert_eq!(vim.pending_motion(), None);
-    assert!(!b.has_closed_folds());
-    type_keys(&mut vim, "z", &mut b);
+    assert!(!b.has_closed_folds(&screen));
+    type_keys_in(&mut vim, "z", &mut b, &mut screen);
     vim.enter_normal();
     assert_eq!(vim.pending_motion(), None);
 }
@@ -486,21 +492,21 @@ fn bracket_a_requests_the_review_marker() {
     let mut b = buf();
     b.set_cursor(2);
     assert_eq!(
-        vim.handle_normal_key(Key::Char(']'), &mut b, &ViewSlot::new()),
+        vim.handle_normal_key(Key::Char(']'), &mut b, &mut ViewSlot::new()),
         Outcome::Stay,
         "the bracket waits for the letter that makes it a command"
     );
     assert!(vim.awaiting_chord(), "and it is a half-typed command");
     assert_eq!(
-        vim.handle_normal_key(Key::Char('a'), &mut b, &ViewSlot::new()),
+        vim.handle_normal_key(Key::Char('a'), &mut b, &mut ViewSlot::new()),
         Outcome::ReviewNext
     );
     assert_eq!(
-        vim.handle_normal_key(Key::Char('['), &mut b, &ViewSlot::new()),
+        vim.handle_normal_key(Key::Char('['), &mut b, &mut ViewSlot::new()),
         Outcome::Stay
     );
     assert_eq!(
-        vim.handle_normal_key(Key::Char('a'), &mut b, &ViewSlot::new()),
+        vim.handle_normal_key(Key::Char('a'), &mut b, &mut ViewSlot::new()),
         Outcome::ReviewPrev
     );
     assert_eq!(b.cursor(), 2, "and the note was never touched");
@@ -516,7 +522,7 @@ fn a_bracket_without_its_a_does_nothing() {
     let mut vim = Vim::new();
     let mut b = buf();
     type_keys(&mut vim, "]", &mut b);
-    vim.handle_normal_key(Key::Char('x'), &mut b, &ViewSlot::new());
+    vim.handle_normal_key(Key::Char('x'), &mut b, &mut ViewSlot::new());
     assert_eq!(b.text(), "hello world\nsecond line\nthird");
     assert!(!vim.awaiting_chord());
 }
@@ -555,8 +561,8 @@ fn a_bracket_after_an_operator_is_not_a_chord() {
         "the operator is waiting for its motion"
     );
     // `y[` is not a Shale motion, so nothing is yanked and nothing is queued.
-    vim.handle_normal_key(Key::Char('['), &mut b, &ViewSlot::new());
+    vim.handle_normal_key(Key::Char('['), &mut b, &mut ViewSlot::new());
     assert!(!vim.awaiting_chord());
-    vim.handle_normal_key(Key::Char('a'), &mut b, &ViewSlot::new());
+    vim.handle_normal_key(Key::Char('a'), &mut b, &mut ViewSlot::new());
     assert_eq!(b.text(), "see [the link] here");
 }

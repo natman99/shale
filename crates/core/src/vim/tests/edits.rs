@@ -127,15 +127,15 @@ fn tilde_repeats_over_the_word() {
 fn s_is_cl() {
     let mut vim = Vim::new();
     let mut b = buf();
-    let outcome = vim.handle_normal_key(Key::Char('s'), &mut b, &ViewSlot::new());
+    let outcome = vim.handle_normal_key(Key::Char('s'), &mut b, &mut ViewSlot::new());
     assert_eq!(outcome, Outcome::EnterInsert);
     assert_eq!(b.text(), "ello world\nsecond line\nthird");
     assert_eq!(vim.register_text(), Some("h"));
 
     let mut vim = Vim::new();
     let mut b = buf();
-    vim.handle_normal_key(Key::Char('2'), &mut b, &ViewSlot::new());
-    vim.handle_normal_key(Key::Char('s'), &mut b, &ViewSlot::new());
+    vim.handle_normal_key(Key::Char('2'), &mut b, &mut ViewSlot::new());
+    vim.handle_normal_key(Key::Char('s'), &mut b, &mut ViewSlot::new());
     assert_eq!(b.text(), "llo world\nsecond line\nthird");
     assert_eq!(vim.register_text(), Some("he"));
 }
@@ -145,7 +145,7 @@ fn c_is_c_dollar_and_d_is_d_dollar() {
     let mut vim = Vim::new();
     let mut b = buf();
     b.set_cursor(6); // the `w` of "world"
-    let outcome = vim.handle_normal_key(Key::Char('C'), &mut b, &ViewSlot::new());
+    let outcome = vim.handle_normal_key(Key::Char('C'), &mut b, &mut ViewSlot::new());
     assert_eq!(outcome, Outcome::EnterInsert);
     assert_eq!(b.text(), "hello \nsecond line\nthird");
     assert_eq!(vim.register_text(), Some("world"));
@@ -186,7 +186,7 @@ fn x_is_dh_and_leaves_the_register_when_there_is_nothing_to_delete() {
 fn s_capital_is_cc_and_y_capital_is_yy() {
     let mut vim = Vim::new();
     let mut b = buf();
-    let outcome = vim.handle_normal_key(Key::Char('S'), &mut b, &ViewSlot::new());
+    let outcome = vim.handle_normal_key(Key::Char('S'), &mut b, &mut ViewSlot::new());
     assert_eq!(outcome, Outcome::EnterInsert);
     assert_eq!(
         b.text(),
@@ -237,10 +237,10 @@ fn an_operator_over_nothing_registers_nothing() {
     // insert mode over the empty range.
     let mut vim = Vim::new();
     let mut b = buf();
-    let outcome = vim.handle_normal_key(Key::Char('0'), &mut b, &ViewSlot::new());
+    let outcome = vim.handle_normal_key(Key::Char('0'), &mut b, &mut ViewSlot::new());
     assert_eq!(outcome, Outcome::Stay);
-    vim.handle_normal_key(Key::Char('c'), &mut b, &ViewSlot::new());
-    let outcome = vim.handle_normal_key(Key::Char('0'), &mut b, &ViewSlot::new());
+    vim.handle_normal_key(Key::Char('c'), &mut b, &mut ViewSlot::new());
+    let outcome = vim.handle_normal_key(Key::Char('0'), &mut b, &mut ViewSlot::new());
     assert_ne!(outcome, Outcome::EnterInsert);
     assert_eq!(b.text(), "hello world\nsecond line\nthird");
     assert_eq!(vim.register_text(), None);

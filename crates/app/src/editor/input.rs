@@ -46,7 +46,7 @@ impl MarkdownEditor {
                     .any(|(x0, x1)| *x0 <= local_x && local_x <= *x1)
             }) {
                 let row = self.buffer.row_col(hit.start).0;
-                self.buffer.fold_toggle_at(row);
+                self.buffer.fold_toggle_at(&mut self.slot, row);
                 self.ensure_cursor_visible();
                 cx.notify();
                 return;

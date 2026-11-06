@@ -24,7 +24,7 @@ impl Vim {
         tables: &[Table],
         loc: Located,
         buf: &mut Buffer,
-        view: &ViewSlot,
+        view: &mut ViewSlot,
     ) -> Option<Outcome> {
         let Key::Char(c) = key else {
             return None;
@@ -144,7 +144,7 @@ fn step_cell_rows(table: &Table, loc: Located, delta: isize, buf: &mut Buffer) -
 /// if the ordinary line motion landed there, step once more in the same
 /// direction. `table` describes the buffer as the motion saw it (no edits are
 /// involved), so its row offsets are still exact.
-fn step_past_rule(table: &Table, buf: &mut Buffer, view: &ViewSlot, down: bool) {
+fn step_past_rule(table: &Table, buf: &mut Buffer, view: &mut ViewSlot, down: bool) {
     if table
         .row_at(buf.cursor())
         .is_some_and(|row| table.is_delimiter(row))

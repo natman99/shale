@@ -19,7 +19,7 @@ impl Vim {
         &mut self,
         key: Key,
         buf: &mut Buffer,
-        view: &ViewSlot,
+        view: &mut ViewSlot,
     ) -> Outcome {
         // The table under the cursor, if any. Parsed per key: the scan is cheap
         // (it bails out at once when the text has no pipe) and every table edit
@@ -348,15 +348,15 @@ impl Vim {
                 return Outcome::ReviewCollapse;
             }
             match c {
-                'a' => buf.fold_toggle(),
-                'c' => buf.fold_close(),
-                'o' => buf.fold_open(),
+                'a' => buf.fold_toggle(view),
+                'c' => buf.fold_close(view),
+                'o' => buf.fold_open(view),
                 // `zd` removes the fold the cursor is on. A fold is a closed
                 // region here, not a stored definition, so that is the same as
                 // opening it.
-                'd' => buf.fold_open(),
-                'M' => buf.fold_close_all(),
-                'R' | 'E' => buf.fold_open_all(),
+                'd' => buf.fold_open(view),
+                'M' => buf.fold_close_all(view),
+                'R' | 'E' => buf.fold_open_all(view),
                 _ => return Outcome::Unhandled,
             }
             return Outcome::Stay;
@@ -660,7 +660,7 @@ impl Vim {
     /// The `0` motion: the start of the screen line, or the first content
     /// character of the cell when the cursor is inside a table (its padding is
     /// not a place a cursor should come to rest).
-    pub(super) fn zero_motion(&self, buf: &mut Buffer, view: &ViewSlot) {
+    pub(super) fn zero_motion(&self, buf: &mut Buffer, view: &mut ViewSlot) {
         match table::locate(&table::tables(buf.text()), buf.cursor()) {
             Some(loc) => buf.set_cursor(loc.cell.cursor()),
             None => buf.line_start_motion(view),

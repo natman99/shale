@@ -13,7 +13,7 @@ impl Vim {
         &mut self,
         key: Key,
         buf: &mut Buffer,
-        view: &ViewSlot,
+        view: &mut ViewSlot,
     ) -> Outcome {
         // A digit extends the count, unless it is the argument of a half-typed
         // command (`f0`).
@@ -150,7 +150,7 @@ impl Vim {
 
     /// Runs a motion while in visual mode. Motions measure from the cursor, so
     /// the selection is cleared first and then re-anchored where it was.
-    fn visual_motion(&mut self, key: Key, buf: &mut Buffer, view: &ViewSlot) -> Outcome {
+    fn visual_motion(&mut self, key: Key, buf: &mut Buffer, view: &mut ViewSlot) -> Outcome {
         let anchor = buf.selection().map(|(a, _)| a);
         buf.clear_selection();
         let outcome = self.handle_motion_key(key, buf, view);

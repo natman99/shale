@@ -611,11 +611,12 @@ fn counted_open_lines() {
 #[test]
 fn folding_a_section_hides_its_rows_from_the_display_model() {
     let mut b = Buffer::new("# Top\nintro\n## Sub\nbody\ndeep\n".to_string());
+    let mut v = ViewSlot::new();
     b.goto_line(3); // `body`, inside `## Sub`
-    assert!(!b.has_closed_folds());
-    b.fold_toggle();
-    assert!(b.has_closed_folds());
-    let view = b.fold_view();
+    assert!(!b.has_closed_folds(&v));
+    b.fold_toggle(&mut v);
+    assert!(b.has_closed_folds(&v));
+    let view = b.fold_view(&mut v);
     assert_eq!(
         view.collapsed,
         vec![false, false, false, true, true, true],
@@ -627,21 +628,22 @@ fn folding_a_section_hides_its_rows_from_the_display_model() {
         2,
         "the cursor rides up to the heading that opens the fold"
     );
-    b.fold_toggle();
-    assert!(!b.has_closed_folds());
-    assert!(b.fold_view().collapsed.iter().all(|c| !c));
+    b.fold_toggle(&mut v);
+    assert!(!b.has_closed_folds(&v));
+    assert!(b.fold_view(&mut v).collapsed.iter().all(|c| !c));
 }
 
 #[test]
 fn a_fold_follows_its_heading_through_an_edit() {
     let mut b = Buffer::new("# Top\nintro\n## Sub\nbody\n".to_string());
+    let mut v = ViewSlot::new();
     b.goto_line(2);
-    b.fold_close();
+    b.fold_close(&mut v);
     // A fold is keyed on its heading's text, so an edit anywhere else (here,
     // one that pushes every row down) leaves it closed on the same heading.
     b.set_cursor(0);
     b.insert("More title.\n");
-    let view = b.fold_view();
+    let view = b.fold_view(&mut v);
     assert_eq!(view.marker[3], Some(2), "`## Sub` moved down a row");
     assert!(view.collapsed[4], "the body row is still hidden");
 }
@@ -649,31 +651,75 @@ fn a_fold_follows_its_heading_through_an_edit() {
 #[test]
 fn closing_every_fold_lands_on_a_visible_heading() {
     let mut b = Buffer::new("# Top\nintro\n## Sub\nbody\n".to_string());
+    let mut v = ViewSlot::new();
     b.goto_line(4); // `body`, inside both sections
-    b.fold_close_all();
+    b.fold_close_all(&mut v);
     assert_eq!(
         b.row_col(b.cursor()).0,
         0,
         "the cursor walks out to the outer heading"
     );
-    let view = b.fold_view();
+    let view = b.fold_view(&mut v);
     assert_eq!(view.marker[0], Some(4));
     assert_eq!(
         view.marker[2], None,
         "the nested fold has no visible row to carry a marker"
     );
-    b.fold_open_all();
-    assert!(!b.has_closed_folds());
+    b.fold_open_all(&mut v);
+    assert!(!b.has_closed_folds(&v));
+}
+
+/// The whole point of the slot: one buffer, two layouts that never see each
+/// other. This is what lets a note be folded in a tab and left open in the
+/// embed of it sitting beside the tab — and what stops the narrow pane's wrap
+/// points from answering the wide pane's motions.
+#[test]
+fn two_views_of_one_buffer_fold_and_wrap_independently() {
+    let mut b = Buffer::new("# Top\nintro\n## Sub\nbody text here\n".to_string());
+    let mut tab = ViewSlot::new();
+    let mut embed = ViewSlot::new();
+
+    b.goto_line(3); // `body text here`, inside `## Sub`
+    b.fold_close(&mut tab);
+    assert!(b.has_closed_folds(&tab), "the tab has the section shut");
+    assert!(
+        !b.has_closed_folds(&embed),
+        "the embed of the same note does not inherit it"
+    );
+    assert!(
+        b.fold_view(&mut embed).collapsed.iter().all(|c| !c),
+        "and the embed still draws every row"
+    );
+
+    // The same for wrap: the tab breaks the long row in two, the embed leaves it.
+    // (Segments are per buffer row; a single entry means "unwrapped", an empty
+    // vec would mean "draws no line at all".)
+    tab.set_segments(vec![
+        vec![b.line_start(0)],
+        vec![b.line_start(1)],
+        vec![b.line_start(2)],
+        vec![b.line_start(3), b.line_start(3) + 4],
+    ]);
+    assert_eq!(
+        b.display_line_count(&tab),
+        b.display_line_count(&embed) + 1,
+        "the wrapped view has one more display line than the unwrapped one"
+    );
 }
 
 #[test]
-fn loading_another_note_forgets_folds() {
+fn a_view_forgets_folds_when_its_note_changes() {
+    // Folds are keyed on heading text, so carrying them into another note would
+    // fold unrelated rows. They live in the view, so it is the view that forgets
+    // them — which is what the app does when a tab loads a different note.
     let mut b = Buffer::new("# Top\nintro\n".to_string());
+    let mut v = ViewSlot::new();
     b.goto_line(0);
-    b.fold_close();
-    assert!(b.has_closed_folds());
+    b.fold_close(&mut v);
+    assert!(b.has_closed_folds(&v));
     b.set_text("# Top\nintro\n".to_string());
-    assert!(!b.has_closed_folds());
+    v.clear();
+    assert!(!b.has_closed_folds(&v));
 }
 
 /// Preview mode protects the text and nothing else. Every route to a change is

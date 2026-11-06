@@ -99,7 +99,7 @@ impl Render for MarkdownEditor {
         // Folding: a closed section's rows take no display line at all, exactly
         // like a hidden fence line, which is what keeps j/k, the ruler and the
         // scroll position in step with what is on screen. The text is untouched.
-        let folds = self.buffer.fold_view();
+        let folds = self.buffer.fold_view(&mut self.slot);
         for (row, hidden) in collapsed.iter_mut().enumerate() {
             if folds.collapsed.get(row).is_some_and(|c| *c) {
                 *hidden = true;

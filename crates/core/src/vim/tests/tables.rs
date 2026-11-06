@@ -210,7 +210,7 @@ fn alt_motions_outside_a_table_do_nothing() {
     let mut b = buf();
     let before = b.text().to_string();
     assert_eq!(
-        vim.handle_normal_key(Key::AltChar('j'), &mut b, &ViewSlot::new()),
+        vim.handle_normal_key(Key::AltChar('j'), &mut b, &mut ViewSlot::new()),
         Outcome::Unhandled
     );
     assert_eq!(b.text(), before);
@@ -284,7 +284,7 @@ fn o_opens_a_table_row_below() {
     let mut b = table_buf();
     b.set_cursor(b.text().find('1').unwrap());
     assert_eq!(
-        vim.handle_normal_key(Key::Char('o'), &mut b, &ViewSlot::new()),
+        vim.handle_normal_key(Key::Char('o'), &mut b, &mut ViewSlot::new()),
         Outcome::EnterInsert
     );
     assert_eq!(
@@ -304,7 +304,7 @@ fn capital_o_opens_a_table_row_above() {
     let mut b = table_buf();
     b.set_cursor(b.text().find('1').unwrap());
     assert_eq!(
-        vim.handle_normal_key(Key::Char('O'), &mut b, &ViewSlot::new()),
+        vim.handle_normal_key(Key::Char('O'), &mut b, &mut ViewSlot::new()),
         Outcome::EnterInsert
     );
     assert_eq!(
@@ -318,7 +318,7 @@ fn a_row_is_not_opened_between_the_header_and_its_delimiter() {
     let mut vim = Vim::new();
     let mut b = table_buf();
     b.set_cursor(b.text().find(" bb ").unwrap() + 1);
-    vim.handle_normal_key(Key::Char('o'), &mut b, &ViewSlot::new());
+    vim.handle_normal_key(Key::Char('o'), &mut b, &mut ViewSlot::new());
     assert_eq!(
         b.text(),
         "| a | bb | ccc |\n| --- | --- | --- |\n|  |  |  |\n| 1 | 22 | 333 |\n| 4 | 55 | 666 |\n",
@@ -332,7 +332,7 @@ fn shift_i_clears_the_cell_and_enters_insert() {
     let mut b = table_buf();
     b.set_cursor(b.text().find("22").unwrap());
     assert_eq!(
-        vim.handle_normal_key(Key::Char('I'), &mut b, &ViewSlot::new()),
+        vim.handle_normal_key(Key::Char('I'), &mut b, &mut ViewSlot::new()),
         Outcome::EnterInsert
     );
     assert!(
@@ -351,7 +351,7 @@ fn capital_a_appends_at_the_end_of_the_cell() {
     let mut b = table_buf();
     b.set_cursor(b.text().find('1').unwrap());
     assert_eq!(
-        vim.handle_normal_key(Key::Char('A'), &mut b, &ViewSlot::new()),
+        vim.handle_normal_key(Key::Char('A'), &mut b, &mut ViewSlot::new()),
         Outcome::EnterInsert
     );
     vim.enter_insert();

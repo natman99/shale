@@ -26,7 +26,7 @@ fn y_on_a_line_under_review_asks_for_the_accept_and_yanks_nothing() {
     let (mut vim, mut b) = on(1);
     under_review(&mut vim);
     assert_eq!(
-        vim.handle_normal_key(Key::Char('y'), &mut b, &ViewSlot::new()),
+        vim.handle_normal_key(Key::Char('y'), &mut b, &mut ViewSlot::new()),
         Outcome::ReviewAccept
     );
     assert_eq!(b.text(), NOTE, "the note is untouched");
@@ -45,11 +45,11 @@ fn y_one_line_away_is_still_the_yank() {
     let (mut vim, mut b) = on(3);
     under_review(&mut vim);
     assert_eq!(
-        vim.handle_normal_key(Key::Char('y'), &mut b, &ViewSlot::new()),
+        vim.handle_normal_key(Key::Char('y'), &mut b, &mut ViewSlot::new()),
         Outcome::Stay,
         "line 3 is not under review"
     );
-    vim.handle_normal_key(Key::Char('y'), &mut b, &ViewSlot::new());
+    vim.handle_normal_key(Key::Char('y'), &mut b, &mut ViewSlot::new());
     assert!(
         vim.register_text().is_some_and(|t| t.contains("four")),
         "the yank landed in a register: {:?}",
@@ -62,7 +62,7 @@ fn x_on_a_line_under_review_asks_for_the_reject_and_deletes_nothing() {
     let (mut vim, mut b) = on(2);
     under_review(&mut vim);
     assert_eq!(
-        vim.handle_normal_key(Key::Char('x'), &mut b, &ViewSlot::new()),
+        vim.handle_normal_key(Key::Char('x'), &mut b, &mut ViewSlot::new()),
         Outcome::ReviewReject
     );
     assert_eq!(b.text(), NOTE, "`x` did not eat a character");
@@ -73,7 +73,7 @@ fn x_off_the_review_lines_still_deletes_the_character() {
     let (mut vim, mut b) = on(3);
     under_review(&mut vim);
     assert_eq!(
-        vim.handle_normal_key(Key::Char('x'), &mut b, &ViewSlot::new()),
+        vim.handle_normal_key(Key::Char('x'), &mut b, &mut ViewSlot::new()),
         Outcome::Stay
     );
     assert_eq!(b.text(), "one\ntwo\nthree\nour\n", "the `f` went");
@@ -87,13 +87,14 @@ fn za_on_a_line_under_review_collapses_the_proposal_not_the_section() {
     b.set_cursor(b.line_start(1));
     let mut vim = Vim::new();
     under_review(&mut vim);
-    vim.handle_normal_key(Key::Char('z'), &mut b, &ViewSlot::new());
+    let mut screen = ViewSlot::new();
+    vim.handle_normal_key(Key::Char('z'), &mut b, &mut screen);
     assert_eq!(
-        vim.handle_normal_key(Key::Char('a'), &mut b, &ViewSlot::new()),
+        vim.handle_normal_key(Key::Char('a'), &mut b, &mut screen),
         Outcome::ReviewCollapse
     );
     assert!(
-        b.fold_view().marker.iter().all(|m| m.is_none()),
+        b.fold_view(&mut screen).marker.iter().all(|m| m.is_none()),
         "and no fold was opened anywhere: the key went to the proposal"
     );
 }
@@ -105,12 +106,13 @@ fn za_elsewhere_is_the_fold_it_always_was() {
     b.set_cursor(b.line_start(0));
     let mut vim = Vim::new();
     under_review(&mut vim);
-    vim.handle_normal_key(Key::Char('z'), &mut b, &ViewSlot::new());
+    let mut screen = ViewSlot::new();
+    vim.handle_normal_key(Key::Char('z'), &mut b, &mut screen);
     assert_eq!(
-        vim.handle_normal_key(Key::Char('a'), &mut b, &ViewSlot::new()),
+        vim.handle_normal_key(Key::Char('a'), &mut b, &mut screen),
         Outcome::Stay
     );
-    let view = b.fold_view();
+    let view = b.fold_view(&mut screen);
     assert!(
         view.marker[0].is_some(),
         "the heading opened a fold, which is what `za` has always done"
@@ -127,9 +129,9 @@ fn za_elsewhere_is_the_fold_it_always_was() {
 fn a_count_keeps_y_vim_s() {
     let (mut vim, mut b) = on(1);
     under_review(&mut vim);
-    vim.handle_normal_key(Key::Char('2'), &mut b, &ViewSlot::new());
+    vim.handle_normal_key(Key::Char('2'), &mut b, &mut ViewSlot::new());
     assert_eq!(
-        vim.handle_normal_key(Key::Char('y'), &mut b, &ViewSlot::new()),
+        vim.handle_normal_key(Key::Char('y'), &mut b, &mut ViewSlot::new()),
         Outcome::Stay
     );
     assert_eq!(
@@ -145,8 +147,8 @@ fn a_count_keeps_y_vim_s() {
 fn a_pending_operator_keeps_y_vim_s() {
     let (mut vim, mut b) = on(1);
     under_review(&mut vim);
-    vim.handle_normal_key(Key::Char('d'), &mut b, &ViewSlot::new());
-    let outcome = vim.handle_normal_key(Key::Char('y'), &mut b, &ViewSlot::new());
+    vim.handle_normal_key(Key::Char('d'), &mut b, &mut ViewSlot::new());
+    let outcome = vim.handle_normal_key(Key::Char('y'), &mut b, &mut ViewSlot::new());
     assert!(
         !matches!(outcome, Outcome::ReviewAccept),
         "the `y` of `dy` is part of a delete: {outcome:?}"
@@ -165,11 +167,11 @@ fn a_pending_operator_keeps_y_vim_s() {
 fn visual_mode_keeps_its_own_keys() {
     let (mut vim, mut b) = on(1);
     under_review(&mut vim);
-    vim.handle_normal_key(Key::Char('v'), &mut b, &ViewSlot::new());
-    vim.handle_normal_key(Key::Char('l'), &mut b, &ViewSlot::new());
+    vim.handle_normal_key(Key::Char('v'), &mut b, &mut ViewSlot::new());
+    vim.handle_normal_key(Key::Char('l'), &mut b, &mut ViewSlot::new());
     assert_eq!(vim.mode(), Mode::Visual);
     assert_eq!(
-        vim.handle_normal_key(Key::Char('x'), &mut b, &ViewSlot::new()),
+        vim.handle_normal_key(Key::Char('x'), &mut b, &mut ViewSlot::new()),
         Outcome::Stay
     );
     assert_eq!(
@@ -185,7 +187,7 @@ fn visual_mode_keeps_its_own_keys() {
 fn with_nothing_pending_everything_is_ordinary() {
     let (mut vim, mut b) = on(1);
     assert_eq!(
-        vim.handle_normal_key(Key::Char('x'), &mut b, &ViewSlot::new()),
+        vim.handle_normal_key(Key::Char('x'), &mut b, &mut ViewSlot::new()),
         Outcome::Stay
     );
     assert_eq!(

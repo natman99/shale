@@ -1,7 +1,6 @@
 //! A small text buffer with cursor/selection and undo, designed for
 //! markdown notes (whole-file `String` storage is fine at this scale).
 
-use crate::fold;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Snapshot {
@@ -29,15 +28,6 @@ pub struct Buffer {
     /// every character in our monospace font, so a character column is the
     /// column the user sees, while a byte column is not.
     desired_col: Option<usize>,
-    /// Which heading sections the user has folded shut. View state like
-    /// [`view::ViewSlot`]'s wrap points: it changes what is drawn, never the text.
-    /// (Folds move into the slot too; they are threaded one step at a time because
-    /// the caret math and the paint both consult them.)
-    folds: fold::FoldState,
-    /// The foldable regions of the current text, cached until the text changes
-    /// (they are derived from the markdown scan, so recomputing them per key
-    /// press would be wasteful).
-    fold_cache: Option<(u64, Vec<fold::FoldRegion>)>,
     /// True while insert-mode edits are being coalesced into one undo step.
     group_open: bool,
     /// Whether the text is protected from edits — preview mode. Motions, the
@@ -81,8 +71,6 @@ impl Buffer {
             undo: Vec::new(),
             redo: Vec::new(),
             desired_col: None,
-            folds: fold::FoldState::default(),
-            fold_cache: None,
             group_open: false,
             read_only: false,
             change_id: 0,
@@ -98,10 +86,6 @@ impl Buffer {
         self.cursor = 0;
         self.selection = None;
         self.desired_col = None;
-        // Another note, another set of folds: they are keyed on heading text, so
-        // carrying them over would fold unrelated rows.
-        self.folds.clear();
-        self.fold_cache = None;
         self.group_open = false;
         self.change_id += 1;
         self.cursor = self.clamp(self.cursor);

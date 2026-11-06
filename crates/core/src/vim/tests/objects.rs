@@ -40,9 +40,9 @@ fn type_until_last(vim: &mut Vim, keys: &str, b: &mut Buffer) -> Outcome {
     let mut chars = keys.chars();
     let last = chars.next_back().expect("at least one key");
     for c in chars {
-        vim.handle_normal_key(Key::Char(c), b, &ViewSlot::new());
+        vim.handle_normal_key(Key::Char(c), b, &mut ViewSlot::new());
     }
-    vim.handle_normal_key(Key::Char(last), b, &ViewSlot::new())
+    vim.handle_normal_key(Key::Char(last), b, &mut ViewSlot::new())
 }
 
 #[test]

@@ -9,16 +9,16 @@ fn normal_mode_motions_and_operators() {
     let mut b = buf();
     assert_eq!(vim.mode(), Mode::Normal);
 
-    vim.handle_normal_key(Key::Char('j'), &mut b, &ViewSlot::new());
+    vim.handle_normal_key(Key::Char('j'), &mut b, &mut ViewSlot::new());
     assert_eq!(b.cursor(), 12);
-    vim.handle_normal_key(Key::Char('$'), &mut b, &ViewSlot::new());
+    vim.handle_normal_key(Key::Char('$'), &mut b, &mut ViewSlot::new());
     assert_eq!(b.cursor(), 22); // last char of "second line"
-    vim.handle_normal_key(Key::Char('k'), &mut b, &ViewSlot::new());
+    vim.handle_normal_key(Key::Char('k'), &mut b, &mut ViewSlot::new());
     assert_eq!(b.cursor(), 10); // column memory lands on the 'd'
 
     // dd deletes the line.
-    vim.handle_normal_key(Key::Char('d'), &mut b, &ViewSlot::new());
-    vim.handle_normal_key(Key::Char('d'), &mut b, &ViewSlot::new());
+    vim.handle_normal_key(Key::Char('d'), &mut b, &mut ViewSlot::new());
+    vim.handle_normal_key(Key::Char('d'), &mut b, &mut ViewSlot::new());
     assert_eq!(b.text(), "second line\nthird");
 }
 
@@ -84,9 +84,9 @@ fn counted_operators() {
     type_keys(&mut vim, "2x", &mut b);
     assert_eq!(b.text(), "llo world\nsecond line\nthird");
     let mut b = Buffer::new("a\nb".to_string());
-    vim.handle_normal_key(Key::Char('2'), &mut b, &ViewSlot::new());
+    vim.handle_normal_key(Key::Char('2'), &mut b, &mut ViewSlot::new());
     assert_eq!(
-        vim.handle_normal_key(Key::Char('o'), &mut b, &ViewSlot::new()),
+        vim.handle_normal_key(Key::Char('o'), &mut b, &mut ViewSlot::new()),
         Outcome::EnterInsert
     );
     assert_eq!(b.text(), "a\n\n\nb");
@@ -97,11 +97,11 @@ fn change_operator_enters_insert() {
     let mut vim = Vim::new();
     let mut b = Buffer::new("one two three".to_string());
     assert_eq!(
-        vim.handle_normal_key(Key::Char('c'), &mut b, &ViewSlot::new()),
+        vim.handle_normal_key(Key::Char('c'), &mut b, &mut ViewSlot::new()),
         Outcome::Stay
     );
     assert_eq!(
-        vim.handle_normal_key(Key::Char('w'), &mut b, &ViewSlot::new()),
+        vim.handle_normal_key(Key::Char('w'), &mut b, &mut ViewSlot::new()),
         Outcome::EnterInsert
     );
     assert_eq!(b.text(), "two three");
@@ -142,27 +142,27 @@ fn dollar_and_zero_follow_the_display_line() {
     screen.set_segments(vec![vec![0, 11]]);
     let mut v = Vim::new();
 
-    type_keys_in(&mut v, "$", &mut b, &screen);
+    type_keys_in(&mut v, "$", &mut b, &mut screen);
     assert_eq!(b.cursor(), 10, "$ stops at the display line end");
-    type_keys_in(&mut v, "0", &mut b, &screen);
+    type_keys_in(&mut v, "0", &mut b, &mut screen);
     assert_eq!(b.cursor(), 0, "0 goes to the display line start");
 
     b.set_cursor(12);
     assert_eq!(
-        v.handle_normal_key(Key::Char('I'), &mut b, &screen),
+        v.handle_normal_key(Key::Char('I'), &mut b, &mut screen),
         Outcome::EnterInsert
     );
     assert_eq!(b.cursor(), 0, "I is line-wise: the row's first non-blank");
 
     b.set_cursor(0);
     assert_eq!(
-        v.handle_normal_key(Key::Char('A'), &mut b, &screen),
+        v.handle_normal_key(Key::Char('A'), &mut b, &mut screen),
         Outcome::EnterInsert
     );
     assert_eq!(b.cursor(), 16, "A is line-wise: the end of the whole row");
 
     b.set_cursor(12);
-    type_keys_in(&mut v, "d$", &mut b, &screen);
+    type_keys_in(&mut v, "d$", &mut b, &mut screen);
     assert_eq!(b.text(), "aaaa   bbbb ", "d$ stops at the display line end");
 }
 
@@ -191,7 +191,7 @@ fn text_objects() {
     b.set_cursor(12);
     type_keys(&mut v, "ci", &mut b);
     assert_eq!(
-        v.handle_normal_key(Key::Char('w'), &mut b, &ViewSlot::new()),
+        v.handle_normal_key(Key::Char('w'), &mut b, &mut ViewSlot::new()),
         Outcome::EnterInsert,
         "ciw leaves the cursor ready for typing"
     );
@@ -297,7 +297,7 @@ fn insert_transitions() {
     let mut vim = Vim::new();
     let mut b = buf();
     assert_eq!(
-        vim.handle_normal_key(Key::Char('o'), &mut b, &ViewSlot::new()),
+        vim.handle_normal_key(Key::Char('o'), &mut b, &mut ViewSlot::new()),
         Outcome::EnterInsert
     );
     assert_eq!(b.text(), "hello world\n\nsecond line\nthird");
@@ -315,18 +315,18 @@ fn gg_and_pending_reset() {
     let mut vim = Vim::new();
     let mut b = buf();
     b.set_cursor(20);
-    vim.handle_normal_key(Key::Char('g'), &mut b, &ViewSlot::new());
-    vim.handle_normal_key(Key::Char('g'), &mut b, &ViewSlot::new());
+    vim.handle_normal_key(Key::Char('g'), &mut b, &mut ViewSlot::new());
+    vim.handle_normal_key(Key::Char('g'), &mut b, &mut ViewSlot::new());
     assert_eq!(b.cursor(), 0);
 
     // Unbound key after `d` cancels the pending operator.
-    vim.handle_normal_key(Key::Char('d'), &mut b, &ViewSlot::new());
+    vim.handle_normal_key(Key::Char('d'), &mut b, &mut ViewSlot::new());
     assert_eq!(
-        vim.handle_normal_key(Key::Char('q'), &mut b, &ViewSlot::new()),
+        vim.handle_normal_key(Key::Char('q'), &mut b, &mut ViewSlot::new()),
         Outcome::Unhandled
     );
-    vim.handle_normal_key(Key::Char('d'), &mut b, &ViewSlot::new());
-    vim.handle_normal_key(Key::Char('d'), &mut b, &ViewSlot::new());
+    vim.handle_normal_key(Key::Char('d'), &mut b, &mut ViewSlot::new());
+    vim.handle_normal_key(Key::Char('d'), &mut b, &mut ViewSlot::new());
     assert_eq!(b.line_count(), 2);
 }
 
@@ -335,11 +335,11 @@ fn a_and_uppercase_a_position_cursor() {
     let mut vim = Vim::new();
     let mut b = buf();
     b.set_cursor(0);
-    vim.handle_normal_key(Key::Char('a'), &mut b, &ViewSlot::new());
+    vim.handle_normal_key(Key::Char('a'), &mut b, &mut ViewSlot::new());
     assert_eq!(b.cursor(), 1);
     vim.enter_insert();
     vim.handle_insert_key(Key::Escape);
-    vim.handle_normal_key(Key::Char('A'), &mut b, &ViewSlot::new());
+    vim.handle_normal_key(Key::Char('A'), &mut b, &mut ViewSlot::new());
     assert_eq!(b.cursor(), 11);
 }
 
@@ -356,7 +356,7 @@ fn a_on_an_empty_row_stays_on_that_row() {
         "the cursor starts on the empty row"
     );
     assert_eq!(
-        v.handle_normal_key(Key::Char('A'), &mut b, &ViewSlot::new()),
+        v.handle_normal_key(Key::Char('A'), &mut b, &mut ViewSlot::new()),
         Outcome::EnterInsert
     );
     assert_eq!(b.cursor(), 4, "the append belongs to the empty row");
@@ -370,7 +370,7 @@ fn visual_a_on_a_selection_ending_on_an_empty_row() {
     let mut b = Buffer::new("one\n\n".to_string());
     type_keys(&mut v, "Vj", &mut b);
     assert_eq!(
-        v.handle_normal_key(Key::Char('A'), &mut b, &ViewSlot::new()),
+        v.handle_normal_key(Key::Char('A'), &mut b, &mut ViewSlot::new()),
         Outcome::EnterInsert
     );
     assert_eq!(

@@ -84,7 +84,7 @@ impl MarkdownEditor {
         let before = self.buffer.text().to_string();
         let outcome = self
             .vim
-            .handle_normal_key(key, &mut self.buffer, &self.slot);
+            .handle_normal_key(key, &mut self.buffer, &mut self.slot);
         let changed = self.buffer.text() != before;
         if changed {
             self.mark_dirty(cx);
