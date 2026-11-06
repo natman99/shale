@@ -68,6 +68,23 @@ Not re-litigating these; they are decisions, and each is dated to the round that
 12. **An embed renders the note as Shale has it in hand, not as the disk has it.** If a tab
     holds unsaved edits to `gift.md`, the embed of `gift.md` shows those edits.
     (2026-11-06; `embeds::Cache` reads disk today and must consult open buffers first.)
+13. **One note may appear several times in one host, showing different sections at once.**
+    `![[gift#The middle]]` and `![[gift#The end]]` both render — the point is reading two
+    parts of one note side by side, which is a posture the app should not need two panes
+    for. (2026-11-06, extending the Q2 ruling.)
+14. **Edit-ness follows the caret, not the position in the file.** The block the caret is in
+    is editable; every other block of that note is a **view** — phantom rows, no caret
+    painted, no click-to-edit until you click into it (which moves edit-ness there). Only
+    one block per note per view is ever entered. (2026-11-06.)
+15. **A view whose section stops resolving shows a badge naming the missing section.** No
+    polling: the check happens when the rest of the view re-renders, which is every frame
+    already. The entered block is the exception — it exits with a status line instead,
+    because a caret cannot be badged out from under itself. (2026-11-06.)
+16. **The embed cache keys its bodies on the note's `change_id`.** `Buffer::change_id()`
+    (core/src/buffer/mod.rs:151) counts every edit and is already how `fold_cache`
+    invalidates; keying the body cache on it is ruling 12 implemented with a number
+    instead of a policy — a note edited in a tab, or in another embed block of itself,
+    re-renders on the next paint with no timer and no watcher. (2026-11-06.)
 
 ---
 
@@ -177,8 +194,20 @@ M1 before M3 is not a preference, it is the ordering rule.
 8. Session restore: entered-embed state is not persisted; embeds come back read-only. → Q8.
 
 **Two views, one buffer**
-9. **The same note embedded twice in one host**: one buffer, one caret, two places to draw
-   it. → Q2.
+9. **The same note embedded twice in one host** — ruled (Q2 + 2026-11-06): both render,
+   different sections side by side is the point. The entered block is real rows; the others
+   are views (ruling 14). The resolver already allows it: the chain is per-path
+   (`chain: &mut Vec<PathBuf>`, push/pop at transclude.rs:113-150), never a global seen-set,
+   so sibling embeds of one note both expand today.
+9a. **The double-drawn caret is the hazard this ruling creates.** One caret per note
+    (ruling 7) plus two blocks of that note = the naive render paints the caret twice.
+    Only the entered block paints caret and selection. This needs a test, because a caret
+    drawn in a block you are not editing reads as a bug and someone will fix the wrong half.
+9b. **Overlapping sections**: a subsection embed and a parent-section embed of one note
+    share rows, so typing in the entered block visibly changes the view block. That is one
+    text doing what it should; pin it with a test so it never gets "fixed" as a glitch.
+9c. **The depth cap counts levels, not occurrences**: two level-1 embeds of one note are
+    both level 1, each nesting two more levels along its own chain.
 10. Note open in a tab in pane A and entered in an embed in pane B: the same caret appears
     in both panes, live. That is the invariant working, and it needs a test so it never
     reads as a bug.
@@ -219,7 +248,12 @@ M1 before M3 is not a preference, it is the ordering rule.
 **The cut moves under you**
 31. An entered `![[gift#The middle]]` whose heading is renamed or deleted (by typing in the
     embed, or by an agent write): the section the embed was cut from no longer exists while
-    the caret is inside it. → Q5.
+    the caret is inside it — **ruled (Q5)**: exit the embed, status line, caret back on the
+    host's `![[…]]` row. A *view* block of the same note badges instead (ruling 15); the
+    asymmetry is deliberate and the rule behind it is *the caret decides*.
+31a. Editing the entered block can delete a heading a *view* block of the same note was cut
+    from (a subsection embed inside a parent-section embed). The view badges; nothing else
+    happens. No conflict with 31 — different halves of the same rule.
 32. The embed cache re-derives references from the host buffer every frame and caches the
     reads; the entered note must bypass the disk cache and render the live buffer
     (ruling 12).
@@ -228,7 +262,9 @@ M1 before M3 is not a preference, it is the ordering rule.
 33. An agent writes a note that is embedded and dirty: the external-change path leaves the
     dirty buffer alone — same rule as tabs, and it must reach registry entries (M1).
 34. A pending agent *proposal* on an embedded note: the strip lists it; the inline overlay
-    does not paint inside an embed in v1. → Q6.
+    does not paint inside an embed in v1. **Deferred (Q6)** — the overlay composition it
+    needs (struck rows and phantom additions *inside* another overlay's block) belongs to
+    roadmap **P4.2**, which now carries the pointer so this does not get lost.
 
 **Perf**
 35. The view's row list is rebuilt per frame over host + embed rows; the cap keeps the
@@ -251,49 +287,68 @@ M1 before M3 is not a preference, it is the ordering rule.
 
 ---
 
-## 7. Open questions — one reply, by number
+## 7. Open questions — **ALL RESOLVED 2026-11-06**
 
-**Q1. A dirty embed with no tab: where does the work live?**
-The registry keeps it alive, but a dirty note no tab shows is invisible.
-*Recommendation:* **materialise a tab the moment an embed's buffer goes dirty and no tab
-holds it.** Unsaved work always has a visible home, the dirty dot has somewhere to light,
-and the close/quit warning needs no new machinery. The alternative (keep it invisible,
-warn when the host closes) leaves a state where `ctrl-s` has no obvious subject.
+The user answered all eight in one reply; Q2 came back extended, and the extension is now
+ruling 13-16. Additions I made beyond what was ruled are marked **(addition)** so they can
+be vetoed.
 
-**Q2. The same note embedded twice in one host?**
-One buffer, one caret, two places to draw it.
-*Recommendation:* **the first occurrence gets real rows; later occurrences render as a
-badge** (`already shown above`). Rendering one buffer twice in one column with one caret
-means two carets on screen for one caret, which reads as a bug whatever the code says.
+**Q1. A dirty embed with no tab.** ✅ **RESOLVED — materialise a tab** the moment an embed's
+buffer goes dirty and no tab holds it. Unsaved work always has a visible home, the dirty dot
+has somewhere to light, and the close/quit warning needs no new machinery. It also settles
+`:q` from inside an embed (Q7): there is a tab, so closing the host's tab is a plain
+dirty-tab close.
 
-**Q3. Clicking host text while inside an embed — implicit exit?**
-*Recommendation:* **yes.** The caret is in a buffer; clicking puts it where you clicked.
-Refusing the click ("you're editing an embed, use `ctrl-o`") would be the one place where
-the mouse stops answering the question you asked it.
+**Q2. The same note embedded twice.** ✅ **RESOLVED, extended by the user.** Not "first real,
+later a badge" — **both render**, because reading two different sections of one note at once
+is a posture worth having without two panes. The first is editable and the second view-only;
+a view whose section lookup fails (or whose note was edited elsewhere so the section moved)
+shows a **badge naming the missing section**; and there is **no polling** — the check happens
+when the rest of the view re-renders. That became rulings 13-16.
+**(addition)** Edit-ness follows the caret rather than file position (ruling 14): clicking a
+view block enters it and moves edit-ness there, which is what ruling 3 already implies and
+what a position-based rule would break the moment you click the second block.
+**(addition)** Only the entered block paints the caret and selection (ledger 9a) — with one
+caret per note, the naive render draws it twice.
+**(addition)** Overlapping sections visibly change while you type in the other block, and
+that is pinned as correct rather than fixed (ledger 9b).
 
-**Q4. `:w <name>` and `:rename` while the caret is inside an embed — which note?**
-*Recommendation:* **`:rename` acts on the caret's note** (renaming what you are editing is
-what it means, and rename propagation already rewrites the host's embed line);
-**`:w <name>` refuses inside an embed** in v1 — it already refuses on a tab that has a
-file, and a command line that silently clones the *borrowed* note is exactly the accident
-that rule exists to prevent.
+**Q3. Clicking host text while inside an embed.** ✅ **RESOLVED — exits.** The caret is in a
+buffer; clicking puts it where you clicked.
 
-**Q5. The section an entered embed was cut from disappears while the caret is inside it.**
-*Recommendation:* **exit the embed with a status line** (`[[gift#The middle]] no longer
-names a heading here`) and leave the caret on the host's embed row. The alternative —
-keeping the caret in a region that no longer exists — is the deletion-under-view trap this
-repo has already been bitten by once.
+**Q4. `:rename` / `:w <name>` from inside an embed.** ✅ **RESOLVED** — `:rename` acts on the
+caret's note (rename propagation already rewrites the host's embed line); `:w <name>` refuses
+inside an embed, consistent with the existing rule that the command line must not clone a
+note by accident.
 
-**Q6. Agent proposals on an embedded note: paint them inside the embed?**
-*Recommendation:* **defer.** The strip is authoritative and already lists them; painting a
-proposal's struck rows and phantom additions *inside* an embed block is a second overlay
-composition and belongs with P4.2's diff renderer, not here.
+**Q5. The entered embed's section disappears under the caret.** ✅ **RESOLVED — exit with a
+status line**, caret back on the host's `![[…]]` row. No conflict with Q2: a *view* block of
+the same note badges instead, because there is no caret inside it to rescue. The rule behind
+both: **the caret decides.**
 
-**Q7. `:q` while inside an embed?**
-*Recommendation:* **closes the host's tab**, with the embed's dirty state participating in
-the warning. `:q` is a statement about the window, not about the note under the caret.
+**Q6. Agent proposals on an embedded note.** ✅ **RESOLVED — deferred**, and written down in
+two places so it cannot be lost: ledger 34 below, and roadmap **P4.2** ("Diff renderer"),
+which is where an overlay that composes struck rows and phantom additions inside another
+overlay's block belongs. The strip stays authoritative and already lists them meanwhile.
 
-**Q8. Session restore: remember which embed was entered?**
-*Recommendation:* **no.** Embeds come back read-only. Restoring an entered embed means
-restoring a caret into a region that has to be re-derived from text that may have changed,
-and the session file's rule is that it describes panes and tabs, not views-within-views.
+**Q7. `:q` from inside an embed.** ✅ **RESOLVED — closes the host's tab**, with the embed's
+dirty state feeding the warning. Depends on Q1: the embed has a tab by then, so this is an
+ordinary dirty-tab close.
+
+**Q8. Does the entered embed ride the session file?** ✅ **RESOLVED — no.** Embeds come back
+read-only; the session file describes panes and tabs, not views-within-views, and restoring
+a caret into a region that has to be re-derived from text that may have changed is exactly
+the trap this repo has been bitten by once.
+
+---
+
+## 8. What is settled enough to build
+
+Rulings 1-16, the ledger, and milestones M0-M4 are decided. The build order is M0 (view state
+out of `Buffer`) → M1 (the registry, P4.17) → M2 (the row list spans buffers) → M3 (entry and
+exit) → M4 (the save story), and M1 lands before any of the visible feature.
+
+Three tests carry the new rulings and should be written with the code that satisfies them:
+the caret painted in one block only (9a); a view block badging when the entered block's
+typing deletes its heading (31a); and the body cache re-deriving on `change_id` when a note
+is edited in a tab while embedded (ruling 12 + 16).

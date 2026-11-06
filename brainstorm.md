@@ -353,6 +353,17 @@ place; the interaction design pass is **done 2026-11-06**, in `transclusion-plan
     one note share text *and* caret. Per-view carets are the expensive half, not taken.
   - **Dirty display is transitive, dirty state is per file**: the host tab's dot lights if
     the host or any embed it renders is dirty; `:w` inside an embed writes both.
+- **Edge cases ruled the same day** (full ledger in `transclusion-plan.md` §5, rulings
+  §7): a dirty embed with no tab **materialises a tab**, so unsaved work always has a
+  visible home. **One note may appear several times in one host, showing different sections
+  at once** — `![[gift#The middle]]` beside `![[gift#The end]]` — because that is a posture
+  worth having without two panes; the block the caret is in is editable, the others are
+  views, and a view whose section stops resolving **badges the missing section** with no
+  polling (the body cache keys on `Buffer::change_id`, the same stamp `fold_cache` uses).
+  Clicking host text exits; `:rename` acts on the caret's note and `:w <name>` refuses
+  inside an embed; an entered section that vanishes under the caret exits with a status line
+  while a view block badges — **the caret decides**; agent proposals inside embeds wait for
+  P4.2; `:q` closes the host's tab; the entered embed does not ride the session file.
 
 ### Focus / typewriter mode ✅ (semantic version ruled 2026-10-29)
 - **Dim by semantic unit, not distance:** everything except the current unit

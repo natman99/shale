@@ -1039,8 +1039,8 @@ edges, query nodes, MCP canvas tools) is P6.10.
     the cursor on a wikilink *inside* an embed jumps to that link. This half alone
     unblocks `![[query-name]]` in P4.3 and the embed case of P6.2.
   - **P4.0b editable in place.** **Interaction design pass done 2026-11-06** — rulings,
-    a 36-case edge ledger and milestones M0-M4 are in `transclusion-plan.md`; eight open
-    questions there await a ruling (Q1-Q8). Behavior was already ruled (undo buffer-local
+    a 36-case edge ledger and milestones M0-M4 are in `transclusion-plan.md`; **all eight
+    open questions were ruled the same day** (Q1-Q8, §7). Behavior was already ruled (undo buffer-local
     with a seam indicator; per-note dirty state; save/autosave covering host + embeds;
     closing a host with a dirty embed warns; never *silently* saving the embed). Ruled now:
     enter by click or `ctrl-]`, exit with `ctrl-o` (the jump chain, not a new stack), one
@@ -1072,6 +1072,10 @@ edges, query nodes, MCP canvas tools) is P6.10.
   `diff_add`, and the `−N +M` collapsed badge in `diff_changed`. What is left for P4.2
   is the *browsing* half — a snapshot list and a scrubber over two stored versions —
   not the diff and not its rendering. Do not rebuild any of that.
+  **Deferred in from P4.0b (2026-11-06, ruled Q6):** painting a queued proposal *inside an
+  editable embed* — struck rows and phantom additions composed within another overlay's
+  block — was ruled out of P4.0b and belongs here, not in the embed work. The review strip
+  is authoritative and already lists proposals for embedded notes meanwhile.
 - **P4.3 Query notes `.shq`** (brainstorm ✅): `queries/` folder, TOML
   frontmatter + SQL body, read-only connection, results cached by query-hash +
   vault mtime, `![[query-name]]` embedding. This is the "Obsidian bases" goal.
@@ -1408,12 +1412,13 @@ P7.3 / P7.4. P7.6 gates on the same provenance/filter work as P4.8.
     placeholder and an empty block reads as a successful embed. Still unsettled: whether
     a broken embed should get its own badge, a distinct one, or offer `gD`-style
     creation — that is P6.9's pass, and the code leaves the room for it.
-11. **Editable-embed edge cases** (P4.0b / P4.17) — **Q1-Q8 in `transclusion-plan.md`
-    §7**, each with a recommendation: where a dirty embed with no tab lives (recommend:
-    materialise a tab), the same note embedded twice in one host (recommend: first
-    occurrence real, later a badge), whether clicking host text exits an embed (recommend:
-    yes), which note `:rename` / `:w <name>` act on from inside an embed, what happens when
-    the section an entered embed was cut from disappears under the caret (recommend: exit
-    with a status line), whether agent proposals paint inside embeds (recommend: defer to
-    P4.2), what `:q` closes from inside an embed (recommend: the host's tab), and whether
-    the entered embed rides the session file (recommend: no).
+11. ~~Editable-embed edge cases~~ **RESOLVED 2026-11-06** (Q1-Q8, `transclusion-plan.md`
+    §7): a dirty embed with no tab **materialises a tab**; the same note embedded twice
+    **renders both** — different sections side by side is the point — with the entered block
+    editable and the others views that **badge when their section stops resolving**, no
+    polling (the body cache keys on `Buffer::change_id`); clicking host text **exits**;
+    `:rename` acts on the caret's note and `:w <name>` **refuses** inside an embed; an
+    entered section that vanishes under the caret **exits with a status line** while a view
+    block badges — *the caret decides*; agent proposals inside embeds are **deferred to
+    P4.2**; `:q` closes the host's tab; and the entered embed does **not** ride the session
+    file.

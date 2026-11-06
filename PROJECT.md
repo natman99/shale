@@ -1542,8 +1542,11 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   `ctrl-]` (vim's tag jump), exit by `ctrl-o` (the jump chain, not a new stack), one level of
   editing, one scroll axis (the host's), and **the seam is a buffer boundary — everything
   buffer-scoped stops there**, stated as *the view scrolls freely, the caret never crosses on
-  its own* so `ctrl-d`/`ctrl-f` fall out correctly. Eight edge-case questions await a ruling
-  (§7 of the plan, and roadmap open decision 11).
+  its own* so `ctrl-d`/`ctrl-f` fall out correctly.  All eight edge-case questions were ruled the same day
+  (§7 of the plan); the sharpest is that **one note may appear several times in one host,
+  showing different sections at once**, with the caret's block editable, the others views that
+  badge when their section stops resolving, and the body cache keyed on `Buffer::change_id`
+  rather than any polling.
 - **Inline review overlay (roadmap P2.5b) — done: a queued proposal is now painted in
   the note it belongs to, not only in the strip. The ruled shape that made this cheap:
   a **removal is not phantom** — the line is already in the buffer, so the note's own row
