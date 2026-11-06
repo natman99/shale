@@ -129,14 +129,8 @@ fn paint(cx: &mut VisualTestContext, window: &WindowHandle<Workspace>) {
 /// move to the tab on screen one frame after the tab does (`Workspace::focus_stale`), so
 /// a test that presses a key straight after a tab change without this is pressing it
 /// against a view that has already left the tree — the keystroke goes nowhere.
-fn repaint(cx: &mut VisualTestContext) {
-    for _ in 0..2 {
-        cx.update(|window, cx| window.draw(cx).clear(cx));
-        // Not through a window handle: the callback updates the workspace, and an
-        // update of the workspace from inside one is a double borrow.
-        cx.update(|window, cx| window.simulate_next_frame(cx));
-    }
-}
+// `repaint` lives in `tests/mod.rs` now: the pane tests need the same frame-pumping
+// helper, and a keyboard that has not followed a tab change is the same trap in both.
 
 /// Wait for the index scan to land, for the tests that reach the graph without pressing
 /// a key. The scan runs on the background executor, and a simulated keystroke is what

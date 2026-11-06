@@ -305,21 +305,70 @@ fn only_keeps_the_pane_in_hand(cx: &mut TestAppContext) {
 /// Opening a note that another pane already shows focuses that pane rather
 /// than putting the note on two bars at once.
 #[gpui::test]
-fn a_note_open_in_another_pane_is_found_not_duplicated(cx: &mut TestAppContext) {
+fn a_note_open_in_another_pane_is_stolen_not_duplicated(cx: &mut TestAppContext) {
     let (_dir, window, mut cx) = two_notes(cx);
     cx.simulate_keystrokes("ctrl-w v");
     show(&mut cx, &window, "b.md");
+    // Standing in pane 1, ask for a.md — which pane 0 already shows.
     show(&mut cx, &window, "a.md");
     assert_eq!(
         active(&window, &mut cx),
-        0,
-        "the pane showing a.md took the keyboard"
+        1,
+        "the keyboard stayed where the user was standing"
     );
     assert_eq!(
         pane_tabs(&window, &mut cx, 1),
-        vec!["b.md"],
-        "no third copy appeared"
+        vec!["b.md".to_string(), "a.md".to_string()],
+        "the tab came here, and no second copy appeared"
     );
+    assert_eq!(
+        pane_tabs(&window, &mut cx, 0),
+        vec!["—".to_string()],
+        "the pane it left keeps a blank tab rather than closing"
+    );
+}
+
+/// The tab travels **whole**: the editor it owns comes with its edits, its cursor and
+/// its undo history, so stealing is a move and not a re-open.
+#[gpui::test]
+fn a_stolen_tab_keeps_its_editor(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = two_notes(cx);
+    cx.simulate_keystrokes("ctrl-w v");
+    show(&mut cx, &window, "a.md");
+    assert_eq!(buffer(&window, &mut cx), "first\n", "the stolen tab is on screen");
+    // The keyboard follows the tab one frame later, as it does after any tab change.
+    repaint(&mut cx);
+
+    cx.simulate_keystrokes("i x escape");
+    assert_eq!(buffer(&window, &mut cx), "xfirst\n");
+
+    // Walk to the other pane — now blank — and ask for the same note again.
+    cx.simulate_keystrokes("ctrl-w h");
+    assert_eq!(active(&window, &mut cx), 0);
+    show(&mut cx, &window, "a.md");
+    repaint(&mut cx);
+    assert_eq!(
+        buffer(&window, &mut cx),
+        "xfirst\n",
+        "the edit travelled with the tab"
+    );
+    cx.simulate_keystrokes("u");
+    assert_eq!(
+        buffer(&window, &mut cx),
+        "first\n",
+        "and so did the undo history: the editor was moved, not reloaded"
+    );
+}
+
+/// What the note in the pane on screen is, straight from its editor.
+fn buffer(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> String {
+    window
+        .update(cx, |ws, _window, cx| {
+            ws.editor()
+                .map(|editor| editor.read_with(cx, |editor, _cx| editor.text()))
+                .unwrap_or_default()
+        })
+        .unwrap()
 }
 
 /// The graph stays one tab per *window*: `space g` from a second pane focuses

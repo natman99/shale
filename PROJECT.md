@@ -449,7 +449,9 @@ Workspace layout:
   owns the editor that holds it, so each tab keeps its own cursor, scroll, folds,
   view and undo history. A new tab comes from `ctrl-t` / `:tabnew` (a second tab on
   the note in hand — the same note read twice), and opening a note the bar already
-  holds goes to that tab instead of putting it on the bar twice. `g t`/`g T` walk
+  holds goes to that tab instead of putting it on the bar twice — and when a *different
+  pane* holds it, the tab is stolen into the pane the user is standing in, whole (its
+  editor, cursor, folds and undo history travel with it). `g t`/`g T` walk
   the bar (wrapping), `:tabnext`/`:tabprev`/`:tabclose`/`:tabonly`/`:tabmove [n]`
   are the command-line doors, and the bar itself is clicked: a tab's row switches
   to it, its `×` closes it, and a dirty dot sits on the tab it belongs to. A tab is

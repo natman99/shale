@@ -505,6 +505,55 @@ impl Workspace {
         true
     }
 
+    /// Move a tab from another pane into the pane with the keyboard, whole.
+    ///
+    /// The tab owns its editor, so the cursor, the folds, the view and the undo history
+    /// travel with it: this is a move, not a re-open. It is what opening a note another
+    /// pane already shows does now (the user's ruling) — the note comes to where the
+    /// user is standing instead of dragging the keyboard across the window.
+    ///
+    /// The pane the tab came from is left with a blank tab, not with nothing: a pane is
+    /// never empty, and a pane closing because a note was opened somewhere else is a
+    /// side effect nobody asked for.
+    pub(crate) fn steal_tab(&mut self, from: usize, index: usize, cx: &mut Context<Self>) {
+        if from >= self.panes.len()
+            || from == self.active_pane
+            || index >= self.panes[from].tabs.len()
+        {
+            return;
+        }
+        let tab = self.panes[from].tabs.remove(index);
+        // The pane the tab came from keeps a sane index: it is not the one with the
+        // keyboard, so nothing else here would notice that its last tab went.
+        self.panes[from].active = self
+            .panes[from]
+            .active
+            .min(self.panes[from].tabs.len().saturating_sub(1));
+        self.pane_mut().tabs.push(tab);
+        self.pane_mut().active = self.pane().tabs.len() - 1;
+        if self.panes[from].tabs.is_empty() {
+            // Standing in the emptied pane for a moment, because `add_tab` is the door
+            // that knows how a tab's editor gets wired up.
+            let keyboard = self.active_pane;
+            self.active_pane = from;
+            self.add_tab(cx);
+            self.active_pane = keyboard;
+        }
+        self.mark_note_mru(cx);
+        self.hover_stale = true;
+        self.focus_stale = true;
+        // The checker follows what is on screen now. It is not closed for the pane the
+        // tab left: the note it was showing is still open, one pane over.
+        if let Some(path) = self.note() {
+            let text = self
+                .editor()
+                .map(|editor| editor.read_with(cx, |editor, _cx| editor.text()))
+                .unwrap_or_default();
+            self.checker_opened(&path, &text, cx);
+        }
+        cx.notify();
+    }
+
     /// Empty a tab without closing it: what `:tabonly` leaves, and what closing the
     /// last tab leaves. A graph tab cannot be emptied — an empty graph tab is a window
     /// with nothing in it — so it becomes a fresh empty *note* tab under the same id,

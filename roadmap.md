@@ -768,6 +768,13 @@ into the Phase 3 addendum. **P2.5a landed 2026-11-01, so Phase 2 is closed**
   `:quit` shape). Closing the last tab in a pane closes that pane — Obsidian's rule, so a
   split does not fill up with panes nobody is looking at — with the last pane as the
   exception: there the tab is cleared, so a window never quits because a tab closed.
+  And opening a note another pane already shows **steals the tab** into the pane with the
+  keyboard — whole, because the tab owns its editor, so the cursor, folds, view and undo
+  history travel (ruled 2026-11-05, replacing "found, and the keyboard goes there" with
+  "found, and brought here"). The pane it left keeps a blank tab rather than closing; the
+  graph tab is the exception, still one per window and focused where it is, because a
+  restore must not relocate it. Tab-to-pane movement is therefore covered; the open item
+  below is about moving **panes**.
   **Still open for P3.2:** move/exchange/rotate (`H/J/K/L`, `x/X`, `r`) and `:pin`.
 - **P3.3 Graph M1a — start immediately, in parallel with P0/P1.** No
   dependencies: `crates/core/src/graph/{index,sim,quadtree,filter}.rs` +

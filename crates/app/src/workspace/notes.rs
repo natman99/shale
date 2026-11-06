@@ -24,19 +24,23 @@ impl Workspace {
         // put it on the bar twice. The current tab is the exception — reopening the
         // note that is already on screen re-reads it, which is what a reload from
         // disk asks for.
-        // Any pane, not just this one (roadmap P3.2): a link followed in pane A
-        // to a note pane B already shows focuses B rather than opening a third
-        // copy of the note on two bars at once.
+        // Any pane, not just this one (roadmap P3.2): a note another pane already
+        // shows is never opened twice. It comes *here* (ruled 2026-11-05): the tab
+        // moves whole into the pane with the keyboard, rather than dragging the
+        // keyboard to wherever the note happened to be open. The graph tab is the
+        // exception — it is one view per window, and `open_graph` focuses it where it
+        // is, because a restore must not relocate it.
         if let Some((pix, tix)) = self.tab_for_path_anywhere(path) {
-            if pix != self.active_pane || tix != self.pane().active {
+            if pix != self.active_pane {
                 self.record_jump(path, cx);
-                if pix != self.active_pane {
-                    self.active_pane = pix;
-                    self.hover_stale = true;
-                }
-                self.show_tab(tix, cx);
+                self.steal_tab(pix, tix, cx);
                 return;
             }
+            if tix != self.pane().active {
+                self.record_jump(path, cx);
+                self.show_tab(tix, cx);
+            }
+            return;
         }
         // Going to a different note is a jump, so the place being left goes onto
         // the chain `ctrl-o` walks back.

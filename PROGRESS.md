@@ -1280,3 +1280,36 @@ one that survived.
 Not done, on purpose: **moving a tab to another pane** has no key. Roadmap P3.2's
 move/exchange/rotate is about moving *panes*; the tab half (steal-on-open, or an explicit
 drag) is an open question with the user. app 484 / core 466.
+
+
+## Opening a note another pane shows steals the tab (2026-11-05)
+
+Asked: there is no way to move a tab between panes. True — and P3.2's
+move/exchange/rotate is about moving *panes*, so the tab half was not on the roadmap.
+Ruled: **steal**. Opening a note another pane already shows moves that tab into the pane
+with the keyboard, rather than dragging the keyboard across the window to wherever the
+note happened to be open.
+
+The tab moves **whole**, which is cheap precisely because the tab owns its editor: cursor,
+folds, view and undo history are inside the `Tab`, so a move is a `Vec::remove` +
+`Vec::push` and the test proves it by editing in one pane, stealing the tab to another,
+and pressing `u` there.
+
+Two rules fall out of the existing invariants:
+- The pane the tab came from gets a **blank tab**, not nothing. A pane is never empty, and
+  a pane closing because a note was opened somewhere else is a side effect nobody asked
+  for (unlike closing the last tab, which does close a pane — that was a deliberate
+  request, this is a consequence).
+- The source pane's `active` index has to be clamped on the way out. It is not the pane
+  with the keyboard, so nothing else in the path would notice its last tab had gone — that
+  is exactly the `index out of bounds: len is 1 but the index is 1` the first version of
+  the test caught.
+
+The **graph tab is the exception**: still one per window, still focused where it is. It is
+a view of the vault rather than a note you are standing next to, and `open_graph` runs
+during session restore, where relocating the tab would fight the file.
+
+Test helper note: `repaint` (draw a frame *and* run the next-frame callbacks) moved from
+`tests/graph/mod.rs` to `tests/mod.rs`. The keyboard follows a tab change one frame later
+by design, so a test that types straight after a move is typing against a view that has
+already left the tree — the trap is the same for panes as for graph. app 485 / core 466.
