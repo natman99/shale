@@ -81,11 +81,11 @@ impl MarkdownEditor {
         // honest mid-edit: a hunk stops being under review the moment it stops fitting,
         // and the key goes back to vim with no gap in between.
         self.vim.set_review_lines(self.review_lines());
-        let before = self.buffer.text().to_string();
+        let before = self.buffer.borrow().text().to_string();
         let outcome = self
             .vim
-            .handle_normal_key(key, &mut self.buffer, &mut self.slot);
-        let changed = self.buffer.text() != before;
+            .handle_normal_key(key, &mut self.buffer.borrow_mut(), &mut self.slot);
+        let changed = self.buffer.borrow().text() != before;
         if changed {
             self.mark_dirty(cx);
         }
@@ -96,7 +96,7 @@ impl MarkdownEditor {
                 // the mode is what stops the user typing into a note that silently
                 // swallows it, and it keeps every insert-only action — `enter`
                 // continuing a list, `backspace`, the IME path — out of reach.
-                if self.buffer.is_read_only() {
+                if self.buffer.borrow().is_read_only() {
                     tracing::debug!("insert refused: the note is read only");
                 } else {
                     self.vim.enter_insert();
@@ -104,19 +104,19 @@ impl MarkdownEditor {
                     // operator (`cw`, `c$`) already changed the text it also already
                     // snapshotted, so join that step instead of starting a new one.
                     if changed {
-                        self.buffer.continue_undo_group();
+                        self.buffer.borrow_mut().continue_undo_group();
                     } else {
-                        self.buffer.begin_undo_group();
+                        self.buffer.borrow_mut().begin_undo_group();
                     }
                 }
             }
             Outcome::FollowLink => {
-                let cursor = self.buffer.cursor();
+                let cursor = self.buffer.borrow().cursor();
                 self.refresh_links();
                 self.follow_link_at(cursor, cx);
             }
             Outcome::CreateLink => {
-                let cursor = self.buffer.cursor();
+                let cursor = self.buffer.borrow().cursor();
                 self.refresh_links();
                 self.create_link_at(cursor, cx);
             }
@@ -232,8 +232,8 @@ impl MarkdownEditor {
         cx: &mut Context<Self>,
     ) {
         self.vim.enter_normal();
-        self.buffer.clear_selection();
-        self.buffer.end_undo_group();
+        self.buffer.borrow_mut().clear_selection();
+        self.buffer.borrow_mut().end_undo_group();
         cx.notify();
     }
 
@@ -253,21 +253,24 @@ impl MarkdownEditor {
         if self.vim.mode() != Mode::Insert {
             return;
         }
-        let cursor = self.buffer.cursor();
+        let cursor = self.buffer.borrow().cursor();
         let in_code = self.row_is_code(cursor);
-        match enter_action(self.buffer.text(), cursor, in_code) {
+        // The text is borrowed to *decide*, and every arm below changes it. Taking
+        // the decision into a value first is what ends the borrow before the edit.
+        let action = enter_action(self.buffer.borrow().text(), cursor, in_code);
+        match action {
             EnterAction::Continue { text } => {
-                self.buffer.insert(&text);
+                self.buffer.borrow_mut().insert(&text);
                 self.insert_edit(&text, cx);
             }
             EnterAction::Clear { start, end } => {
                 // The marker (indent included) goes away and the row is left
                 // blank, with the cursor back at its start.
-                self.buffer.delete_range(start, end);
+                self.buffer.borrow_mut().delete_range(start, end);
                 self.insert_edit("", cx);
             }
             EnterAction::Newline => {
-                self.buffer.insert("\n");
+                self.buffer.borrow_mut().insert("\n");
                 self.insert_edit("\n", cx);
             }
         }
@@ -277,9 +280,9 @@ impl MarkdownEditor {
     /// `-`, `>` and `1.` are literal text and must not be continued.
     fn row_is_code(&mut self, offset: usize) -> bool {
         self.refresh_styles();
-        let (row, _) = self.buffer.row_col(offset);
-        let start = self.buffer.line_start(row);
-        let end = self.buffer.line_end(row);
+        let (row, _) = self.buffer.borrow().row_col(offset);
+        let start = self.buffer.borrow().line_start(row);
+        let end = self.buffer.borrow().line_end(row);
         self.spans_in(start, end)
             .into_iter()
             .any(|(_, _, style)| matches!(style, Style::CodeBlock | Style::CodeFence))
@@ -294,7 +297,7 @@ impl MarkdownEditor {
         if self.vim.mode() == Mode::Insert {
             return;
         }
-        self.buffer.next_line_first_non_blank(&self.slot);
+        self.buffer.borrow_mut().next_line_first_non_blank(&self.slot);
         self.ensure_cursor_visible();
         cx.notify();
     }
@@ -305,7 +308,7 @@ impl MarkdownEditor {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.buffer.backspace();
+        self.buffer.borrow_mut().backspace();
         self.insert_edit("", cx);
     }
 
@@ -315,7 +318,7 @@ impl MarkdownEditor {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.buffer.delete_forward();
+        self.buffer.borrow_mut().delete_forward();
         self.insert_edit("", cx);
     }
 
@@ -328,7 +331,7 @@ impl MarkdownEditor {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.buffer.delete_word_back();
+        self.buffer.borrow_mut().delete_word_back();
         self.insert_edit("", cx);
     }
 
@@ -338,7 +341,7 @@ impl MarkdownEditor {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.buffer.move_left();
+        self.buffer.borrow_mut().move_left();
         self.ensure_cursor_visible();
         cx.notify();
     }
@@ -349,7 +352,7 @@ impl MarkdownEditor {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.buffer.move_right();
+        self.buffer.borrow_mut().move_right();
         self.ensure_cursor_visible();
         cx.notify();
     }
@@ -359,7 +362,7 @@ impl MarkdownEditor {
             self.preview_scroll(-self.line_height_px(), cx);
             return;
         }
-        self.buffer.move_up(&self.slot);
+        self.buffer.borrow_mut().move_up(&self.slot);
         self.ensure_cursor_visible();
         cx.notify();
     }
@@ -374,7 +377,7 @@ impl MarkdownEditor {
             self.preview_scroll(self.line_height_px(), cx);
             return;
         }
-        self.buffer.move_down(&self.slot);
+        self.buffer.borrow_mut().move_down(&self.slot);
         self.ensure_cursor_visible();
         cx.notify();
     }
@@ -398,13 +401,13 @@ impl MarkdownEditor {
     }
 
     pub(super) fn on_undo(&mut self, _: &Undo, _window: &mut Window, cx: &mut Context<Self>) {
-        tracing::debug!(undo_depth = self.buffer.undo_depth(), "undo action");
+        tracing::debug!(undo_depth = self.buffer.borrow().undo_depth(), "undo action");
         // Undo and redo are edits, so a read-only buffer refuses them; marking the
         // note dirty for a step that changed nothing would have the autosave write
         // a note nobody changed.
-        let before = self.buffer.change_id();
-        self.buffer.undo();
-        if self.buffer.change_id() != before {
+        let before = self.buffer.borrow().change_id();
+        self.buffer.borrow_mut().undo();
+        if self.buffer.borrow().change_id() != before {
             self.mark_dirty(cx);
         }
         self.ensure_cursor_visible();
@@ -412,10 +415,10 @@ impl MarkdownEditor {
     }
 
     pub(super) fn on_redo(&mut self, _: &Redo, _window: &mut Window, cx: &mut Context<Self>) {
-        tracing::debug!(redo_depth = self.buffer.redo_depth(), "redo action");
-        let before = self.buffer.change_id();
-        self.buffer.redo();
-        if self.buffer.change_id() != before {
+        tracing::debug!(redo_depth = self.buffer.borrow().redo_depth(), "redo action");
+        let before = self.buffer.borrow().change_id();
+        self.buffer.borrow_mut().redo();
+        if self.buffer.borrow().change_id() != before {
             self.mark_dirty(cx);
         }
         self.ensure_cursor_visible();
@@ -427,8 +430,8 @@ impl MarkdownEditor {
     /// drag counts as nothing selected, because copying it would copy nothing.
     pub(crate) fn selection(&self) -> Option<(usize, usize)> {
         let range = match self.vim.mode() {
-            Mode::Visual | Mode::VisualLine => self.vim.selection_range(&self.buffer),
-            _ => self.buffer.selection().map(|(a, h)| (a.min(h), a.max(h))),
+            Mode::Visual | Mode::VisualLine => self.vim.selection_range(&self.buffer.borrow()),
+            _ => self.buffer.borrow().selection().map(|(a, h)| (a.min(h), a.max(h))),
         };
         range.filter(|(a, h)| a != h)
     }
@@ -440,7 +443,7 @@ impl MarkdownEditor {
     /// the vim register. `None` when Shale holds nothing to give away.
     pub(crate) fn clipboard_candidate(&self) -> Option<String> {
         if let Some((a, h)) = self.selection() {
-            return Some(self.buffer.text()[a..h].to_string());
+            return Some(self.buffer.borrow().text()[a..h].to_string());
         }
         self.vim
             .register_text()
@@ -456,12 +459,12 @@ impl MarkdownEditor {
             // next `p` from reading the clipboard again for the same text.
             self.vim.set_register(&text);
             self.clipboard_mirror = Some(text.clone());
-            let before = self.buffer.change_id();
-            self.buffer.insert(&text);
+            let before = self.buffer.borrow().change_id();
+            self.buffer.borrow_mut().insert(&text);
             // A refused paste (a read-only buffer) is not an edit, and must not
             // join the `.` register either: replaying it would be a second paste
             // that also did nothing.
-            if self.buffer.change_id() != before {
+            if self.buffer.borrow().change_id() != before {
                 self.insert_edit(&text, cx);
             }
         }

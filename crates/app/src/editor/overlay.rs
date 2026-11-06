@@ -102,7 +102,10 @@ impl MarkdownEditor {
         if self.view != View::Live {
             return Vec::new();
         }
-        let text = self.buffer.text();
+        // The `Ref` is held for the whole placement pass: `text` is a slice of the
+        // buffer, so the borrow has to outlive it. Nothing in here edits the buffer.
+        let buf = self.buffer.borrow();
+        let text = buf.text();
         let mut out = Vec::new();
         for (edit, proposal) in self.pending_edits.iter().enumerate() {
             for (hunk, h) in proposal.hunks.iter().enumerate() {
@@ -136,7 +139,7 @@ impl MarkdownEditor {
         if self.view != View::Live {
             return Vec::new();
         }
-        let last = self.buffer.line_count().saturating_sub(1);
+        let last = self.buffer.borrow().line_count().saturating_sub(1);
         let mut rows: Vec<usize> = Vec::new();
         for placed in self.placed() {
             rows.extend(placed.removed.iter().copied());
@@ -207,7 +210,7 @@ impl MarkdownEditor {
             return Vec::new();
         }
         let mut out = Vec::new();
-        for (row, body) in self.embeds.resolve(vault, self.buffer.text()) {
+        for (row, body) in self.embeds.resolve(vault, self.buffer.borrow().text()) {
             match body {
                 Body::Nothing => {}
                 Body::Badge(name) => out.push(format!("embed row {row}: badge {name}")),
@@ -231,7 +234,7 @@ impl MarkdownEditor {
     /// `za` collapses a proposal or folds a section, and which hunk the strip's `y`/`x`
     /// should act on when the note has the keyboard.
     pub(crate) fn hunk_at_cursor(&self) -> Option<Placed> {
-        let (row, _) = self.buffer.row_col(self.buffer.cursor());
+        let (row, _) = self.buffer.borrow().row_col(self.buffer.borrow().cursor());
         self.placed()
             .into_iter()
             .find(|placed| self.covers(placed, row))
@@ -242,7 +245,7 @@ impl MarkdownEditor {
         if placed.removed.contains(&row) {
             return true;
         }
-        let last = self.buffer.line_count().saturating_sub(1);
+        let last = self.buffer.borrow().line_count().saturating_sub(1);
         placed.added.iter().any(|(anchor, _)| {
             let anchor_row = if *anchor <= last { *anchor } else { last };
             anchor_row == row
@@ -413,7 +416,7 @@ impl MarkdownEditor {
         if self.view == View::Raw {
             return;
         }
-        for (row, body) in self.embeds.resolve(vault, self.buffer.text()) {
+        for (row, body) in self.embeds.resolve(vault, self.buffer.borrow().text()) {
             // A row folded away has no display line to hang a body under, and painting
             // one anyway would show content from behind a closed fold.
             let Some(&host) = last_of.get(&row) else {

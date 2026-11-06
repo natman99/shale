@@ -18,6 +18,7 @@ pub(crate) mod overlay;
 mod render;
 mod wrap;
 
+use std::cell::RefCell;
 use std::collections::HashSet;
 use std::rc::Rc;
 
@@ -134,7 +135,19 @@ pub struct MarkdownEditor {
     /// The editor's focus handle; the line element needs it to register input
     /// during paint, so it is crate-visible.
     pub(crate) focus_handle: FocusHandle,
-    buffer: Buffer,
+    /// The note's text, caret and undo history — shared, not owned.
+    ///
+    /// From P4.0b the same note can be on screen twice at once: open in a tab
+    /// and embedded in the note beside it. Two copies of the text would drift
+    /// (and the second one's save would quietly throw away the first's edits),
+    /// so a note has exactly one buffer per window and every view of it borrows
+    /// this one. The registry that hands them out is `Workspace::notes` (P4.17).
+    ///
+    /// `RefCell` rather than a gpui `Entity` because the vim engine is handed
+    /// `&mut Buffer` and the view's `ViewSlot` in the same call: through an
+    /// `Entity`, `self.buffer.borrow().update(cx, ..)` would borrow `self` to reach
+    /// `self.slot` from inside its own closure. A borrow here is a plain local.
+    buffer: Rc<RefCell<Buffer>>,
     /// How *this* view lays out `buffer`: the soft-wrap break points measured at
     /// this width. It sits beside the buffer rather than inside it because the same
     /// note can be laid out two ways at once — two panes at different widths, a tab
@@ -239,7 +252,7 @@ impl MarkdownEditor {
     pub fn new(cx: &mut Context<Self>) -> Self {
         Self {
             focus_handle: cx.focus_handle(),
-            buffer: Buffer::default(),
+            buffer: Rc::new(RefCell::new(Buffer::default())),
             slot: ViewSlot::new(),
             vim: Vim::new(),
             clipboard_mirror: None,
@@ -344,7 +357,7 @@ impl MarkdownEditor {
     }
 
     pub fn text(&self) -> String {
-        self.buffer.text().to_string()
+        self.buffer.borrow().text().to_string()
     }
 
     /// How many words the buffer holds, by [`shale_core::word_count`]: whitespace
@@ -355,7 +368,7 @@ impl MarkdownEditor {
     /// every frame. The same function backs `:wordcount`, so the badge and the
     /// command cannot disagree about a note that is saved.
     pub fn word_count(&self) -> usize {
-        shale_core::word_count(self.buffer.text())
+        shale_core::word_count(self.buffer.borrow().text())
     }
 
     /// The body text size the editor paints and measures with.
@@ -370,7 +383,7 @@ impl MarkdownEditor {
     }
 
     pub fn set_text(&mut self, text: String, cx: &mut Context<Self>) {
-        self.buffer.set_text(text);
+        self.buffer.borrow_mut().set_text(text);
         // Another note, another layout: the break points were measured against the
         // text that was here, so they are meaningless until the next paint measures
         // this one. (They used to be cleared inside `Buffer::set_text`; the layout
@@ -383,7 +396,7 @@ impl MarkdownEditor {
         self.marks.clear();
         self.hits.clear();
         self.active_hit = None;
-        tracing::debug!(lines = self.buffer.line_count(), "editor set_text");
+        tracing::debug!(lines = self.buffer.borrow().line_count(), "editor set_text");
         cx.notify();
     }
 
@@ -415,9 +428,9 @@ impl MarkdownEditor {
             return;
         }
         self.view = view;
-        self.buffer.set_read_only(view == View::Preview);
+        self.buffer.borrow_mut().set_read_only(view == View::Preview);
         self.vim.enter_normal();
-        self.buffer.end_undo_group();
+        self.buffer.borrow_mut().end_undo_group();
         self.style_cache = None;
         self.quote_cache = None;
         self.wrap_cache = None;
@@ -523,7 +536,7 @@ impl MarkdownEditor {
     /// first character, which is where a reader wants it, and the vim engine is
     /// left in normal mode so the next keystroke is a motion.
     pub fn reveal_line(&mut self, row: usize, cx: &mut Context<Self>) {
-        self.buffer.goto_line(row);
+        self.buffer.borrow_mut().goto_line(row);
         self.ensure_cursor_visible();
         cx.notify();
     }
@@ -538,7 +551,10 @@ impl MarkdownEditor {
     /// note with unsaved edits lands on the heading the reader can see, not the one the
     /// disk remembers.
     pub(crate) fn reveal_heading(&mut self, anchor: &str, cx: &mut Context<Self>) -> bool {
-        match shale_core::transclude::heading_row(self.buffer.text(), anchor) {
+        // The scan borrows the text; the jump below moves the caret and repaints,
+        // so the scan's answer has to be a plain value before either can happen.
+        let row = shale_core::transclude::heading_row(self.buffer.borrow().text(), anchor);
+        match row {
             Some(row) => {
                 self.reveal_line(row, cx);
                 true
@@ -552,7 +568,7 @@ impl MarkdownEditor {
     /// byte, which is where the reader wants to be, and the vim engine is left
     /// alone, so the next keystroke is whatever mode the user was in.
     pub fn reveal_offset(&mut self, offset: usize, cx: &mut Context<Self>) {
-        self.buffer.set_cursor(offset);
+        self.buffer.borrow_mut().set_cursor(offset);
         self.ensure_cursor_visible();
         cx.notify();
     }
@@ -570,18 +586,18 @@ impl MarkdownEditor {
     /// `pub(crate)` rather than test-only because the live MCP snapshot reports where
     /// the user is (roadmap P2.3).
     pub(crate) fn cursor_position(&self) -> (usize, usize) {
-        self.buffer.row_col(self.buffer.cursor())
+        self.buffer.borrow().row_col(self.buffer.borrow().cursor())
     }
 
     /// Buffer rows and wrapped display lines, for tests and diagnostics.
     #[cfg(test)]
     pub fn line_count(&self) -> usize {
-        self.buffer.line_count()
+        self.buffer.borrow().line_count()
     }
 
     #[cfg(test)]
     pub fn display_line_count(&self) -> usize {
-        self.buffer.display_line_count(&self.slot)
+        self.buffer.borrow().display_line_count(&self.slot)
     }
 
     /// The width soft wrap was computed against: the scroll container's bounds
@@ -660,8 +676,8 @@ impl MarkdownEditor {
     /// The byte ranges of the display lines the buffer currently models.
     #[cfg(test)]
     pub fn display_ranges(&self) -> Vec<(usize, usize)> {
-        (0..self.buffer.display_line_count(&self.slot))
-            .filter_map(|i| self.buffer.display_range(&self.slot, i))
+        (0..self.buffer.borrow().display_line_count(&self.slot))
+            .filter_map(|i| self.buffer.borrow().display_range(&self.slot, i))
             .collect()
     }
 
@@ -836,7 +852,7 @@ impl MarkdownEditor {
 
     /// Where the cursor is, as a buffer byte offset.
     pub fn cursor_offset(&self) -> usize {
-        self.buffer.cursor()
+        self.buffer.borrow().cursor()
     }
 
     /// How far the note is scrolled, in gpui's own units and sign (the scroll
@@ -888,12 +904,12 @@ impl MarkdownEditor {
         }
         let mut edits = edits.to_vec();
         edits.sort_by_key(|(start, _, _)| *start);
-        self.buffer.begin_undo_group();
+        self.buffer.borrow_mut().begin_undo_group();
         for (start, end, text) in edits.iter().rev() {
-            self.buffer.set_selection(*start, *end);
-            self.buffer.insert(text);
+            self.buffer.borrow_mut().set_selection(*start, *end);
+            self.buffer.borrow_mut().insert(text);
         }
-        self.buffer.end_undo_group();
+        self.buffer.borrow_mut().end_undo_group();
         self.mark_dirty(cx);
         cx.notify();
         true
@@ -903,10 +919,10 @@ impl MarkdownEditor {
     /// lines, column counted in characters from the segment start), like a vim
     /// ruler.
     pub fn display_position(&self) -> (usize, usize) {
-        let cursor = self.buffer.cursor();
+        let cursor = self.buffer.borrow().cursor();
         (
-            self.buffer.display_index_for(&self.slot, cursor),
-            self.buffer.display_col(&self.slot, cursor),
+            self.buffer.borrow().display_index_for(&self.slot, cursor),
+            self.buffer.borrow().display_col(&self.slot, cursor),
         )
     }
 
@@ -924,7 +940,7 @@ impl MarkdownEditor {
     /// any link lookup or paint, since the buffer may have changed since the
     /// last call.
     fn refresh_links(&mut self) {
-        self.links = extract_wikilinks(self.buffer.text());
+        self.links = extract_wikilinks(self.buffer.borrow().text());
     }
 
     // ----- markdown styling ---------------------------------------------
@@ -932,7 +948,7 @@ impl MarkdownEditor {
     /// Recompute the markdown style spans unless the buffer changed since the
     /// last paint. Called once per frame, before wrapping and painting.
     fn refresh_styles(&mut self) {
-        let change_id = self.buffer.change_id();
+        let change_id = self.buffer.borrow().change_id();
         if self
             .style_cache
             .as_ref()
@@ -940,7 +956,7 @@ impl MarkdownEditor {
         {
             return;
         }
-        let spans = style_spans(self.buffer.text());
+        let spans = style_spans(self.buffer.borrow().text());
         self.style_cache = Some((change_id, spans));
     }
 
@@ -949,7 +965,7 @@ impl MarkdownEditor {
     /// [`Self::refresh_styles`], because the scan needs the style spans to know
     /// which runs are code and so must not answer for them.
     fn refresh_quotes(&mut self) {
-        let change_id = self.buffer.change_id();
+        let change_id = self.buffer.borrow().change_id();
         if self
             .quote_cache
             .as_ref()
@@ -962,7 +978,7 @@ impl MarkdownEditor {
         // straight quotes, only the glyphs change.
         let subs = match (self.view, self.style_cache.as_ref()) {
             (View::Raw, _) | (_, None) => Vec::new(),
-            (_, Some((_, spans))) => quotes::marks(self.buffer.text(), spans)
+            (_, Some((_, spans))) => quotes::marks(self.buffer.borrow().text(), spans)
                 .iter()
                 .map(|mark| (mark.offset, mark.glyph()))
                 .collect(),
@@ -977,10 +993,10 @@ impl MarkdownEditor {
         let Some((_, subs)) = self.quote_cache.as_ref() else {
             return Vec::new();
         };
-        let mut out = Vec::with_capacity(self.buffer.line_count());
+        let mut out = Vec::with_capacity(self.buffer.borrow().line_count());
         let mut at = 0usize;
-        for row in 0..self.buffer.line_count() {
-            let end = self.buffer.line_end(row);
+        for row in 0..self.buffer.borrow().line_count() {
+            let end = self.buffer.borrow().line_end(row);
             let stop = at + subs[at..].partition_point(|&(offset, _)| offset < end);
             out.push(subs[at..stop].to_vec());
             at = stop;
@@ -1116,7 +1132,8 @@ impl MarkdownEditor {
     fn ensure_cursor_visible(&self) {
         let index = self
             .buffer
-            .display_index_for(&self.slot, self.buffer.cursor());
+            .borrow()
+            .display_index_for(&self.slot, self.buffer.borrow().cursor());
         self.scroll_handle.scroll_to_item(index);
     }
 }

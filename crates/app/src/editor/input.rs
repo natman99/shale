@@ -45,8 +45,8 @@ impl MarkdownEditor {
                     .iter()
                     .any(|(x0, x1)| *x0 <= local_x && local_x <= *x1)
             }) {
-                let row = self.buffer.row_col(hit.start).0;
-                self.buffer.fold_toggle_at(&mut self.slot, row);
+                let row = self.buffer.borrow().row_col(hit.start).0;
+                self.buffer.borrow_mut().fold_toggle_at(&mut self.slot, row);
                 self.ensure_cursor_visible();
                 cx.notify();
                 return;
@@ -63,12 +63,16 @@ impl MarkdownEditor {
                     return;
                 }
             }
-            // A click in visual mode extends the selection from its anchor.
-            match (self.vim.mode(), self.buffer.selection()) {
-                (Mode::Visual | Mode::VisualLine, Some((anchor, _))) => {
-                    self.buffer.set_selection(anchor, offset)
-                }
-                _ => self.buffer.set_cursor(offset),
+            // A click in visual mode extends the selection from its anchor. The
+            // anchor is read out first: a `Ref` held across the `match` would still
+            // be borrowing the buffer when the arms ask to change it.
+            let anchor = match self.vim.mode() {
+                Mode::Visual | Mode::VisualLine => self.buffer.borrow().selection().map(|(a, _)| a),
+                _ => None,
+            };
+            match anchor {
+                Some(anchor) => self.buffer.borrow_mut().set_selection(anchor, offset),
+                None => self.buffer.borrow_mut().set_cursor(offset),
             }
             cx.notify();
         }
@@ -79,7 +83,7 @@ impl MarkdownEditor {
     fn offset_from_utf16(&self, offset: usize) -> usize {
         let mut utf8_offset = 0;
         let mut utf16_count = 0;
-        for ch in self.buffer.text().chars() {
+        for ch in self.buffer.borrow().text().chars() {
             if utf16_count >= offset {
                 break;
             }
@@ -92,7 +96,7 @@ impl MarkdownEditor {
     fn offset_to_utf16(&self, offset: usize) -> usize {
         let mut utf16_offset = 0;
         let mut utf8_count = 0;
-        for ch in self.buffer.text().chars() {
+        for ch in self.buffer.borrow().text().chars() {
             if utf8_count >= offset {
                 break;
             }
@@ -114,7 +118,7 @@ impl EntityInputHandler for MarkdownEditor {
         let start = self.offset_from_utf16(range_utf16.start);
         let end = self.offset_from_utf16(range_utf16.end);
         actual_range.replace(range_utf16);
-        Some(self.buffer.text()[start..end].to_string())
+        Some(self.buffer.borrow().text()[start..end].to_string())
     }
 
     fn selected_text_range(
@@ -123,8 +127,8 @@ impl EntityInputHandler for MarkdownEditor {
         _window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<UTF16Selection> {
-        let cursor = self.buffer.cursor();
-        let range = match self.buffer.selection() {
+        let cursor = self.buffer.borrow().cursor();
+        let range = match self.buffer.borrow().selection() {
             Some((a, h)) => (a, h),
             None => (cursor, cursor),
         };
@@ -171,15 +175,15 @@ impl EntityInputHandler for MarkdownEditor {
         // the selection is even touched. The buffer would have ignored the insert
         // either way; answering here is what keeps a keystroke that changed
         // nothing from marking the note dirty.
-        if self.buffer.is_read_only() {
+        if self.buffer.borrow().is_read_only() {
             return;
         }
         if let Some(range) = range_utf16 {
             let start = self.offset_from_utf16(range.start);
             let end = self.offset_from_utf16(range.end);
-            self.buffer.set_selection(start, end);
+            self.buffer.borrow_mut().set_selection(start, end);
         }
-        self.buffer.insert(new_text);
+        self.buffer.borrow_mut().insert(new_text);
         self.insert_edit(new_text, cx);
     }
 
@@ -202,7 +206,7 @@ impl EntityInputHandler for MarkdownEditor {
         _cx: &mut Context<Self>,
     ) -> Option<Bounds<Pixels>> {
         let start = self.offset_from_utf16(range_utf16.start);
-        let index = self.buffer.display_index_for(&self.slot, start);
+        let index = self.buffer.borrow().display_index_for(&self.slot, start);
         let hit = self.hit_lines.iter().find(|h| h.index == index)?;
         let x = hit.x_for_offset(start);
         Some(Bounds::from_corners(
