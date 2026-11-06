@@ -188,6 +188,33 @@ impl Buffer {
         self.cursor = self.clamp(start.min(self.text.len()));
         self.selection = None;
     }
+    /// Empty `count` lines for a linewise change (`cc`, `S`), leaving the line
+    /// itself behind.
+    ///
+    /// [`Self::delete_line`] takes the line break with the line, which is what a
+    /// delete wants and what a change does not: vim's `cc` leaves an empty line and
+    /// starts inserting on it, rather than joining the change onto the line below.
+    pub fn change_lines(&mut self, row: usize, count: usize) {
+        if self.read_only {
+            return;
+        }
+        let (start, end) = self.line_range(row, count.max(1));
+        if start >= end {
+            return;
+        }
+        // `line_range` takes the break *after* the lines when it can, and the break
+        // *before* them when they are the buffer's last line. Asked of the range
+        // before it goes away, that says which end of the replacement the surviving
+        // break sits at.
+        let break_came_first = self.text[start..end].starts_with('\n');
+        self.snapshot();
+        self.text.replace_range(start..end, "\n");
+        // Either way the cursor ends up on the emptied line: before the break when
+        // the break trails it, after it when the break leads.
+        self.cursor = self.clamp(if break_came_first { start + 1 } else { start });
+        self.selection = None;
+    }
+
     /// Insert `text` at `offset` without touching the selection semantics of
     /// [`Self::insert`] (used by linewise paste and by table splices, which run
     /// inside an undo group so one edit stays one undo step).

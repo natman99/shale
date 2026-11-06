@@ -68,11 +68,18 @@ next line's first non-blank. Counts work on motions and operators: `3w`, `2dd`,
 
 **Operators.** `d` (delete), `c` (change), `y` (yank), each with a motion or a
 text object; `dd`, `cc`, `yy` for the whole line; `x` to delete the character
-under the cursor; `p` and `P` to put the register after or before; `s`-style
-substitute, `r`-style replace and `~` case-flip are **not** implemented.
+under the cursor; `p` and `P` to put the register after or before.
+
+**One-keystroke edits.** `r<char>` replaces one character (or `3r<char>` replaces
+three) without touching the register; `~` switches the case of the character under
+the cursor and steps right; `s` substitutes (`cl`) and `S` the whole line (`cc`),
+both into insert mode; `C` changes to end of line, `D` deletes to end of line; `X`
+deletes the character *before* the cursor; `Y` yanks the whole line. A change keeps
+its line: `cc` empties a line, `dd` removes it.
 
 **Text objects.** `iw` / `aw` (word), `ip` / `ap` (paragraph): `diw`, `cap`, and
-so on. Repeating a text object in visual mode to extend it is not implemented.
+so on. Quotes, brackets and the rest of vim's objects are not there yet, and
+neither is repeating a text object in visual mode to extend it.
 
 **Insert.** `i` `a` `I` `A` `o` `O`, `v` / `V` for visual (charwise / linewise;
 blockwise `ctrl-v` is not implemented), `u` for undo, `.` to repeat the last

@@ -66,8 +66,11 @@ impl Vim {
                     // A change is a cut, as it is in vim: what it replaces goes in
                     // the register, so `cc` then `p` puts the line back somewhere
                     // else. The app mirrors the register, so the mirror sees it too.
+                    // The line itself stays: `cc` empties a line rather than removing
+                    // it, which is the one place a linewise change and a linewise
+                    // delete part company.
                     let text = buf.yank_lines(row, lines);
-                    buf.delete_line(lines);
+                    buf.change_lines(row, lines);
                     self.register = Some(Register {
                         text,
                         linewise: true,
@@ -183,6 +186,12 @@ impl Vim {
         buf: &mut Buffer,
     ) -> Outcome {
         if buf.is_read_only() && !matches!(op, Operator::Yank) {
+            return Outcome::Stay;
+        }
+        if lo == hi {
+            // Nothing was swept, so nothing is registered. This is what keeps `X` at
+            // the start of a line from throwing away the last yank, and `c0` at
+            // column zero from opening an insert mode over text it did not remove.
             return Outcome::Stay;
         }
         match op {

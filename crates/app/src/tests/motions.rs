@@ -630,3 +630,75 @@ fn dot_repeats_the_last_change(cx: &mut TestAppContext) {
         "and stays in normal mode"
     );
 }
+
+/// The one-keystroke edits — `~`, `r`, `s`, `S`, `C`, `D`, `X`, `Y` — driven
+/// through the real keymap. The core engine tests prove what they do; these prove
+/// the keystroke reaches the engine from a window, which is where a missing
+/// binding or a shifted-letter spelling shows up.
+#[gpui::test]
+fn the_one_keystroke_edits_through_the_keymap(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.bind_keys(keybindings()));
+
+    let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+    let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+    let reset = |cx: &mut VisualTestContext, text: &str| {
+        editor
+            .update(cx, |editor, window, cx| {
+                editor.set_text(text.to_string(), cx);
+                let focus = editor.focus_handle(cx);
+                window.focus(&focus, cx);
+            })
+            .unwrap();
+    };
+    let text = |cx: &mut VisualTestContext| editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
+
+    // `~` switches the character under the cursor and steps right.
+    reset(cx, "hello world");
+    cx.simulate_keystrokes("~");
+    assert_eq!(text(cx), "Hello world", "`~` switches case");
+    cx.simulate_keystrokes("~");
+    assert_eq!(text(cx), "HEllo world", "and the cursor moved right, so it walks");
+
+    // `r` takes its character as a literal, the way `f` takes its target.
+    reset(cx, "hello world");
+    cx.simulate_keystrokes("r x");
+    assert_eq!(text(cx), "xello world");
+    cx.simulate_keystrokes("2 r 5");
+    // The cursor stayed on what `r` wrote (vim leaves it there), so the count
+    // replaces from there — and the `5` is the character, not a count.
+    assert_eq!(text(cx), "55llo world");
+
+    // `D` to the end of the line, `C` the same with insert after.
+    reset(cx, "hello world\nsecond");
+    cx.simulate_keystrokes("0 f w D");
+    assert_eq!(text(cx), "hello \nsecond");
+    // The `w` is gone, so the change starts from the line's first word again.
+    reset(cx, "hello world\nsecond");
+    cx.simulate_keystrokes("0 f w C");
+    cx.simulate_input("!");
+    cx.simulate_keystrokes("escape");
+    assert_eq!(text(cx), "hello !\nsecond");
+
+    // `X` deletes backwards, `s` substitutes and lands in insert mode.
+    reset(cx, "hello");
+    cx.simulate_keystrokes("l X");
+    // The cursor is on the `e`; `X` is `dh`, so the character *before* it goes.
+    assert_eq!(text(cx), "ello");
+    cx.simulate_keystrokes("0 s");
+    assert_eq!(text(cx), "llo", "`s` is `cl`");
+    cx.simulate_input("Y");
+    cx.simulate_keystrokes("escape");
+    assert_eq!(text(cx), "Yllo");
+
+    // `Y` yanks the whole line and `p` puts it as its own line.
+    reset(cx, "one\ntwo");
+    cx.simulate_keystrokes("0 Y p");
+    assert_eq!(text(cx), "one\none\ntwo", "`Y` is `yy`, linewise");
+
+    // `S` changes the whole line.
+    reset(cx, "one\ntwo");
+    cx.simulate_keystrokes("0 S");
+    cx.simulate_input("X");
+    cx.simulate_keystrokes("escape");
+    assert_eq!(text(cx), "X\ntwo", "`S` is `cc`");
+}

@@ -369,6 +369,21 @@ impl Render for MarkdownEditor {
             .on_action(cx.listener(|this, _: &VimUpperL, window, cx| {
                 this.normal(Key::Char('L'), window, cx)
             }))
+            .on_action(cx.listener(|this, _: &VimTilde, window, cx| {
+                this.normal(Key::Char('~'), window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &VimUpperS, window, cx| {
+                this.normal(Key::Char('S'), window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &VimUpperC, window, cx| {
+                this.normal(Key::Char('C'), window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &VimUpperX, window, cx| {
+                this.normal(Key::Char('X'), window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &VimUpperY, window, cx| {
+                this.normal(Key::Char('Y'), window, cx)
+            }))
             .on_action(cx.listener(|this, _: &VimUpperD, window, cx| {
                 this.normal(Key::Char('D'), window, cx)
             }))

@@ -60,6 +60,15 @@ actions!(
         VimUpperK,
         VimUpperL,
         VimUpperD,
+        // The one-keystroke edits the engine grew: `~` switches case, `S`/`C`/`D`
+        // (`D` above) are the line-edge changes, `X` deletes backwards, `Y` yanks a
+        // line. Each is vim's shorthand for an operator and a motion, and the engine
+        // spells it that way.
+        VimTilde,
+        VimUpperS,
+        VimUpperC,
+        VimUpperX,
+        VimUpperY,
         VimPipe,
         VimBackslash,
         VimAltH,

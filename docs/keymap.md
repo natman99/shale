@@ -111,6 +111,11 @@ in hand. `docs/keys.md` is the human map of both halves.
 | `.` | the vim engine takes this key | `VimDot` | — |
 | `enter` | go to the next line | `NextLine` | — |
 | `shift-d` | the vim engine takes this key | `VimUpperD` | — |
+| `~` | the vim engine takes this key | `VimTilde` | — |
+| `shift-s` | the vim engine takes this key | `VimUpperS` | — |
+| `shift-c` | the vim engine takes this key | `VimUpperC` | — |
+| `shift-x` | the vim engine takes this key | `VimUpperX` | — |
+| `shift-y` | the vim engine takes this key | `VimUpperY` | — |
 | `|` | the vim engine takes this key | `VimPipe` | — |
 | `\` | the vim engine takes this key | `VimBackslash` | — |
 | `alt-h` | the vim engine takes this key | `VimAltH` | — |

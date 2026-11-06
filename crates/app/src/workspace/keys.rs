@@ -280,6 +280,16 @@ fn build() -> (Vec<KeyBinding>, Vec<KeymapRow>) {
         "." => VimDot,
         "enter" => NextLine,
         "shift-d" => VimUpperD,
+        // The one-keystroke edits. `~` is shift+backquote, which Linux delivers as
+        // the `~` keysym the same way `$` arrives from shift+4. `s` and `r` are bound
+        // in the shared block above (they are also the second letter of the `space s`
+        // and `space r` chords, which the engine resolves before the substitution and
+        // the replace); these are their shifted partners.
+        "~" => VimTilde,
+        "shift-s" => VimUpperS,
+        "shift-c" => VimUpperC,
+        "shift-x" => VimUpperX,
+        "shift-y" => VimUpperY,
         "|" => VimPipe,
         "\\" => VimBackslash,
         "alt-h" => VimAltH,

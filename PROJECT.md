@@ -1396,6 +1396,28 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   `waiting_for_literal()`, `.` repeat is guarded by it, and `handle_visual_key`
   forwards straight to `visual_motion` when an argument is pending. Any new bound
   key needs that path checked.
+- **One-keystroke edits — done** (`r`, `~`, `s`, `S`, `C`, `D`, `X`, `Y`), each
+  verified against real vim (`vim -es file -c 'normal! …' -c 'w! out.txt'`, which is
+  the form that keeps `:normal`'s insert text; the `-S script` form mangles it, and Ex
+  mode starts on the *last* line, which reads as a phantom off-by-N if you forget).
+  `r` is its own pending state (`Pending::Replace`), not an operator: it takes a
+  literal character, writes it `count` times, leaves the cursor on the last character
+  written (vim), and never touches the register. `~` switches the case of `count`
+  characters and moves the cursor one past them, staying put at end of line. `s`/`S`/
+  `C`/`D`/`X`/`Y` are recorded as their operator-plus-motion equivalents (`cl`, `cc`,
+  `c$`, `d$`, `dh`, `yy`) so `.` repeat and the linewise flag come for free.
+  Two rules came out of it:
+  - **An operator that sweeps nothing registers nothing.** `X` at column 0 and `D` at
+    end of line are no-ops in vim; they were clobbering the register here, and `c0`
+    opened insert mode over text it had not removed. `apply_operator` now returns
+    `Stay` when `lo == hi`.
+  - **A linewise change keeps its line.** `dd` takes the line break with the line;
+    `cc`/`S` must not, or the change lands on the line below. `Buffer::change_lines`
+    is the sibling of `delete_line` for exactly this, and it puts the cursor on the
+    emptied line whichever end of the range the surviving break sits at.
+  `r` also had to join the literal-argument path: `rx` types a literal `x`, so the
+  Replace arm runs before the motion match and a digit after `r` is the character, not
+  a count (`r5` writes `5`).
 - **Not implemented yet in vim mode** (re-checked 2026-11-05 against the engine: still
   only the unnamed register, no case/replace operators, no blockwise visual): `gv`, `C`/`S` in visual, repeating a text
   object in visual to extend it, blockwise `ctrl-v`, the case/replace operators

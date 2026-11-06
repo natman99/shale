@@ -9,6 +9,7 @@ use crate::buffer::Buffer;
 use crate::vim::*;
 
 mod chords;
+mod edits;
 mod motions;
 mod objects;
 mod tables;

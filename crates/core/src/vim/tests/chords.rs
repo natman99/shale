@@ -300,14 +300,15 @@ fn a_change_is_a_cut_too() {
     type_keys(&mut vim, "cc", &mut b);
     assert_eq!(
         b.text(),
-        "# Top\n## Sub\nbody\ndeep\n# Other\ntail\n",
-        "the line is gone"
+        "# Top\n\n## Sub\nbody\ndeep\n# Other\ntail\n",
+        "the line is emptied, not removed: `cc` keeps the line it changes"
     );
     vim.enter_normal();
     type_keys(&mut vim, "p", &mut b);
     assert_eq!(
         b.text(),
-        "# Top\n## Sub\nintro\nbody\ndeep\n# Other\ntail\n",
+        // Pasted below the emptied line, which is still a line.
+        "# Top\n\nintro\n## Sub\nbody\ndeep\n# Other\ntail\n",
         "and `p` puts it back below the cursor"
     );
 }

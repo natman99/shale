@@ -74,6 +74,10 @@ enum Pending {
     /// `zR`). A fold changes what is drawn rather than the text, so no count is
     /// carried along.
     Fold,
+    /// `r` typed, waiting for the character to replace with. The count is the
+    /// number of characters to replace (`3rx` is `rrr`), which is why it is carried
+    /// here rather than left in `Vim::count`.
+    Replace { count: usize },
 }
 
 /// What the UI should do after a normal-mode key was handled.
@@ -251,6 +255,7 @@ impl Vim {
             }),
             Pending::TextObject { around, .. } => Some(if around { 'a' } else { 'i' }),
             Pending::Fold => Some('z'),
+            Pending::Replace { .. } => Some('r'),
             _ => None,
         }
     }
@@ -261,7 +266,7 @@ impl Vim {
     pub fn waiting_for_literal(&self) -> bool {
         matches!(
             self.pending,
-            Pending::Find { .. } | Pending::TextObject { .. }
+            Pending::Find { .. } | Pending::TextObject { .. } | Pending::Replace { .. }
         )
     }
 

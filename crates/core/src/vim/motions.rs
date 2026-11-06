@@ -8,6 +8,7 @@
 
 use crate::buffer::Buffer;
 use crate::table;
+use crate::table::Located;
 
 use super::tables::snap_cell_motion;
 use super::{char_range, repeat, Key, Operator, Outcome, Pending, Register, Vim};
@@ -135,6 +136,48 @@ impl Vim {
                 return Outcome::Stay;
             };
             return self.apply_range(op, lo, hi, buf);
+        }
+
+        // A replace is waiting for its character: `rx`, `3rx`.
+        if let Pending::Replace { count } = self.pending {
+            self.pending = Pending::None;
+            let Key::Char(c) = key else {
+                return Outcome::Unhandled;
+            };
+            let start = buf.cursor();
+            let (_, mut hi) = char_range(buf, start, count);
+            // A table's pipes are not characters the cursor may replace: that would
+            // take the table apart one keystroke at a time.
+            if let Some(loc) = located {
+                hi = hi.min(loc.cell.end);
+            }
+            if located.is_some() && c == '|' {
+                // A pipe written over a cell's content splits the row. The keystroke
+                // is refused rather than leaving a table that no longer parses.
+                return Outcome::Stay;
+            }
+            if c == '\n' {
+                // vim answers `5r<CR>` with a *single* line break for the whole run.
+                // Inside a table that would fold the row into the prose below it, so
+                // the keystroke is refused there rather than half-working.
+                if located.is_some() || buf.is_read_only() {
+                    return Outcome::Stay;
+                }
+                buf.delete_range(start, hi);
+                buf.insert_at(start, "\n");
+                buf.set_cursor(start);
+                return Outcome::Stay;
+            }
+            let replaced = buf.text()[start..hi].chars().count();
+            if replaced == 0 || buf.is_read_only() {
+                return Outcome::Stay;
+            }
+            let text = c.to_string().repeat(replaced);
+            buf.delete_range(start, hi);
+            buf.insert_at(start, &text);
+            // The cursor ends on the last replaced character, as it does in vim.
+            buf.set_cursor(buf.prev_char_boundary(start + text.len()));
+            return Outcome::Stay;
         }
 
         // An operator in progress consumes the next key as its motion.
@@ -287,6 +330,27 @@ impl Vim {
                 self.after_bracket = Some(matches!(key, Key::Char(']')));
                 return Outcome::Stay;
             }
+            // The one-character edits. Each of these is vim's shorthand for an
+            // operator and a motion, and is spelled that way here too: `s` is `cl`,
+            // `C` is `c$`, `D` is `d$`, `X` is `dh`, `S` is `cc`, `Y` is `yy`. Going
+            // through the operator keeps the register, the read-only refusal and the
+            // table-cell clamp in one place instead of six.
+            Key::Char('r') => {
+                self.pending = Pending::Replace { count };
+                return Outcome::Stay;
+            }
+            Key::Char('~') => {
+                self.switch_case(count, located, buf);
+                return Outcome::Stay;
+            }
+            Key::Char('s') => return self.apply_operator(Operator::Change, count, Key::Char('l'), buf),
+            Key::Char('C') => return self.apply_operator(Operator::Change, count, Key::Char('$'), buf),
+            Key::Char('D') => return self.apply_operator(Operator::Delete, count, Key::Char('$'), buf),
+            Key::Char('X') => return self.apply_operator(Operator::Delete, count, Key::Char('h'), buf),
+            // `S` and `Y` are the linewise shorthands: the doubled operator letter is
+            // exactly the linewise form `apply_operator` already implements.
+            Key::Char('S') => return self.apply_operator(Operator::Change, count, Key::Char('c'), buf),
+            Key::Char('Y') => return self.apply_operator(Operator::Yank, count, Key::Char('y'), buf),
             // Operators
             Key::Char('d') | Key::Char('c') | Key::Char('y') => {
                 let op = match key {
@@ -376,6 +440,54 @@ impl Vim {
             }
         }
         Outcome::Stay
+    }
+
+    /// `~`: switch the case of `count` characters from the cursor, and leave the
+    /// cursor on the last of them.
+    ///
+    /// vim's `~` is a command on its own and an operator only when 'tildeop' is set;
+    /// Shale keeps the default, so `~` is the command and `g~` is the operator.
+    /// Case is switched per character, which means a character whose uppercase is
+    /// two characters (`ß` to `SS`) makes the line longer — the cursor ends after
+    /// whatever was written, not after what was counted.
+    fn switch_case(&self, count: usize, located: Option<Located>, buf: &mut Buffer) {
+        if buf.is_read_only() {
+            return;
+        }
+        let (lo, mut hi) = char_range(buf, buf.cursor(), count);
+        // A cell's pipes are not the cursor's to rewrite.
+        if let Some(loc) = located {
+            hi = hi.min(loc.cell.end);
+        }
+        if lo == hi {
+            return;
+        }
+        let swapped: String = buf.text()[lo..hi]
+            .chars()
+            .map(|c| {
+                if c.is_uppercase() {
+                    c.to_lowercase().collect::<String>()
+                } else {
+                    c.to_uppercase().collect::<String>()
+                }
+            })
+            .collect();
+        buf.delete_range(lo, hi);
+        buf.insert_at(lo, &swapped);
+        // vim's `~` *moves* the cursor: it ends one past the last character it
+        // switched, which is what lets `~` walk a word one keystroke at a time. At
+        // the end of a line there is nothing past it to stand on, so the cursor
+        // stays on the last character instead of stepping onto the line break.
+        let after = lo + swapped.len();
+        let on_line_break = buf.text()[after.min(buf.text().len())..]
+            .chars()
+            .next()
+            .is_some_and(|c| c == '\n');
+        buf.set_cursor(if after >= buf.text().len() || on_line_break {
+            buf.prev_char_boundary(after)
+        } else {
+            after
+        });
     }
 
     /// The `0` motion: the start of the screen line, or the first content
