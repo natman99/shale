@@ -1516,10 +1516,11 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   and dropped when the vault *or the host note* changes — the host is an input to every
   answer, which a test caught the hard way. The depth cap (3 levels) and the chain (a
   note already on the path never expands again) make an embed loop impossible rather
-  than merely expensive; over-cap and cyclic embeds show a name badge. **Known gap,
-  visible in a live window:** an embed's rows show their own `#`/`**`/backtick markers
-  while the host note hides them — the `PieceMap` treatment the note's own rows get has
-  not been applied to phantom rows yet. `gd` into an embed is also still open.
+  than merely expensive; over-cap and cyclic embeds show a name badge. The bodies are
+  dressed exactly like the note's own rows — markers hidden through the same
+  `PieceMap` path, spans re-based onto the painted text, curly quotes, and heading text
+  sized by level — because an embedded heading at body size reads as wrong even once its
+  `#` is gone. `gd` into an embed and click-to-open are still open.
 - **Inline review overlay (roadmap P2.5b) — done**: a queued proposal is now painted in
   the note it belongs to, not only in the strip. The ruled shape that made this cheap:
   a **removal is not phantom** — the line is already in the buffer, so the note's own row

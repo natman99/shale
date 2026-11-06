@@ -1005,17 +1005,22 @@ edges, query nodes, MCP canvas tools) is P6.10.
     `![[…]]` row with a rule in the gutter, stepped right per nesting level, styled
     by the source note's markdown). Badges cover the cap and the chain. 14 core + 9
     app tests.
+    **Closed the same day (2026-11-06): marker hiding and heading size.** An embed's
+    rows now go through the same `mdlayout::hidden_ranges` → `visible_pieces` →
+    `PieceMap` path the note's own rows do (`embeds::paint_body`), so their `#`, `**`
+    and backticks are hidden and their spans are re-based onto what is actually painted
+    — plus the curly-quote substitutions, and the heading **size** for the row's level,
+    which was the same inconsistency one level down: a hidden `#` at body size still
+    reads wrong. The scan runs over the whole body at once and is cut per row, because a
+    fence that opens on one row and closes on another is invisible to a per-row scan.
+    An embed's rows always hide their markers: the live-preview rule is "hide unless the
+    cursor is on this row", and until P4.0b nothing can put a cursor on one.
     **What is left in this item, in the order they bite:**
-    1. **Marker hiding.** An embed's rows show their own `#`, `**` and backticks
-       while the host note hides them, so an embedded heading reads raw next to a
-       live one. The spans are already computed over the whole body; what is missing
-       is the `PieceMap` treatment the note's own rows get. This is the one a user
-       sees immediately — confirmed in a live window, not inferred.
-    2. **`gd` on an embed** jumps into the embedded note, and `gd` on a wikilink
+    1. **`gd` on an embed** jumps into the embedded note, and `gd` on a wikilink
        *inside* an embed jumps to that link. Needs a hit-test from a phantom row
        back to the body row under it.
-    3. Click-to-open and the hover preview card (P6.2's embed case).
-    4. `![[query-name]]` for `.shq` results waits on P4.3; block refs (`^abc`) on P4.9.
+    2. Click-to-open and the hover preview card (P6.2's embed case).
+    3. `![[query-name]]` for `.shq` results waits on P4.3; block refs (`^abc`) on P4.9.
     Original framing: `![[note]]` and
     `![[note#heading]]` resolve through the existing link resolver and paint the
     target's lines inside the host; the host's buffer is untouched, the embed is a

@@ -29,9 +29,10 @@ use shale_core::diff::{self, Hunk};
 use shale_core::transclude::{Body, EmbedLine, EmbedRow};
 
 use crate::line::phantom::{PhantomKind, PhantomLine};
+use crate::theme;
 use crate::line::DisplayLine;
 
-use super::{MarkdownEditor, View};
+use super::{embeds, MarkdownEditor, View};
 
 /// One queued proposal, as the editor needs it in order to paint it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -466,39 +467,37 @@ impl MarkdownEditor {
                     spans: Vec::new(),
                 });
             }
-            // An embed's markdown is scanned over the **whole body at once**, then cut
-            // per row: a fence that opens on one row and closes on another is only
-            // visible to a scan that sees both, and styling each row alone would paint
-            // the second half of a code block as prose.
-            let joined: String = block
-                .lines
-                .iter()
-                .map(|line| format!("{}\n", line.text))
-                .collect();
-            let body: Vec<(usize, usize, shale_core::mdstyle::Style)> =
-                if block.kind == BlockKind::Embed {
-                    shale_core::mdstyle::style_spans(&joined)
-                        .into_iter()
-                        .map(|span| (span.start, span.end, span.style))
-                        .collect()
-                } else {
-                    Vec::new()
+            // An embed's rows are dressed the way live preview dresses the note's own:
+            // scanned over the **whole body at once** (a fence that opens on one row and
+            // closes on another is invisible to a per-row scan), then markers hidden and
+            // the spans re-based onto what is actually painted. A proposal's rows are
+            // not: proposed text is a change being offered, and the syntax it carries is
+            // part of what the reader is being asked to accept.
+            let texts: Vec<String> = block.lines.iter().map(|l| l.text.clone()).collect();
+            let painted = if block.kind == BlockKind::Embed {
+                embeds::paint_body(&texts)
+            } else {
+                Vec::new()
+            };
+            for (ix, line) in block.lines.iter().enumerate() {
+                let (text, spans) = match (block.kind, line.badge) {
+                    (BlockKind::Embed, false) => (
+                        painted[ix].text.clone(),
+                        painted[ix].spans.clone(),
+                    ),
+                    // A stopped embed is a name, not markdown: it keeps the link
+                    // colour and nothing else.
+                    _ => (line.text.clone(), Vec::new()),
                 };
-            let mut offset = 0usize;
-            for line in &block.lines {
-                let len = line.text.len();
-                // Spans that begin inside this row, re-based onto it and clipped to it.
-                let spans = body
-                    .iter()
-                    .filter(|(start, _, _)| *start >= offset && *start < offset + len)
-                    .map(|(start, end, style)| {
-                        (*start - offset, (*end).min(offset + len) - offset, *style)
-                    })
-                    .collect();
                 out.push(PhantomLine {
-                    text: line.text.clone().into(),
+                    text: text.into(),
                     family: self.font_family.clone(),
-                    size: self.font_size,
+                    // A heading inside an embedded note is sized like a heading of
+                    // that level anywhere else in the app.
+                    size: match painted.get(ix).and_then(|row| row.heading) {
+                        Some(level) => theme::font_size(level, self.font_size),
+                        None => self.font_size,
+                    },
                     palette: Rc::clone(&self.palette),
                     kind: match (block.kind, line.badge) {
                         (BlockKind::Proposal, _) => PhantomKind::Added,
@@ -509,7 +508,6 @@ impl MarkdownEditor {
                     indent: line.depth,
                     spans,
                 });
-                offset += len + 1; // the newline the join put back
             }
         }
         out
