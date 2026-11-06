@@ -146,11 +146,29 @@ deliberate behaviour and P4.0b does not change it.
 
 ## 4. Milestones, split by dependency
 
-**M0 — view state out of `Buffer`.** `display_segments`, `folds`/`fold_cache`,
-`read_only` → a `ViewState` owned by the editor, keyed per buffer it draws. ~14 core sites
-+ the editor. No behaviour change; the test is that `Buffer` stops answering wrap and
-fold questions. *Free on its own: it is what lets a note be Preview in one pane and Live
-in another.*
+**M0 — view state out of `Buffer`.** ✅ **done 2026-11-06** (`8b742f3`, `85f718e`).
+`display_segments` and `folds`/`fold_cache` now live in `buffer::ViewSlot`, one per
+`MarkdownEditor`, and every display-aware buffer method names the slot it is answering
+for — the compiler, not a convention, is what stops two views of one note answering each
+other's questions. The vim engine takes the slot beside the buffer; its test harness types
+keys against an unwrapped slot unless a test builds one on purpose (`type_keys_in`).
+A test pins the point of the refactor: two slots on one buffer, folded and wrapped
+independently.
+
+Two things the milestone text got wrong, learned by doing it:
+
+- **`read_only` waits for M1.** It is per-view in the same way folds are, but the flag only
+  becomes *meaningful* per-view when a buffer is first shared, and that is M1's change.
+  Moving it means threading a view through ~180 call sites of the guarded edit methods
+  (`insert`, `delete_*`, `undo`, …); doing it in the same commit as the registry keeps the
+  churn where the sharing becomes real. **M1 must not ship without it**: a Preview tab and
+  a Live tab of one note would fight over one flag.
+- **The seam was already leaking.** `set_cursor` used to set `desired_col` from the *buffer*
+  column, so a `t`/`f`/`T`/`F` find landing mid-row on a wrapped row reset the vertical aim
+  to a column the user never aimed at, and the next `j` landed somewhere else. Fixed: the
+  aim is latched by the first vertical motion, from the display column the caret actually
+  landed on. Worth remembering as the pattern for P4.0b — anywhere a *buffer* quantity is
+  used to answer a *display* question is a bug waiting for a narrow pane.
 
 **M1 — the registry.** `MarkdownEditor.buffer: Entity<Buffer>` (132 sites), entries keyed
 by path per window, `dirty` moves onto the entry, `open_note`'s one-note rule extended to
