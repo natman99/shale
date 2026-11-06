@@ -424,6 +424,13 @@ impl Vim {
             // exactly the linewise form `apply_operator` already implements.
             Key::Char('S') => return self.apply_operator(Operator::Change, count, Key::Char('c'), buf),
             Key::Char('Y') => return self.apply_operator(Operator::Yank, count, Key::Char('y'), buf),
+            // `J` joins the line below onto this one. It is its own operator —
+            // there is no motion to wait for — and the count is how many lines the
+            // result spans, so `3J` takes two breaks. `.` replays it the way it
+            // replays any recorded key.
+            Key::Char('J') => {
+                buf.join_lines(count);
+            }
             // Operators
             Key::Char('d') | Key::Char('c') | Key::Char('y') => {
                 let op = match key {

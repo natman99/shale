@@ -188,6 +188,87 @@ impl Buffer {
         self.cursor = self.clamp(start.min(self.text.len()));
         self.selection = None;
     }
+    /// vim's `J`: pull the line below up onto the cursor's line, `count - 1`
+    /// times (`3J` joins two breaks). Read off vim, line by line:
+    ///
+    /// - The break becomes a space, and the next line's leading whitespace goes
+    ///   with it: `one\n   two` is `one two`, not `one    two`.
+    /// - A next line that is blank once its whitespace is stripped adds nothing at
+    ///   all — no space: `one\n\ntwo` is `onetwo` up to the break that follows.
+    /// - A line that already ends in whitespace does not get a second separator:
+    ///   `one  \ntwo` is `one  two`.
+    /// - After `.`, `?` or `!` vim's default `joinspaces` puts *two* spaces, and
+    ///   Shale keeps that: it is what vim does, and mid-line it costs Markdown
+    ///   nothing (only trailing double spaces mean a break).
+    ///
+    /// The cursor ends on the character the join happened at — the separator, or
+    /// the last character of the line when nothing was inserted — which is where
+    /// vim leaves it and what makes a repeated `J` keep walking.
+    ///
+    /// Returns whether anything was joined; on the last line there is nothing to
+    /// join and the caller leaves the buffer alone.
+    pub fn join_lines(&mut self, count: usize) -> bool {
+        if self.read_only {
+            return false;
+        }
+        let mut joined = false;
+        // vim leaves the cursor on the *first* join, not the last one, so a `3J`
+        // parks it where the line started being merged.
+        let mut first_target: Option<usize> = None;
+        // `J` is one join, `3J` is two: the count is the number of lines the
+        // result spans, not the number of breaks that go.
+        for _ in 1..count.max(2) {
+            let row = self.row_col(self.cursor).0;
+            // A note that ends with a line break does not have an empty line after
+            // it — that break ends the file — so `J` on the last real line has
+            // nothing to join, exactly as in vim.
+            let phantom_last = usize::from(self.text.ends_with('\n'));
+            if row + 1 + phantom_last >= self.line_count() {
+                break;
+            }
+            let line_start = self.line_start(row);
+            let line_end = self.line_end(row);
+            let next_start = self.line_start(row + 1);
+            let next_end = self.line_end(row + 1);
+            let current = self.text[line_start..line_end].to_string();
+            let next_raw = self.text[next_start..next_end].to_string();
+            let lead = next_raw
+                .char_indices()
+                .find(|(_, c)| !c.is_whitespace())
+                .map(|(i, _)| i)
+                .unwrap_or(next_raw.len());
+            let blank_next = lead >= next_raw.len();
+            let separator = if blank_next || current.ends_with(char::is_whitespace) {
+                ""
+            } else if current
+                .trim_end()
+                .chars()
+                .next_back()
+                .is_some_and(|c| matches!(c, '.' | '?' | '!'))
+            {
+                "  "
+            } else {
+                " "
+            };
+            self.snapshot();
+            // The break and the next line's leading whitespace both go; what is
+            // left of that line follows the current one directly.
+            self.text.replace_range(line_end..(next_start + lead), separator);
+            self.selection = None;
+            let target = if separator.is_empty() {
+                line_end.max(line_start + 1) - 1
+            } else {
+                line_end
+            };
+            self.cursor = self.clamp(target);
+            first_target.get_or_insert(target);
+            joined = true;
+        }
+        if let Some(target) = first_target {
+            self.cursor = self.clamp(target);
+        }
+        joined
+    }
     /// Empty `count` lines for a linewise change (`cc`, `S`), leaving the line
     /// itself behind.
     ///

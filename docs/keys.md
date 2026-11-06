@@ -78,6 +78,12 @@ both into insert mode; `C` changes to end of line, `D` deletes to end of line; `
 deletes the character *before* the cursor; `Y` yanks the whole line. A change keeps
 its line: `cc` empties a line, `dd` removes it.
 
+**Joining.** `J` pulls the line below up onto the cursor's line, and in visual mode
+it joins the lines the selection touches. The line break becomes a space and the
+next line's leading whitespace goes with it; a blank line below adds no space, a
+line that already ends in whitespace does not get a second one, and after `.`, `?`
+or `!` vim's default puts two spaces. `3J` spans three lines.
+
 **Text objects.** `iw` / `aw` (word), `iW` / `aW` (WORD), `ip` / `ap` (paragraph),
 `i"` / `a"` and `i'` / `a'` (a quoted string), and the bracket pairs — `i(` `i)` `ib`
 for parentheses, `i[` `i]`, `i{` `i}` `iB`, `i<` `i>`. Either character of a pair

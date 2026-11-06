@@ -47,6 +47,19 @@ impl Vim {
                 }
                 Outcome::Stay
             }
+            // `J` joins the lines the selection touches and leaves normal mode,
+            // with the cursor where the first join happened.
+            Key::Char('J') => {
+                let Some((lo, hi)) = self.selection_range(buf) else {
+                    return Outcome::Unhandled;
+                };
+                let first_row = buf.row_col(lo).0;
+                let rows = buf.row_col(hi.saturating_sub(1)).0 + 1 - first_row;
+                self.exit_visual(buf);
+                buf.set_cursor(buf.line_start(first_row));
+                buf.join_lines(rows);
+                Outcome::Stay
+            }
             // `o` jumps to the other end of the selection.
             Key::Char('o') | Key::Char('O') => {
                 if let Some((a, h)) = buf.selection() {

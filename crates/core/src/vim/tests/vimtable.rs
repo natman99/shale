@@ -62,6 +62,18 @@ const CASES: &[(&str, usize, &str)] = &[
     ("one\n\ntwo\n\nthree\n", 0, "d2ip"),
     ("one\n\ntwo\n\nthree\n", 0, "d2ap"),
     ("one\n\ntwo\n\nthree\n", 0, "dip"),
+    // Joining lines, with vim's whitespace rules.
+    ("one\\ntwo\\nthree\\n", 0, "J"),
+    ("one\\ntwo\\nthree\\n", 0, "3J"),
+    ("one\\n   two\\n", 0, "J"),
+    ("one\\n\\ntwo\\n", 0, "J"),
+    ("one\\n   \\ntwo\\n", 0, "J"),
+    ("one  \\ntwo\\n", 0, "J"),
+    ("one.\\ntwo\\n", 0, "J"),
+    ("one;\\ntwo\\n", 0, "J"),
+    ("one\\n", 0, "J"),
+    ("one\\n\\n", 0, "J"),
+    ("a\\nb\\nc\\nd\\n", 2, "2J"),
     // Changing and yanking an object, not only deleting it.
     ("a (b c) d\n", 4, "ci("),
     ("a (b c) d\n", 4, "yi("),

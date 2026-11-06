@@ -1458,11 +1458,25 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
 - **The vim cross-check harness.** `crates/core/src/vim/tests/vimtable.rs` is the
   case table; run with `--ignored` and it prints the engine's answers, and
   `scripts/vimcrosscheck.py` feeds the same cases to `vim -es` and diffs the two
-  (42/44 agree). The two that differ are pre-existing object semantics, not new
+  (53/55 agree). The two that differ are pre-existing object semantics, not new
   ones: `da"` leaves the space after the closing quote (Shale's quote object is the
   pair and nothing else), and `dip` stops before the paragraph's last line break
   where vim takes it. New vim work should add its cases to that table before a
   behaviour claim goes in the docs.
+- **`J` — done**: joins the line below, in normal mode and in visual (the lines the
+  selection touches). The whitespace rules are not the obvious ones and all of them
+  came from probing vim: the break becomes a space and the next line's leading
+  whitespace goes with it; a next line that is blank once stripped contributes no
+  space at all; a line that already ends in whitespace is not given a second
+  separator; and after `.`, `?` or `!` vim's default `joinspaces` inserts *two*
+  spaces, which Shale keeps (mid-line, the second space costs Markdown nothing).
+  Two things worth remembering:
+  - **The count spans lines, and the cursor stays on the first join.** `3J` removes
+    two breaks but parks the cursor where the first join happened, which is what
+    makes `JJ` walk and `3J` not.
+  - **A note ending in a line break has no empty line below it.** `Buffer` counts
+    that break as a final empty row, so `J` on the last real line would otherwise
+    eat the file's closing newline; `join_lines` skips the phantom row.
 - **Not implemented yet in vim mode** (re-checked 2026-11-05 against the engine: still
   only the unnamed register, no case/replace operators, no blockwise visual): `gv`, `C`/`S` in visual, repeating a text
   object in visual to extend it, `i[`/`a[` in visual mode (the `[`/`]` bindings live
