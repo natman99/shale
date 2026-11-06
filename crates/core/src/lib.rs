@@ -19,6 +19,7 @@ pub mod rename;
 pub mod search;
 pub mod session;
 pub mod table;
+pub mod transclude;
 pub mod theme;
 pub mod vault;
 pub mod vim;
