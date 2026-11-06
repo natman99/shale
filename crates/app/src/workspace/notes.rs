@@ -19,6 +19,10 @@ use super::Workspace;
 
 impl Workspace {
     pub(crate) fn open_note(&mut self, path: &PathBuf, cx: &mut Context<Self>) {
+        // What makes a note "recent" is having it in hand, whichever door it
+        // came through -- picker, tree, `gd`, a tab click, the agent -- and it
+        // counts even when the note was already open somewhere else.
+        self._services.update(cx, |s, _| s.remember_note(path));
         // A note that is already open in another tab is *found*, not opened again:
         // following three links back to a note the tab bar already holds should not
         // put it on the bar twice. The current tab is the exception — reopening the

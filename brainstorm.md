@@ -388,6 +388,19 @@ zero frames when idle — and all of it is config-off-able as a group
 
 ---
 
+### The blank tab is a front door ✅ (built 2026-11-05)
+- A pane with no note open shows a start block on the note's own surface: the vault's
+  counts, its recent notes as clickable rows, and the doors as key-chips. It steps aside
+  the moment the tab starts being a note (insert mode, or text in the buffer), so writing
+  is never behind a menu.
+- Recents are vault-wide — `recent` at the top level of `session.json` — so a second window
+  on the same vault does not start cold. A note deleted from disk drops out of the list.
+- An empty vault gets the same screen with one different line (`the vault holds no notes
+  yet`) and a `new note` row: the first-run moment without a splash screen or a tour.
+- Known soft edge: the link count in the vault line only appears once the graph index
+  exists, because that is where links live. A count that flickers in is honest; a count
+  that is guessed is not.
+
 ## Quick capture ✅ (socket design, cross-platform)
 - `shale capture "text"` (or stdin/prompt): if the app is running, talks to a
   **unix socket** in `.shale` (Linux/macOS) / **named pipe**

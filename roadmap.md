@@ -775,6 +775,16 @@ into the Phase 3 addendum. **P2.5a landed 2026-11-01, so Phase 2 is closed**
   graph tab is the exception, still one per window and focused where it is, because a
   restore must not relocate it. Tab-to-pane movement is therefore covered; the open item
   below is about moving **panes**.
+  **A blank tab is a front door, not a void (2026-11-05):** a pane whose tab holds no note
+  paints a start block on the note's own surface — the vault's counts, its recent notes as
+  clickable rows, the doors as key-chips — and it steps aside the moment the tab starts
+  being a note (insert mode, or text in the buffer), so the writing surface is never behind
+  a menu. Recents are vault-wide: `recent` at the top level of the session file, newest
+  first, capped at 10, notes no longer on disk dropped from the list. A row names its own
+  pane, so a click in a pane without the keyboard opens the note there. An empty vault gets
+  the same screen with one different line — `the vault holds no notes yet` and a `new note`
+  row — which closes the design doc's parked first-run item and amends its empty-state
+  ruling (§13).
   **Still open for P3.2:** move/exchange/rotate (`H/J/K/L`, `x/X`, `r`) and `:pin`.
 - **P3.3 Graph M1a — start immediately, in parallel with P0/P1.** No
   dependencies: `crates/core/src/graph/{index,sim,quadtree,filter}.rs` +

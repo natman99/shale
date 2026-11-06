@@ -1313,3 +1313,41 @@ Test helper note: `repaint` (draw a frame *and* run the next-frame callbacks) mo
 `tests/graph/mod.rs` to `tests/mod.rs`. The keyboard follows a tab change one frame later
 by design, so a test that types straight after a move is typing against a view that has
 already left the tree — the trap is the same for panes as for graph. app 485 / core 466.
+
+## A blank tab is a front door, not a void (2026-11-05)
+
+`crates/app/src/workspace/start.rs` — new. A blank tab used to be an empty buffer: a caret
+at the top of nothing, with every door out of it living in the docs.
+
+**What it shows.** One line in the status bar's voice (`3 notes · 12 links`), the vault's
+recent notes as clickable rows, and the doors as key-chips (`space f` open ·
+`ctrl-shift-f` search · `space g` graph · `ctrl-n` new note). It sits on the note's own
+surface at the note's text indent — no panel, no fourth elevation level, no animation — and
+it is gone the moment the tab starts being a note: insert mode, or text in the buffer. Undo
+back to nothing and the door is there again; the block follows the tab's state, it is not a
+latch.
+
+**This amends a design ruling.** §13's "every empty surface gets exactly one line" is right
+for an empty *list* and wrong for a blank tab, which is the window's front door. The ruling
+now says so, and the block keeps everything else that ruling forbids: no illustration, no
+second voice, no motion, no new elevation. The parked first-run item closes with it — an
+empty vault gets the same screen, one different line (`the vault holds no notes yet`) and
+the one door that works (`new note`).
+
+**Recents are the vault's, not the window's.** `recent` sits at the top level of
+`.shale/session.json` (newest first, capped at 10, deduped by `Sessions::remember_note`),
+recorded in `open_note`, so every door counts: picker, tree, `gd`, a tab click, the agent.
+It goes out with whichever session save comes next — opening a note is not worth a disk
+write of its own. A note deleted from disk drops out, because every row is a promise that
+clicking lands somewhere.
+
+**A row names its own pane.** Clicking a recent in a pane without the keyboard opens the
+note *there* and takes the keyboard with it; the tab bar's rows already follow that rule,
+and a start block in a split window would otherwise be a menu answering to the wrong pane.
+
+The click path is the picker overlay's tested pair (`.occlude()` plus a stopped mouse-down),
+so the tests cover the semantics — the predicate, the list, the pane a row belongs to —
+rather than hunting pixels. The fold-marker tests show what a coordinate-based click test
+costs when a component does not report its own bounds. Verified by eye on a real window:
+`3 notes` / `recent` / three rows / the legend, at the note's indent, caret above it.
+app 491 / core 467.

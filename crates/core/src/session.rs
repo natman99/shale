@@ -269,7 +269,16 @@ pub struct Session {
 #[serde(default)]
 pub struct Sessions {
     pub slots: Vec<Session>,
+    /// The vault's most recently opened notes, newest first -- vault-wide
+    /// rather than per window, because "what was I just reading" is a fact
+    /// about the vault and a second window on it should not start cold. The
+    /// blank tab's start block lists these.
+    pub recent: Vec<PathBuf>,
 }
+
+/// How many recent notes the file keeps. The start block shows a screenful;
+/// a longer list is a picker, not a menu.
+pub const RECENT_MAX: usize = 10;
 
 impl Sessions {
     /// Read the whole file. No file is the normal case: empty slots.
@@ -290,8 +299,18 @@ impl Sessions {
             // Pre-slots format: one window's Session, now slot 0.
             let one: Session = serde_json::from_value(value)
                 .with_context(|| format!("parsing {}", path.display()))?;
-            Ok(Sessions { slots: vec![one] })
+            Ok(Sessions {
+                slots: vec![one],
+                recent: Vec::new(),
+            })
         }
+    }
+
+    /// Record that `path` was opened: newest first, no duplicates, capped.
+    pub fn remember_note(&mut self, path: &Path) {
+        self.recent.retain(|p| p != path);
+        self.recent.insert(0, path.to_path_buf());
+        self.recent.truncate(RECENT_MAX);
     }
 
     /// Write the whole file, atomically (module docs).
@@ -561,16 +580,42 @@ mod tests {
         };
         let mut sessions = Sessions {
             slots: vec![one.clone(), two.clone()],
+            recent: vec![PathBuf::from("a.md")],
         };
         sessions.save(dir.path())?;
         let back = Sessions::load(dir.path())?;
         assert_eq!(back.slots, vec![one, two]);
+        assert_eq!(back.recent, vec![PathBuf::from("a.md")]);
         Ok(())
     }
 
     /// The file a single-window Shale left behind — a bare `Session`, no
     /// `slots` key — reads as slot 0, so the first window of the multi-window
     /// era wakes up exactly where the last window of the old era stood.
+    #[test]
+    fn the_recent_list_is_newest_first_unique_and_capped() {
+        let mut sessions = Sessions::default();
+        for n in 0..RECENT_MAX + 4 {
+            sessions.remember_note(Path::new(&format!("n{n}.md")));
+        }
+        assert_eq!(sessions.recent.len(), RECENT_MAX);
+        assert_eq!(
+            sessions.recent[0],
+            PathBuf::from(format!("n{}.md", RECENT_MAX + 3))
+        );
+        // Re-opening a note moves it to the front rather than listing it twice.
+        sessions.remember_note(Path::new("n5.md"));
+        assert_eq!(sessions.recent[0], PathBuf::from("n5.md"));
+        assert_eq!(
+            sessions
+                .recent
+                .iter()
+                .filter(|p| **p == PathBuf::from("n5.md"))
+                .count(),
+            1
+        );
+    }
+
     #[test]
     fn a_pre_slots_session_becomes_slot_zero() -> Result<()> {
         let dir = tempfile::tempdir().unwrap();

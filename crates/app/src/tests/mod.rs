@@ -52,6 +52,7 @@ mod review;
 mod search;
 mod session;
 mod spell;
+mod start;
 mod status;
 mod tabs;
 mod tree;

@@ -152,6 +152,18 @@ impl VaultServices {
         self.slots_in_use.remove(&ix);
     }
 
+    /// Record that a note was opened, for the blank tab's start block. The
+    /// list rides in the session file and goes out with whichever save comes
+    /// next: opening a note is not worth a disk write of its own.
+    pub(crate) fn remember_note(&mut self, path: &std::path::Path) {
+        self.sessions.remember_note(path);
+    }
+
+    /// The vault's most recently opened notes, newest first.
+    pub(crate) fn recent(&self) -> &[std::path::PathBuf] {
+        &self.sessions.recent
+    }
+
     /// What slot `ix` remembers, if the file has anything for it.
     pub(crate) fn session_at(&self, ix: usize) -> Option<shale_core::Session> {
         self.sessions.slots.get(ix).cloned()

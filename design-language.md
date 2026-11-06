@@ -295,9 +295,17 @@ are what is left open.
 - **✅ Units and relative time.** One format everywhere: `3m ago`, `N words`,
   `2 hunks`; dates short and unambiguous. Any new number in the UI takes the
   existing format, not a new one.
-- **✅ Empty states.** Every empty surface gets exactly one line in the
-  status bar's voice (`the vault holds no notes yet` is the register). No
-  illustrations, no tip-splatter, no second line.
+- **✅ Empty states.** An empty *list* gets exactly one line in the status
+  bar's voice (`the vault holds no notes yet` is the register): no
+  illustrations, no tip-splatter, no second line. A **blank tab** is the
+  exception, ruled 2026-11-05: it is the window's front door rather than a
+  list with nothing in it, so it carries a start block — the vault's counts,
+  its recent notes as clickable rows, and the doors as key-chips
+  (`workspace::start`). What the ruling still forbids there, and the block
+  honours: an illustration, a second voice, any animation (§7), and a fourth
+  elevation level (§5 — the block sits unraised on the note's own surface, at
+  the note's text indent). It steps aside the moment the tab starts being a
+  note, so the writing surface is never behind a menu.
 - **✅ Linux window identity** — **landed 2026-11-03** (`692800a`). `app_id = "shale"` on the
   window: `WM_CLASS` on X11, xdg `app_id` on Wayland, and `assets/shale.desktop`'s
   `StartupWMClass` matches it so the desktop can find the entry. The strata mark (four bedding
@@ -318,8 +326,10 @@ are what is left open.
   roles make a new built-in family cheap.
 - **❄️ Wordmark system** — one mark, three places (window icon, `:about`,
   README). Drawn once, after the window icon (§13) gives it a first home.
-- **❄️ First-run experience** — empty-vault moment + discoverability path;
-  waits for tabs/graph to settle.
+- **✅ First-run experience** — **landed 2026-11-05**. The same start block,
+  one different line: an empty vault says `the vault holds no notes yet` and
+  offers the one door that works (`new note`). Discoverability is the block's
+  key-chip legend, not a tour.
 - **❌ Scope guards (parent rules, do not re-pitch):** no sounds, no splash
   screen, no mascot, no startup animation. The chrome-doesn't-animate
   contract (§7) already implies the last one; these settle the rest.

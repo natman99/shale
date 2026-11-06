@@ -27,6 +27,7 @@ mod review;
 mod search;
 mod services;
 mod session;
+mod start;
 mod tabs;
 #[cfg(test)]
 mod testhooks;

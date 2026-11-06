@@ -16,7 +16,7 @@ Shale is an obsidian-style markdown editor with extra developer focused features
 - [ ] Pdf export notes
 - [x] Tabs (roadmap P3.1)
 - [x] Tiling split view (like Obsidian) (roadmap P3.2: the tree, the `ctrl-w` alphabet, and `ctrl-w >`/`<` to resize the pane in hand)
-- [x] Remember the workspace between sessions: the open note with its cursor and scroll, which folders are expanded in the tree, the note's view, the jump chain, and the tabs and panes — every pane's tabs, the tree over them and where the divider was (roadmap P1.8, in `.shale/session.json`)
+- [x] Remember the workspace between sessions: the open note with its cursor and scroll, which folders are expanded in the tree, the note's view, the jump chain, and the tabs and panes — every pane's tabs, the tree over them and where the divider was — and the vault's recent notes (roadmap P1.8, in `.shale/session.json`)
 - [x] Command pallette (vim `:` and Vscode's `ctrl+shift+p` to open. Vim version supports vim features like `s/x/x` replacement. Fuzzy search for commands) — palette, `:` line, and fuzzy all done; the `s/x/x`-style ex features are not (see roadmap P2.7)
 - [x] Note search and full vault search (command pallette, vim `/`) — vault search done (`ctrl-shift-f`); in-buffer `/` done (roadmap P0.5)
 - [ ] Templates: save standard notes as templates to be copied in to other notes with a command. Also add a gui picker.

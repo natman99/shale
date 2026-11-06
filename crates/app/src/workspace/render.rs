@@ -244,7 +244,32 @@ impl Workspace {
                             this.pointer_moved(event.position, window, cx);
                         }),
                     )
-                    .child(div().flex_1().min_h_0().when_some(slot, |d, e| d.child(e))),
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_h_0()
+                            .when_some(slot, |d, e| d.child(e))
+                            // A blank tab is not a void: the start block sits on
+                            // the note's own surface, at the note's text indent,
+                            // and disappears the moment the tab becomes a note
+                            // (`workspace::start`). `occlude` plus the stopped
+                            // mouse-down are what make its rows clickable rather
+                            // than clicks that fall through to the editor's caret
+                            // underneath (the picker overlays use the same pair).
+                            .when(self.show_start_block(pix, cx), |d| {
+                                d.child(
+                                    div()
+                                        .absolute()
+                                        .top_8()
+                                        .left(crate::style::GUTTER)
+                                        .occlude()
+                                        .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                                            cx.stop_propagation();
+                                        })
+                                        .child(self.start_block(pix, cx)),
+                                )
+                            }),
+                    ),
             )
             .into_any_element()
     }
