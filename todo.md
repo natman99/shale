@@ -16,4 +16,4 @@ Let's change the default theme to match the system theme, else fallback to dark,
 
 Why does pressing escape in the graph view move to a different tab?
 
-Update docs about the DB once it's storing more valuable information
+Update docs about the DB being safely removable once it's storing more valuable information
