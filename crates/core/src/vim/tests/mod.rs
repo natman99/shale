@@ -14,6 +14,7 @@ mod motions;
 mod objects;
 mod tables;
 mod visual;
+mod words;
 
 fn buf() -> Buffer {
     Buffer::new("hello world\nsecond line\nthird".to_string())

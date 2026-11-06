@@ -112,6 +112,19 @@ impl Buffer {
         }
         (start, end)
     }
+    /// Advance past a WORD run: everything up to the next blank. vim's `W`, `B`
+    /// and `E` work on WORDs, where punctuation and Markdown markup are part of
+    /// the word — `**bold**` is one WORD and three words.
+    pub(super) fn skip_word_run(&self, mut i: usize) -> usize {
+        let len = self.text.len();
+        while i < len {
+            match self.char_at(i) {
+                Some(c) if !c.is_whitespace() => i += c.len_utf8(),
+                _ => break,
+            }
+        }
+        i
+    }
     pub(super) fn char_at(&self, i: usize) -> Option<char> {
         self.text[i..].chars().next()
     }
@@ -215,6 +228,51 @@ pub fn word_back(text: &str, at: usize) -> usize {
         while i > 0 && prev_class(i) == Some(cls) {
             i = start_of_prev(i);
         }
+    }
+    i
+}
+
+/// The offset vim's `B` motion lands on coming back from `at`: the start of the
+/// WORD before the cursor. The WORD-level twin of [`word_back`], and deliberately
+/// a separate walk rather than a flag on it: a WORD is delimited only by blanks,
+/// so it has no notion of a punctuation run and the two rules disagree about
+/// almost every character in a Markdown note.
+pub fn big_word_back(text: &str, at: usize) -> usize {
+    if at == 0 {
+        return 0;
+    }
+    let len = text.len();
+    let at = at.min(len);
+    let start_of_prev = |i: usize| {
+        let mut s = i.saturating_sub(1);
+        while s > 0 && !text.is_char_boundary(s) {
+            s -= 1;
+        }
+        s
+    };
+    let prev_blank = |i: usize| {
+        text[start_of_prev(i)..i]
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_whitespace())
+    };
+
+    let mut i = at;
+    // In the middle of a WORD: back up to that WORD's start.
+    if i < len && !text[i..].chars().next().is_some_and(|c| c.is_whitespace()) {
+        while i > 0 && !prev_blank(i) {
+            i = start_of_prev(i);
+        }
+        if i < at {
+            return i;
+        }
+    }
+    // At a WORD start (or on a blank): cross blanks, then back over the WORD.
+    while i > 0 && prev_blank(i) {
+        i = start_of_prev(i);
+    }
+    while i > 0 && !prev_blank(i) {
+        i = start_of_prev(i);
     }
     i
 }

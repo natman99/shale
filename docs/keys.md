@@ -62,9 +62,10 @@ the pane you are standing in — the tab is stolen whole
 ## The note — normal mode
 
 **Motions.** `h` `j` `k` `l` (screen-line aware across soft wraps), `w` `b` `e`,
-`0` `^` `$`, `gg` / `G`, `f` `t` `F` `T` (and their shifted forms), `enter` to the
-next line's first non-blank. Counts work on motions and operators: `3w`, `2dd`,
-`5j`.
+`W` `B` `E` (a WORD is delimited only by blanks, so `**bold**`, `[[a link]]` and
+`code.rs` are one step rather than three), `0` `^` `$`, `gg` / `G`, `f` `t` `F` `T`
+(and their shifted forms), `enter` to the next line's first non-blank. Counts work
+on motions and operators: `3w`, `2dd`, `5j`.
 
 **Operators.** `d` (delete), `c` (change), `y` (yank), each with a motion or a
 text object; `dd`, `cc`, `yy` for the whole line; `x` to delete the character

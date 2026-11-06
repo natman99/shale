@@ -294,6 +294,12 @@ impl Vim {
             Key::Char('w') => repeat(count, || buf.word_forward()),
             Key::Char('b') => repeat(count, || buf.word_backward()),
             Key::Char('e') => repeat(count, || buf.word_end()),
+            // WORD motions: delimited by blanks only, which is what makes them the
+            // right motion around Markdown markup — `W` steps over `**bold**` and
+            // `[[link]]` in one go, where `w` would take three steps.
+            Key::Char('W') => repeat(count, || buf.big_word_forward()),
+            Key::Char('B') => repeat(count, || buf.big_word_backward()),
+            Key::Char('E') => repeat(count, || buf.big_word_end()),
             Key::Char('f') | Key::Char('F') | Key::Char('t') | Key::Char('T') => {
                 self.pending = Pending::Find {
                     op: None,
@@ -422,7 +428,7 @@ impl Vim {
         if let Some(loc) = located {
             let cell = loc.cell;
             match key {
-                Key::Char('h' | 'l' | 'w' | 'b' | 'e') => {
+                Key::Char('h' | 'l' | 'w' | 'b' | 'e' | 'W' | 'B' | 'E') => {
                     if let Some(table) = tables.get(loc.table) {
                         snap_cell_motion(table, loc, key, buf);
                     }

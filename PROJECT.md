@@ -1418,6 +1418,21 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   `r` also had to join the literal-argument path: `rx` types a literal `x`, so the
   Replace arm runs before the motion match and a digit after `r` is the character, not
   a count (`r5` writes `5`).
+- **WORD motions — done** (`W`, `B`, `E`), and they are the motion that fits
+  Markdown: a WORD is delimited only by blanks, so `**bold**`, `[[a link]]` and
+  `code.rs` move in one step. `big_word_back` is a separate walk in `buffer/words.rs`
+  rather than a flag on `word_back`: the two rules disagree about almost every
+  character in a note, and a shared function with a boolean would have been a way to
+  stop thinking about that. Two things came with them:
+  - **A forward word motion at the end of the buffer stops at the line.** vim's
+    cursor cannot sit past the last character, so `d4w` on a note's last line empties
+    the line instead of taking the line break and joining the line below. `apply_operator`
+    clamps the sweep; `word_end`/`big_word_end` stay put rather than stepping onto the
+    buffer's closing break. This also fixes the same overshoot in `w`/`e`.
+  - **`ciW` is not `dW`.** `cW` sweeps the WORD *and* the gap after it; `ciW` is the
+    inner-WORD text object and leaves the gap. vim makes the same distinction; it is
+    worth remembering when an operator looks one character wrong.
+  `iW`/`aW` as text objects are not implemented yet, so `ciW` currently cancels.
 - **Not implemented yet in vim mode** (re-checked 2026-11-05 against the engine: still
   only the unnamed register, no case/replace operators, no blockwise visual): `gv`, `C`/`S` in visual, repeating a text
   object in visual to extend it, blockwise `ctrl-v`, the case/replace operators

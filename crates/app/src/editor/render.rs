@@ -424,6 +424,12 @@ impl Render for MarkdownEditor {
             .on_action(cx.listener(|this, _: &VimUpperE, window, cx| {
                 this.normal(Key::Char('E'), window, cx)
             }))
+            .on_action(cx.listener(|this, _: &VimUpperW, window, cx| {
+                this.normal(Key::Char('W'), window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &VimUpperB, window, cx| {
+                this.normal(Key::Char('B'), window, cx)
+            }))
             // `]` and `[`, bound so the engine can own the `]a`/`[a` review chords.
             // They are single keys rather than a two-stroke chord because a literal
             // bracket has to reach the engine as the argument of `f`, `t` or an

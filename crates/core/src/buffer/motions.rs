@@ -148,6 +148,51 @@ impl Buffer {
         i = self.skip_blanks(i);
         self.set_cursor(i);
     }
+    /// Move to the start of the next WORD (vim `W`).
+    ///
+    /// A WORD is delimited only by blanks, so `[[link]]`, `**bold**` and
+    /// `code.rs` are each one WORD. The line break is a blank, so a WORD never
+    /// crosses it — but `W` at the end of a line skips to the first WORD of the
+    /// next, as vim's does.
+    pub fn big_word_forward(&mut self) {
+        let len = self.text.len();
+        let mut i = self.clamp(self.cursor);
+        if i >= len {
+            return;
+        }
+        if !self.char_at(i).unwrap().is_whitespace() {
+            i = self.skip_word_run(i);
+        }
+        i = self.skip_blanks(i);
+        self.set_cursor(i);
+    }
+    /// Move to the end of the current/next WORD (vim `E`), the inclusive form of
+    /// `W`: it lands *on* the WORD's last character.
+    pub fn big_word_end(&mut self) {
+        let len = self.text.len();
+        if len == 0 {
+            return;
+        }
+        let i = self.cursor.min(len - 1);
+        let here = self.char_at(i).unwrap();
+        let run_end = self.skip_word_run(i);
+        // Strictly inside a WORD: finish that WORD.
+        if !here.is_whitespace() && run_end > i + here.len_utf8() {
+            self.set_cursor(self.prev_char_boundary(run_end));
+            return;
+        }
+        // Otherwise step to the next WORD and take its last character. With no
+        // WORD left the cursor stays where it is: vim's `E` at the end of the last
+        // word does not step onto the line break.
+        let j = self.skip_blanks(run_end);
+        if j >= len {
+            let last = self.prev_char_boundary(len);
+            self.set_cursor(self.cursor.min(last));
+            return;
+        }
+        let end = self.skip_word_run(j);
+        self.set_cursor(self.prev_char_boundary(end));
+    }
     /// Move to the start of the previous word (vim `b`).
     ///
     /// The boundary itself is [`word_back`], which the buffer shares with the
@@ -157,6 +202,14 @@ impl Buffer {
             return;
         }
         let to = super::word_back(&self.text, self.cursor);
+        self.set_cursor(to);
+    }
+    /// Move to the start of the previous WORD (vim `B`).
+    pub fn big_word_backward(&mut self) {
+        if self.cursor == 0 {
+            return;
+        }
+        let to = super::big_word_back(&self.text, self.cursor);
         self.set_cursor(to);
     }
     /// Move to the end of the current/next word (vim `e`).
@@ -174,10 +227,13 @@ impl Buffer {
             self.set_cursor(self.prev_char_boundary(run_end));
             return;
         }
-        // Otherwise step to the next non-blank run and take its last char.
+        // Otherwise step to the next non-blank run and take its last char. With
+        // none left the cursor stays put rather than stepping onto the break that
+        // ends the buffer — vim's `e` on the last word of a note stays on it.
         let j = self.skip_blanks(run_end);
         if j >= len {
-            self.set_cursor(self.prev_char_boundary(len));
+            let last = self.prev_char_boundary(len);
+            self.set_cursor(self.cursor.min(last));
             return;
         }
         let end = self.skip_run(j, class_of(self.char_at(j).unwrap()));

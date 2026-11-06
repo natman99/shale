@@ -87,6 +87,9 @@ impl Vim {
             Key::Char('w') => repeat(count, || buf.word_forward()),
             Key::Char('e') => repeat(count, || buf.word_end()),
             Key::Char('b') => repeat(count, || buf.word_backward()),
+            Key::Char('W') => repeat(count, || buf.big_word_forward()),
+            Key::Char('E') => repeat(count, || buf.big_word_end()),
+            Key::Char('B') => repeat(count, || buf.big_word_backward()),
             Key::Char('h') => repeat(count, || buf.move_left()),
             Key::Char('l') => repeat(count, || buf.move_right_stay_on_line()),
             Key::Char(' ') => repeat(count, || buf.move_right_stay_on_line()),
@@ -122,8 +125,16 @@ impl Vim {
         // `$` and `e` are inclusive motions: they land *on* a character, which
         // the operator must include. `w` is exclusive, so it stops at the start
         // of the next word and that character is left alone.
-        if matches!(key, Key::Char('$') | Key::Char('e')) && end < buf.text().len() {
+        if matches!(key, Key::Char('$') | Key::Char('e') | Key::Char('E')) && end < buf.text().len()
+        {
             end = buf.next_char_boundary(end);
+        }
+        // A forward word motion that runs off the end of the buffer stops at the
+        // end of the *line*, not past it: vim's cursor cannot sit beyond the last
+        // character, so `d4w` on a note's last line empties the line rather than
+        // taking the line break with it and joining the line below.
+        if matches!(key, Key::Char('w' | 'W' | 'e' | 'E')) && end >= buf.text().len() {
+            end = buf.line_end(buf.row_col(start).0);
         }
         // Inside a cell the sweep stops at the cell's content edge, so `dw` at
         // the end of a cell deletes the rest of that cell and not the next one.

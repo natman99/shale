@@ -79,6 +79,11 @@ actions!(
         VimUpperR,
         VimUpperM,
         VimUpperE,
+        // WORD motions (`W`, `B`): a WORD is delimited only by blanks, so it walks
+        // over Markdown markup in one step. `E` shares the action above with the `zE`
+        // fold command — the engine decides which one a given `E` is.
+        VimUpperW,
+        VimUpperB,
         // `]` and `[` are bound so the review-marker chords `]a`/`[a` reach the vim
         // engine, which owns the pair. They are bound as single keys rather than as a
         // two-stroke chord because gpui holds the first key of a chord as pending

@@ -304,6 +304,10 @@ fn build() -> (Vec<KeyBinding>, Vec<KeymapRow>) {
         "shift-r" => VimUpperR,
         "shift-m" => VimUpperM,
         "shift-e" => VimUpperE,
+        // The WORD motions. `shift-e` above doubles as `zE`; the engine reads `z`
+        // first, so an `E` that follows a `z` is the fold and any other is the motion.
+        "shift-w" => VimUpperW,
+        "shift-b" => VimUpperB,
         // vim's command line: one word, matched exactly (`:w`, `:q`, `:harper
         // off`). The fuzzy command palette is `ctrl-shift-p` above, and keeping the
         // two apart is what stops `:w` matching a command that merely contains a

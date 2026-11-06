@@ -699,3 +699,4 @@ fn a_read_only_buffer_refuses_every_edit_and_nothing_else() {
     assert_eq!(b.text(), "another note\n", "and that still works");
     assert!(b.is_read_only(), "with the buffer still protected");
 }
+
