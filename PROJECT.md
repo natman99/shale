@@ -34,6 +34,7 @@ Shale is an obsidian-style markdown editor with extra developer focused features
 - Indexing for quick wiki-link look up and resolving.
 - Use GPUI's testing framework for headless testing of the app when possible.
 - Use `gd` for follow the wiki link under the cursor, `gD` to create in the base vault directory if it doesn't exist.
+  *(Ruled 2026-11-05: `gD` creates the note **beside** the one in hand, not at the vault root — a link written from a folder is meant to live in that folder. A verbatim path in the link is still honoured exactly. See §Current status.)*
 - Follow the chain of links, opened files, jumps, and edits, `ctrl+o`/`ctrl+i` should properly navigate along the chain like neovim and vim.
 - Preview mode that will support more advanced markdown rendering, and will not have editing.
 - Markdown tasks should support mouse clicks to check, and a "partly complete" icon for `[/]` in preview mode. 
@@ -362,7 +363,12 @@ Workspace layout:
   with no path and `graph = true` is the graph tab), plus **every pane's** tabs, the
   tiling tree over them (`leaf` / `split{dir,frac,kids}`) and which pane had the
   keyboard — `.shale/session.json`,
-  incremental like the config and written with that same atomic discipline), `live` (the **contract** both halves of the live
+  incremental like the config and written with that same atomic discipline — including
+  the vault's **recent notes** there, newest first, capped at 10, one list for every
+  window on the vault, recorded by `Sessions::remember_note` from `open_note` so every
+  door counts), `note_name` (turning a note's first line, or a name typed at the `:`
+  line, into a file name: markdown block markers and filesystem-forbidden characters
+  out, 60 characters, never a hidden file, never above the vault), `live` (the **contract** both halves of the live
   MCP channel speak, roadmap P2.3: the `.shale/mcp.lock` record and its read/write/
   remove, the token header, the four endpoint paths, the `Status` shape `shale://status`
   reports, a hand-rolled loopback client and the `probe` that decides whether a port
@@ -375,7 +381,9 @@ Workspace layout:
   change**; `sim.rs` the dimension-generic force sim `Sim<const D>` (Barnes-Hut
   θ 0.5, naive under `NAIVE_LIMIT` 256); `geom.rs` the camera with cursor-anchored
   zoom and fit, the spatial grid and Prim's MST; `filter.rs` the filter bitmask;
-  `hues.rs` the OKLCH tag hues; `proj.rs` the 3D camera and painter sort) and `theme` (the
+  `hues.rs` the OKLCH tag hues; `proj.rs` the 3D camera and painter sort), `recent`
+  (the vaults the app knows — `$XDG_STATE_HOME/shale/`, newest first, capped at 10: what
+  startup opens when no vault is named, and what the switcher lists) and `theme` (the
   colour palette as data: the `Palette` roles and 20 built-in values — Shale's
   `dark`/`light` plus the palettes of seven families, one module per family
   (`theme/catppuccin.rs`, `tokyo_night.rs`, `gruvbox.rs`, `nord.rs`,
@@ -426,14 +434,13 @@ Workspace layout:
   open), **jump back/forward** (`ctrl-o`/`ctrl-i`: the notes the user came from,
   each with the cursor where they left it) and a
   **command palette** (`ctrl-shift-p`) beside vim's **command line** (`:`, which is
-  deliberately *not* the palette: one word, matched exactly — `:w`, `:q`, `:q!`,
-  `:wq`, `:x`, `:e`, `:harper on|off|1|0`, `:theme [name]`, `:raw|:live|:preview`,
-  `:focus|:dim on|off`, `:typewriter on|off`, `:wordcount [folder]`, `:review`,
-  `:tabnew|:tabedit`, `:tabnext|:tabn`, `:tabprev|:tabp`, `:tabclose|:tabc`,
-  `:tabonly|:tabo`, `:tabmove [n]`, `:graph`;
-  `ex.rs` is its whole
-  vocabulary, and a word it does not know runs nothing). One **command registry**
-  (`command.rs`) is behind both front-ends: 43 rows, each with a stable dotted id
+  deliberately *not* the palette: one word, matched exactly, and `ex.rs` is its whole
+  vocabulary — a word it does not know runs nothing. The words it knows, with their
+  arguments, are every row's `:` spelling in the generated table
+  (`docs/commands.md`, rewritten by `SHALE_UPDATE_DOCS=1 cargo test -p shale-app`, and a
+  test fails when the table and the file disagree — which is why the vocabulary is not
+  listed here by hand any more). One **command registry**
+  (`command.rs`) is behind both front-ends: 54 rows, each with a stable dotted id
   (`note.save`), a label, the keys that reach it, the `:` words that spell it, how
   its argument is spelled, and the gpui action that runs it. The palette lists the
   rows marked for it, and the command line dispatches the *same* action for every
@@ -445,6 +452,25 @@ Workspace layout:
   it. `ctrl-w h`/`ctrl-w l` move the keyboard between the sidebar and the note,
   and **vault search** (`ctrl-shift-f`, or `space s`) lists every line that holds what you type,
   opening the note on that line.
+  **One Shale, one window per vault** (landed 2026-11-04; the arc has no roadmap item of
+  its own — it is the "multi-window arc" in the roadmap's *Where Shale actually stands*):
+  the process that
+  opens a vault claims it — an exclusive `flock` on `.shale/lock`, held for the life of
+  the process — and a second Shale pointed at the same vault finds the door shut and says
+  so rather than opening a second watcher, index and MCP channel beside the first. Inside
+  one process the claim is a registry (`workspace/vaults.rs`), so asking for a vault that
+  is already open **focuses the window that has it**, and `:new-window` opens a second
+  window on the same vault on purpose. `:vault` opens the **switcher** over the vaults the
+  app remembers (`shale_core::recent` — `$XDG_STATE_HOME/shale/`, newest first, capped at
+  10); switching opens the new vault in a new window and **keeps the asking window open**
+  with the keyboard in it (ruled: a flow that opens a window never closes the one that
+  asked). Windows on one vault share one `VaultServices` (`workspace/services.rs`): one
+  index, one watcher, one backup loop, one live MCP channel and one review-queue beat per
+  **vault**, not per window. Each window is one **session slot** and remembers its own
+  frame on screen (`WindowGeom`), so a split window comes back split where it was. On the
+  command line: `shale [vault] [--note <path>] [--graph] [--split] [--open-after <secs>]`
+  — the last three are debug aids, and with no vault named Shale opens the one it opened
+  last.
   **Tabs** (roadmap P3.1): the note the window shows lives in a tab, and the tab
   owns the editor that holds it, so each tab keeps its own cursor, scroll, folds,
   view and undo history. A new tab comes from `ctrl-t` / `:tabnew` (a second tab on
@@ -580,6 +606,14 @@ Workspace layout:
   the queue file),
   `session.rs` the session file (capture, save on the autosave beat and every
   graceful exit, restore once in `new`),
+  `panes.rs` the tiling tree inside one window (roadmap P3.2: `Node` — a leaf or a
+  `split{dir,frac,kids}` — its `seat`/`from_seat` conversion to the session file's shape,
+  the divider drag, and `ctrl-w >`/`<` to resize the pane in hand),
+  `vaults.rs` the registry that makes one vault one set of windows (which windows are on
+  which vault, `:new-window`, and the claim that decides which process owns the vault's
+  flock and live MCP port),
+  `start.rs` the start block a blank tab paints (the vault's counts, its recent notes as
+  clickable rows, the doors as key-chips) and when it steps aside,
   `tabs.rs` the tab bar and the content each tab owns (roadmap P3.1: **the editor
   belongs to the tab**, so a tab keeps its cursor, scroll, folds, view and undo
   history; the at-least-one-tab invariant; `ctrl-t`, `g t`/`g T`, `:tab*`, the tab
@@ -1351,7 +1385,8 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   `waiting_for_literal()`, `.` repeat is guarded by it, and `handle_visual_key`
   forwards straight to `visual_motion` when an argument is pending. Any new bound
   key needs that path checked.
-- **Not implemented yet in vim mode**: `gv`, `C`/`S` in visual, repeating a text
+- **Not implemented yet in vim mode** (re-checked 2026-11-05 against the engine: still
+  only the unnamed register, no case/replace operators, no blockwise visual): `gv`, `C`/`S` in visual, repeating a text
   object in visual to extend it, blockwise `ctrl-v`, the case/replace operators
   (`~`, `u`, `r`) in visual, registers other than the unnamed one, insert-mode
   deletions/arrows inside a `.` replay.
@@ -1498,10 +1533,13 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
       and `orange`, Rosé Pine's gold — except where that colour cannot clear the
       floors: Latte falls back to its Mauve (its Peach is 1.6:1 on a highlighted
       row) and Rosé Pine Dawn to its pine (its gold is 1.5:1 on its own base).
-    - **Next: a theme picker.** Not started — the user is specifying what they want
-      from it first. Today a theme change means editing `shale.toml` and restarting.
-  - **Not done here**: no way to change the theme at runtime (restart to pick one
-    up), and no per-role preview UI. Fenced code now has `code_text` painted and
+    - **A theme picker: done** (2026-10-28, and it closed this item's "restart to
+      change the theme" premise). `:theme [name]` and the palette's *Change the theme*
+      both switch the palette while the window is up, the picker previews the palette
+      its highlighted row names, `escape` puts the old one back, and a chosen theme is
+      written back to `appearance.theme`.
+  - **Still not done here**: no per-role preview UI (a theme file is edited as text),
+    and no theme that follows the desktop. Fenced code now has `code_text` painted and
     the `code_*` token roles filled but unused, waiting for tree-sitter.
 
 - **Folding (heading sections) — done (2026-10-27).** `shale_core::fold` answers
@@ -3360,8 +3398,9 @@ Next steps, roughly in order:
       it, the **ex** words that spell it (each a whole invocation, so `harper on`
       is one entry rather than `harper` plus an argument), how its **argument** is
       spelled, whether the palette lists it, and the gpui **action** that runs it.
-      28 rows: 27 the palette lists, and `note.write-quit`, which is in the table
-      so the docs and the parity test cover `:wq` but has no action and no row.
+      28 rows then (54 now, and `docs/commands.md` is the current list): 27 the palette
+      listed, and `note.write-quit`, which is in the table so the docs and the parity
+      test cover `:wq` but has no action and no row.
     - **The action is the handler, and that is what makes the two doors agree.**
       The keymap already named an action per command and the palette already
       dispatched it; the command line now dispatches the *same* action for every

@@ -23,11 +23,14 @@ markers hidden, callouts, collapsed rows, inline images), a deep vim mode
 (motions, counts, text objects `iw/aw/ip/ap`, visual, `.` repeat, folding
 `za/zc/zo/zd/zM/zR`), soft wrap, tables (model + editing + grid), file tree
 with create/rename/delete **and link rewriting**, wiki-link
-extraction/resolution/backlinks, `gx`/ctrl+click navigation, quick-open,
-command palette, `:` command line, vault search, fuzzy matcher, theming (20
-palettes + `.shale/themes/*.toml`), file watching, spellcheck/grammar via
-harper-ls with the popup + code actions, image embeds, MCP stdio server
-(list/read/write/search/backlinks), headless gpui test harness.
+extraction/resolution/backlinks, `gd`/`gD` and ctrl+click navigation (`gx` still
+works), quick-open, command palette, `:` command line, vault search, fuzzy matcher,
+theming (20 palettes + `.shale/themes/*.toml`, switchable at runtime with `:theme`),
+file watching, spellcheck/grammar via harper-ls with the popup + code actions, image
+embeds, MCP stdio server (list/read/write/search/backlinks), headless gpui test
+harness. Refreshed 2026-11-05 to add what shipped that week: the graph's local
+neighbourhood and projected 3D mode, the start block a blank tab paints, `:w` naming
+an unnamed note after its first line, and tab stealing between panes.
 
 **Where the phases stand** (refreshed 2026-11-04, replacing the 2026-10-28
 list that still called tabs and the graph unbuilt): **Phases 0, 1 and 2 are
@@ -540,7 +543,8 @@ already wrote.)
 ## Phase 2 — Command registry + agent-native surface
 
 - **P2.1 Command registry** — **DONE 2026-11-01.** `crates/app/src/command.rs` is
-  the one table (28 rows), and `workspace/commands.rs` is gone. Each row carries a
+  the one table (28 rows then, 54 now — `docs/commands.md` is the live list), and
+  `workspace/commands.rs` is gone. Each row carries a
   stable dotted **id** (`note.save`, `theme.change`, `checker.on`), a **label**, the
   **keys** that reach it, the **ex** words that spell it, how its **args** are
   spelled, whether the palette lists it, and the gpui **action** that runs it. The
