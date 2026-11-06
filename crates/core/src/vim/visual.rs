@@ -5,7 +5,7 @@
 
 use crate::buffer::Buffer;
 
-use super::{Key, Mode, Outcome, Pending, Register, Vim};
+use super::{Key, Mode, Outcome, Pending, Register, VisualRecord, Vim};
 
 impl Vim {
     /// Visual mode: motions extend the selection, operators act on it.
@@ -167,11 +167,20 @@ impl Vim {
         }
     }
 
-    /// Leave visual mode, leaving the cursor on the selection's far end.
+    /// Leave visual mode, leaving the cursor on the selection's far end. What it
+    /// covered is remembered, which is what `gv` puts back.
     fn exit_visual(&mut self, buf: &mut Buffer) {
+        let linewise = self.mode == Mode::VisualLine;
         self.mode = Mode::Normal;
         self.pending = Pending::None;
         self.count = None;
+        if let Some((anchor, head)) = buf.selection() {
+            self.last_visual = Some(VisualRecord {
+                anchor,
+                head,
+                linewise,
+            });
+        }
         buf.clear_selection();
     }
 

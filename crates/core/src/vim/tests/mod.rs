@@ -14,6 +14,7 @@ mod motions;
 mod objects;
 mod tables;
 mod find_repeat;
+mod gv;
 mod join;
 mod pairs;
 mod vimtable;

@@ -100,8 +100,9 @@ not reach into a code block. Repeating a text object in visual mode to extend it
 not there yet.
 
 **Insert.** `i` `a` `I` `A` `o` `O`, `v` / `V` for visual (charwise / linewise;
-blockwise `ctrl-v` is not implemented), `u` for undo, `.` to repeat the last
-change.
+blockwise `ctrl-v` is not implemented), `gv` to bring back the selection that was
+last active — in the mode it was in, cursor where it was — `u` for undo, `.` to
+repeat the last change.
 
 **Folding** (a heading owns the rows below it): `za` toggle, `zc` close, `zo`
 open, `zd` remove the fold, `zM` close all, `zR` / `zE` open all. A folded heading

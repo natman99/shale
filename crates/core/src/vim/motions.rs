@@ -11,7 +11,7 @@ use crate::table;
 use crate::table::Located;
 
 use super::tables::snap_cell_motion;
-use super::{char_range, repeat, FindRecord, Key, Operator, Outcome, Pending, Register, Vim};
+use super::{char_range, repeat, FindRecord, Key, Mode, Operator, Outcome, Pending, Register, Vim};
 
 impl Vim {
     /// The normal-mode state machine: motions, operators and insert transitions.
@@ -270,6 +270,22 @@ impl Vim {
                     } else {
                         buf.buffer_start();
                     }
+                    Outcome::Stay
+                }
+                // `gv`: put back the selection that was last active, in the mode it
+                // was in, with the cursor on the end it was on. vim remembers the
+                // last visual area even across an operator that consumed it, which
+                // is what makes `viwd` then `gvd` delete the same text twice.
+                Key::Char('v') => {
+                    let Some(record) = self.last_visual else {
+                        return Outcome::Unhandled;
+                    };
+                    self.mode = if record.linewise {
+                        Mode::VisualLine
+                    } else {
+                        Mode::Visual
+                    };
+                    buf.set_selection(record.anchor, record.head);
                     Outcome::Stay
                 }
                 // `gd` — go to definition, the LSP habit — and the older `gx` both

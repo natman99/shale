@@ -45,6 +45,16 @@ impl Operator {
     }
 }
 
+/// The selection that was last active, so `gv` can put it back: the anchor and
+/// head as they were — which end the cursor was on included — and whether it took
+/// whole lines.
+#[derive(Debug, Clone, Copy)]
+pub struct VisualRecord {
+    anchor: usize,
+    head: usize,
+    linewise: bool,
+}
+
 /// What the last `f`/`t`/`F`/`T` searched for, so `;` and `,` can do it again.
 #[derive(Debug, Clone, Copy)]
 pub struct FindRecord {
@@ -207,6 +217,8 @@ pub struct Vim {
     /// sits — which is why it looks like it does nothing, and why the quirk is
     /// worth keeping rather than "fixing".
     last_find: Option<FindRecord>,
+    /// The selection `gv` would put back.
+    last_visual: Option<VisualRecord>,
     /// The key just typed was a plain `space` motion, so the next key may be one
     /// of Shale's leader chords (`f` quick-open, `s` vault search, and the three
     /// views `r` / `l` / `p`) rather than a find. The space motion itself is
@@ -242,6 +254,7 @@ impl Vim {
             last_command: None,
             insert_session: false,
             last_find: None,
+            last_visual: None,
             after_space: false,
             after_bracket: None,
         }

@@ -1485,8 +1485,12 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   be satisfied moves nothing at all (`fw3;` on three `w`s leaves the cursor on the
   first), and an operator whose repeat finds nothing is cancelled rather than
   deleting an empty range.
+- **`gv` — done**: puts the last visual selection back, in the mode it was in and
+  with the cursor on the end it was on. The memory is of the last *area*, kept even
+  when an operator consumed it, so `viwd` then `gvd` deletes the same text twice, as
+  in vim. No new bindings: `g` and `v` already reach the engine.
 - **Not implemented yet in vim mode** (re-checked 2026-11-05 against the engine: still
-  only the unnamed register, no case/replace operators, no blockwise visual): `gv`, `C`/`S` in visual, repeating a text
+  only the unnamed register, no case/replace operators, no blockwise visual): `C`/`S` in visual, repeating a text
   object in visual to extend it, `i[`/`a[` in visual mode (the `[`/`]` bindings live
   in normal mode only, because the review chords `]a`/`[a` are there and `a` means
   something else in visual), blockwise `ctrl-v`, the case/replace operators
