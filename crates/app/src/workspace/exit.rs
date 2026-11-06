@@ -89,7 +89,7 @@ impl Workspace {
     /// failure this feature exists to prevent, and the answer costs one keypress.
     /// `:q!` leaves them queued; the window manager's close and a signal are not
     /// refused, because an exit the user did not type never argues with them.
-    pub(super) fn quit(&mut self, _: &Quit, _window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn quit(&mut self, _: &Quit, window: &mut Window, cx: &mut Context<Self>) {
         let dirty = self.any_dirty(cx);
         if dirty && !self.config.editor.autosave {
             self.say(
@@ -117,6 +117,14 @@ impl Workspace {
             cx.notify();
             return;
         }
+        // With panes, `:q` closes the one it was typed in — vim's `:quit` closes the
+        // window it was typed in too — and the window goes only when the last pane
+        // does. A window that quits because a pane closed is a surprise; one that
+        // quits because the last pane went is what the key was for.
+        if self.panes.len() > 1 {
+            self.close_pane(window, cx);
+            return;
+        }
         self.leave(cx);
     }
 
@@ -127,7 +135,7 @@ impl Workspace {
     pub(super) fn quit_forced(
         &mut self,
         _: &QuitForce,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         // Logged rather than left unsaid: an exit that throws work away should be
@@ -143,6 +151,11 @@ impl Workspace {
                 }
             }
         }
+        // The same shape as `:q`: with panes, the bang closes the one it was typed in.
+        if self.panes.len() > 1 {
+            self.close_pane(window, cx);
+            return;
+        }
         self.leave(cx);
     }
 
@@ -150,10 +163,16 @@ impl Workspace {
     /// write is unconditional and the exit depends on it having worked. If the note
     /// is still dirty the write failed, `write_note` already said why, and the
     /// window stays open with that message in it.
-    pub(super) fn write_quit(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn write_quit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         // Every tab: `:wq` writes the session's notes, not the one under the cursor.
         if !self.write_all_tabs(cx) {
             cx.notify();
+            return;
+        }
+        // And the exit is the same one `:q` gives: the pane in hand first, the window
+        // only when the last pane goes.
+        if self.panes.len() > 1 {
+            self.close_pane(window, cx);
             return;
         }
         self.leave(cx);

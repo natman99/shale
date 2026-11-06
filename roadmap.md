@@ -763,6 +763,11 @@ into the Phase 3 addendum. **P2.5a landed 2026-11-01, so Phase 2 is closed**
   panic. `ctrl-w >`/`<` (also `+`/`-`) give the pane in hand more or less of the
   split it sits **directly** in — relative fractions, 0.25 of an equal share per
   press, floored at 0.2 so a pane cannot be squeezed out of existence.
+  The exits follow the pane: `:q`/`:q!`/`:wq` close the pane the command was typed in
+  when there is more than one, and the window goes only with the last pane (vim's
+  `:quit` shape). Closing the last tab in a pane closes that pane — Obsidian's rule, so a
+  split does not fill up with panes nobody is looking at — with the last pane as the
+  exception: there the tab is cleared, so a window never quits because a tab closed.
   **Still open for P3.2:** move/exchange/rotate (`H/J/K/L`, `x/X`, `r`) and `:pin`.
 - **P3.3 Graph M1a — start immediately, in parallel with P0/P1.** No
   dependencies: `crates/core/src/graph/{index,sim,quadtree,filter}.rs` +

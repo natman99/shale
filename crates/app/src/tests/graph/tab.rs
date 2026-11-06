@@ -294,7 +294,7 @@ fn closing_the_graph_tab_leaves_the_note(cx: &mut TestAppContext) {
     assert_eq!(tabs(&window, &mut cx).len(), 2);
 
     window
-        .update(&mut cx, |ws, _window, cx| ws.close_active_tab(cx))
+        .update(&mut cx, |ws, window, cx| ws.close_active_tab(window, cx))
         .unwrap();
     assert_eq!(
         tabs(&window, &mut cx),
@@ -325,13 +325,13 @@ fn closing_the_only_graph_tab_leaves_a_place_to_write(cx: &mut TestAppContext) {
         .update(&mut cx, |ws, _window, cx| ws.show_tab_at(0, cx))
         .unwrap();
     window
-        .update(&mut cx, |ws, _window, cx| ws.close_active_tab(cx))
+        .update(&mut cx, |ws, window, cx| ws.close_active_tab(window, cx))
         .unwrap();
     assert_eq!(tabs(&window, &mut cx), vec![("—".into(), false)]);
     assert!(graph(&window, &mut cx), "the graph is the only tab");
 
     window
-        .update(&mut cx, |ws, _window, cx| ws.close_active_tab(cx))
+        .update(&mut cx, |ws, window, cx| ws.close_active_tab(window, cx))
         .unwrap();
     assert!(
         !graph(&window, &mut cx),

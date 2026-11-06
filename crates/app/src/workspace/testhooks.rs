@@ -596,9 +596,13 @@ impl Workspace {
     /// tests that want a tab gone ask the window rather than typing a word it cannot
     /// hear.
     #[cfg(test)]
-    pub(crate) fn close_active_tab(&mut self, cx: &mut Context<Self>) -> bool {
+    pub(crate) fn close_active_tab(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
         let index = self.pane().active;
-        self.close_tab(index, cx)
+        self.close_tab(index, window, cx)
     }
     /// Move the frame to tab `index`, for the same reason: a test that needs the
     /// keyboard on a tab no key reaches from where the keyboard already is.

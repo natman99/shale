@@ -441,7 +441,12 @@ impl Workspace {
     /// **A write that fails keeps the tab open.** The user can see the reason in the
     /// status bar, and a tab that closes on a failed write is work that vanished
     /// because of it.
-    pub(super) fn close_tab(&mut self, index: usize, cx: &mut Context<Self>) -> bool {
+    pub(super) fn close_tab(
+        &mut self,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
         if index >= self.pane().tabs.len() {
             return false;
         }
@@ -462,10 +467,18 @@ impl Workspace {
             }
         }
         if self.pane().tabs.len() == 1 {
-            // The last tab: cleared rather than removed, so the window keeps its
-            // invariant and the user keeps a place to type. Closing the graph tab
-            // leaves an empty *note* tab, because the thing to fall back to is a place
-            // to write.
+            if self.panes.len() > 1 {
+                // The last tab in a pane closes the pane (the user's ruling, and
+                // Obsidian's rule): a split should not fill up with panes nobody is
+                // looking at. The last pane is the exception — see below — so a window
+                // never quits because a tab closed.
+                self.close_pane(window, cx);
+                return true;
+            }
+            // The last tab of the last pane: cleared rather than removed, so the window
+            // keeps its invariant and the user keeps a place to type. Closing the graph
+            // tab leaves an empty *note* tab, because the thing to fall back to is a
+            // place to write.
             self.clear_tab(0, cx);
             self.checker_closed(cx);
             self.say("no note open", cx);
@@ -573,7 +586,7 @@ impl Workspace {
     /// same promise a quit makes with autosave on — a tab the user closes is not a
     /// wish to lose the note.
     pub(super) fn tab_close(&mut self, _: &TabClose, window: &mut Window, cx: &mut Context<Self>) {
-        self.close_tab(self.pane().active, cx);
+        self.close_tab(self.pane().active, window, cx);
         self.focus_active_tab(window, cx);
     }
 
@@ -584,7 +597,7 @@ impl Workspace {
         let others: Vec<usize> = (0..self.pane().tabs.len()).filter(|n| *n != keep).collect();
         let mut closed = 0;
         for index in others.into_iter().rev() {
-            if self.close_tab(index, cx) {
+            if self.close_tab(index, window, cx) {
                 closed += 1;
             }
         }
@@ -639,7 +652,7 @@ impl Workspace {
         let Some(index) = self.tab_for_id(id) else {
             return;
         };
-        self.close_tab(index, cx);
+        self.close_tab(index, window, cx);
         self.focus_active_tab(window, cx);
     }
 

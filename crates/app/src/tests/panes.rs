@@ -519,6 +519,70 @@ fn a_pane_cannot_be_squeezed_out_of_existence(cx: &mut TestAppContext) {
     );
 }
 
+// --- `:q` and the last tab belong to the pane (2026-11-05) -------------------
+
+/// `:q` closes the pane it was typed in when there is more than one — vim's `:quit`
+/// closes the window it was typed in too — and the window goes only when the last pane
+/// does.
+#[gpui::test]
+fn q_closes_the_pane_in_hand(cx: &mut TestAppContext) {
+    let (dir, window, mut cx) = two_notes(cx);
+    cx.simulate_keystrokes("ctrl-w v");
+    show(&mut cx, &window, "b.md");
+    assert_eq!(panes(&window, &mut cx), 2);
+
+    command_line("q", &mut cx);
+    assert_eq!(panes(&window, &mut cx), 1, "the pane in hand closed");
+    assert_eq!(
+        pane_tabs(&window, &mut cx, 0),
+        vec!["a.md".to_string()],
+        "the window is still here, with the note that was left"
+    );
+    assert_eq!(active(&window, &mut cx), 0, "and the keyboard followed it");
+    assert!(
+        !dir.path().join(".shale/session.json").exists(),
+        "and it did not leave: no session was written on the way out"
+    );
+}
+
+/// The other half: with one pane there is nothing between the key and the window, so
+/// `:q` still quits — the session it writes on the way out is the proof the window path
+/// ran rather than the pane path.
+#[gpui::test]
+fn q_in_the_last_pane_still_quits(cx: &mut TestAppContext) {
+    let (dir, window, mut cx) = two_notes(cx);
+    command_line("q", &mut cx);
+    assert!(
+        dir.path().join(".shale/session.json").exists(),
+        "the window left, and an exit writes the session"
+    );
+    let _ = window;
+}
+
+/// The last tab in a pane closes the pane (the user's ruling, and Obsidian's rule): a
+/// split should not fill up with panes nobody is looking at. The last pane keeps its
+/// blank tab — see `tabs.rs` — so a window never quits because a tab closed.
+#[gpui::test]
+fn closing_the_last_tab_closes_the_pane(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = two_notes(cx);
+    cx.simulate_keystrokes("ctrl-w v");
+    show(&mut cx, &window, "b.md");
+    assert_eq!(pane_tabs(&window, &mut cx, 1), vec!["b.md".to_string()]);
+
+    command_line("tabclose", &mut cx);
+    assert_eq!(
+        panes(&window, &mut cx),
+        1,
+        "the pane went with the last tab it held"
+    );
+    assert_eq!(
+        pane_tabs(&window, &mut cx, 0),
+        vec!["a.md".to_string()],
+        "the surviving pane kept its own tab"
+    );
+    assert_eq!(active(&window, &mut cx), 0, "and the keyboard followed it");
+}
+
 // --- The session remembers the tiling tree (roadmap P3.2) --------------------
 
 use shale_core::session::{LayoutSeat, PaneSeat, Session, Tab as SeatTab};
@@ -650,6 +714,32 @@ fn a_sessions_fractions_lay_out_the_panes(cx: &mut TestAppContext) {
         "and 1.5 of 2.5 is 60%: {}",
         width(&window, &mut cx, 1)
     );
+}
+
+/// A pane that was blank when the window quit is still a pane, and a pane always has a
+/// tab: `Pane::active_tab` is total only while that holds, and a restored window of
+/// blank panes used to come back with none and panic on the first look.
+#[gpui::test]
+fn a_session_of_blank_panes_still_has_a_tab_in_each(cx: &mut TestAppContext) {
+    let session = Session {
+        panes: vec![seat(&[], 0), seat(&[], 0)],
+        layout: Some(LayoutSeat::Split {
+            dir: "row".into(),
+            frac: vec![1.0, 1.0],
+            kids: vec![LayoutSeat::Leaf, LayoutSeat::Leaf],
+        }),
+        active_pane: Some(1),
+        ..Session::default()
+    };
+    let (_dir, window) = session::vault_with_session(cx, &[("a.md", "first\n")], &session);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    assert_eq!(panes(&window, &mut cx), 2, "the split came back");
+    assert_eq!(
+        pane_tabs(&window, &mut cx, 0),
+        vec!["—".to_string()],
+        "a blank pane came back with its one blank tab"
+    );
+    assert_eq!(pane_tabs(&window, &mut cx, 1), vec!["—".to_string()]);
 }
 
 /// The other half: a window opened on that file comes back **split**, with each note

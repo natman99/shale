@@ -1251,3 +1251,32 @@ nearest-split rule, a one-pane window refusing, the floor holding under 40 press
 core test (a flat file reads as one pane), plus the round-trip extended to a 2:1 split.
 Mutation-checked twice: not rebuilding the tree fails the restore test; refusing to recurse
 fails the nearest-split test. app 480 / core 466.
+
+
+## `:q` belongs to the pane, and a blank restored pane had no tab (2026-11-05)
+
+Two reports from the user's testing of the new pane work.
+
+**The crash.** `thread 'main' panicked at crates/app/src/workspace/tabs.rs:144: index out
+of bounds: the len is 0 but the index is 0` on relaunch. The session had panes whose tab
+lists were empty — every note closed before the window quit — and `restore_session` only
+re-establishes the never-empty invariant *inside* the tab loop, which does not run when no
+seat remembered a tab. The tree was already rebuilt by then, so the window came up with N
+panes holding zero tabs each, and the first `Pane::active_tab()` — total by contract — had
+nothing to answer with. Fixed with the invariant stated where it belongs: after the tabs
+are restored, any pane with no tab gets one through `add_tab`, the same door startup and
+`ctrl-t` use, and the keyboard goes back where it was. The test reproduces the panic
+exactly (`a_session_of_blank_panes_still_has_a_tab_in_each`) before it passes.
+
+**The exits.** Ruled: `:q` (and `:q!`, `:wq`) closes **the pane the command was typed in**
+when there is more than one; the window quits only with the last pane — vim's `:quit`
+closes the window it was typed in, and Shale's "window" for that purpose is the pane. And
+closing the last tab in a pane closes the pane (Obsidian's rule: a split should not fill up
+with panes nobody is looking at), with the last pane as the exception — there the tab is
+cleared, as it always was, so a window never quits because a tab closed. `close_tab` now
+takes the `Window` it was asked on, because closing a pane has to move the keyboard to the
+one that survived.
+
+Not done, on purpose: **moving a tab to another pane** has no key. Roadmap P3.2's
+move/exchange/rotate is about moving *panes*; the tab half (steal-on-open, or an explicit
+drag) is an open question with the user. app 484 / core 466.

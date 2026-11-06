@@ -363,6 +363,20 @@ impl Workspace {
             }
         }
 
+        // The never-empty invariant, restored along with the tree: every pane needs a
+        // tab, because `Pane::active_tab` is total only while that holds. A pane the
+        // file left blank — every note closed before the window quit — has none until
+        // this says otherwise, and the first look at it used to panic. The same door
+        // startup and `ctrl-t` use, so the tab is wired up like any other.
+        let keyboard = self.active_pane;
+        for ix in 0..self.panes.len() {
+            if self.panes[ix].tabs.is_empty() {
+                self.active_pane = ix;
+                self.add_tab(cx);
+            }
+        }
+        self.active_pane = keyboard;
+
         // The local graph's depth, restored last: its scope is a neighbourhood *around a
         // note*, and until the tabs are back there is no note to be the centre of it.
         if let Some(depth) = restored_local {

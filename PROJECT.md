@@ -414,7 +414,9 @@ Workspace layout:
   ctrl+s save (`:w` does the same). Quitting writes a dirty note first, so a `:q`
   cannot lose work — unless autosave is off, where a dirty note is refused and the bar
   says so, because choosing to save by hand means a quit that writes silently is its
-  own surprise; `:q!` quits and throws the edits away, and `:wq` writes on purpose),
+  own surprise; `:q!` quits and throws the edits away, and `:wq` writes on purpose.
+  With panes, all three close **the pane the command was typed in** and the window goes
+  only with the last pane — the shape vim's `:quit` has),
   and a file tree that can create, rename and delete notes and
   folders through a one-line prompt (`prompt.rs`); a rename also rewrites the
   wiki-links that pointed at the old name, in every other note and in the open one

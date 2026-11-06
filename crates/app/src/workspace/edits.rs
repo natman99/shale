@@ -158,7 +158,7 @@ impl Workspace {
                 // note was dirty, then the exit — and the exit has to be the
                 // window's own, which flushes the database and writes the session
                 // on the way out.
-                self.write_quit(cx);
+                self.write_quit(window, cx);
             }
             ex::Ex::Focus(Some(on)) => self.set_focus(on, cx),
             ex::Ex::FocusScope(word) => self.set_focus_scope(&word, cx),
