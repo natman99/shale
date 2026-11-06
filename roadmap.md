@@ -32,10 +32,11 @@ harness. Refreshed 2026-11-05 to add what shipped that week: the graph's local
 neighbourhood and projected 3D mode, the start block a blank tab paints, `:w` naming
 an unnamed note after its first line, and tab stealing between panes.
 
-**Where the phases stand** (refreshed 2026-11-05, replacing the 2026-11-04
+**Where the phases stand** (refreshed 2026-11-06, replacing the 2026-11-05
 list): **Phases 0, 1 and 2 are closed, including P2.5b** — the inline review
-overlay landed 2026-11-05, so nothing is left in Phase 2 but the P2.6/7/8 items
-deferred to the Phase 3 addendum.
+overlay landed 2026-11-05 (with the hunk's rule moved into the gutter on 2026-11-06,
+`b6b24b1`), so nothing is left in Phase 2 but the P2.6/7/8 items deferred to the
+Phase 3 addendum. **Phase 4 has started.**
 **Phase 3:** P3.1 tabs done; P3.2 splits landed (a + b), and 2026-11-05 closed the
 session's pane-tree half and pane resize (`ctrl-w >`/`<`) — move/exchange/rotate and
 `:pin` are what is left of P3.2;
@@ -48,6 +49,12 @@ and live MCP per vault), per-window session slots, and remembered window frames
 exit path was re-measured clean (PROGRESS.md, 2026-11-04). Still unbuilt from
 the original Goals list: Database tables/Obsidian-bases (P4.3 `.shq`), PDF
 export, Templates, tree-sitter code highlighting.
+**What is being built now (2026-11-06): P4.0a, read-only transclusion** — the first
+Phase 4 item, chosen because P4.3, P5 and canvas C3 all wait on that resolver and
+because P2.5b's phantom rows already solved the hard rendering problem it shares
+(content painted inside a note that is not in the note's buffer). P3.2's
+move/exchange/rotate and `:pin` remain open and are the cheap alternative if a
+session wants a small, low-risk win.
 
 **Plan audit (2026-11-05).** Every ruled design in `brainstorm.md` was checked against
 the roadmap's items and the code. The finding: **the roadmap had been losing features
@@ -989,10 +996,18 @@ edges, query nodes, MCP canvas tools) is P6.10.
   editable transclusion as one of the two pillars of "custom renderer as advantage,
   not liability", and P4.3/P5/P6.10 all lean on a resolver that no phase owned and no
   code has. Split by dependency:
-  - **P4.0a read-only embeds.** `![[note]]` and `![[note#heading]]` resolve through
-    the existing link resolver and paint the target's lines inside the host; the
-    host's buffer is untouched, the embed is a view. The nesting cap is **binding**:
-    1 editable + 2 read-only = 3 levels deep, deeper embeds render as a name badge
+  - **P4.0a read-only embeds — NEXT UP (started 2026-11-06).** `![[note]]` and
+    `![[note#heading]]` resolve through the existing link resolver and paint the
+    target's lines inside the host; the host's buffer is untouched, the embed is a
+    view. **It rides P2.5b's phantom rows** (`crates/app/src/editor/overlay.rs`,
+    `crates/app/src/line/phantom.rs`): content painted inside the note that is not in
+    the buffer, skipped by `j`/`k`, search, folds and the ruler, re-anchored against
+    live text at paint time rather than cached. That is the hard half of an embed, and
+    it is built and tested — an embed is a phantom block whose text comes from another
+    file instead of from a queued hunk. What is genuinely new here is the resolver
+    call at paint time, the nesting cap, and the source's markdown styling.
+    The nesting cap is **binding**: 1 editable + 2 read-only = 3 levels deep,
+    deeper embeds render as a name badge
     (clickable, no content). `gd` on an embed jumps into the embedded note; `gd` with
     the cursor on a wikilink *inside* an embed jumps to that link. This half alone
     unblocks `![[query-name]]` in P4.3 and the embed case of P6.2.
@@ -1012,7 +1027,12 @@ edges, query nodes, MCP canvas tools) is P6.10.
   → daily, **100 MB default cap, configurable**. Per-note scrubber + diff view.
 - **P4.2 Diff renderer** — shared by the time machine and P2.5's edit review.
   The line-level diff primitive (compute + paint, `similar`-backed) ships in
-  **P2.5a**; P4.2 reuses and upgrades it rather than starting fresh.
+  **P2.5a**, and **P2.5b (2026-11-05) built most of the paint half too**: `diff::place`
+  (a hunk answered against live text, `None` when it no longer fits), struck-through
+  removals in `diff_delete` with the hunk's rule in the gutter, phantom addition rows in
+  `diff_add`, and the `−N +M` collapsed badge in `diff_changed`. What is left for P4.2
+  is the *browsing* half — a snapshot list and a scrubber over two stored versions —
+  not the diff and not its rendering. Do not rebuild any of that.
 - **P4.3 Query notes `.shq`** (brainstorm ✅): `queries/` folder, TOML
   frontmatter + SQL body, read-only connection, results cached by query-hash +
   vault mtime, `![[query-name]]` embedding. This is the "Obsidian bases" goal.
@@ -1021,9 +1041,11 @@ edges, query nodes, MCP canvas tools) is P6.10.
   graph groups. Plus `#` autocomplete from the DB.
 - **P4.5 Marks + bookmarks panel** (brainstorm ✅): global marks (`m{char}` /
   `'{char}` across notes), named bookmarks, jump-chain view, MCP-readable.
-- **P4.6 Link health + rename propagation** (brainstorm ✅): heading-anchor
-  renames, tag renames, broken-link/near-duplicate/orphan/unused-attachment
-  report. Extends `rename.rs`.
+- **P4.6 Link health + rename propagation** (brainstorm ✅). **Half shipped:**
+  file-tree rename already rewrites the wiki-links that point at the note it moved
+  or renamed (and every tab showing the old path follows). What is left is the
+  *report*: heading-anchor renames, tag renames, and the broken-link /
+  near-duplicate / orphan / unused-attachment list. Extends `rename.rs`.
 - **P4.7 Writing stats panel**: live counts, sentence-length histogram, reading
   time, most-used words; hosts the per-folder word-count tree.
 - **P4.8 Provenance as a first-class filter** (brainstorm ✅): user/agent/both
