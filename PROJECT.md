@@ -1432,10 +1432,42 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   - **`ciW` is not `dW`.** `cW` sweeps the WORD *and* the gap after it; `ciW` is the
     inner-WORD text object and leaves the gap. vim makes the same distinction; it is
     worth remembering when an operator looks one character wrong.
-  `iW`/`aW` as text objects are not implemented yet, so `ciW` currently cancels.
+  `iW`/`aW` as text objects came with the objects below.
+- **Text objects — done**: the bracket pairs (`i(`/`a(` and its `)`/`b` spellings,
+  `[`/`]`, `{`/`}`/`B`, `<`/`>`), the quote objects, `iW`/`aW`, and counts on the
+  word, WORD and paragraph objects. Either character of a pair names it, and the
+  object answers from the bracket itself as well as from anything between the two.
+  Three things the probes settled:
+  - **A count counts units, not objects.** vim reads the text as alternating
+    object/gap units starting from the cursor's object, and ends the sweep at the end
+    of the Nth unit for `i` and the 2Nth for `a`. Hence `d2iw` takes the word *and*
+    its space but not the next word, while `d2aw` takes both words and the gap. The
+    loop in `vim/motions.rs` keeps the object an even unit reached in `open` so the
+    odd unit can finish taking it; without that the search finds the same object
+    twice and the count stops at one.
+  - **A word object at a line end ends the sequence.** There `aw` reaches *back* to
+    the word's leading space instead of forward, and that is vim's signal that the
+    units stop: `d2aw` on `hello world\nsecond` stops before the line break. The
+    engine sees it in the object's own range (`object.0 < scan`) rather than guessing.
+  - **Backslashes are not escapes in pair matching.** vim's `di(` on `(a\)b)` closes
+    on the backslashed paren; matching vim meant *removing* an escape rule that
+    looked obviously right.
+  Brackets inside a code span or a fenced block stay text, which is the difference
+  Shale already makes for quotes and for the same reason — `di(` in prose should not
+  see what a code block happens to hold.
+- **The vim cross-check harness.** `crates/core/src/vim/tests/vimtable.rs` is the
+  case table; run with `--ignored` and it prints the engine's answers, and
+  `scripts/vimcrosscheck.py` feeds the same cases to `vim -es` and diffs the two
+  (42/44 agree). The two that differ are pre-existing object semantics, not new
+  ones: `da"` leaves the space after the closing quote (Shale's quote object is the
+  pair and nothing else), and `dip` stops before the paragraph's last line break
+  where vim takes it. New vim work should add its cases to that table before a
+  behaviour claim goes in the docs.
 - **Not implemented yet in vim mode** (re-checked 2026-11-05 against the engine: still
   only the unnamed register, no case/replace operators, no blockwise visual): `gv`, `C`/`S` in visual, repeating a text
-  object in visual to extend it, blockwise `ctrl-v`, the case/replace operators
+  object in visual to extend it, `i[`/`a[` in visual mode (the `[`/`]` bindings live
+  in normal mode only, because the review chords `]a`/`[a` are there and `a` means
+  something else in visual), blockwise `ctrl-v`, the case/replace operators
   (`~`, `u`, `r`) in visual, registers other than the unnamed one, insert-mode
   deletions/arrows inside a `.` replay.
 - **Cursor model nits**: `Buffer` cursors may sit at `text.len()` (between

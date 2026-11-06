@@ -162,6 +162,7 @@ impl Vim {
         match scope {
             'p' => Some(buf.paragraph_object(offset, inner)),
             'w' => Some(buf.word_object(offset, inner)),
+            'W' => Some(buf.big_word_object(offset, inner)),
             't' => {
                 let cell = located?.cell;
                 Some(if inner {

@@ -91,6 +91,18 @@ actions!(
         // or an operator.
         VimOpenBracket,
         VimCloseBracket,
+        // The rest of the bracket pairs, and the quotes: these are the *object*
+        // characters (`di(`, `da{`, and the quote objects), bound so the pair the
+        // cursor sits in reaches the engine. `[` and `]` above do double duty as the
+        // review-marker chords; these have no other use in normal mode.
+        VimOpenParen,
+        VimCloseParen,
+        VimOpenBrace,
+        VimCloseBrace,
+        VimLess,
+        VimGreater,
+        VimQuote,
+        VimApostrophe,
         VimColon,
         VimDot,
         VimEscape,

@@ -78,9 +78,19 @@ both into insert mode; `C` changes to end of line, `D` deletes to end of line; `
 deletes the character *before* the cursor; `Y` yanks the whole line. A change keeps
 its line: `cc` empties a line, `dd` removes it.
 
-**Text objects.** `iw` / `aw` (word), `ip` / `ap` (paragraph): `diw`, `cap`, and
-so on. Quotes, brackets and the rest of vim's objects are not there yet, and
-neither is repeating a text object in visual mode to extend it.
+**Text objects.** `iw` / `aw` (word), `iW` / `aW` (WORD), `ip` / `ap` (paragraph),
+`i"` / `a"` and `i'` / `a'` (a quoted string), and the bracket pairs — `i(` `i)` `ib`
+for parentheses, `i[` `i]`, `i{` `i}` `iB`, `i<` `i>`. Either character of a pair
+names it, so `di(` and `di)` are the same object, and the object works from the
+bracket itself or from anything between the two. So: `diw`, `ci(`, `da"`, `diW`.
+In visual mode the same keys widen the selection instead.
+
+A count before the object reaches further, and vim counts *units* — object, gap,
+object — rather than objects: `d2iw` takes the word and the space after it but not
+the next word, while `d2aw` takes both words and the space between them. Brackets
+inside a code span or a fenced block are text, not brackets, so `di(` in prose will
+not reach into a code block. Repeating a text object in visual mode to extend it is
+not there yet.
 
 **Insert.** `i` `a` `I` `A` `o` `O`, `v` / `V` for visual (charwise / linewise;
 blockwise `ctrl-v` is not implemented), `u` for undo, `.` to repeat the last

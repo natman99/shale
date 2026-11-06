@@ -236,6 +236,21 @@ fn build() -> (Vec<KeyBinding>, Vec<KeymapRow>) {
             "shift-j" => VimUpperJ,
             "shift-k" => VimUpperK,
             "shift-l" => VimUpperL,
+            // The text-object characters: `di(`, `da{`, the quote objects, `diW`.
+            // The engine reads them as the second half of `i`/`a`, and in visual
+            // mode as the selection extender. Shifted symbols arrive as their own
+            // keysym with shift dropped, the same way `~` and `:` do. `[` and `]`
+            // are the exception: they are bound in normal mode only, because the
+            // review chords `]a`/`[a` live there and `a` means something else in
+            // visual.
+            "(" => VimOpenParen,
+            ")" => VimCloseParen,
+            "{" => VimOpenBrace,
+            "}" => VimCloseBrace,
+            "<" => VimLess,
+            ">" => VimGreater,
+            "\"" => VimQuote,
+            "'" => VimApostrophe,
             "escape" => VimEscape,
             "1" => VimDigit1,
             "2" => VimDigit2,

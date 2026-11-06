@@ -13,6 +13,8 @@ mod edits;
 mod motions;
 mod objects;
 mod tables;
+mod pairs;
+mod vimtable;
 mod visual;
 mod words;
 

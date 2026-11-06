@@ -702,3 +702,60 @@ fn the_one_keystroke_edits_through_the_keymap(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("escape");
     assert_eq!(text(cx), "X\ntwo", "`S` is `cc`");
 }
+
+/// The text objects — bracket pairs, quotes, WORDs, counted words — driven
+/// through the real keymap. The pair characters are ordinary symbols that gpui
+/// delivers as their own keysym with shift dropped, which is exactly the case a
+/// binding can get wrong: the engine answers `di(` happily whether or not the
+/// window ever saw the `(`.
+#[gpui::test]
+fn text_objects_through_the_keymap(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.bind_keys(keybindings()));
+
+    let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+    let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+    let reset = |cx: &mut VisualTestContext, text: &str| {
+        editor
+            .update(cx, |editor, window, cx| {
+                editor.set_text(text.to_string(), cx);
+                let focus = editor.focus_handle(cx);
+                window.focus(&focus, cx);
+            })
+            .unwrap();
+    };
+    let text =
+        |cx: &mut VisualTestContext| editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
+
+    // A pair, taken from the bracket itself: `f(` puts the cursor on the bracket
+    // and the object is still the pair it belongs to.
+    reset(cx, "a (b (c) d) e");
+    cx.simulate_keystrokes("0 f ( d i (");
+    assert_eq!(text(cx), "a () e", "the outer pair, from its `(`");
+
+    reset(cx, "a {b} e");
+    cx.simulate_keystrokes("0 f { d a {");
+    assert_eq!(text(cx), "a  e", "the around form takes the braces with it");
+
+    // The quote object, and `c` rather than `d` so insert mode is exercised too.
+    reset(cx, "say \"hi\" now");
+    cx.simulate_keystrokes("0 f \" c i \"");
+    cx.simulate_input("yo");
+    cx.simulate_keystrokes("escape");
+    assert_eq!(text(cx), "say \"yo\" now");
+
+    // A WORD walks over markup: the wikilink is one object, where `w` would have
+    // stopped at the brackets.
+    reset(cx, "see [[Target]] here");
+    cx.simulate_keystrokes("0 6 l d i W");
+    assert_eq!(text(cx), "see  here", "the whole link, brackets and all");
+
+    // A count counts units — word, gap, word — not objects.
+    reset(cx, "hello world foo bar");
+    cx.simulate_keystrokes("0 d 2 a w");
+    assert_eq!(text(cx), "foo bar");
+
+    // In visual mode the same keys extend the selection instead.
+    reset(cx, "a (b c) d");
+    cx.simulate_keystrokes("0 f b v i ( d");
+    assert_eq!(text(cx), "a () d", "`i(` in visual selects the inside, `d` takes it");
+}

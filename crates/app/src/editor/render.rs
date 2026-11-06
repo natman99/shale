@@ -243,6 +243,48 @@ impl Render for MarkdownEditor {
             .on_action(
                 cx.listener(|this, _: &VimW, window, cx| this.normal(Key::Char('w'), window, cx)),
             )
+            // The text-object characters. Which object a pair character names is
+            // the engine's call, and one it does not have is refused there.
+            .on_action(
+                cx.listener(|this, _: &VimOpenParen, window, cx| {
+                    this.normal(Key::Char('('), window, cx)
+                }),
+            )
+            .on_action(
+                cx.listener(|this, _: &VimCloseParen, window, cx| {
+                    this.normal(Key::Char(')'), window, cx)
+                }),
+            )
+            .on_action(
+                cx.listener(|this, _: &VimOpenBrace, window, cx| {
+                    this.normal(Key::Char('{'), window, cx)
+                }),
+            )
+            .on_action(
+                cx.listener(|this, _: &VimCloseBrace, window, cx| {
+                    this.normal(Key::Char('}'), window, cx)
+                }),
+            )
+            .on_action(
+                cx.listener(|this, _: &VimLess, window, cx| {
+                    this.normal(Key::Char('<'), window, cx)
+                }),
+            )
+            .on_action(
+                cx.listener(|this, _: &VimGreater, window, cx| {
+                    this.normal(Key::Char('>'), window, cx)
+                }),
+            )
+            .on_action(
+                cx.listener(|this, _: &VimQuote, window, cx| {
+                    this.normal(Key::Char('"'), window, cx)
+                }),
+            )
+            .on_action(
+                cx.listener(|this, _: &VimApostrophe, window, cx| {
+                    this.normal(Key::Char('\''), window, cx)
+                }),
+            )
             .on_action(
                 cx.listener(|this, _: &VimB, window, cx| this.normal(Key::Char('b'), window, cx)),
             )

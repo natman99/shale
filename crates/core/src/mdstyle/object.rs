@@ -39,6 +39,32 @@ pub enum Object {
     /// with it. `iq` / `aq`. An apostrophe inside a word is never one of these,
     /// and neither is a quote mark inside code.
     Quote,
+    /// A bracket pair: vim's `i(`/`a(`, `i[`/`a[`, `i{`/`a{`, `i<`/`a<`. The
+    /// opening and the closing character name the same object (`i(` and `i)` are
+    /// one pair), and `b` / `B` are vim's letters for parens and braces.
+    Pair(Pair),
+}
+
+/// Which bracket pair. Kept separate from [`Object`] so the pair's two
+/// characters stay together in one place.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Pair {
+    Paren,
+    Bracket,
+    Brace,
+    Angle,
+}
+
+impl Pair {
+    /// The characters that open and close it.
+    fn chars(self) -> (char, char) {
+        match self {
+            Self::Paren => ('(', ')'),
+            Self::Bracket => ('[', ']'),
+            Self::Brace => ('{', '}'),
+            Self::Angle => ('<', '>'),
+        }
+    }
 }
 
 impl Object {
@@ -52,6 +78,15 @@ impl Object {
             '*' => Some(Self::Callout),
             '`' => Some(Self::Code),
             'q' => Some(Self::Quote),
+            // vim's own letters: the pair answers to either of its characters, and
+            // `b` / `B` are the historical names for parens and braces.
+            '(' | ')' | 'b' => Some(Self::Pair(Pair::Paren)),
+            '[' | ']' => Some(Self::Pair(Pair::Bracket)),
+            '{' | '}' | 'B' => Some(Self::Pair(Pair::Brace)),
+            '<' | '>' => Some(Self::Pair(Pair::Angle)),
+            // The quote object answers to the quote marks themselves as well as to
+            // `q`, because that is what a vim user's fingers type.
+            '"' | '\'' => Some(Self::Quote),
             _ => None,
         }
     }
@@ -67,7 +102,73 @@ pub fn range(text: &str, offset: usize, object: Object, inner: bool) -> Option<(
         Object::Callout => callout_range(text, offset, inner),
         Object::Code => code_range(text, offset, inner),
         Object::Quote => quotes::range(text, offset, inner, &style_spans(text)),
+        Object::Pair(pair) => pair_range(text, offset, pair, inner),
     }
+}
+
+/// The bracket pair under `offset`, innermost first.
+///
+/// Brackets inside a code span or a fenced block are text, not brackets — the
+/// same rule the quote object follows, and for the same reason: `di(` inside a
+/// code block should take the code's parentheses, and everywhere else it should
+/// not see the ones the block happens to contain. An unclosed pair matches
+/// nothing, as in vim. Backslashes are *not* escapes here: vim's pair matching
+/// does not honour them either, and `di(` on `(a\)b)` closes on the backslashed
+/// paren in both.
+///
+/// Pairs may cross lines (a list of coordinates written over three lines is one
+/// pair), which is why the stack outlives the line loop.
+fn pair_range(text: &str, offset: usize, pair: Pair, inner: bool) -> Option<(usize, usize)> {
+    let (open, close) = pair.chars();
+    let mut stack: Vec<usize> = Vec::new();
+    let mut fence: Option<&str> = None;
+
+    let mut start = 0;
+    while start <= text.len() {
+        let end = text[start..].find('\n').map_or(text.len(), |i| start + i);
+        let line = &text[start..end];
+        let body = line.trim_start();
+        if let Some(marker) = fence {
+            // Inside a block: opaque until the fence that closes it.
+            if body.starts_with(marker) {
+                fence = None;
+            }
+            start = end + 1;
+            continue;
+        }
+        if body.starts_with("```") || body.starts_with("~~~") {
+            fence = Some(if body.starts_with("```") { "```" } else { "~~~" });
+            start = end + 1;
+            continue;
+        }
+        let bytes = line.as_bytes();
+        let mut i = 0;
+        while i < bytes.len() {
+            let c = line[i..].chars().next().unwrap();
+            if c == '`' {
+                if let Some(stop) = code_span_end(bytes, i) {
+                    i = stop;
+                    continue;
+                }
+            }
+            if c == open {
+                stack.push(start + i);
+            } else if c == close {
+                if let Some(opener) = stack.pop() {
+                    if opener <= offset && offset <= start + i {
+                        return Some(if inner {
+                            (opener + open.len_utf8(), start + i)
+                        } else {
+                            (opener, start + i + close.len_utf8())
+                        });
+                    }
+                }
+            }
+            i += c.len_utf8();
+        }
+        start = end + 1;
+    }
+    None
 }
 
 /// The line containing `offset`, as its start and the end of its content with

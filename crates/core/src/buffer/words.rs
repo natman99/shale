@@ -56,6 +56,40 @@ impl Buffer {
         }
         (ws_start, end)
     }
+    /// The WORD text object under `offset` (vim `iW` / `aW`): the run up to the
+    /// next blank, so `**bold**` and `[[link]]` are one object. `around` follows
+    /// `aw`'s rule exactly — the trailing blanks if there are any, otherwise the
+    /// leading ones — which is what makes `d2aW` take both words and the gap.
+    pub fn big_word_object(&self, offset: usize, inner: bool) -> (usize, usize) {
+        let offset = self.clamp(offset);
+        let (row, _) = self.row_col(offset);
+        let row_end = self.line_end(row);
+        if offset >= row_end {
+            // Sitting on the line break: the break itself is the object.
+            return (offset, self.next_char_boundary(offset).min(offset + 1));
+        }
+        let mut start = offset;
+        while start > 0 && !self.prev_char(start).is_some_and(|c| c.is_whitespace()) {
+            start = self.prev_char_boundary(start);
+        }
+        let end = self.skip_word_run(offset);
+        if inner {
+            return (start, end);
+        }
+        let ws_end = self.skip_run(end, WordClass::Whitespace);
+        if ws_end > end {
+            return (start, ws_end);
+        }
+        // End of line: the blanks before the word instead.
+        let mut ws_start = start;
+        while ws_start > 0
+            && self.prev_char(ws_start).is_some_and(|c| c.is_whitespace() && c != '\n')
+        {
+            ws_start = self.prev_char_boundary(ws_start);
+        }
+        (ws_start, end)
+    }
+
     /// The paragraph text object containing `offset` (vim `ip` / `ap`): a
     /// maximal run of non-blank lines. `around` adds the following blank lines
     /// (or the preceding ones when there are none after).

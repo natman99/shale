@@ -96,28 +96,95 @@ impl Vim {
                 // exactly as a find that matches nothing is.
                 return Outcome::Stay;
             };
-            // A count typed before a word or paragraph object extends it over the
-            // following objects, as `d2aw` does; the gap between them is absorbed
-            // so the sweep stays contiguous. The markdown objects and a table cell
-            // are single constructs, so a count there is ignored rather than
-            // guessed at.
-            if matches!(scope, 'w' | 'p') {
-                for _ in 1..count {
-                    let mut at = hi;
-                    while at < buf.text().len()
-                        && buf.text()[at..]
-                            .chars()
-                            .next()
-                            .is_some_and(|c| c.is_whitespace())
-                    {
-                        at = buf.next_char_boundary(at);
+            // A count typed before a word, WORD or paragraph object. vim counts
+            // the text as alternating units — object, gap, object, gap — starting
+            // from the object the cursor is on, and the sweep ends at the end of
+            // the Nth unit for an inner object and the 2Nth for an around one.
+            // That is why `d2iw` deletes the word *and its space* but not the next
+            // word, while `d2aw` takes both words and the gap between them; the
+            // probe table in `tests::pairs::a_count_reaches_to_the_nth_unit` is the
+            // record of it. An object found for an even unit is held in `open` so
+            // the next unit can finish taking it, which is also what stops the
+            // search from finding the same object twice.
+            //
+            // The markdown objects and a table cell are single constructs, so a
+            // count there is ignored rather than guessed at.
+            if matches!(scope, 'w' | 'W' | 'p') {
+                let units = if inner { count } else { count.saturating_mul(2) };
+                // The object just taken covers unit 1 for `i` and units 1 and 2
+                // for `a` (the word and its gap), so the units left to take start
+                // after that.
+                let mut step = if inner { 2 } else { 3 };
+                let mut scan = hi;
+                let mut open: Option<(usize, usize)> = None;
+                while step <= units {
+                    if step % 2 == 1 && open.is_none() {
+                        // An object unit with nothing held over: the object after
+                        // the gap, taken whole.
+                        let mut at = scan;
+                        while at < buf.text().len()
+                            && buf.text()[at..]
+                                .chars()
+                                .next()
+                                .is_some_and(|c| c.is_whitespace())
+                        {
+                            at = buf.next_char_boundary(at);
+                        }
+                        match Self::object_range(buf, located, at, scope, inner) {
+                            Some(object) if object.1 > scan => {
+                                hi = object.1;
+                                // A word object at the end of a line reaches *back*
+                                // to its leading space rather than forward, and that
+                                // is vim's signal that the sequence of units ends
+                                // with it: `d2aw` on `hello world\nsecond` stops
+                                // before the line break.
+                                if object.0 < scan {
+                                    break;
+                                }
+                                scan = object.1;
+                            }
+                            _ => break,
+                        }
+                    } else if step % 2 == 0 {
+                        // The gap up to the next object. The gap's own end is what
+                        // the sweep reaches, not the object's: an `aw` at the end of
+                        // a line reaches *back* to the word's leading space, and
+                        // taking that as the unit boundary would put the space on the
+                        // wrong side of the cut.
+                        let mut at = scan;
+                        while at < buf.text().len()
+                            && buf.text()[at..]
+                                .chars()
+                                .next()
+                                .is_some_and(|c| c.is_whitespace())
+                        {
+                            at = buf.next_char_boundary(at);
+                        }
+                        if at >= buf.text().len() {
+                            break;
+                        }
+                        let object = match Self::object_range(buf, located, at, scope, inner) {
+                            Some(object) => object,
+                            None => break,
+                        };
+                        if object.1 <= scan {
+                            break;
+                        }
+                        hi = hi.max(at);
+                        open = Some(object);
+                    } else {
+                        // The object itself, the one the previous unit reached.
+                        let object = match open.take() {
+                            Some(object) => object,
+                            None => break,
+                        };
+                        if object.1 <= scan {
+                            break;
+                        }
+                        hi = object.1;
+                        scan = object.1;
                     }
-                    let (_, next_hi) =
-                        Self::object_range(buf, located, at, scope, inner).unwrap_or((hi, hi));
-                    if next_hi <= hi {
-                        break;
-                    }
-                    hi = next_hi;
+                    step += 1;
                 }
             }
             let Some(op) = op else {
