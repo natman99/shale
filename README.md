@@ -57,5 +57,7 @@ assert on what the window says and does, rather than on internals. Benchmarks ar
 
 ## License
 
-Apache-2.0. The colour palettes it ships are upstream's own values, and every
-upstream it borrows from is MIT.
+Undecided — no license is declared yet, so assume nothing here may be reused. The
+third-party palettes Shale ships are upstream's own values, and every upstream it
+borrows from is MIT; the license that eventually goes here has to stay compatible
+with that.

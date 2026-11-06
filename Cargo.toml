@@ -19,7 +19,9 @@ codegen-units = 1
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-license = "Apache-2.0"
+# No license is declared yet — the choice is deliberately open (2026-11-05).
+# Until one is made, nothing here may be assumed licensed for reuse, and
+# `cargo publish` would refuse: a useful reminder rather than a problem.
 
 [workspace.dependencies]
 anyhow = "1"
