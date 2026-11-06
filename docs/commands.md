@@ -12,7 +12,7 @@ as you would type it.
 
 | id | what it does | keys | command line | args |
 | --- | --- | --- | --- | --- |
-| `note.save` | Save the note | `ctrl-s` | `:w`, `:write` | — |
+| `note.save` | Save the note | `ctrl-s` | `:w [name]`, `:write [name]` | `[name]` |
 | `app.quit` | Quit Shale | `ctrl-q` | `:q`, `:quit` | — |
 | `app.quit-force` | Quit Shale, discarding the note's unsaved edits | — | `:q!`, `:quit!` | — |
 | `note.write-quit` | Write the note, then quit | — | `:wq`, `:x`, `:xit`, `:exit` | — |

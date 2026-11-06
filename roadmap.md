@@ -785,6 +785,14 @@ into the Phase 3 addendum. **P2.5a landed 2026-11-01, so Phase 2 is closed**
   the same screen with one different line — `the vault holds no notes yet` and a `new note`
   row — which closes the design doc's parked first-run item and amends its empty-state
   ruling (§13).
+  **A blank tab is a note being written (2026-11-05):** its first line names it when it
+  is saved — by `:w`, by autosave, or by an exit — with the name cleaned by
+  `shale_core::note_name` (markdown markers and filesystem-forbidden characters fall out,
+  60 characters, never hidden, never above the vault) and a number added when the name is
+  taken. `:w <name>` names it by hand and may place it in a folder; a typed name that
+  collides is refused rather than suffixed, and `:w <name>` on a note that already has a
+  file refuses out loud — the command line does not clone or move a note by accident;
+  moving is `:rename`, which rewrites links (ruled 2026-11-05).
   **Still open for P3.2:** move/exchange/rotate (`H/J/K/L`, `x/X`, `r`) and `:pin`.
 - **P3.3 Graph M1a — start immediately, in parallel with P0/P1.** No
   dependencies: `crates/core/src/graph/{index,sim,quadtree,filter}.rs` +

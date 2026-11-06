@@ -160,6 +160,9 @@ impl Workspace {
                 // on the way out.
                 self.write_quit(window, cx);
             }
+            // `:w <name>`: name the note in hand, then write it. Only a tab with no
+            // file takes the name -- see [`Workspace::write_note_as`].
+            ex::Ex::WriteAs(name) => self.write_note_as(&name, cx),
             ex::Ex::Focus(Some(on)) => self.set_focus(on, cx),
             ex::Ex::FocusScope(word) => self.set_focus_scope(&word, cx),
             ex::Ex::Typewriter(Some(on)) => self.set_typewriter(on, cx),

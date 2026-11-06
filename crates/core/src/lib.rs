@@ -12,6 +12,7 @@ pub mod live;
 pub mod markdown;
 pub mod mdlayout;
 pub mod mdstyle;
+pub mod note_name;
 pub mod pending;
 pub mod recent;
 pub mod rename;

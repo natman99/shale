@@ -8,7 +8,7 @@ use shale_core::theme::Palette;
 use shale_core::Session;
 
 /// The status line, which is where a command reports what it did — or refused to.
-fn status(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> String {
+pub(crate) fn status(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> String {
     window.update(cx, |ws, _window, _cx| ws.status()).unwrap()
 }
 
@@ -20,7 +20,7 @@ fn palette(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> Pale
 
 /// Type a command line and press enter. `:` is a normal-mode key, and a test that
 /// has just been typing is in insert mode, so the line starts by leaving it.
-fn type_command(line: &str, cx: &mut VisualTestContext) {
+pub(crate) fn type_command(line: &str, cx: &mut VisualTestContext) {
     cx.simulate_keystrokes("escape :");
     cx.simulate_input(line);
     cx.simulate_keystrokes("enter");

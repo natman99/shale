@@ -489,6 +489,19 @@ Workspace layout:
   tab: `:wq`, a quit with autosave on, a blur and a window-manager close write them
   all, and `:q` with autosave off is refused by a dirty note in a *background* tab
   too. The session file remembers the bar, in order, with the view each tab was in.
+  A tab with no file is not "nothing open" — it is a note being written, and the
+  first line you type is its name. `:w` in a blank tab takes that line, cleaned by
+  `shale_core::note_name`: markdown markers and the characters the filesystem
+  refuses fall out, the name is capped at 60 characters, and it can never be a
+  hidden file or sit above the vault. A name already taken gets a number, because
+  two notes that open with the same line are the common case and the user was not
+  choosing a name. `:w <name>` names it by hand instead, and a typed name may place
+  the note in a folder — but a typed name that collides is refused rather than
+  quietly suffixed, because a typed name is a specific request. And `:w <name>` on a
+  note that **already has a file** refuses out loud: the command line will not clone
+  or move a note by accident, and the bar points at `:rename`, which moves it and
+  rewrites the links that point at the old name. Autosave names a blank tab by the
+  same rule, silently.
   Spell and grammar checking come from a language
   server (`harper-ls --stdio` by default, named by `[spellcheck]` in `shale.toml`):
   what it finds is drawn as wavy underlines in the note and counted in the status

@@ -181,11 +181,126 @@ impl Workspace {
         self.write_tab(tab, cx);
     }
 
+    /// `:w <name>`: give the note in hand a name and write it -- only for a tab
+    /// that has no name yet.
+    ///
+    /// A tab that already has a file refuses out loud. The user ruled this on
+    /// 2026-11-05: `:w other-name` on an open note must not become a way to clone
+    /// or move it by accident. Moving a note is `:rename`, which rewrites the
+    /// links that point at the old name, and that difference is what the refusal
+    /// points at.
+    pub(crate) fn write_note_as(&mut self, name: &str, cx: &mut Context<Self>) {
+        let index = self.pane().active;
+        if let Some(existing) = self.pane().tabs[index].path() {
+            let existing = existing.to_path_buf();
+            self.say(
+                format!(
+                    "{} already has a name: `:w` writes it, `:rename` moves it",
+                    rel_text(&existing)
+                ),
+                cx,
+            );
+            return;
+        }
+        if !self.name_blank_tab(index, Some(name), cx) {
+            return;
+        }
+        self.write_tab(index, cx);
+    }
+
+    /// Give a tab that has no file a name, without writing it: the write belongs
+    /// to the caller, so the bookkeeping a save does happens once. `false` means
+    /// nothing was named, with the reason said in the status bar.
+    ///
+    /// `explicit` is a name the user typed at the `:` line. It may place the note
+    /// in a folder, and a collision with an existing file is *refused* rather than
+    /// worked around: a typed name is a specific request, and quietly answering it
+    /// with `idea-2.md` is not what was asked. A name taken from the first line
+    /// gets a number instead, because two notes that open with the same line are
+    /// the common case and the user was not choosing a name at all.
+    fn name_blank_tab(
+        &mut self,
+        index: usize,
+        explicit: Option<&str>,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(editor) = self.pane().tabs[index].editor().cloned() else {
+            // A graph tab, which has no text to write and no name to take.
+            self.say("no file open", cx);
+            return false;
+        };
+        let text = editor.read_with(cx, |editor, _cx| editor.text());
+
+        let Some(name) = (match explicit {
+            Some(typed) => shale_core::note_name::sanitize(typed, true),
+            None => shale_core::note_name::from_line(&text),
+        }) else {
+            self.say(
+                match explicit {
+                    Some(_) => "that is not a name",
+                    None => "nothing to name it after: `:w <name>` to name it",
+                },
+                cx,
+            );
+            return false;
+        };
+
+        let mut path = std::path::PathBuf::from(&name);
+        if self.vault.exists(&path) {
+            if explicit.is_some() {
+                self.say(
+                    format!("{} already exists: `:w` will not write over it", rel_text(&path)),
+                    cx,
+                );
+                return false;
+            }
+            let stem = name.trim_end_matches(".md").trim_end_matches(".MD");
+            // Bounded: a vault with 50 notes called `Idea` is a vault with a
+            // problem, and the answer is to name the next one, not to search
+            // forever.
+            let mut taken = None;
+            for n in 2..=50 {
+                let candidate = format!("{stem}-{n}.md");
+                if !self.vault.exists(&candidate) {
+                    taken = Some(std::path::PathBuf::from(candidate));
+                    break;
+                }
+            }
+            match taken {
+                Some(free) => path = free,
+                None => {
+                    self.say(format!("{} is taken 50 times over", name), cx);
+                    return false;
+                }
+            }
+        }
+
+        // The text is already in the editor; the tab is what gains a name.
+        if let TabContent::Note { path: slot, .. } = &mut self.pane_mut().tabs[index].content {
+            *slot = Some(path.clone());
+        }
+        // The note is only now the note being read: the checker's scope and the
+        // recents both key off the path, and a note the user just wrote into
+        // existence is the most recent thing they have in hand.
+        self.checker_opened(&path, &text, cx);
+        self._services.update(cx, |s, _| s.remember_note(&path));
+        self.mark_note_mru(cx);
+        true
+    }
+
     /// The write itself for one tab: no window, no repaint. The exits that end a
     /// session — `quit` and a termination signal — come through here, because neither
     /// has a frame to report through afterwards, and closing a tab writes its note
     /// whether or not that tab is the one on screen.
     pub(super) fn write_tab(&mut self, index: usize, cx: &mut Context<Self>) {
+        // A tab with no file is not "nothing open" -- it is a note the user has
+        // been writing and not named yet. Its first line names it
+        // (`shale_core::note_name`), which is what makes `:w` in a blank tab a
+        // way to *start* a note rather than a dead end, and what stops a quit
+        // from quietly dropping text that was never anywhere else.
+        if self.pane().tabs[index].path().is_none() && !self.name_blank_tab(index, None, cx) {
+            return;
+        }
         let Some(path) = self.pane().tabs[index]
             .path()
             .map(|path| path.to_path_buf())
@@ -289,6 +404,19 @@ impl Workspace {
         };
         if !editor.read_with(cx, |editor, _cx| editor.is_dirty()) {
             return;
+        }
+        // A blank tab is named by its first line here exactly as `:w` names it, so
+        // the note does not depend on which write reaches it first. The difference
+        // is the silence: a beat that reported "nothing to name it after" every
+        // couple of seconds would be a nag, not a status line.
+        if self.pane().tabs[index].path().is_none() {
+            let text = editor.read_with(cx, |editor, _cx| editor.text());
+            if shale_core::note_name::from_line(&text).is_none() {
+                return;
+            }
+            if !self.name_blank_tab(index, None, cx) {
+                return;
+            }
         }
         let Some(path) = self.pane().tabs[index]
             .path()

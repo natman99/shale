@@ -1351,3 +1351,46 @@ rather than hunting pixels. The fold-marker tests show what a coordinate-based c
 costs when a component does not report its own bounds. Verified by eye on a real window:
 `3 notes` / `recent` / three rows / the legend, at the note's indent, caret above it.
 app 491 / core 467.
+
+
+## A blank tab is a note being written, not an error state (2026-11-05)
+
+**The dead end.** A blank tab takes typing — insert mode, characters, a caret — and then
+refuses to keep it. `:w` answered `no file open`, autosave returned early at the same
+missing path, and a quit with autosave off dropped text that existed nowhere else. The
+tab looked like a page and behaved like a locked one.
+
+**The rule.** A tab with no file is a note the user is writing, and the first line they
+typed is its name. `:w` takes that line; `:w <name>` takes the name they typed instead.
+Both are one write path (`write_tab`), so `:w`, `ctrl-s`, autosave and an exit all name
+the note the same way — the note does not depend on which of them arrives first. Autosave
+is the one that keeps quiet: a beat that reported "nothing to name it after" every couple
+of seconds would be a nag, not a status line.
+
+**The cleaning is core, not app** (`shale_core::note_name`): markdown block markers and
+the characters the filesystem refuses fall out, the name is capped at 60 characters, a
+name can never be a hidden file, and `..` segments drop so nothing lands above the vault.
+Markers are stripped longest-first — `#` matching before `###` stops the strip dead,
+because there is no space after the short match. A name taken from the first line and
+already on disk gets a number (`Idea.md` → `Idea-2.md`): two notes that open with the
+same line are the common case, and the user was not choosing a name at all.
+
+**`<name>` is a different kind of request, so it fails differently.** A typed name may
+place the note in a folder (`:w areas/idea` → `areas/idea.md`), and a typed name that
+collides is *refused* rather than quietly suffixed — answering a specific request with
+`idea-2.md` is not answering it. And `:w <name>` on a note that already has a file
+refuses out loud, the whole command, pointing at `:rename`: the user's ruling
+(2026-11-05) is that the command line must not clone or move a note by accident, and the
+difference between the two is that `:rename` rewrites the links pointing at the old name.
+
+**Asked in the same breath: does the file tree copy and paste?** No — it has `n`, `r` and
+`shift-d`, and no way to duplicate a note at all. Recorded in `brainstorm.md`: duplicate
+is the piece people want and needs no clipboard (it can reuse the collision rule above);
+copy/paste wants a vault clipboard holding a *path*, not text, because the editor owns the
+text clipboard; and move owes what `:rename` already pays — link propagation — which is why
+it is its own command id and not a file copy.
+
+app 500 / core 477. Nine app tests (name from the line, cleaned not verbatim, `:w <name>`
+into a folder, the refusal on a named note, the refusal on a collision, the number on a
+derived name, nothing written out of nothing, no escape from the vault, an exit naming
+rather than losing) and ten in core for the naming itself.

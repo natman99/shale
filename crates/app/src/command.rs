@@ -234,7 +234,10 @@ const ALL: &[Command] = &[
         label: "Save the note",
         keys: "ctrl-s",
         ex: &["w", "write"],
-        args: "",
+        // The argument only applies to a note that has no name yet; on a named
+        // note `:w` writes and refuses to rename (`:rename` does that, links and
+        // all). An unnamed note with no argument names itself after its first line.
+        args: "[name]",
         in_palette: true,
         action: Some(|| Box::new(Save)),
     },

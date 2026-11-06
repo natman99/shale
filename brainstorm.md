@@ -272,6 +272,19 @@ zero frames when idle — and all of it is config-off-able as a group
 - Link-health report: broken links, near-duplicate titles (fuzzy), orphan
   clusters, unused attachments. DB makes it instant.
 
+### Copy, paste, duplicate in the file tree 🔭
+Asked 2026-11-05 ("do we have copy and paste in the file tree?") — no: the tree has
+`n` (new), `r` (rename) and `shift-d` (delete), and there is no way to duplicate a note.
+- **Duplicate** (`c` in the tree) is the piece people actually want and needs no
+  clipboard: copy the note beside itself under the collision rule `note_name` already
+  uses for first-line names (`Idea.md` → `Idea-2.md`).
+- **Copy / paste** (`y`, `p`) wants a *vault* clipboard holding a path, not text — the
+  editor owns the text clipboard, and sharing it would make `p` ambiguous. Pasting into a
+  folder row places it there.
+- **Move** is that clipboard with the source removed, and it owes what `:rename` already
+  pays: every wikilink pointing at the old path rewritten, or the move quietly breaks the
+  graph. That is why it needs its own command id and not a file copy.
+
 ### Word counts ✅
 - DB `word_count` column, updated incrementally on save.
 - Status bar: current note. `:wordcount [folder]`: vault total or any subtree

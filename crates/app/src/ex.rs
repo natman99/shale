@@ -94,6 +94,11 @@ pub(crate) enum Ex {
     TabClose,
     /// `tabonly` / `tabo`: close every tab but this one.
     TabOnly,
+    /// `w <name>` / `write <name>`: give the note in hand a name and write it --
+    /// only for a tab that has no name yet. A tab that already has a file refuses
+    /// out loud: the command line must not be a way to clone or move a note by
+    /// accident (ruled 2026-11-05). Renaming is `:rename`, which rewrites links.
+    WriteAs(String),
     /// `tabmove <n>`: move this tab to position `n`, 1-based as typed. The one tab
     /// command with an argument, so it is the one that does not travel as an action.
     TabMove(usize),
@@ -131,7 +136,7 @@ impl Ex {
     pub(crate) fn command_id(&self) -> Option<&'static str> {
         Some(match self {
             Ex::Empty | Ex::Unknown(_) => return None,
-            Ex::Write => "note.save",
+            Ex::Write | Ex::WriteAs(_) => "note.save",
             Ex::Quit => "app.quit",
             Ex::QuitForce => "app.quit-force",
             Ex::WriteQuit => "note.write-quit",
@@ -226,7 +231,11 @@ pub(crate) fn parse(line: &str) -> Ex {
     };
     let word = word.to_ascii_lowercase();
     match word.as_str() {
-        "w" | "write" => Ex::Write,
+        // The bare word writes the note in hand; anything after it names the note
+        // first, which is the only way to write a tab that has no file yet under a
+        // name the user chose.
+        "w" | "write" if rest.is_empty() => Ex::Write,
+        "w" | "write" => Ex::WriteAs(rest.to_string()),
         "q" | "quit" => Ex::Quit,
         // The bang is part of the word, not a separate argument: vim reads `q!` as
         // one command, and so does this.
