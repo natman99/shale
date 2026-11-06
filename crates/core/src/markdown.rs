@@ -5,6 +5,13 @@ pub struct WikiLink {
     pub target: String,
     /// Display text when the link uses the `[[target|alias]]` form.
     pub alias: Option<String>,
+    /// The heading the link names: `[[note#The Fall]]`\'s `The Fall`. `None` when the
+    /// link asks for a whole note. A bare `#` (`[[note#]]`) means the whole note too,
+    /// which is what the author means when they write it.
+    ///
+    /// A block anchor (`[[note#^abc123]]`) arrives here as well — P4.9 gives it a
+    /// meaning, and until then it names no heading and reads as a miss.
+    pub anchor: Option<String>,
     /// Whether the link is an embed (`![[...]]`).
     pub embed: bool,
     /// Byte offset of the start of the whole construct (including `!` for
@@ -113,16 +120,27 @@ fn scan_line(line_start: usize, line: &str, out: &mut Vec<WikiLink>) {
                     let embed = i > 0 && bytes[i - 1] == b'!';
                     let full_start = if embed { i - 1 } else { i };
                     let full_end = close + 2;
-                    let (target, alias) = match inner.split_once('|') {
+                    // The alias is cut first: in `[[note#The Fall|the fall]]` the `#`
+                    // belongs to the link, and an alias is free to contain one.
+                    let (link, alias) = match inner.split_once('|') {
                         Some((t, a)) => (t.trim().to_string(), Some(a.trim().to_string())),
                         None => (inner.trim().to_string(), None),
                     };
-                    // Strip heading/block anchors from the target.
-                    let target = target.split('#').next().unwrap_or(&target).to_string();
+                    // The target is the link without its anchor; the anchor is kept,
+                    // because `gd` on `[[note#The Fall]]` is a request about a section,
+                    // not only about a note.
+                    let (target, anchor) = match link.split_once('#') {
+                        Some((target, anchor)) => (
+                            target.trim().to_string(),
+                            (!anchor.trim().is_empty()).then(|| anchor.trim().to_string()),
+                        ),
+                        None => (link, None),
+                    };
                     let (stem_start, stem_end) = stem_range(inner);
                     out.push(WikiLink {
                         target,
                         alias,
+                        anchor,
                         embed,
                         start: line_start + full_start,
                         end: line_start + full_end,

@@ -121,6 +121,14 @@ The query outlives the strip, so `n` keeps working after `enter` closed it.
 the older spelling); `gD` makes the note first when the link resolves to nothing,
 then follows it. `ctrl`+click is the mouse door to the same thing.
 
+A link that names a section — `[[morgoth#The Fall]]` — lands the caret **on that
+heading**, not at the top of the note. The heading is matched on its text, ignoring
+case and any `#`, and a `#` inside a code block never counts; `[[#The Fall]]` with no
+target does the same search in the note you are already in. A heading that isn't there
+opens the note anyway and says `no heading "The Fall" in morgoth` in the status line —
+the note is almost certainly the right destination, and refusing the jump would leave
+you with nothing for a link one rename away from working.
+
 **Tabs.** `gt` / `gT` walk the tab bar (wrapping). `gf` is quick-open, like
 `space f`.
 

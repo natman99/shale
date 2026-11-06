@@ -1506,6 +1506,13 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   `vim -es -N -u NONE -i NONE`. The count went 53/55 → 62/64 with the nine register
   cases added; the two holdouts are still the `"` quote object and the paragraph
   object.
+- **`gd` follows a heading anchor (roadmap P4.6a) — done 2026-11-06**: `[[note#The Fall]]`
+  opens the note *and* puts the caret on that heading; `[[#The Fall]]` searches the note
+  already on screen. A missing heading opens the note at the top and says
+  `no heading “The Fall” in morgoth` rather than refusing — the note is almost certainly the
+  right destination. `gD` drops the anchor: a heading never becomes part of a file name.
+  The lookup is `transclude::heading_row`, shared with embeds, so a jump and an embed
+  cannot mean different headings from the same written anchor.
 - **Read-only transclusion (roadmap P4.0a) — landed 2026-11-06**: a line that is
   nothing but `![[note]]` or `![[note#Heading]]` paints the other note's lines under
   itself, in the note's own font and the source's own markdown, with a rule in the

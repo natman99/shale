@@ -1071,8 +1071,17 @@ edges, query nodes, MCP canvas tools) is P6.10.
   or renamed (and every tab showing the old path follows). What is left is the
   *report*: heading-anchor renames, tag renames, and the broken-link /
   near-duplicate / orphan / unused-attachment list. Extends `rename.rs`.
-- **P4.6a `gd` follows a heading anchor** — **added 2026-11-06, found by asking a
-  question rather than by the audit.** `gd` on `[[note#The Fall]]` currently opens
+- **P4.6a `gd` follows a heading anchor** — **done 2026-11-06.** `WikiLink` carries
+  the anchor, `EditorEvent::FollowLink` carries it, and the workspace reveals the heading
+  row in the note it just opened (`editor.reveal_heading`, over the *buffer* so a jump
+  into a dirty note lands on the heading the reader can see). `[[#heading]]` with no
+  target searches the note already on screen. `gD` ignores the anchor — a heading must
+  never become part of a file name, and that is a test, not a comment. The lookup is
+  `transclude::heading_row`, the same matching `![[note#heading]]` embeds use, so a jump
+  and an embed cannot disagree about which heading a written anchor means.
+  Original finding:
+
+  **P4.6a was added 2026-11-06, found by asking a question rather than by the audit.** `gd` on `[[note#The Fall]]` currently opens
   `note` at the top: `extract_wikilinks` parses `WikiLink.target` as *"without alias or
   heading anchor"*, so the anchor is gone before `EditorEvent::FollowLink` is emitted
   and `follow_link` never learns a section was asked for. The cursor being on the

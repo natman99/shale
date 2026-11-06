@@ -335,15 +335,19 @@ impl Workspace {
         };
         let active = index == self.pane().active;
         match event {
-            EditorEvent::FollowLink { target } | EditorEvent::CreateLink { target } => {
+            EditorEvent::FollowLink { target, anchor } => {
+                self.follow_link(target, anchor.as_deref(), false, cx)
+            }
+            // `gD` ignores the anchor: the note it creates has no headings, and an
+            // anchor must never leak into the name of a file (roadmap P4.6a).
+            EditorEvent::CreateLink { target } => {
                 // Only the tab on screen can be clicked or `gd`-ed, but a link
                 // followed in a tab that is not on screen would otherwise edit the
                 // wrong note, so it is brought on screen first.
                 if !active {
                     self.show_tab(index, cx);
                 }
-                let create = matches!(event, EditorEvent::CreateLink { .. });
-                self.follow_link(target, create, cx);
+                self.follow_link(target, None, true, cx);
             }
             EditorEvent::Changed => {
                 self.queue_autosave(index, cx);

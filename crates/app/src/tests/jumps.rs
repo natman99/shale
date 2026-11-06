@@ -331,3 +331,106 @@ fn the_jump_keys_stand_down_while_an_overlay_is_open(cx: &mut TestAppContext) {
         "and did not change the note underneath it"
     );
 }
+
+// ---------------------------------------------------------------------------
+// P4.6a: `gd` follows a heading anchor, not only the note.
+// ---------------------------------------------------------------------------
+
+/// The caret's row in the open note.
+fn caret_row(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> usize {
+    window
+        .update(cx, |ws, _window, cx| ws.cursor_position(cx))
+        .unwrap()
+        .0
+}
+
+/// A note whose second line links a section of another note.
+const ANCHORED: &str = "line one\nsee [[gift#The middle]] here\nline three\n";
+/// \u2026the note it links, with the wanted heading on row 2.
+const SECTIONS: &str = "# Gift\nnot this\n## The middle\nthe part\n## The end\nnope\n";
+
+/// Park the caret inside the link on the second line.
+fn on_the_link(cx: &mut VisualTestContext) {
+    cx.simulate_keystrokes("2 G ^ l l l l");
+}
+
+/// `gd` on `[[gift#The middle]]` opens `gift` **and** lands on that heading. Opening
+/// the note was only half of what the link asked for.
+#[gpui::test]
+fn gd_lands_on_the_heading_a_link_names(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("host.md", ANCHORED), ("gift.md", SECTIONS)]);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    window
+        .update(&mut cx, |ws, _window, cx| ws.open_note(&PathBuf::from("host.md"), cx))
+        .unwrap();
+    on_the_link(&mut cx);
+    cx.simulate_keystrokes("g d");
+    assert_eq!(active(&window, &mut cx), "gift.md", "the note opened");
+    assert_eq!(
+        caret_row(&window, &mut cx),
+        2,
+        "and the caret is on `## The middle`, not at the top of the note"
+    );
+}
+
+/// An anchor that names no heading does not cancel the jump: the note opens at the
+/// top and the status line says which heading was missing. Ruled 2026-11-06 \u2014 the
+/// note is almost certainly the right destination, and refusing would leave the
+/// reader with nothing for a link one rename away from working.
+#[gpui::test]
+fn a_missing_heading_opens_the_note_anyway_and_says_so(cx: &mut TestAppContext) {
+    let host = "line one\nsee [[gift#Nowhere]] here\nline three\n";
+    let (_dir, window) = vault_with(cx, &[("host.md", host), ("gift.md", SECTIONS)]);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    window
+        .update(&mut cx, |ws, _window, cx| ws.open_note(&PathBuf::from("host.md"), cx))
+        .unwrap();
+    on_the_link(&mut cx);
+    cx.simulate_keystrokes("g d");
+    assert_eq!(active(&window, &mut cx), "gift.md", "the note still opened");
+    assert_eq!(caret_row(&window, &mut cx), 0, "at the top");
+    assert_eq!(
+        status(&window, &mut cx),
+        "no heading \u{201c}Nowhere\u{201d} in gift.md",
+        "and the reader is told which half of the link failed"
+    );
+}
+
+/// `gD` on a link with an anchor creates the note the **target** names: a heading
+/// cannot become part of a file name.
+#[gpui::test]
+fn g_d_creates_the_note_without_the_anchor_in_its_name(cx: &mut TestAppContext) {
+    let host = "line one\nsee [[nowhere#Heading]] here\nline three\n";
+    let (dir, window) = vault_with(cx, &[("host.md", host)]);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    window
+        .update(&mut cx, |ws, _window, cx| ws.open_note(&PathBuf::from("host.md"), cx))
+        .unwrap();
+    on_the_link(&mut cx);
+    cx.simulate_keystrokes("g D");
+    assert_eq!(active(&window, &mut cx), "nowhere.md", "the note was made and opened");
+    assert!(
+        dir.path().join("nowhere.md").exists(),
+        "on disk, named for the target alone"
+    );
+    assert!(
+        !dir.path().join("nowhere#Heading.md").exists(),
+        "the anchor never reached the file name"
+    );
+}
+
+/// `[[#a heading in this note]]` has no target, so the jump stays put and scrolls:
+/// the same heading lookup, applied to the note already on screen.
+#[gpui::test]
+fn a_heading_link_with_no_target_scrolls_within_the_note(cx: &mut TestAppContext) {
+    let note = "# Top\nintro\n## The middle\nsee [[#The middle]] here\n";
+    let (_dir, window) = vault_with(cx, &[("host.md", note)]);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    window
+        .update(&mut cx, |ws, _window, cx| ws.open_note(&PathBuf::from("host.md"), cx))
+        .unwrap();
+    cx.simulate_keystrokes("4 G ^ l l l l");
+    cx.simulate_keystrokes("g d");
+    assert_eq!(active(&window, &mut cx), "host.md", "no note was opened");
+    assert_eq!(caret_row(&window, &mut cx), 2, "the caret moved to that heading");
+}

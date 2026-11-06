@@ -240,6 +240,31 @@ pub fn section(text: &str, anchor: &str) -> Option<Vec<String>> {
     (!out.is_empty()).then_some(out)
 }
 
+/// The line a heading anchor names, or `None` if no heading matches.
+///
+/// The same matching [`section`] uses — trimmed of `#`, case-insensitive, never a `#`
+/// inside a fenced block — because `gd` to `[[note#The Fall]]` and an embed of
+/// `![[note#The Fall]]` must agree about which heading they mean. A jump that finds a
+/// heading the embed would not, or the other way round, gives the reader two answers to
+/// the same written question.
+pub fn heading_row(text: &str, anchor: &str) -> Option<usize> {
+    let want = anchor.trim().to_lowercase();
+    let mut inside_fence = false;
+    for (index, line) in text.lines().enumerate() {
+        if fence(line) {
+            inside_fence = !inside_fence;
+            continue;
+        }
+        if inside_fence {
+            continue;
+        }
+        if heading_level(line).is_some() && heading_text(line).eq_ignore_ascii_case(&want) {
+            return Some(index);
+        }
+    }
+    None
+}
+
 /// `#` count of an ATX heading, or `None` if the line is not one. A `#` inside a
 /// fenced code block is not a heading, so a fence toggles the scan off.
 fn heading_level(line: &str) -> Option<usize> {
@@ -524,6 +549,16 @@ mod tests {
             }],
             "the author's name survives the depth cap"
         );
+    }
+
+    #[test]
+    fn heading_row_finds_the_line_an_anchor_names() {
+        let text = "# Top\nintro\n```\n# Fake\n```\n## The Fall\nbody\n";
+        assert_eq!(heading_row(text, "The Fall"), Some(5));
+        assert_eq!(heading_row(text, "the fall"), Some(5), "matched case-insensitively");
+        assert_eq!(heading_row(text, "  The Fall  "), Some(5), "padded like an author types");
+        assert_eq!(heading_row(text, "Fake"), None, "a `#` inside a fence is not a heading");
+        assert_eq!(heading_row(text, "Nowhere"), None);
     }
 
     #[test]

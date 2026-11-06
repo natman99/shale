@@ -119,13 +119,36 @@ impl Workspace {
         }
     }
 
-    /// Open the note a wiki-link target refers to, if it exists.
-    pub(super) fn follow_link(&mut self, target: &str, create: bool, cx: &mut Context<Self>) {
+    /// Open the note a wiki-link target refers to, if it exists, and put the caret on
+    /// the section its anchor names — `[[morgoth#The Fall]]` is a request about a
+    /// section, not only about a note (roadmap P4.6a).
+    ///
+    /// An anchor that names no heading does not cancel the jump: the note is almost
+    /// certainly the right destination, so the reader gets the note at the top and a
+    /// status line saying which heading was missing. Refusing would leave them with
+    /// nothing for a link one rename away from working.
+    pub(super) fn follow_link(
+        &mut self,
+        target: &str,
+        anchor: Option<&str>,
+        create: bool,
+        cx: &mut Context<Self>,
+    ) {
+        // `[[#a heading in this note]]`: no target, so the jump stays where it is.
+        if target.is_empty() {
+            if let Some(anchor) = anchor {
+                self.reveal_in_open_note(anchor, cx);
+            }
+            return;
+        }
         match self.vault.resolve_link(target, &self.entries) {
             Ok(Some(entry)) => {
                 let path = entry.path.clone();
                 tracing::debug!(target, path = %path.display(), "following wiki-link");
                 self.open_note(&path, cx);
+                if let Some(anchor) = anchor {
+                    self.reveal_in_open_note(anchor, cx);
+                }
             }
             // `gD`: the note the link asks for, made and then followed.
             Ok(None) if create => self.make_link_note(target, cx),
@@ -141,6 +164,19 @@ impl Workspace {
             }
         }
     }
+    /// Put the caret on a heading in the note now on screen, and say when there is no
+    /// such heading.
+    fn reveal_in_open_note(&mut self, anchor: &str, cx: &mut Context<Self>) {
+        let found =
+            self.editor()
+                .is_some_and(|editor| editor.update(cx, |editor, cx| editor.reveal_heading(anchor, cx)));
+        if !found {
+            let where_ = self.note().map(rel_text).unwrap_or_default();
+            self.say(format!("no heading “{anchor}” in {where_}"), cx);
+            cx.notify();
+        }
+    }
+
     /// The note a `gD` link asks for: created, then opened.
     ///
     /// It lands **beside the note the user is standing in** — a link written inside

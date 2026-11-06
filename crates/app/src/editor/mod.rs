@@ -44,7 +44,13 @@ pub(crate) use crate::theme::DEFAULT_FONT_SIZE;
 #[derive(Debug, Clone)]
 pub enum EditorEvent {
     /// The user asked to follow the wiki-link to `target`.
-    FollowLink { target: String },
+    FollowLink {
+        target: String,
+        /// The section the link names, if it names one (roadmap P4.6a). Carried with
+        /// the target because opening the note is only half of what `gd` was asked to
+        /// do; a `gD` creation ignores it, since a new note has no headings.
+        anchor: Option<String>,
+    },
     /// The user asked to follow the wiki-link to `target`, making the note first if
     /// it does not exist (`gD`). The editor does not know the vault: it reports what
     /// is under the cursor and lets the window decide what creating means.
@@ -507,6 +513,25 @@ impl MarkdownEditor {
         self.buffer.goto_line(row);
         self.ensure_cursor_visible();
         cx.notify();
+    }
+
+    /// Move the caret to the heading an anchor names and scroll it into view.
+    ///
+    /// Returns whether the heading was found. The caller decides what to say when it
+    /// was not — the workspace owns the status line, and the ruled answer is to leave the
+    /// caret at the top of the note and warn, rather than to refuse the jump.
+    ///
+    /// The search runs over the buffer rather than the file on disk, so a jump into a
+    /// note with unsaved edits lands on the heading the reader can see, not the one the
+    /// disk remembers.
+    pub(crate) fn reveal_heading(&mut self, anchor: &str, cx: &mut Context<Self>) -> bool {
+        match shale_core::transclude::heading_row(self.buffer.text(), anchor) {
+            Some(row) => {
+                self.reveal_line(row, cx);
+                true
+            }
+            None => false,
+        }
     }
 
     /// Put the cursor on the buffer byte `offset` and scroll it into view. What
@@ -1053,6 +1078,7 @@ impl MarkdownEditor {
         if let Some(link) = self.link_at(offset) {
             cx.emit(EditorEvent::FollowLink {
                 target: link.target.clone(),
+                anchor: link.anchor.clone(),
             });
         } else {
             tracing::debug!(offset, "no wiki-link at cursor");
