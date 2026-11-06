@@ -313,7 +313,8 @@ Asked 2026-11-05 ("do we have copy and paste in the file tree?") — no: the tre
   inside subtrees, task checkboxes, Tab-vs-completion conflicts (insert mode
   unaffected).
 
-### Editable transclusion ✅
+### Editable transclusion ✅ (roadmap **P4.0** — a read-only embeds, b editable in
+place; the interaction design pass is owed before b)
 - `![[note#section]]` rendered live and editable in place; edits flow to the
   source buffer. Cheap for us (we own buffer + renderer); this pattern is unusual
   because web-tech editors (Obsidian) make it hard — for us it's natural.
@@ -380,7 +381,7 @@ Asked 2026-11-05 ("do we have copy and paste in the file tree?") — no: the tre
   inline dice ship). Second candidate if the chip proves the pattern:
   current-section word count in the gutter. Expand only after the first lands.
 
-### Hover link preview ✅
+### Hover link preview ✅ (roadmap **P6.2**; the embed and block cases wait on P4.0/P4.9)
 - Wiki-link under cursor → floating card: first lines of the note + its graph
   neighborhood mini-render (reuses minimap machinery). Popup placement exists.
 
@@ -632,7 +633,7 @@ mobile, ~~Canvas~~ **reopened 2026-11-03 — see the Canvas section below and
 - Naming: `YYYY-MM-DD-HHMM-<original-or-hash>.ext` (sortable, collision-free).
 - Graph already models attachment nodes; this feeds them.
 
-### Trash ✅ (user: "very important"; ruled vault-local, not OS trash)
+### Trash ✅ (user: "very important"; ruled vault-local, not OS trash; roadmap **P4.10**)
 - Deletes (file tree, `:Gdelete`, `:Gmove` leftovers) move the file into
   **`.shale/trash/`**, preserving the vault-relative path in the filename
   (`projects--idea.md` style) plus a sidecar entry in the DB: original path,
@@ -657,7 +658,8 @@ mobile, ~~Canvas~~ **reopened 2026-11-03 — see the Canvas section below and
 - `:ws save name` / `:ws load name` / `:ws list` on top. MCP can list/load
   (agent sets up a working context).
 
-### Block references ✅ (hooks straight into transclusion + hover preview)
+### Block references ✅ (hooks straight into transclusion + hover preview; roadmap
+**P4.9**)
 - `^abc123` anchor at the end of a paragraph/bullet; `![[note#^abc123]]`
   embeds it; `[[note#^abc123]]` links to it (jump = scroll to block).
 - ID generation: command appends `^` + 6 random chars, lowercase base32
@@ -1055,3 +1057,46 @@ theme loading.
    then P3.1 Tabs → graph tab to unblock the graph track; P2.6/P2.7/P2.8
    deferred to the Phase 3 addendum (see roadmap "Sequencing notes").
 7. **Graduate ✅ items into PROJECT.md** — pending action, not a decision.
+
+## Roadmap audit (2026-11-05)
+
+Every ✅ design in this file was checked against `roadmap.md`'s items and against
+`crates/`. **Twenty-eight had no owner.** They are scheduled now; nothing below is a new
+idea, only a phase number attached to a ruling that already existed:
+
+| brainstorm section | now |
+|---|---|
+| Editable transclusion ✅ | **P4.0** (a: read-only embeds, b: editable in place) |
+| Block references ✅ | **P4.9** |
+| Trash ✅ ("very important") | **P4.10** |
+| Daily notes ✅ | **P4.11** |
+| Attachment capture ✅ | **P4.12** |
+| Outline pane ✅ | **P4.13** |
+| Search operators ✅ | **P4.14** |
+| Inline computed surfaces ✅ | **P4.15** |
+| Graph lenses ✅, tag-node coloring ✅ | **P4.16** (colour rides P4.4) |
+| `shale://` URI scheme ✅ | **P6.11** |
+| Random note ✅ | **P6.12** |
+| Copy/paste/duplicate in the tree 🔭 | **P6.13** — still needs a ruling (roadmap open decision 8) |
+| Initiative tracker ✅ | **P7.1** |
+| Inline dice ✅ | **P7.2** |
+| Random generators ✅ | **P7.3** |
+| GM screen ✅ | **P7.4** |
+| Spotlight ledger ✅ | **P7.5** |
+| Secret blocks ✅ | **P7.6** |
+| Agent GM assistant 🔭 | **P7.7** |
+
+Verified as already scheduled elsewhere, so not added: MCP pulses (graph-view-plan
+M5b), graph minimap (P3.4's M-list), drag-pin (graph-view-plan), properties/frontmatter
+(P1.2 schema), macros (P6.3), focus/typewriter (P0.8/P0.9), marks (P4.5), tag tree
+(P4.4), time machine (P4.1), link health (P4.6), query notes (P4.3), print surfaces and
+broadsheet (P6.5), outliner (P6.1), hover preview (P6.2), note pinning (`:pin`, P3.2),
+workspaces (P1.8 session slots — named workspaces are still sugar).
+
+Verified as **already built**, so they were gaps in the audit's keyword pass rather
+than gaps in the product: unresolved link → create note (`gD`), the vault switcher
+(`:vault`), the blank tab's start block, `/` search (P0.5, 2026-10-28 — the roadmap's
+"Parked threads" list still named it as parked; fixed).
+
+New rule out of this, written into roadmap "Sequencing notes": **a ✅ here with no
+roadmap pointer in the same commit is a defect, not a backlog entry.**

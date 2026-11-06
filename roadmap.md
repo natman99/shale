@@ -48,12 +48,35 @@ exit path was re-measured clean (PROGRESS.md, 2026-11-04). Still unbuilt from
 the original Goals list: Database tables/Obsidian-bases (P4.3 `.shq`), PDF
 export, Templates, tree-sitter code highlighting.
 
-**Parked threads** (PROJECT.md, the other agent's list): `/` search, scrolling
+**Plan audit (2026-11-05).** Every ruled design in `brainstorm.md` was checked against
+the roadmap's items and the code. The finding: **the roadmap had been losing features
+that were fully designed and explicitly agreed.** Twenty-eight features had no item
+owning them; the significant ones:
+
+- **Editable transclusion** — named in `PROJECT.md` as a pillar of the custom-renderer
+  advantage, ruled in full including the binding nesting cap, and *no phase owned it*.
+  P4.3, P5 and canvas C3 all lean on that resolver. Now **P4.0** (a: read-only embeds,
+  b: editable in place).
+- **Block references** — ruled, gates canvas C3 and hover preview. Now **P4.9**.
+- **Trash** ("very important", ruled vault-local), **daily notes**, **attachment
+  capture**, **outline pane**, **search operators**, **inline computed surfaces**,
+  **graph lenses** — ruled, unowned. Now **P4.10–P4.16**.
+- **The whole GM toolkit** (initiative tracker, inline dice, random generators, GM
+  screen, spotlight ledger, secret blocks, agent GM assistant) — seven ruled features,
+  zero roadmap lines. Now **Phase 7**.
+- **`shale://` URI scheme**, **random note**, **tree copy/paste/duplicate** — now
+  **P6.11–P6.13**.
+
+Nothing was invented by this audit: every item above already has a ruled design in
+`brainstorm.md`. What changed is that they are now scheduled somewhere, so "planned"
+means "has an owner and exit criteria" rather than "someone thought about it".
+
+**Parked threads** (PROJECT.md, the other agent's list): scrolling
 popup panel, scrolling picker list, hover-capability check, live grammar fixes,
-`K` with count, horizontal scrolling, `bench/` work. Four that were on this list
-are now done in Phase 0: **autosave**, **persisting the theme switch**,
-**config → `<vault>/.shale/`**, and **module splits** (nothing is over 1000 lines
-anymore).
+`K` with count, horizontal scrolling, `bench/` work. Five that were on this list
+are now done in Phase 0: **`/` search** (P0.5, 2026-10-28), **autosave**,
+**persisting the theme switch**, **config → `<vault>/.shale/`**, and **module splits**
+(nothing is over 1000 lines anymore).
 
 **Key insight:** three foundations unlock most of the brainstormed feature set:
 1. **The DB + provenance + event log** → query notes, word counts, tag tree,
@@ -84,7 +107,13 @@ Tabs (P3) ──► graph M1b ──► minimap, thread, pulses+glow, constellat
 graph M1a (core) ── independent, START NOW
 mdstyle list tree (exists) ──► outliner, markdown text objects   ← cheap, early
 renderer alpha (exists) ──► focus mode, search illumination      ← cheap, early
+link resolver + renderer (exist) ──► P4.0 transclusion ──┬─► ![[query]] embeds (P4.3)
+                                                        ├─► hover preview (P6.2)
+                                                        └─► P4.9 block refs ──► canvas C3
 ```
+
+The last edge was missing until the 2026-11-05 plan audit: three phases depend on a
+transclusion resolver that no phase owned and no code had.
 
 ---
 
@@ -944,6 +973,27 @@ edges, query nodes, MCP canvas tools) is P6.10.
 
 ## Phase 4 — DB surfaces
 
+- **P4.0 Transclusion resolver** (brainstorm ✅ "Editable transclusion"). **Added by
+  the 2026-11-05 plan audit**: the design was ruled in full, `PROJECT.md` names
+  editable transclusion as one of the two pillars of "custom renderer as advantage,
+  not liability", and P4.3/P5/P6.10 all lean on a resolver that no phase owned and no
+  code has. Split by dependency:
+  - **P4.0a read-only embeds.** `![[note]]` and `![[note#heading]]` resolve through
+    the existing link resolver and paint the target's lines inside the host; the
+    host's buffer is untouched, the embed is a view. The nesting cap is **binding**:
+    1 editable + 2 read-only = 3 levels deep, deeper embeds render as a name badge
+    (clickable, no content). `gd` on an embed jumps into the embedded note; `gd` with
+    the cursor on a wikilink *inside* an embed jumps to that link. This half alone
+    unblocks `![[query-name]]` in P4.3 and the embed case of P6.2.
+  - **P4.0b editable in place.** Edits flow to the source buffer. The hard parts are
+    ruled, not guessed: undo is buffer-local with a seam indicator (when local undo is
+    exhausted the next `ctrl-z` reports "next undo is in `[[morgoth]]`" instead of
+    beeping); each note keeps its own dirty state; save/autosave covers host + embeds
+    together; closing a host with a dirty embed warns through the dirty-tab machinery;
+    the host never *silently* saves the embed. **The interaction design pass is still
+    owed** (cursor handoff, scroll sync) — the behavior is decided, the feel is not.
+  - **Test bar:** dirty state across the boundary is one of the cases the "app-side
+    testing bar" rule names — a headless integration test, not eyeballs.
 - **P4.1 Time machine** (brainstorm ✅): diff-based snapshots in `.shale`,
   session-based cadence (session end + ~3-min checkpoints + pre-risky-op +
   explicit saves; trivial diffs skipped; `:snapshot [label]` manual command —
@@ -967,10 +1017,49 @@ edges, query nodes, MCP canvas tools) is P6.10.
   time, most-used words; hosts the per-folder word-count tree.
 - **P4.8 Provenance as a first-class filter** (brainstorm ✅): user/agent/both
   in graph filters, tag tree, search, query notes; agent-touched node badges.
+- **P4.9 Block references** (brainstorm ✅). **Added by the 2026-11-05 audit** — ruled
+  design, no item, no code. `^abc123` anchor at the end of a paragraph or bullet;
+  `![[note#^abc123]]` embeds a block (rides P4.0), `[[note#^abc123]]` links to one and
+  the jump scrolls to it. `mdstyle` gains a block-anchor span; the transclusion
+  resolver grows from note/section to block granularity. **Gates canvas C3's
+  block-level cards** (`canvas-plan.md`) and the block case of P6.2.
+- **P4.10 Trash** (brainstorm ✅, user called it "very important"; ruled **vault-local**,
+  not OS trash). **Added by the audit.** Delete already rewrites links; deleting to a
+  `.shale/trash/` instead of unlinking is the same path with one step added, and
+  `vault.rs` already ignores a `.trash` name when walking. Needs: move-in with the
+  original path recorded, a restore, an empty, and the tree/status surface for it.
+- **P4.11 Daily notes** (brainstorm ✅). **Added by the audit.** `:today` opens
+  `daily/YYYY-MM-DD.md` (folder and format from config), creating it from a template
+  when missing — which makes P6.4's template variables the dependency, not a separate
+  feature. Rides quick-open, the session file, and the start block.
+- **P4.12 Attachment capture** (brainstorm ✅). **Added by the audit.** Paste or drop an
+  image into a note → store it under the attachment folder (vault-root or adjacent,
+  config) → insert `![[name]]`. The embed *renderer* exists (`line_image_embed`); the
+  capture half does not. Two known renderer leftovers ride along: an embed inside a
+  paragraph is not drawn as a picture, and a `|alias` suffix reads as "no size".
+- **P4.13 Outline pane** (brainstorm ✅). **Added by the audit.** The open note's heading
+  tree as a pane, click to jump, current section marked; the heading knowledge comes
+  from `mdstyle`/`mdlayout`, the same units `da#` operates on. Distinct from the
+  canvas outline view in P5.6 — do not build one and call it both.
+- **P4.14 Search operators** (brainstorm ✅). **Added by the audit.** `tag:`, `path:`,
+  `link:`, `modified:` and friends in vault search, over the P1 index. **One grammar,
+  one parser, shared with `.shq` (P4.3)** — inventing it twice is how the two surfaces
+  end up disagreeing about what `tag:` means.
+- **P4.15 Inline computed surfaces** (brainstorm ✅, policy ruled 2026-10-29, one widget
+  to start). **Added by the audit.** App-offered, region-anchored facts (word count,
+  reading time) — the status bar owns whole-note facts; user-authored widgets are
+  plugins and out of scope; data tables are `.shq`. Hosts P4.7's counts.
+- **P4.16 Graph lenses** (brainstorm ✅, split ruling 2026-10-29). **Added by the audit.**
+  Saved, named graph filters over the existing filter model — the constellation filter
+  and `region:` props already do the mechanics; a lens is a saved filter with a name
+  and a keybinding. Tag colouring rides P4.4's "color assignment → graph groups".
 
 **Exit criteria:** restore any note to any retained point; a `.shq` embedded in
 three notes renders live and refreshes on edit; tag rename rewrites every note
 and the DB; "notes the agent modified this week" returns the right set.
+**Added with P4.0/P4.9:** `![[a#^b]]` embeds one block, three deep at most, and the
+fourth level shows a badge instead; a dirty embed cannot be lost silently; a deleted
+note comes back from the trash with its links intact.
 
 ---
 
@@ -1058,6 +1147,59 @@ and the DB; "notes the agent modified this week" returns the right set.
 
 ---
 
+## Phase 6 addendum — the audit's orphans (2026-11-05)
+
+Ruled designs that had no item anywhere. Small, mostly free rides on machinery that
+already exists; listed here so they stop being invisible.
+
+- **P6.11 `shale://` URI scheme** (brainstorm ✅). Open a note from outside the app —
+  browser, launcher, a script. The live MCP port already answers `shale://status` and
+  `shale://access` as *resources*; this is the other direction: register the scheme
+  with the desktop and route it to the running window (or start one). The vault→window
+  registry (`VaultServices` + the window registry) is the whole plumbing.
+- **P6.12 Random note** (brainstorm ✅). `:random` opens a note at random, optionally
+  inside the current graph filter or tag. Trivial over the index; the only decision is
+  what the pool excludes (orphans? attachments? the note you're in?).
+- **P6.13 Copy / paste / duplicate in the file tree** (brainstorm 🔭). The tree has
+  `n` new, `r` rename, `shift-d` delete — nothing else, and users ask for it. Needs a
+  ruling on what "duplicate" names the copy and where a pasted note lands (same folder,
+  prompt, or the pane's current folder). Duplicate is the cheap half; clipboard-across-
+  windows is the part that needs thought.
+
+---
+
+## Phase 7 — The GM toolkit (ruled designs, no schedule yet)
+
+The D&D/GM cluster is designed in `brainstorm.md` and had **no roadmap presence at
+all** — the 2026-11-05 audit found seven ruled features with no item. They are grouped
+here because they share machinery (`.shq`, block references, computed surfaces, the
+table model) and because they are the clearest thing Shale does that Obsidian does not.
+The scope guard is binding: **a narrative combat tracker, not a VTT** — no grid, no
+token-pushing, no range/LOS math.
+
+- **P7.1 Initiative tracker** (brainstorm ✅) — a mode over a plain markdown table: the
+  table *is* the state, an `initiative` keymap context on those lines, the renderer
+  paints whose turn it is. Not a new surface.
+- **P7.2 Inline dice** (brainstorm ✅) — `!dice 2d20+4` in a note; the roll is written
+  back into the line (user ruling: dice results may mutate the source file;
+  rolls-only-in-DB was offered and declined).
+- **P7.3 Random generators** (brainstorm ✅) — the vault structure *is* the table: a
+  folder of notes is a random table, frontmatter carries weights. No new table format.
+- **P7.4 GM screen** (brainstorm ✅) — mostly saved queries (P4.3) plus a pane flag;
+  the "screen" is a layout, not a feature.
+- **P7.5 Spotlight ledger** (brainstorm ✅) — who has been on stage recently, over the
+  event log; feeds the graph's freshness glow rather than duplicating it.
+- **P7.6 Secret blocks** (brainstorm ✅) — a callout kind the agent profiles cannot
+  read (`config/profile.rs` already scopes by path; this scopes by block), and the
+  graph/search surfaces must respect it, not leak the text through a preview.
+- **P7.7 Agent GM assistant** (brainstorm 🔭) — mostly already built as MCP tools; what
+  is missing is the shaping, not the machinery.
+
+**Dependency order:** P4.3 `.shq` → P4.9 block refs → P4.15 computed surfaces → P7.1 /
+P7.3 / P7.4. P7.6 gates on the same provenance/filter work as P4.8.
+
+---
+
 ## Sequencing notes
 
 - **Route 3 (ruled 2026-11-01):** build **P2.5a** next — the design pass is
@@ -1103,6 +1245,15 @@ and the DB; "notes the agent modified this week" returns the right set.
 - **Obsidian parity ruling** (2026-10-29): round-trip the common cases
   cleanly; do not chase every edge case (properties-schema quirks, community
   plugin conventions, Canvas). Parity serves import, not identity.
+- **A ✅ in `brainstorm.md` with no roadmap pointer is a defect, not a backlog entry**
+  (ruled after the 2026-11-05 plan audit). The round that agrees a design must also
+  name the phase item that owns it, in the same commit — otherwise the feature is
+  invisible to whoever implements next, however firmly it was ruled. The audit found
+  28 such features, including editable transclusion, which `PROJECT.md` calls a pillar
+  of the app's advantage. **Audit recipe:** list `brainstorm.md`'s headings with their
+  status markers, then grep each against `roadmap.md`'s `**P…` items *and* against
+  `crates/` for code; ✅ with neither is an orphan, and keyword matching alone
+  over-reports (a dependency-map mention is not an owner).
 
 ## Open decisions the roadmap needs
 
@@ -1124,3 +1275,17 @@ and the DB; "notes the agent modified this week" returns the right set.
 6. **Config write-back shape** — settled in P0.1 (one location, a splice, a
    generated starter). What is *not* settled: whether Shale should ever write a
    key the user has never changed. Today it writes only what the user chose.
+7. **What `:random` excludes** (P6.12) — orphans, attachments, the note you are
+   standing in, archived folders? Trivial to change now, annoying to change once
+   people's muscle memory depends on the pool.
+8. **Tree copy / paste / duplicate semantics** (P6.13, still 🔭) — what a duplicate is
+   named, and whether a paste lands beside its source, in the pane's current folder, or
+   asks. Needs a ruling before it is built; the user asked for the feature on 2026-11-05
+   and it has no design yet, only a gap.
+9. **Daily-note defaults** (P4.11) — folder, filename format, and whether the template
+   hook is P6.4's variable syntax or a plain file copy. Deciding the format late means
+   migrating a year of notes.
+10. **Embed badge vs stub** (P4.0a) — a too-deep embed shows a name badge today in the
+    ruling. Unsettled: whether a *broken* embed (`![[missing]]`) shows the same badge,
+    a distinct one, or offers `gD`-style creation. Same surface, two very different
+    messages; decide before it is painted.
