@@ -19,6 +19,7 @@ use gpui::{
 };
 use shale_core::theme::Palette;
 
+use crate::line::marks;
 use crate::theme::{self, RunStyle};
 
 /// What kind of phantom row this is.
@@ -128,12 +129,16 @@ impl Element for PhantomLine {
         cx: &mut App,
     ) {
         // The hunk's bar, continued down the phantom rows so the proposal reads as one
-        // block: struck lines, then the lines that would replace them.
+        // block: struck lines, then the lines that would replace them. It sits in the
+        // gutter, at the same x the struck rows put theirs, and the phantom text stays in
+        // the note's own text column — an addition that is indented away from the
+        // column reads as a quote rather than as a line the note would gain.
         let width = if self.current { px(3.) } else { px(2.) };
+        let x = marks::glyph_x(bounds.left() - crate::style::GUTTER, width);
         window.paint_quad(fill(
             Bounds::from_corners(
-                gpui::point(bounds.left(), bounds.top()),
-                gpui::point(bounds.left() + width, bounds.bottom()),
+                gpui::point(x, bounds.top()),
+                gpui::point(x + width, bounds.bottom()),
             ),
             rgb(self.bar()),
         ));

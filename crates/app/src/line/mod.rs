@@ -666,15 +666,20 @@ impl Element for LineElement {
             );
         }
 
-        // A row a proposal would take away carries the hunk's bar down its left edge,
-        // the same 2 px the callout's box uses, so the struck rows and the phantom lines
-        // under them read as one block.
+        // A row a proposal would take away carries the hunk's bar down the **gutter**,
+        // the same 2 px rule the callout's box uses, so the struck rows and the phantom
+        // lines under them read as one block. It goes in the gutter rather than at the
+        // row's own left edge because `bounds` starts at the text column: a bar painted
+        // there sits on top of the first glyph, which is the one thing a struck line
+        // cannot afford — the line is the note's real text, and hiding its first letter
+        // hides what the proposal is actually about.
         if let Some(diff) = self.diff {
             let width = if diff.current { px(3.) } else { px(2.) };
+            let x = marks::glyph_x(bounds.left() - crate::style::GUTTER, width);
             window.paint_quad(fill(
                 Bounds::from_corners(
-                    gpui::point(bounds.left(), bounds.top()),
-                    gpui::point(bounds.left() + width, bounds.bottom()),
+                    gpui::point(x, bounds.top()),
+                    gpui::point(x + width, bounds.bottom()),
                 ),
                 rgb(fade(diff.color, self.palette.bg, self.dim)),
             ));
