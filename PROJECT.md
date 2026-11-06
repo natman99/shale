@@ -307,6 +307,16 @@ next launch.
 
 ## Current status (updated as the project progresses)
 
+**User-facing docs live in `docs/`** (`README.md` is the index): getting started,
+the keymap by context, notes and links, windows/panes/tabs, the graph, the MCP
+surface, config and themes, and what Shale writes to disk. `docs/commands.md` is
+the generated command table and the only one of them that is not hand-written —
+which is why the others point at it instead of re-listing commands. The root
+documents (this file, `roadmap.md`, `brainstorm.md`, `design-language.md`,
+`PROGRESS.md`) stay the internal record: rulings, plans, and the reasoning a
+feature carries. When a feature's user-visible behaviour changes, the `docs/` page
+is the thing that goes stale first — check it in the same commit.
+
 Workspace layout:
 - `crates/core` (`shale-core`): vault model (path-traversal safe), wiki-link
   extraction/resolution/backlinks, search (`search.rs`: the vault-wide line scan
