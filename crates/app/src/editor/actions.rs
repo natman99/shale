@@ -70,6 +70,12 @@ impl MarkdownEditor {
         // round trip to whatever program owns it, and does not belong on every
         // keystroke.
         self.pull_from_clipboard(key, cx);
+        // Which lines a queued proposal speaks for right now (roadmap P2.5b), handed to
+        // the engine one keystroke before it decides whether a bare `y` is vim's yank or
+        // an accept. Recomputed here rather than when the queue changed is what keeps it
+        // honest mid-edit: a hunk stops being under review the moment it stops fitting,
+        // and the key goes back to vim with no gap in between.
+        self.vim.set_review_lines(self.review_lines());
         let before = self.buffer.text().to_string();
         let outcome = self.vim.handle_normal_key(key, &mut self.buffer);
         let changed = self.buffer.text() != before;
@@ -136,6 +142,13 @@ impl MarkdownEditor {
             // `j`/`k` and the palette reach.
             Outcome::ReviewNext => window.dispatch_action(ReviewNext.boxed_clone(), cx),
             Outcome::ReviewPrev => window.dispatch_action(ReviewPrev.boxed_clone(), cx),
+            // `y` / `x` / `za` on a line the review overlay is showing (P2.5b): the same
+            // three commands the strip's keys and the palette reach. The engine only knew
+            // the cursor was on a line under review; which proposal that is, and what
+            // accepting it does, is the window's answer.
+            Outcome::ReviewAccept => window.dispatch_action(ReviewAccept.boxed_clone(), cx),
+            Outcome::ReviewReject => window.dispatch_action(ReviewReject.boxed_clone(), cx),
+            Outcome::ReviewCollapse => window.dispatch_action(ReviewCollapse.boxed_clone(), cx),
             // `g t` / `g T`: the window owns the tabs, exactly as it owns the view
             // chords, and these reach the same commands `:tabnext` and the palette do.
             Outcome::TabNext => window.dispatch_action(TabNext.boxed_clone(), cx),

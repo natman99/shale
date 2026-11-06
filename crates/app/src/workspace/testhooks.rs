@@ -195,6 +195,30 @@ impl Workspace {
         self.tree_focus.clone()
     }
     #[cfg(test)]
+    /// How many display lines the note on screen is laid out as. The overlay's phantom
+    /// rows are deliberately **not** in this number (roadmap P2.5b).
+    #[cfg(test)]
+    pub(crate) fn display_line_count<C: gpui::AppContext>(&self, cx: &C) -> usize {
+        self.editor()
+            .map(|editor| editor.read_with(cx, |editor, _cx| editor.display_line_count()))
+            .unwrap_or_default()
+    }
+    /// The inline overlay of the note on screen, as that note would paint it
+    /// (roadmap P2.5b): struck rows, phantom rows, and which hunk is marked.
+    #[cfg(test)]
+    pub(crate) fn overlay_shape<C: gpui::AppContext>(&self, cx: &C) -> Vec<String> {
+        self.editor()
+            .map(|editor| editor.read_with(cx, |editor, _cx| editor.overlay_shape()))
+            .unwrap_or_default()
+    }
+    /// The buffer rows the vim engine currently treats as under review.
+    #[cfg(test)]
+    pub(crate) fn review_lines<C: gpui::AppContext>(&self, cx: &C) -> Vec<(usize, usize)> {
+        self.editor()
+            .map(|editor| editor.read_with(cx, |editor, _cx| editor.review_lines()))
+            .unwrap_or_default()
+    }
+
     pub(crate) fn active_path(&self) -> Option<PathBuf> {
         self.note()
     }

@@ -331,6 +331,13 @@ impl Vim {
             let Key::Char(c) = key else {
                 return Outcome::Unhandled;
             };
+            // `za` on a line a proposal is sitting on is the proposal's, not vim's: it
+            // collapses the proposal's additions to a count or brings them back
+            // (roadmap P2.5b). The fold it would have done is the one thing the overlay
+            // takes here, and only on those lines.
+            if c == 'a' && self.on_review_line(buf) {
+                return Outcome::ReviewCollapse;
+            }
             match c {
                 'a' => buf.fold_toggle(),
                 'c' => buf.fold_close(),

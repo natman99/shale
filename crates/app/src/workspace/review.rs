@@ -30,7 +30,9 @@ use shale_core::pending::{self, PendingEdit};
 use shale_core::vault::rel_text;
 
 use crate::acts::*;
+use crate::editor::overlay::InlineEdit;
 use crate::editor::View;
+use super::tabs::TabContent;
 
 use super::Workspace;
 
@@ -101,9 +103,99 @@ impl Workspace {
         let changed = self.review.update(cx, |review, cx| {
             review.set_queue(queue.edits, stale, clash, cx)
         });
+        // The note's copy of the same list (roadmap P2.5b). Run unconditionally rather
+        // than on `changed`: a tab that has just opened a note needs its proposals even
+        // when the queue itself did not move, and handing an editor the list it already
+        // has costs it nothing.
+        self.sync_overlay(cx);
         if changed {
             cx.notify();
         }
+    }
+
+    /// Hand every note tab in this window the proposals that concern its note, for the
+    /// inline overlay painted in the note itself (roadmap P2.5b).
+    ///
+    /// Per tab rather than per window, because a window can show three notes at once and
+    /// a proposal belongs to exactly one of them. The editor is handed the **hunks**
+    /// rather than the answer to "where do they go": the buffer moves with every
+    /// keystroke, so the editor re-places them against its own text each time it paints,
+    /// and a hunk that stops fitting stops being painted without anyone having to be
+    /// told — which is the same rule that keeps the overlay from showing a change the
+    /// accept would refuse.
+    pub(crate) fn sync_overlay(&self, cx: &mut Context<Self>) {
+        // Read the whole fan-out out first: handing an editor its list is an update, and
+        // the strip cannot be held open across one.
+        let mut per_tab: Vec<(gpui::Entity<crate::editor::MarkdownEditor>, Vec<InlineEdit>)> =
+            Vec::new();
+        {
+            let review = self.review.read(cx);
+            let marked = review.marked();
+            for pane in self.panes.iter() {
+                for tab in &pane.tabs {
+                    let TabContent::Note {
+                        path: Some(path),
+                        editor,
+                        ..
+                    } = &tab.content
+                    else {
+                        continue;
+                    };
+                    let edits: Vec<InlineEdit> = review
+                        .edits()
+                        .iter()
+                        .filter(|edit| &edit.note == path)
+                        .map(|edit| InlineEdit {
+                            id: edit.id.clone().into(),
+                            hunks: edit.hunks.clone(),
+                            current: marked
+                                .as_ref()
+                                .filter(|(id, _)| *id == edit.id)
+                                .and_then(|(_, hunk)| *hunk),
+                        })
+                        .collect();
+                    per_tab.push((editor.clone(), edits));
+                }
+            }
+        }
+        for (editor, edits) in per_tab {
+            editor.update(cx, |editor, cx| editor.set_pending_edits(edits, cx));
+        }
+    }
+
+    /// The hunk the cursor is standing on in the note, and only while the note holds the
+    /// keyboard (roadmap P2.5b).
+    ///
+    /// The focus test is the whole point. The strip's `y` means the marked hunk; the
+    /// note's `y` means the hunk under the caret. Reading the caret while the strip has
+    /// the keyboard would make one key mean two things depending on nothing the user can
+    /// see.
+    fn cursor_hunk(&self, window: &mut Window, cx: &gpui::App) -> Option<(String, usize)> {
+        let editor = self.pane().active_tab().editor()?;
+        editor.read_with(cx, |editor, cx| {
+            if !editor.focus_handle(cx).is_focused(window) {
+                return None;
+            }
+            editor
+                .hunk_at_cursor()
+                .map(|placed| (placed.id.to_string(), placed.hunk))
+        })
+    }
+
+    /// Point the strip's marker at the hunk under the cursor, when the note has the
+    /// keyboard.
+    ///
+    /// Aiming the marker rather than acting on the hunk directly is what lets the note's
+    /// `y` and the strip's `y` share one answer — and leaves the strip looking at what
+    /// the user just accepted, which is the honest thing for it to show afterwards.
+    fn aim_marker_at_cursor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((id, hunk)) = self.cursor_hunk(window, cx) else {
+            return;
+        };
+        let Some(row) = self.review.read(cx).row_for(&id, hunk) else {
+            return;
+        };
+        self.review.update(cx, |review, cx| review.select_row(row, cx));
     }
 
     /// Whether the strip has anything to show, which is when it is drawn at all.
@@ -179,9 +271,33 @@ impl Workspace {
     pub(super) fn review_collapse(
         &mut self,
         _: &ReviewCollapse,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // One key, two widgets (roadmap P2.5b). Over a line under review in the note it
+        // folds that hunk's additions to a `−N +M` count inside the note; over the
+        // strip it folds the whole proposal to one row of the list. The strip never
+        // rearranges text in the note, and the note never rearranges the list — which
+        // is why the two collapse states are kept apart rather than shared.
+        if let Some((id, hunk)) = self.cursor_hunk(window, cx) {
+            if let Some(editor) = self.pane().active_tab().editor() {
+                let collapsed = editor.update(cx, |editor, cx| {
+                    let collapsed = editor.toggle_inline_collapse(&id, hunk);
+                    cx.notify();
+                    collapsed
+                });
+                self.say(
+                    format!(
+                        "{} the additions {}",
+                        if collapsed { "collapsed" } else { "expanded" },
+                        if collapsed { "to a count" } else { "in full" }
+                    ),
+                    cx,
+                );
+                cx.notify();
+                return;
+            }
+        }
         self.review
             .update(cx, |review, cx| review.toggle_collapse(cx));
         cx.notify();
@@ -225,6 +341,9 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // The note's `y` means the hunk under its cursor; the strip's means the marked
+        // one (roadmap P2.5b). Aiming first is what lets both share the answer below.
+        self.aim_marker_at_cursor(window, cx);
         let Some(row) = self.review.read(cx).current_row() else {
             return;
         };
@@ -280,6 +399,8 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // Same rule as accept: from the note, the hunk under the cursor (roadmap P2.5b).
+        self.aim_marker_at_cursor(window, cx);
         let Some(row) = self.review.read(cx).current_row() else {
             return;
         };

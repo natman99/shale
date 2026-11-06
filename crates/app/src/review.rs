@@ -144,6 +144,13 @@ impl Review {
         !same
     }
 
+    /// The queue itself, oldest first — what the inline overlay in the note is painted
+    /// from (roadmap P2.5b). The strip stays the authoritative surface; the note is a
+    /// second view of the same list.
+    pub(crate) fn edits(&self) -> &[PendingEdit] {
+        &self.edits
+    }
+
     /// Whether there is nothing waiting, which is when the strip is not drawn at all.
     pub(crate) fn is_empty(&self) -> bool {
         self.edits.is_empty()
@@ -206,6 +213,14 @@ impl Review {
 
     /// Move the marker, wrapping at the ends: a queue is usually a handful of rows,
     /// and wrapping is quicker than counting them.
+    /// The row of one hunk of one proposal, named by id — how the note says "the hunk
+    /// under my cursor" to a strip that counts rows (roadmap P2.5b).
+    pub(crate) fn row_for(&self, id: &str, hunk: usize) -> Option<usize> {
+        self.rows().into_iter().position(|row| {
+            row.hunk == Some(hunk) && self.edits[row.edit].id == id
+        })
+    }
+
     pub(crate) fn move_marker(&mut self, by: isize, cx: &mut Context<Self>) {
         let rows = self.rows().len();
         if rows == 0 {
@@ -241,7 +256,7 @@ impl Review {
 
     /// What the marker is on, as `(edit id, hunk)`, which is what survives the queue
     /// being re-read under it.
-    fn marked(&self) -> Option<(String, Option<usize>)> {
+    pub(crate) fn marked(&self) -> Option<(String, Option<usize>)> {
         let row = self.current_row()?;
         Some((self.edits[row.edit].id.clone(), row.hunk))
     }

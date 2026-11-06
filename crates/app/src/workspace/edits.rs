@@ -327,6 +327,9 @@ impl Workspace {
                         }
                     }
                 }
+                // ...and a tab renamed out from under its proposals has to be told, or
+                // it keeps painting a proposal that now belongs to no tab at all.
+                self.sync_overlay(cx);
                 // The jump chain named the old path, and a chain that points at a
                 // note that no longer resolves is a dead end the user has to step
                 // over by hand.

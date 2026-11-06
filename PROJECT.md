@@ -1506,12 +1506,34 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   `vim -es -N -u NONE -i NONE`. The count went 53/55 → 62/64 with the nine register
   cases added; the two holdouts are still the `"` quote object and the paragraph
   object.
-- **Not implemented yet in vim mode** (re-checked 2026-11-05 against the engine: still
-  only the unnamed register, no case/replace operators, no blockwise visual): `C`/`S` in visual, repeating a text
+- **Inline review overlay (roadmap P2.5b) — done**: a queued proposal is now painted in
+  the note it belongs to, not only in the strip. The ruled shape that made this cheap:
+  a **removal is not phantom** — the line is already in the buffer, so the note's own row
+  is struck through in `diff_delete` with the hunk's bar down its left edge. Only
+  **additions** are phantom rows, and they hang off the display line they belong beside
+  rather than joining the scroller's children, which keeps the display-line index space
+  exactly the buffer's: `j`/`k` step past them, search cannot match them, folds and the
+  ruler never see them, and the caret cannot be on one. A hunk that no longer fits has no
+  placement (`diff::place` returns `None`), so it is not painted at all — an overlay
+  offering a change the accept would refuse is worse than no overlay, and the strip still
+  lists it badged stale. `za` over a line under review folds that hunk's additions to a
+  `−N +M` count; the strip's `za` collapses the *list* row, and the two collapse states
+  are deliberately separate widgets.
+- **Two-layer keys** (the part of P2.5b that lives in the vim engine): over a line a
+  proposal speaks for, bare `y` / `x` / `za` belong to the proposal; everywhere else they
+  are vim's. The guard is `no pending operator && no count && on_review_line` — a count
+  or an operator means the user is spelling a vim command, so `2y` and `dy` stay vim's
+  even over a struck line, and visual mode always stays vim's. The editor hands the
+  engine its review rows **one keystroke before the keystroke**, not when the queue
+  changed, so a hunk stops being under review the instant it stops fitting. The note's
+  `y` names the hunk under its own cursor and moves the strip's marker there; the strip's
+  `y` names the marked one.
+- **Not implemented yet in vim mode** (re-checked 2026-11-05 against the engine: no
+  case operators, no blockwise visual): `C`/`S` in visual, repeating a text
   object in visual to extend it, `i[`/`a[` in visual mode (the `[`/`]` bindings live
   in normal mode only, because the review chords `]a`/`[a` are there and `a` means
   something else in visual), blockwise `ctrl-v`, the case/replace operators
-  (`~`, `u`, `r`) in visual, registers other than the unnamed one, insert-mode
+  (`g~`, `gu`, `gU`) in visual, insert-mode
   deletions/arrows inside a `.` replay.
 - **Cursor model nits**: `Buffer` cursors may sit at `text.len()` (between
   characters) while vim's normal-mode cursor always sits *on* a character, so

@@ -48,6 +48,7 @@ mod panes;
 mod picker;
 mod popup;
 mod quotes;
+mod overlay;
 mod review;
 mod search;
 mod session;

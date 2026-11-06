@@ -133,9 +133,18 @@ cell's ends, and `j` `k` step between rows in the same column (outside a table,
 `K` is the checker). `DD` deletes a column, `|` and `\` insert one, and
 `alt+hjkl` moves a whole row or column under the cursor.
 
-**Agent review, while the note has the keyboard.** `]a` and `[a` hop the review
-marker to the next / previous pending hunk. Those are the only review keys in
-prose — which is why `y` and `x` still mean yank and delete.
+**Agent review, while the note has the keyboard.** A queued proposal is painted
+in the note it belongs to: the lines it would take away are struck through in the
+palette's red, and the lines it would bring sit between the note's own lines in
+green. Over *those* lines three keys belong to the proposal rather than to vim:
+`y` accepts that hunk, `x` rejects it, and `za` folds its additions to a
+`−N +M` count. Over every other line they are still yank, delete-char and fold,
+and a count or a pending operator means you are spelling a vim command — `2y` and
+`dy` are vim's even over a struck line. The additions are not in the buffer: `j`
+and `k` step past them, search cannot match them, and the ruler never counts them.
+`]a` and `[a` hop the review marker to the next / previous pending hunk from
+anywhere in the note, and the note's `y` names the hunk under its own cursor
+rather than the marked one.
 
 **Leader chords.**
 
@@ -186,8 +195,10 @@ spelling, with its argument, is in [commands.md](commands.md).
 
 ## The review strip
 
-Only while the strip has the keyboard (`:review`). These keys are bound *only*
-here, which is what keeps `y` and `x` meaning yank and delete in the note.
+Only while the strip has the keyboard (`:review`). The bindings live *only* here;
+the note reaches the same commands through its own `y` / `x` / `za` over a line a
+proposal speaks for (above), and there the hunk under the cursor is the one that
+is meant.
 
 | keys | what |
 | --- | --- |

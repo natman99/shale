@@ -94,6 +94,16 @@ pub(super) fn build_runs(
             slot.background = Some(palette.selection);
         }
     }
+    // Last, over the markdown styling and the search matches alike: a row the proposal
+    // would take away is struck through whatever it holds. The strike is the second
+    // channel `design-language.md` §8 asks for alongside the colour, so a proposal still
+    // reads correctly to someone who cannot separate the two reds.
+    if let Some(color) = styles.diff {
+        for slot in painted.iter_mut() {
+            slot.color = color;
+            slot.strikethrough = true;
+        }
+    }
 
     let mut runs: Vec<TextRun> = Vec::new();
     let mut i = 0usize;
@@ -131,6 +141,11 @@ pub(super) struct LineStyles {
     /// The `/` match the cursor is on. A match that straddles a hidden marker is
     /// painted in pieces, so this is a list rather than one range.
     pub(super) active: Vec<(usize, usize)>,
+    /// The colour of a row a queued agent proposal would take away (roadmap P2.5b). The
+    /// whole line is the proposal's, so this is one colour rather than a range — and it
+    /// is applied over every other style, because a struck-through heading inside a
+    /// proposal still has to read as removed.
+    pub(super) diff: Option<u32>,
 }
 
 /// The markdown spans, wiki-links, checker's ranges and search matches that
@@ -143,6 +158,7 @@ pub(super) fn cell_styles(
     marks: &[(usize, usize)],
     hits: &[(usize, usize)],
     active: Option<(usize, usize)>,
+    diff: Option<u32>,
     map: &PieceMap,
 ) -> LineStyles {
     let current = active.map(|range| vec![range]).unwrap_or_default();
@@ -152,5 +168,6 @@ pub(super) fn cell_styles(
         marks: map.rebase_marks(marks),
         hits: map.rebase_marks(hits),
         active: map.rebase_marks(&current),
+        diff,
     }
 }

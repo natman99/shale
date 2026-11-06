@@ -129,7 +129,7 @@ fn cell_styles_clip_and_rebase() {
     let links = vec![(12, 18, true)];
     let marks = vec![(2, 4), (12, 15)];
     let map = PieceMap::with_substitutions(&[(1, 7)], &[]);
-    let styles = cell_styles(&spans, &links, &marks, &[], None, &map);
+    let styles = cell_styles(&spans, &links, &marks, &[], None, None, &map);
     let (cell_spans, cell_links, cell_marks) = (styles.spans, styles.links, styles.marks);
     assert_eq!(cell_spans, vec![(1, 6, Style::Strong)]);
     assert!(cell_links.is_empty(), "a link in another cell is dropped");
@@ -147,7 +147,7 @@ fn cell_styles_clip_and_rebase() {
 fn cell_styles_follow_the_hidden_markers() {
     // The cell's content is bytes 10..17, `**a** b`, with both `**` hidden.
     let map = PieceMap::with_substitutions(&[(12, 13), (15, 17)], &[]);
-    let styles = cell_styles(&[(10, 15, Style::Strong)], &[], &[], &[], None, &map);
+    let styles = cell_styles(&[(10, 15, Style::Strong)], &[], &[], &[], None, None, &map);
     assert_eq!(
         styles.spans,
         vec![(0, 1, Style::Strong)],
@@ -307,4 +307,36 @@ fn a_gutter_mark_of_any_width_stays_inside_the_gutter() {
             f32::from(crate::style::GUTTER),
         );
     }
+}
+
+/// A row a queued proposal would take away is struck through, in the proposal's colour,
+/// over everything else the line holds. `design-language.md` §8 asks for two channels —
+/// the strike alongside the colour — so a proposal still reads correctly to someone who
+/// cannot tell the two reds apart. Last over the markdown styling and the search
+/// matches alike, because the row belongs to the proposal either way.
+#[test]
+fn a_row_under_review_is_struck_in_the_proposals_colour() {
+    let font = font("monospace");
+    let text = "**three**";
+    let styles = LineStyles {
+        spans: vec![(0, 7, Style::Strong)],
+        hits: vec![(2, 5)],
+        diff: Some(Palette::DARK.diff_delete),
+        ..LineStyles::default()
+    };
+    let runs = build_runs(text, &styles, &font, &Palette::DARK, 1.0);
+    assert_eq!(
+        runs.iter().map(|r| r.len).sum::<usize>(),
+        text.len(),
+        "the runs still cover the line exactly"
+    );
+    assert!(
+        runs.iter().all(|r| r.strikethrough.is_some()),
+        "the whole row is struck, whatever markdown it holds"
+    );
+    let want = gpui::Hsla::from(gpui::rgb(Palette::DARK.diff_delete));
+    assert!(
+        runs.iter().all(|r| r.color == want),
+        "and it is the proposal's colour, over the strong span and the search match too"
+    );
 }

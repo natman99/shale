@@ -26,6 +26,7 @@
 //! from — lives in [`runs`].
 
 mod marks;
+pub(crate) mod phantom;
 mod runs;
 #[cfg(test)]
 mod tests;
@@ -278,6 +279,23 @@ pub(crate) struct LineElement {
     /// glyph in the gutter, and records both x ranges, so a click on either opens the
     /// section again.
     pub(crate) fold: Option<usize>,
+    /// Set when a queued agent proposal would take this row away (roadmap P2.5b). The row
+    /// is the note's own text — a removal has nothing phantom about it — so what changes
+    /// is how it is painted: struck through, in the palette's red, with a bar down its
+    /// left edge that continues into the phantom lines below.
+    pub(crate) diff: Option<DiffRow>,
+}
+
+/// A row a queued proposal would take away.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct DiffRow {
+    /// The row's text and its left bar: the palette's `diff_delete`. A proposed change
+    /// is not an error, so this is the palette's own red rather than a louder one
+    /// (`design-language.md` §1).
+    pub(crate) color: u32,
+    /// The hunk the review strip's marker is on, which gets a wider bar so the strip and
+    /// the note point at the same change.
+    pub(crate) current: bool,
 }
 
 /// The text a folded heading carries: the number of rows the fold hides, so the user
@@ -529,6 +547,7 @@ impl Element for LineElement {
                     .active
                     .map(|range| self.map.rebase_marks(&[range]))
                     .unwrap_or_default(),
+                diff: self.diff.map(|diff| diff.color),
             };
             let runs = build_runs(&self.text, &styles, &base_font, &self.palette, self.dim);
             let line = text_system.shape_line(self.text.clone(), px(self.size), &runs, None);
@@ -593,6 +612,7 @@ impl Element for LineElement {
                     &self.marks,
                     &self.hits,
                     self.active,
+                    self.diff.map(|diff| diff.color),
                     &map,
                 );
                 let runs = build_runs(&painted, &styles, &base_font, &self.palette, self.dim);
@@ -644,6 +664,20 @@ impl Element for LineElement {
                 ElementInputHandler::new(bounds, self.editor.clone()),
                 cx,
             );
+        }
+
+        // A row a proposal would take away carries the hunk's bar down its left edge,
+        // the same 2 px the callout's box uses, so the struck rows and the phantom lines
+        // under them read as one block.
+        if let Some(diff) = self.diff {
+            let width = if diff.current { px(3.) } else { px(2.) };
+            window.paint_quad(fill(
+                Bounds::from_corners(
+                    gpui::point(bounds.left(), bounds.top()),
+                    gpui::point(bounds.left() + width, bounds.bottom()),
+                ),
+                rgb(fade(diff.color, self.palette.bg, self.dim)),
+            ));
         }
 
         // A fenced block's background covers the whole line, not just its text.

@@ -12,7 +12,7 @@ use shale_core::vim::{Key, Mode};
 use crate::acts::*;
 use crate::dim;
 use crate::image;
-use crate::line::LineElement;
+use crate::line::{DiffRow, LineElement};
 use crate::preview::{LineLayout, PieceMap};
 use crate::table_view;
 use crate::theme;
@@ -169,6 +169,11 @@ impl Render for MarkdownEditor {
                 &collapsed,
             )
         };
+        // The review overlay (roadmap P2.5b): which rows a queued proposal would take
+        // away, and the phantom lines that would replace them. Placed against this
+        // frame's text, so a hunk that no longer fits the note is simply not here — the
+        // strip still lists it, badged stale.
+        let frame = self.frame(&display_lines);
         let cursor_display = self.buffer.display_index_for(cursor);
         // Focus mode: one alpha per buffer row, measured from the block (or the
         // heading section) the cursor is in. Raw mode is the file as it sits on
@@ -684,9 +689,27 @@ impl Render for MarkdownEditor {
                             .map(|image| f32::from(image.height))
                             .unwrap_or_else(|| theme::line_height(dl.size));
                         let editor = cx.entity();
+                        // A row a queued proposal would take away: struck through, in
+                        // the palette's red, with the hunk's bar down its left edge.
+                        let diff = frame
+                            .struck
+                            .get(&dl.row)
+                            .map(|current| DiffRow {
+                                color: self.palette.diff_delete,
+                                current: *current,
+                            });
+                        let before = frame
+                            .before
+                            .get(&index)
+                            .map(|blocks| self.phantom_lines(blocks))
+                            .unwrap_or_default();
+                        let after = frame
+                            .after
+                            .get(&index)
+                            .map(|blocks| self.phantom_lines(blocks))
+                            .unwrap_or_default();
 
-                        div()
-                            .id(("line", index))
+                        let line = div()
                             .w_full()
                             .h(px(height))
                             .child(LineElement {
@@ -719,6 +742,7 @@ impl Render for MarkdownEditor {
                                 char_width,
                                 palette: Rc::clone(&self.palette),
                                 fold,
+                                diff,
                             })
                             // Where the pointer is over the note is reported to the
                             // window, which decides whether that is a word the
@@ -738,7 +762,25 @@ impl Render for MarkdownEditor {
                                         })
                                     });
                                 }
-                            })
+                            });
+                        // The phantom lines hang off the display line they belong beside
+                        // rather than joining the scroller's children. That keeps the
+                        // display-line index space exactly as the buffer's display model
+                        // counts it, which is what lets `j`/`k`, the ruler, the caret and
+                        // scroll-to-item go on ignoring the proposal entirely — the ruled
+                        // shape of "not in the buffer, so motion skips them but the frame
+                        // paints them".
+                        if before.is_empty() && after.is_empty() {
+                            div().id(("line", index)).w_full().child(line)
+                        } else {
+                            div()
+                                .id(("line", index))
+                                .w_full()
+                                .flex_col()
+                                .children(before)
+                                .child(line)
+                                .children(after)
+                        }
                     })),
             )
     }

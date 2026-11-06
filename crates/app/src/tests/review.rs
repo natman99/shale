@@ -13,18 +13,18 @@ use shale_core::Session;
 
 /// A note with enough lines that a change in the middle carries context, which is what
 /// a stale badge is about.
-const NOTE: &str = "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\n";
+pub(super) const NOTE: &str = "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\n";
 /// …and the same note with one line changed.
-const EDITED: &str = "one\ntwo\nTHREE\nfour\nfive\nsix\nseven\neight\n";
+pub(super) const EDITED: &str = "one\ntwo\nTHREE\nfour\nfive\nsix\nseven\neight\n";
 
 /// Queue one proposal against `note`, the way the MCP server does: a file in
 /// `.shale/pending-edits/` carrying the hunks that turn `current` into `proposed`.
-fn queue(root: &Path, note: &str, current: &str, proposed: &str) -> PendingEdit {
+pub(super) fn queue(root: &Path, note: &str, current: &str, proposed: &str) -> PendingEdit {
     queued(root, note, current, proposed, "writing-help")
 }
 
 /// The same, with the profile named, for the tests that care whose proposal it is.
-fn queued(root: &Path, note: &str, current: &str, proposed: &str, profile: &str) -> PendingEdit {
+pub(super) fn queued(root: &Path, note: &str, current: &str, proposed: &str, profile: &str) -> PendingEdit {
     let edit = PendingEdit {
         id: PendingEdit::new_id(profile, "write_note", 1_700_000_000),
         note: PathBuf::from(note),
@@ -38,45 +38,45 @@ fn queued(root: &Path, note: &str, current: &str, proposed: &str, profile: &str)
 }
 
 /// Where a queued proposal lives.
-fn queue_file(root: &Path, id: &str) -> PathBuf {
+pub(super) fn queue_file(root: &Path, id: &str) -> PathBuf {
     pending::dir(root).join(format!("{id}.toml"))
 }
 
 /// Read the queue now, rather than waiting on the beat.
-fn scan(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) {
+pub(super) fn scan(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) {
     window
         .update(cx, |ws, _window, cx| ws.scan_pending(cx))
         .unwrap();
 }
 
 /// The rows the strip is drawing.
-fn rows(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> Vec<String> {
+pub(super) fn rows(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> Vec<String> {
     window
         .update(cx, |ws, _window, cx| ws.review_rows(cx))
         .unwrap()
 }
 
 /// Whether the strip is on screen at all.
-fn strip_up(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> bool {
+pub(super) fn strip_up(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> bool {
     window
         .update(cx, |ws, _window, cx| ws.review_active(cx))
         .unwrap()
 }
 
 /// The buffer, which is where an accepted hunk lands when the note is open.
-fn buffer(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> String {
+pub(super) fn buffer(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> String {
     window
         .update(cx, |ws, _window, cx| ws.buffer_text(cx))
         .unwrap()
 }
 
 /// The status line, where every review command says what it did or refused.
-fn say(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> String {
+pub(super) fn say(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> String {
     window.update(cx, |ws, _window, _cx| ws.status()).unwrap()
 }
 
 /// Open `a.md` in the window.
-fn show(cx: &mut TestAppContext, window: &WindowHandle<Workspace>) {
+pub(super) fn show(cx: &mut TestAppContext, window: &WindowHandle<Workspace>) {
     window
         .update(cx, |ws, _window, cx| {
             ws.open_note(&PathBuf::from("a.md"), cx)
@@ -85,7 +85,7 @@ fn show(cx: &mut TestAppContext, window: &WindowHandle<Workspace>) {
 }
 
 /// Type a command line and press enter.
-fn command_line(line: &str, cx: &mut VisualTestContext) {
+pub(super) fn command_line(line: &str, cx: &mut VisualTestContext) {
     cx.simulate_keystrokes("escape :");
     cx.simulate_input(line);
     cx.simulate_keystrokes("enter");
@@ -93,7 +93,7 @@ fn command_line(line: &str, cx: &mut VisualTestContext) {
 
 /// A window over a vault holding `NOTE` in `a.md`, with the note open and one proposal
 /// against it queued. The strip is up and the marker is on the hunk.
-fn one_proposal(
+pub(super) fn one_proposal(
     cx: &mut TestAppContext,
 ) -> (
     tempfile::TempDir,

@@ -32,9 +32,10 @@ harness. Refreshed 2026-11-05 to add what shipped that week: the graph's local
 neighbourhood and projected 3D mode, the start block a blank tab paints, `:w` naming
 an unnamed note after its first line, and tab stealing between panes.
 
-**Where the phases stand** (refreshed 2026-11-04, replacing the 2026-10-28
-list that still called tabs and the graph unbuilt): **Phases 0, 1 and 2 are
-closed** — the one Phase 2 remainder is **P2.5b**, the inline review overlay.
+**Where the phases stand** (refreshed 2026-11-05, replacing the 2026-11-04
+list): **Phases 0, 1 and 2 are closed, including P2.5b** — the inline review
+overlay landed 2026-11-05, so nothing is left in Phase 2 but the P2.6/7/8 items
+deferred to the Phase 3 addendum.
 **Phase 3:** P3.1 tabs done; P3.2 splits landed (a + b), and 2026-11-05 closed the
 session's pane-tree half and pane resize (`ctrl-w >`/`<`) — move/exchange/rotate and
 `:pin` are what is left of P3.2;
@@ -684,11 +685,21 @@ already wrote.)
     and re-propose (agent may retract its own; accept is user-only). Quit
     prompts; unanswered/killed → files persist and re-offer next launch.
     No in-place editing of proposed hunks.
-  - **P2.5b — inline overlay (open):** phantom-region hunks in the note (dimmed
-    removals, tinted additions, collapsible, `za`), re-anchored by diff
-    context, strip-only fallback when ambiguous — strip authoritative,
-    inline opportunistic. Full shape in brainstorm.md (agent presence
-    cluster).
+  - **P2.5b — inline overlay (✅ 2026-11-05):** the same hunks painted in the
+    note they belong to. A removal is **not** phantom — the note's own row is
+    struck through in `diff_delete` with the hunk's bar down its left edge,
+    because the line is already in the buffer. Only additions are phantom rows:
+    they hang off the display line they belong beside, so the display-line index
+    space stays exactly the buffer's and `j`/`k`, search, folds, the ruler and
+    the caret never see them. `za` over a line under review folds that hunk's
+    additions to a `−N +M` count; the strip's `za` still collapses the *list*
+    row, and the two states are deliberately separate. A hunk that no longer
+    fits has no placement, so it is not painted at all — the strip keeps
+    listing it badged stale. Strip authoritative, inline opportunistic, as
+    ruled. Two-layer keys: bare `y`/`x`/`za` over a line under review belong to
+    the proposal; a count, a pending operator, or visual mode gives them back to
+    vim. The note's `y` names the hunk under its cursor and moves the strip's
+    marker there; the strip's `y` names the marked one.
     - **Its colours already exist.** `Palette::diff_add` / `diff_delete` /
       `diff_changed` landed with the design-language sweep (2026-11-03,
       `design-language.md` §1, all 20 built-ins valued), so this task paints
@@ -716,8 +727,8 @@ already wrote.)
 same command ids; docs regenerate in CI/test; an external agent can drive the
 app over HTTP and its edits queue as pending files that survive a `kill -TERM`
 — **P2.5a closes Phase 2**. Capture working app-up-and-down moved with P2.6
-into the Phase 3 addendum. **P2.5a landed 2026-11-01, so Phase 2 is closed**
-(P2.5b and the P2.6/7/8 addendum remain open).
+into the Phase 3 addendum. **P2.5a landed 2026-11-01; P2.5b landed 2026-11-05,
+so Phase 2 is closed on its own terms** (only the P2.6/7/8 addendum remains).
 
 ---
 

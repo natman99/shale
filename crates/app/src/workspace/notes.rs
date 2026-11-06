@@ -76,6 +76,9 @@ impl Workspace {
                     *slot = Some(path.clone());
                     editor.update(cx, |editor, cx| editor.set_text(text.clone(), cx));
                 }
+                // A note that has just come into the view needs its proposals now, not
+                // on the next tick of the queue beat (roadmap P2.5b).
+                self.sync_overlay(cx);
                 self.checker_opened(path, &text, cx);
                 self.say(rel_text(path), cx);
                 // The tab's note is only *now* the note being read: `note_tab` above

@@ -9,9 +9,11 @@
 //! - [`render`]: building the frame and wiring the vim key context
 //! - [`actions`]: the handlers the key context binds
 //! - [`input`]: gpui's input surface (IME, paste, clicks)
+//! - [`overlay`]: a queued agent proposal painted in the note (roadmap P2.5b)
 
 mod actions;
 mod input;
+pub(crate) mod overlay;
 mod render;
 mod wrap;
 
@@ -206,6 +208,14 @@ pub struct MarkdownEditor {
     /// The workspace sets this per pane while painting; the editor never decides
     /// it on its own.
     pub(crate) cursor_dim: bool,
+    /// The agent proposals queued for the note this editor is holding, as the overlay
+    /// needs them (roadmap P2.5b). The window pushes these; the editor only places and
+    /// paints them. See [`overlay`].
+    pending_edits: Vec<overlay::InlineEdit>,
+    /// Which of those proposals' additions the user has collapsed to a count with `za`,
+    /// by proposal id and hunk. Transient: it belongs to the frame, not to the queue,
+    /// and a proposal that goes stale and comes back is offered open again.
+    collapsed_inline: HashSet<(SharedString, usize)>,
     dirty: bool,
 }
 
@@ -241,6 +251,8 @@ impl MarkdownEditor {
             typewriter: false,
             typewriter_anchor: None,
             cursor_dim: false,
+            pending_edits: Vec::new(),
+            collapsed_inline: HashSet::new(),
             dirty: false,
         }
     }

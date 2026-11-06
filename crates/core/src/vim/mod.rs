@@ -167,6 +167,17 @@ pub enum Outcome {
     ReviewNext,
     /// `[a` was typed: the marker to the previous pending hunk.
     ReviewPrev,
+    /// `y` was typed with the cursor on a line the review overlay is showing (roadmap
+    /// P2.5b): accept that hunk. The engine knows only that a proposal is sitting on
+    /// this line — the queue, the diff and the note it belongs to all belong to the
+    /// window — so this is a request like `]a`, not an edit.
+    ReviewAccept,
+    /// `x` on such a line: reject the hunk and leave the note exactly as it is.
+    ReviewReject,
+    /// `za` on such a line: collapse the proposal's additions to a count, or bring them
+    /// back. This is the one thing the overlay takes from vim: `za` there would
+    /// otherwise fold the section the line sits in.
+    ReviewCollapse,
     /// `g t` was typed: the UI should go to the next tab. The engine has no idea the
     /// window has tabs — it has a buffer, and a buffer does not know what else is
     /// open beside it — so this is a request, like `space f` and `]a`. vim spells the
@@ -256,6 +267,18 @@ pub struct Vim {
     /// operator. As an action the engine sees every `]` and `[` and decides, which is
     /// what keeps `f[` and `di]` literal and `]a` a command.
     after_bracket: Option<bool>,
+    /// The lines a pending proposal is sitting on, as inclusive `(first, last)` buffer
+    /// rows (roadmap P2.5b). The window hands these over whenever the queue or the note
+    /// moves, and they carry only the lines the proposal would change — not its context,
+    /// which the overlay leaves alone.
+    ///
+    /// The engine is told rather than told-to-ask because it has no queue to ask: it
+    /// holds a buffer, and a buffer does not know that anyone has proposed anything.
+    /// What it can answer is the one question the two-layer keys turn on — is the cursor
+    /// on a line under review, where bare `y`/`x`/`za` belong to the proposal rather
+    /// than to vim — and answering it here is what keeps that rule testable without a
+    /// window.
+    review_lines: Vec<(usize, usize)>,
 }
 
 impl Default for Vim {
@@ -280,11 +303,32 @@ impl Vim {
             pending_register: None,
             after_space: false,
             after_bracket: None,
+            review_lines: Vec::new(),
         }
     }
 
     pub fn mode(&self) -> Mode {
         self.mode
+    }
+
+    /// Say which lines of the buffer a pending proposal is sitting on, as inclusive
+    /// `(first, last)` rows. An empty list — the usual case — is what makes `y`, `x` and
+    /// `za` ordinary again.
+    pub fn set_review_lines(&mut self, lines: Vec<(usize, usize)>) {
+        self.review_lines = lines;
+    }
+
+    /// Whether the cursor is on a line under review, which is the whole of the
+    /// two-layer key rule: on such a line bare `y`/`x`/`za` answer to the proposal, and
+    /// everywhere else they answer to vim.
+    fn on_review_line(&self, buf: &Buffer) -> bool {
+        if self.review_lines.is_empty() {
+            return false;
+        }
+        let (row, _) = buf.row_col(buf.cursor());
+        self.review_lines
+            .iter()
+            .any(|(first, last)| row >= *first && row <= *last)
     }
 
     /// Count typed so far, for the status bar.
@@ -537,6 +581,25 @@ impl Vim {
         }
         if self.mode.is_visual() {
             return self.handle_visual_key(key, buf);
+        }
+        // The review overlay's layer of the keys (roadmap P2.5b, ruled in brainstorm.md
+        // "Agent edit review"): on a line a proposal is sitting on, bare `y` and `x`
+        // accept and reject that hunk. Everywhere else they are vim's yank and delete,
+        // which is the point of the two-layer scheme — the overlay must not shadow a key
+        // the user is reaching for in prose.
+        //
+        // Only a plain one: a count (`2y`) or a pending operator (`d`) means the user is
+        // still spelling a vim command, and visual mode means the selection is what they
+        // are holding, so both keep vim's keys.
+        if self.pending == Pending::None
+            && self.count.is_none()
+            && self.on_review_line(buf)
+        {
+            match key {
+                Key::Char('y') => return Outcome::ReviewAccept,
+                Key::Char('x') => return Outcome::ReviewReject,
+                _ => {}
+            }
         }
         if key == Key::Char('.') && !self.waiting_for_literal() {
             return self.repeat_last(buf);

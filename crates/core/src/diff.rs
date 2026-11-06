@@ -205,6 +205,72 @@ pub fn region(current: &str, hunk: &Hunk) -> Option<(usize, usize, String)> {
     Some((start, end, text))
 }
 
+/// Where one hunk lands in a note the user is looking at (roadmap P2.5b).
+///
+/// [`apply`] answers "what does the note say afterwards" and [`region`] answers "what
+/// bytes does it rewrite"; the inline overlay asks a third question — *which lines are
+/// being taken away, and where do the new ones sit*. It cannot answer that from the
+/// byte range, because a hunk carries three lines of context on each side and the
+/// context is not part of the change: painting the context as though it were would
+/// strike through lines the proposal leaves alone.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Placement {
+    /// The note's 0-based lines this hunk would take away. These are **real lines of
+    /// the buffer**, which is what lets the overlay strike the note's own text rather
+    /// than draw a copy of it: a removal has nothing phantom about it.
+    pub removed: Vec<usize>,
+    /// The lines the hunk brings, each group with the 0-based line of the note it sits
+    /// **before**. `0` means "above the first line", and a number past the last line
+    /// means "at the end". These are the phantom rows: they are not in the buffer, and
+    /// nothing that moves through the note — `j`/`k`, selection, search, folds — sees
+    /// them.
+    ///
+    /// A hunk can bring more than one group because a hunk is one *contiguous* change
+    /// with its context, and two changes within three lines of each other are merged
+    /// into one hunk ([`CONTEXT`]).
+    pub added: Vec<(usize, Vec<String>)>,
+}
+
+/// Put `hunk` against `current` line by line, or say it no longer fits.
+///
+/// The verdict is the same one [`apply`] and [`region`] reach — the hunk's own context
+/// and removal lines, in order, at the position it was recorded at — because the
+/// overlay must not paint a proposal somewhere the accept would not land it. A hunk
+/// that is stale has no placement: the strip keeps showing it, badged stale, and the
+/// note stays as it is. That is the ruled shape of "strip authoritative, inline
+/// opportunistic".
+pub fn place(current: &str, hunk: &Hunk) -> Option<Placement> {
+    let fit = fit(current, hunk)?;
+    let mut line = fit.start;
+    let mut removed = Vec::new();
+    let mut added: Vec<(usize, Vec<String>)> = Vec::new();
+    let mut waiting: Vec<String> = Vec::new();
+    for (tag, text) in hunk_body(&hunk.text) {
+        match tag {
+            // Context is where the note and the proposal agree, so it ends any run of
+            // additions: they belong just above this line.
+            ' ' => {
+                if !waiting.is_empty() {
+                    added.push((line, std::mem::take(&mut waiting)));
+                }
+                line += 1;
+            }
+            '-' => {
+                if !waiting.is_empty() {
+                    added.push((line, std::mem::take(&mut waiting)));
+                }
+                removed.push(line);
+                line += 1;
+            }
+            _ => waiting.push(text),
+        }
+    }
+    if !waiting.is_empty() {
+        added.push((line, waiting));
+    }
+    Some(Placement { removed, added })
+}
+
 /// What a hunk expects to find where it says it belongs, and what it brings there.
 ///
 /// [`apply`] and [`region`] are one verdict asked two ways, and both need this: the
@@ -620,5 +686,106 @@ mod tests {
             second.old_len + second.added() + 1,
             "shifting kept the body"
         );
+    }
+
+    /// The inline overlay's question (P2.5b): which of the note's own lines does this
+    /// proposal take away, and where do its new lines sit.
+    #[test]
+    fn a_placement_names_the_lines_and_where_the_new_ones_sit() {
+        let proposed = NOTE.replace("five", "FIVE");
+        let hunk = hunks(NOTE, &proposed).remove(0);
+        let at = place(NOTE, &hunk).expect("fresh, so it places");
+        assert_eq!(at.removed, vec![4], "line 5 of the note, counted from 0");
+        assert_eq!(
+            at.added,
+            vec![(5, vec!["FIVE".to_string()])],
+            "the new line sits above line index 5, i.e. where the old one was"
+        );
+    }
+
+    /// A hunk carries three lines of context on each side. The overlay must not paint
+    /// those: they are the part the proposal agrees to leave alone, and striking them
+    /// would tell the user the agent means to rewrite lines it does not touch.
+    #[test]
+    fn a_placement_leaves_the_context_out() {
+        let proposed = NOTE.replace("five", "FIVE");
+        let hunk = hunks(NOTE, &proposed).remove(0);
+        assert!(hunk.text.contains(" three"), "the hunk does carry context");
+        let at = place(NOTE, &hunk).unwrap();
+        for line in [2, 3, 5, 6] {
+            assert!(
+                !at.removed.contains(&line),
+                "line {line} is context, not a removal"
+            );
+        }
+    }
+
+    #[test]
+    fn an_insertion_removes_nothing() {
+        let proposed = NOTE.replace("four\n", "four\nFOUR-AGAIN\n");
+        let hunk = hunks(NOTE, &proposed).remove(0);
+        let at = place(NOTE, &hunk).unwrap();
+        assert!(at.removed.is_empty(), "nothing is taken away");
+        assert_eq!(at.added, vec![(4, vec!["FOUR-AGAIN".to_string()])]);
+    }
+
+    #[test]
+    fn a_deletion_bringing_nothing_places_empty_additions() {
+        let proposed = NOTE.replace("five\n", "");
+        let hunk = hunks(NOTE, &proposed).remove(0);
+        let at = place(NOTE, &hunk).unwrap();
+        assert_eq!(at.removed, vec![4]);
+        assert!(at.added.is_empty(), "the proposal brings no lines");
+    }
+
+    /// Two changes close enough to share a hunk are still two changes: the overlay
+    /// paints both, and painting only the first would hide half a proposal.
+    #[test]
+    fn one_hunk_can_change_in_two_places() {
+        let proposed = NOTE.replace("two", "TWO").replace("four", "FOUR");
+        let hunk = hunks(NOTE, &proposed).remove(0);
+        assert_eq!(hunk.added(), 2, "one hunk, two changes");
+        let at = place(NOTE, &hunk).unwrap();
+        assert_eq!(at.removed, vec![1, 3]);
+        assert_eq!(
+            at.added,
+            vec![(2, vec!["TWO".to_string()]), (4, vec!["FOUR".to_string()])]
+        );
+    }
+
+    /// A proposal against a note that does not exist yet places at the top of an empty
+    /// buffer, which is what lets a new note's whole text show as phantom lines.
+    #[test]
+    fn a_new_note_places_at_the_top_of_nothing() {
+        let proposed = "# Idea\n\nA thought.\n";
+        let hunk = hunks("", proposed).remove(0);
+        let at = place("", &hunk).expect("an empty note is what a new note expects");
+        assert!(at.removed.is_empty());
+        assert_eq!(
+            at.added,
+            vec![(0, vec!["# Idea".into(), String::new(), "A thought.".into()])]
+        );
+    }
+
+    /// A stale hunk has no placement. The strip still lists it, badged; the note is
+    /// left exactly as it is, because an overlay painting a change the accept would
+    /// refuse is worse than no overlay.
+    #[test]
+    fn a_stale_hunk_places_nowhere() {
+        let proposed = NOTE.replace("five", "FIVE");
+        let hunk = hunks(NOTE, &proposed).remove(0);
+        assert_eq!(place(&NOTE.replace("five", "five, mine"), &hunk), None);
+        assert_eq!(place("one\ntwo\n", &hunk), None);
+    }
+
+    /// Additions at the end of the note are anchored past the last line, which is how
+    /// the overlay knows to hang them below everything rather than above something.
+    #[test]
+    fn an_addition_at_the_end_is_anchored_past_the_last_line() {
+        let proposed = format!("{NOTE}P.S.\n");
+        let hunk = hunks(NOTE, &proposed).remove(0);
+        let at = place(NOTE, &hunk).unwrap();
+        assert!(at.removed.is_empty());
+        assert_eq!(at.added, vec![(8, vec!["P.S.".to_string()])]);
     }
 }
