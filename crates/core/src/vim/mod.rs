@@ -45,6 +45,24 @@ impl Operator {
     }
 }
 
+/// What the last `f`/`t`/`F`/`T` searched for, so `;` and `,` can do it again.
+#[derive(Debug, Clone, Copy)]
+pub struct FindRecord {
+    c: char,
+    forward: bool,
+    inclusive: bool,
+}
+
+impl FindRecord {
+    /// The repeat of a find: `;` keeps the direction, `,` reverses it. The
+    /// inclusivity belongs to the original command, so a `;` after `t` is still
+    /// exclusive and lands where `t` would have.
+    fn replay(self, backward: bool) -> (char, bool, bool) {
+        let forward = self.forward != backward;
+        (self.c, forward, self.inclusive)
+    }
+}
+
 /// A partially-typed multi-key normal-mode command. The count typed before the
 /// prefix is carried along, since `gg`/`G` take their line number from it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -183,6 +201,12 @@ pub struct Vim {
     last_command: Option<Vec<Cmd>>,
     /// A command that dropped into insert mode is still being recorded.
     insert_session: bool,
+    /// The last `f`/`t`/`F`/`T` that was typed, which is what `;` repeats and `,`
+    /// repeats backwards. vim remembers the command rather than a search pattern,
+    /// so a `;` after `tw` re-runs an exclusive find from where the cursor already
+    /// sits — which is why it looks like it does nothing, and why the quirk is
+    /// worth keeping rather than "fixing".
+    last_find: Option<FindRecord>,
     /// The key just typed was a plain `space` motion, so the next key may be one
     /// of Shale's leader chords (`f` quick-open, `s` vault search, and the three
     /// views `r` / `l` / `p`) rather than a find. The space motion itself is
@@ -217,6 +241,7 @@ impl Vim {
             command: Vec::new(),
             last_command: None,
             insert_session: false,
+            last_find: None,
             after_space: false,
             after_bracket: None,
         }

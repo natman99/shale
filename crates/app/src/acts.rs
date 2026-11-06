@@ -103,6 +103,9 @@ actions!(
         VimGreater,
         VimQuote,
         VimApostrophe,
+        // `;` and `,` repeat the last `f`/`t`/`F`/`T`, forwards and backwards.
+        VimSemicolon,
+        VimComma,
         VimColon,
         VimDot,
         VimEscape,

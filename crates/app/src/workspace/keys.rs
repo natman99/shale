@@ -251,6 +251,8 @@ fn build() -> (Vec<KeyBinding>, Vec<KeymapRow>) {
             ">" => VimGreater,
             "\"" => VimQuote,
             "'" => VimApostrophe,
+            ";" => VimSemicolon,
+            "," => VimComma,
             "escape" => VimEscape,
             "1" => VimDigit1,
             "2" => VimDigit2,

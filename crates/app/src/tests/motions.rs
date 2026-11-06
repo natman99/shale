@@ -759,3 +759,39 @@ fn text_objects_through_the_keymap(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("0 f b v i ( d");
     assert_eq!(text(cx), "a () d", "`i(` in visual selects the inside, `d` takes it");
 }
+
+/// `;` and `,` repeat the last find, and they are new bindings: the point of this
+/// test is that the keystroke reaches the engine at all.
+#[gpui::test]
+fn find_repeats_through_the_keymap(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.bind_keys(keybindings()));
+
+    let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+    let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+    editor
+        .update(cx, |editor, window, cx| {
+            editor.set_text("a w b w c w d".to_string(), cx);
+            let focus = editor.focus_handle(cx);
+            window.focus(&focus, cx);
+        })
+        .unwrap();
+    let text =
+        |cx: &mut VisualTestContext| editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
+
+    // `f` then `;` walks the character; `rx` shows where the cursor landed.
+    cx.simulate_keystrokes("0 f w ; r x");
+    assert_eq!(text(cx), "a w b x c w d", "`;` found the second `w`");
+    cx.simulate_keystrokes(", r y");
+    assert_eq!(text(cx), "a y b x c w d", "`,` went back to the one before it");
+
+    // As an operator motion, with the original find's inclusivity.
+    editor
+        .update(cx, |editor, window, cx| {
+            editor.set_text("a w b w c w d".to_string(), cx);
+            let focus = editor.focus_handle(cx);
+            window.focus(&focus, cx);
+        })
+        .unwrap();
+    cx.simulate_keystrokes("0 f w d ;");
+    assert_eq!(text(cx), "a  c w d", "`d;` takes through the `w` it lands on");
+}

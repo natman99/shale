@@ -286,6 +286,16 @@ impl Render for MarkdownEditor {
                 }),
             )
             .on_action(
+                cx.listener(|this, _: &VimSemicolon, window, cx| {
+                    this.normal(Key::Char(';'), window, cx)
+                }),
+            )
+            .on_action(
+                cx.listener(|this, _: &VimComma, window, cx| {
+                    this.normal(Key::Char(','), window, cx)
+                }),
+            )
+            .on_action(
                 cx.listener(|this, _: &VimB, window, cx| this.normal(Key::Char('b'), window, cx)),
             )
             .on_action(

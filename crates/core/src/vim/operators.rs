@@ -116,6 +116,39 @@ impl Vim {
                 };
                 return Outcome::Stay;
             }
+            Key::Char(';') | Key::Char(',') => {
+                // `d;` sweeps to where the last find would land again, with the
+                // same inclusivity — `d;` after an `f` includes the character it
+                // lands on, exactly as `df<char>` would.
+                let Some(last) = self.last_find else {
+                    return Outcome::Unhandled;
+                };
+                let (c, forward, inclusive) = last.replay(key == Key::Char(','));
+                let start = buf.cursor();
+                buf.find_char(c, forward, inclusive, count);
+                if located.is_some_and(|loc| !loc.cell.contains(buf.cursor())) {
+                    buf.set_cursor(start);
+                    return Outcome::Stay;
+                }
+                let end = buf.cursor();
+                if start == end {
+                    // Nothing found: the operator is cancelled, as in vim.
+                    return Outcome::Stay;
+                }
+                let (lo, hi) = if end > start {
+                    (
+                        start,
+                        if inclusive {
+                            buf.next_char_boundary(end)
+                        } else {
+                            end
+                        },
+                    )
+                } else {
+                    (end, start)
+                };
+                return self.apply_range(op, lo, hi, buf);
+            }
             _ => {
                 // Unknown motion: cancel the operator rather than guessing.
                 return Outcome::Unhandled;

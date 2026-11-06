@@ -11,7 +11,7 @@ use crate::table;
 use crate::table::Located;
 
 use super::tables::snap_cell_motion;
-use super::{char_range, repeat, Key, Operator, Outcome, Pending, Register, Vim};
+use super::{char_range, repeat, FindRecord, Key, Operator, Outcome, Pending, Register, Vim};
 
 impl Vim {
     /// The normal-mode state machine: motions, operators and insert transitions.
@@ -49,6 +49,11 @@ impl Vim {
                 return Outcome::Unhandled;
             };
             let start = buf.cursor();
+            self.last_find = Some(FindRecord {
+                c,
+                forward,
+                inclusive,
+            });
             buf.find_char(c, forward, inclusive, count);
             // Inside a cell, a find that would land outside it counts as "not
             // found": the cursor stays put and an operator is cancelled.
@@ -378,6 +383,21 @@ impl Vim {
             }
             Key::Char('^') => buf.first_non_blank(),
             Key::Char('$') => buf.line_last_char_motion(),
+            // `;` and `,` repeat the last find, forwards and backwards. The
+            // inclusivity comes from the original command, so `;` after `tw` is
+            // still exclusive and — sitting just before the character it is
+            // looking for — does not move. That is vim's behaviour, quirk and all.
+            Key::Char(';') | Key::Char(',') => {
+                let Some(last) = self.last_find else {
+                    return Outcome::Unhandled;
+                };
+                let (c, forward, inclusive) = last.replay(key == Key::Char(','));
+                let start = buf.cursor();
+                buf.find_char(c, forward, inclusive, count);
+                if located.is_some_and(|loc| !loc.cell.contains(buf.cursor())) {
+                    buf.set_cursor(start);
+                }
+            }
             Key::Char('G') => {
                 if count > 1 {
                     buf.goto_line(count - 1);

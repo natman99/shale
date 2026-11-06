@@ -13,6 +13,7 @@ mod edits;
 mod motions;
 mod objects;
 mod tables;
+mod find_repeat;
 mod join;
 mod pairs;
 mod vimtable;

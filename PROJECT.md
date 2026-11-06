@@ -1477,6 +1477,14 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
   - **A note ending in a line break has no empty line below it.** `Buffer` counts
     that break as a final empty row, so `J` on the last real line would otherwise
     eat the file's closing newline; `join_lines` skips the phantom row.
+- **`;` and `,` — done**: repeat the last `f`/`t`/`F`/`T`, forwards and backwards,
+  as a motion and as an operator motion (`d;`). What is repeated is the *command*,
+  inclusivity included, which produces vim's odd-looking case and it is kept rather
+  than smoothed over: after `tw` the cursor sits one character before the one it is
+  looking for, so `;` re-runs an exclusive find that cannot move. A count that cannot
+  be satisfied moves nothing at all (`fw3;` on three `w`s leaves the cursor on the
+  first), and an operator whose repeat finds nothing is cancelled rather than
+  deleting an empty range.
 - **Not implemented yet in vim mode** (re-checked 2026-11-05 against the engine: still
   only the unnamed register, no case/replace operators, no blockwise visual): `gv`, `C`/`S` in visual, repeating a text
   object in visual to extend it, `i[`/`a[` in visual mode (the `[`/`]` bindings live
