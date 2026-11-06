@@ -1066,6 +1066,26 @@ edges, query nodes, MCP canvas tools) is P6.10.
   or renamed (and every tab showing the old path follows). What is left is the
   *report*: heading-anchor renames, tag renames, and the broken-link /
   near-duplicate / orphan / unused-attachment list. Extends `rename.rs`.
+- **P4.6a `gd` follows a heading anchor** — **added 2026-11-06, found by asking a
+  question rather than by the audit.** `gd` on `[[note#The Fall]]` currently opens
+  `note` at the top: `extract_wikilinks` parses `WikiLink.target` as *"without alias or
+  heading anchor"*, so the anchor is gone before `EditorEvent::FollowLink` is emitted
+  and `follow_link` never learns a section was asked for. The cursor being on the
+  heading part still jumps (the link's `start..end` covers the whole construct) — it just
+  ignores which section. Nothing owned this: P4.6 covers heading-anchor *renames*, and
+  P4.9's "the jump scrolls to it" is about `^abc123` block anchors. The audit walked
+  `brainstorm.md`, and brainstorm never ruled on it.
+  **Ruled (2026-11-06):** an anchor that names no heading still opens the note at the
+  top and says `no heading "…" in …` in the status line — the note is almost certainly
+  the right destination, and refusing would be worse. The cursor lands **on the heading
+  line**, which is what `*` and the section text object (`da#`) treat as the section's
+  anchor, so the jump composes with the motion the reader is likely to want next.
+  **Cheap because P4.0a already built the lookup:** `transclude::section` answers "which
+  line is this heading" (case-insensitive, fence-aware), and `open_note_at(path, line)`
+  / `editor.reveal_line` are how search results already jump. The change is to keep the
+  anchor on `WikiLink`, carry it in the event, and reveal the row after the note opens.
+  Tests: the match, the miss (warning + top), and `gD` on a missing note, where the
+  anchor is meaningless and must not leak into the created note's name.
 - **P4.7 Writing stats panel**: live counts, sentence-length histogram, reading
   time, most-used words; hosts the per-folder word-count tree.
 - **P4.8 Provenance as a first-class filter** (brainstorm ✅): user/agent/both
