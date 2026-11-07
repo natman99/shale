@@ -930,9 +930,24 @@ impl MarkdownEditor {
             return;
         }
         self.view = view;
+        // Raw mode draws the `![[…]]` line and no body, so a caret inside a block
+        // would be left inside something the frame refuses to paint: nothing on
+        // screen shows where it is, and nothing can be done to what it is on. It
+        // comes out before anything else reads the new view, so the caret is back
+        // in the note the tab is showing on the same frame — and the host's caret
+        // is wherever it was parked, which is the `![[…]]` row it came from.
+        if view == View::Raw {
+            self.exit_embed(Some("raw mode shows no embed to edit".to_string()), cx);
+        }
         // Preview protects *this view*, not the text: another tab of the same note
         // can still be live, and one note has one buffer (roadmap P4.17).
         self.slot.set_read_only(view == View::Preview);
+        // While the caret is inside a block, the slot that becomes current when the
+        // caret comes back is the one parked in `Entered`. Marking only the current
+        // one would hand back an editable view of a note in preview mode.
+        if let Some(embed) = &mut self.entered {
+            embed.host_slot.set_read_only(view == View::Preview);
+        }
         self.vim.enter_normal();
         self.buffer.borrow_mut().end_undo_group();
         self.style_cache = None;

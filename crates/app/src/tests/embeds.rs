@@ -43,6 +43,14 @@ fn embeds(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> Vec<S
         .unwrap()
 }
 
+/// The text of the buffer the caret is actually in: the embedded note's while the
+/// caret is inside a block, the tab's note's otherwise.
+fn caret_text(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> String {
+    window
+        .update(cx, |ws, _window, cx| ws.caret_text(cx))
+        .unwrap()
+}
+
 /// The text each row of the block being edited was painted with. Markers hidden and
 /// markers kept are the same bytes in the buffer, so only the paint can tell them.
 fn painted_embed(
@@ -703,6 +711,51 @@ fn raw_mode_shows_the_embed_line_and_no_body(cx: &mut TestAppContext) {
         embeds(&window, &mut cx),
         Vec::<String>::new(),
         "raw mode shows the source, which is the whole point of raw mode"
+    );
+}
+
+/// Raw mode draws the `![[…]]` line and no body, so a caret inside a block has to
+/// come out with the mode. Left in, it sits inside something the frame refuses to
+/// paint: nothing on screen says where it is, and nothing can be done to what it is
+/// on. The way out should not be a second keystroke the user has to know.
+#[gpui::test]
+fn raw_mode_exits_the_embed_it_cannot_show(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(
+        cx,
+        &[("host.md", "![[gift]]\n"), ("gift.md", "embedded body\n")],
+    );
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show_at(&mut cx, &window, "host.md");
+    cx.simulate_keystrokes("ctrl-]");
+    assert_eq!(caret_text(&window, &mut cx), "embedded body\n");
+    cx.simulate_keystrokes(": r a w enter");
+    assert_eq!(
+        embeds(&window, &mut cx),
+        Vec::<String>::new(),
+        "raw mode shows the source, which is the whole point of raw mode"
+    );
+    assert_eq!(
+        caret_text(&window, &mut cx),
+        "![[gift]]\n",
+        "the caret is back in the note the tab is showing, not parked inside a block that is not drawn"
+    );
+    assert!(
+        status(&window, &mut cx).contains("raw mode"),
+        "and the frame says why the caret moved: {}",
+        status(&window, &mut cx)
+    );
+    cx.simulate_keystrokes("A Z escape");
+    assert_eq!(
+        window
+            .update(&mut cx, |ws, _window, cx| ws.buffer_text(cx))
+            .unwrap(),
+        "![[gift]]Z\n",
+        "typing goes to the note on screen"
+    );
+    assert_eq!(
+        std::fs::read_to_string(_dir.path().join("gift.md")).unwrap(),
+        "embedded body\n",
+        "and not to the note that was being edited"
     );
 }
 
