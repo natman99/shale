@@ -351,9 +351,25 @@ than asking the user to go somewhere.
   close paths and the quit check keep asking the transitive one. Getting these two mixed
   is how a rename started rewriting the wrong file.
 
+**The save story is visible where the save story is.** An embedded note is not a tab, so
+the tab's `●` has nowhere to light for it: the host's tab lights transitively, but it
+cannot say which block on the screen the unwritten words are in. A dot now hangs in the
+gutter on the first row of each note's run inside a block — per run, not per block,
+because a nested embed's rows are a different note's text and the outer block's top row is
+not where its unsaved words are.
+
+That made four things wanting the same 16 px column, so the column got a vocabulary
+instead of a fourth field: `GutterMark::Glyph` / `GutterMark::Bar` and one `paint_gutter`,
+with the callout's kind glyph and a proposal's rule moved onto it. The column holds one
+glyph and any number of rules, so a row's list is in precedence order and the caller
+chooses it — a callout's kind glyph outranks the dirty dot, because the kind cannot be
+carried by colour alone while unsaved work is still reported by the tab.
+
 **Still owed before P4.0b closes:** the entered block's own links, marks and search
 matches are not drawn (they belong to the other buffer's caches, which this view does not
-keep), and the block's rows do not soft-wrap.
+keep), the block's rows do not soft-wrap, and a folded heading's disclosure glyph is the
+one gutter tenant not yet on `GutterMark` — it is a shaped glyph rather than a path and it
+records a click range, so it is painted where that range is recorded.
 
 M1 before M3 is not a preference, it is the ordering rule.
 
