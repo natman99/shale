@@ -313,14 +313,47 @@ Two rulings this surfaced that the design pass had not reached:
   tab materialisation belongs on the save path, which is M4 — and M4 owns releasing the
   hold, because a written note can be let go.
 
-**M3b still owes:** the entered block painted as real line elements, so the caret is
-visible where it is (today it edits a block it cannot see a caret in), column-accurate
-entry from a click (today the click chooses the row and the caret starts at its
-beginning), and soft-wrap for the block's rows.
+**M3b landed (the block is painted from its own buffer).** An entered embed's rows are
+`LineElement`s over the embedded note's buffer — the same element a note paints its own
+rows with — so they carry the caret, the selection, markdown runs, and a click that lands
+on the character under the pointer instead of the start of a row. A read-only block stays
+a phantom row: the difference between the two is the caret, and the caret decides.
 
-**M4 — the save story.** Transitive dirty dot, `:w` writing host + embeds, the close
-warning enumerating dirty embeds, autosave covering them, and a partial write failure
-naming which note wrote.
+Two rulings this surfaced:
+
+- **Ruling 21: the entered block's rows are hit records in a space of their own.** They go
+  into `embed_hits`, not the host's `hit_lines`, because the host reads those records'
+  `start..end` as bytes of *itself* — a foreign range would answer a click with a byte from
+  the wrong note. `embed_offset_at` is the door back in.
+- **Ruling 22: the scroll target for a caret inside a block is the host line the block
+  hangs off.** The block's rows are not items the scroller knows; they live inside that
+  line's wrapper. Asking with the caret's row in the *other* buffer scrolls to the host's
+  line of the same number, which is a different line. The frame records the anchor, since
+  it is the only thing that knows which host row a body hangs under — and it records it
+  every frame, because an anchor that outlives its block is the same bug wearing a hat.
+
+**M4 landed (the save story, and the command line).** The dot on a tab is transitive: a
+note embedded in it that the caret has typed into is unsaved work in that tab. `:w` and
+the autosave beat both write it, each note to its own file. The view keeps the notes it
+has typed into (`touched`) — one list feeding the dot, the write path and the strong
+reference that keeps them alive, which replaces ruling 20's window-level `held_embeds`.
+`:rename` follows the caret (Q4), `:w <name>` refuses inside an embed and names the embed,
+`:q` from inside one is a plain dirty-tab close (Q7), clicking the host's own text exits
+(Q3), and a section that stops existing under the caret gives the caret back with a line
+saying so (Q5). A dirty embed with no tab gains one (Q1), added without being shown: the
+caret is in the middle of a word in the host, and the tab bar is reporting an edit rather
+than asking the user to go somewhere.
+
+- **Ruling 23: the transitive dot and the file's own dirty flag are different questions.**
+  Rewriting links refuses to touch the open note, and a disk change re-reads a buffer,
+  when *that file's* text is ahead of *that file* — an embed's unsaved edits say nothing
+  about the file they are embedded in. `own_text_is_dirty` answers that one; the dot, the
+  close paths and the quit check keep asking the transitive one. Getting these two mixed
+  is how a rename started rewriting the wrong file.
+
+**Still owed before P4.0b closes:** the entered block's own links, marks and search
+matches are not drawn (they belong to the other buffer's caches, which this view does not
+keep), and the block's rows do not soft-wrap.
 
 M1 before M3 is not a preference, it is the ordering rule.
 
