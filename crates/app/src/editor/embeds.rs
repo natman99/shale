@@ -18,12 +18,67 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use gpui::{px, IndentAdjustment, LineFragment, LineWrapperHandle, Pixels};
 use shale_core::mdlayout;
 use shale_core::mdstyle::{quotes, style_spans, Style};
+use shale_core::theme::Palette;
 use shale_core::transclude::{self, Body, Sources};
 use shale_core::vault::{Vault, VaultEntry};
 
 use crate::preview::PieceMap;
+use crate::theme;
+
+/// Where each painted row of a block breaks at `width`, as painted-index ranges
+/// covering the row exactly.
+///
+/// The rows are measured with the note's own wrappers — one per heading level and
+/// face — because a heading and a bold run break at different places than body text
+/// of the same length, and a break point that does not match the glyphs is a gap in
+/// the middle of a word.
+pub(crate) fn wrap_body(
+    rows: &[PaintedRow],
+    width: Pixels,
+    wrappers: &mut [LineWrapperHandle],
+    palette: &Palette,
+) -> Vec<Vec<(usize, usize)>> {
+    rows.iter()
+        .map(|row| {
+            let end = row.text.len();
+            // No measured width yet (the first frame), or nothing to break: one line.
+            if width <= px(0.) || end == 0 {
+                return vec![(0, end)];
+            }
+            let heading = row.heading.unwrap_or(0).min(theme::SIZES as u8 - 1);
+            let wide = row
+                .spans
+                .iter()
+                .any(|(_, _, style)| theme::RunStyle::for_style(*style, palette).is_wide());
+            let wrapper = &mut wrappers[heading as usize * 2 + usize::from(wide)];
+            let mut starts = vec![0usize];
+            for boundary in wrapper.wrap_line(
+                &[LineFragment::text(&row.text)],
+                width,
+                IndentAdjustment::NoIndent,
+            ) {
+                // Breaks come back in order; a zero-width or repeated one is dropped so
+                // every range handed back has something in it. The index is snapped to a
+                // character boundary because the ranges are used to slice a UTF-8 string,
+                // and a break in the middle of a multi-byte character would panic in the
+                // paint path rather than merely look wrong.
+                let mut ix = boundary.ix;
+                while ix < end && !row.text.is_char_boundary(ix) {
+                    ix += 1;
+                }
+                if ix > *starts.last().unwrap() && ix < end {
+                    starts.push(ix);
+                }
+            }
+            (0..starts.len())
+                .map(|i| (starts[i], starts.get(i + 1).copied().unwrap_or(end)))
+                .collect()
+        })
+        .collect()
+}
 
 /// One row of an embed body as it is painted: the text with its markdown markers
 /// hidden, and the style spans re-based onto that text.

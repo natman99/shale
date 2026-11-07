@@ -178,6 +178,47 @@ impl PieceMap {
         out
     }
 
+    /// The same line restricted to painted indices `a..b`, re-based so its painted
+    /// text starts at index 0 again. This is what a soft-wrapped row hands to its
+    /// second and later display lines: the note ranges stay absolute, so a click on a
+    /// wrapped tail still answers with the byte it is standing over.
+    ///
+    /// A substituted character — a straight quote drawn curly — is atomic: a break
+    /// that lands inside it keeps the whole glyph, and the text of a segment is built
+    /// *from* the map, so the two cannot disagree about what is on screen.
+    pub(crate) fn slice(&self, a: usize, b: usize) -> PieceMap {
+        let mut out: Vec<Piece> = Vec::new();
+        let mut painted = 0usize;
+        for piece in &self.pieces {
+            if piece.painted.1 <= a || piece.painted.0 >= b {
+                continue;
+            }
+            match piece.glyph {
+                Some(glyph) => {
+                    let len = piece.painted.1 - piece.painted.0;
+                    out.push(Piece {
+                        buf: piece.buf,
+                        painted: (painted, painted + len),
+                        glyph: Some(glyph),
+                    });
+                    painted += len;
+                }
+                None => {
+                    let lo = a.max(piece.painted.0);
+                    let hi = b.min(piece.painted.1);
+                    let shift = lo - piece.painted.0;
+                    out.push(Piece {
+                        buf: (piece.buf.0 + shift, piece.buf.0 + (hi - piece.painted.0)),
+                        painted: (painted, painted + (hi - lo)),
+                        glyph: None,
+                    });
+                    painted += hi - lo;
+                }
+            }
+        }
+        PieceMap { pieces: out }
+    }
+
     /// Whether `offset` is inside one of the painted pieces.
     pub(crate) fn covers(&self, offset: usize) -> bool {
         self.pieces
@@ -318,6 +359,19 @@ mod tests {
     fn layout() -> LineLayout {
         let text = "hello **wor**ld";
         LineLayout::build(text, &[(0, 6), (8, 11), (13, 15)], &[])
+    }
+
+    /// A soft-wrapped tail keeps the note offsets it came from, so a click on the
+    /// second display line of a row still answers with the byte under it.
+    #[test]
+    fn a_slice_of_a_painted_line_keeps_its_note_offsets() {
+        let l = layout();
+        let tail = l.map.slice(6, 11);
+        assert_eq!(tail.painted_text("hello **wor**ld"), "world");
+        assert_eq!(tail.pieces(), vec![(8, 11, 0), (13, 15, 3)]);
+        assert_eq!(tail.index_for_offset(8), 0);
+        assert_eq!(tail.offset_for_index(0), 8);
+        assert_eq!(tail.offset_for_index(5), 15);
     }
 
     #[test]

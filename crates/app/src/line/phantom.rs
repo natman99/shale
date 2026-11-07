@@ -30,7 +30,7 @@ use crate::theme::{self, RunStyle};
 
 /// How far right each level of embed steps. Deliberately smaller than a list
 /// indent: this is a seam between notes, not a nesting structure inside one.
-const INDENT_STEP: f32 = 14.0;
+pub(crate) const INDENT_STEP: f32 = 14.0;
 
 /// Where a phantom row was painted, and what it is a line *of*.
 ///

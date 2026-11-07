@@ -24,14 +24,14 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use gpui::{Context, IntoElement, Pixels, SharedString, Styled};
+use gpui::{px, Context, IntoElement, LineWrapperHandle, Pixels, SharedString, Styled};
 use gpui::{InteractiveElement, ParentElement};
 use shale_core::diff::{self, Hunk};
 use shale_core::transclude::{Body, EmbedLine, EmbedRow, Origin};
 use shale_core::vim::Mode;
 
 use crate::line::marks::{self, GutterMark};
-use crate::line::phantom::{PhantomKind, PhantomLine};
+use crate::line::phantom::{PhantomKind, PhantomLine, INDENT_STEP};
 use crate::line::DisplayLine;
 use crate::theme;
 
@@ -638,11 +638,17 @@ impl MarkdownEditor {
     ///
     /// They are shaped at the note's body size rather than the host row's, because the
     /// lines a proposal brings are new text, not a heading the note already had.
+    ///
+    /// `width` is what the host's own rows get to wrap in, and `wrappers` are the note's:
+    /// a block's rows are measured with the same faces and sizes, or a break point lands
+    /// in the middle of a word the paint is still drawing whole.
     pub(crate) fn phantom_lines(
         &self,
         blocks: &[Block],
         char_width: Pixels,
         editor: gpui::Entity<MarkdownEditor>,
+        width: Pixels,
+        wrappers: &mut [LineWrapperHandle],
     ) -> Vec<gpui::AnyElement> {
         let mut out = Vec::new();
         for block in blocks {
@@ -701,11 +707,30 @@ impl MarkdownEditor {
             } else {
                 Vec::new()
             };
+            // Where each row breaks. A block has no viewport of its own — the host
+            // scrolls, ruling 12 — so a row longer than the pane would simply leave the
+            // frame with no way back. A nested row has less room by the step its depth
+            // costs it; the block being edited sits at the host's own margin.
+            let ranges: Vec<Vec<(usize, usize)>> = block
+                .lines
+                .iter()
+                .enumerate()
+                .map(|(ix, line)| match painted.get(ix) {
+                    Some(row) if !line.badge => {
+                        let room = (width - px(line.depth as f32 * INDENT_STEP)).max(px(0.));
+                        embeds::wrap_body(std::slice::from_ref(row), room, wrappers, &self.palette)
+                            .pop()
+                            .unwrap_or_else(|| vec![(0, row.text.len())])
+                    }
+                    // A badge is one line by construction.
+                    _ => vec![(0, line.text.len())],
+                })
+                .collect();
             // The block being edited's rows go in one wrapper, so the block has one
             // pointer handler rather than one per row.
             let mut rows: Vec<gpui::AnyElement> = Vec::new();
             for (ix, line) in block.lines.iter().enumerate() {
-                let (text, spans) = match (block.kind, line.badge) {
+                let (full, full_spans) = match (block.kind, line.badge) {
                     (BlockKind::Embed, false) => {
                         (painted[ix].text.clone(), painted[ix].spans.clone())
                     }
@@ -713,45 +738,68 @@ impl MarkdownEditor {
                     // colour and nothing else.
                     _ => (line.text.clone(), Vec::new()),
                 };
-                // The block being edited is not a picture: its rows are line elements
-                // over the embedded buffer, which is what gives them a caret, a
-                // selection and a click that lands on the right byte (roadmap P4.0b).
-                if block.entered && !line.badge {
-                    if let (Some(origin), Some(row)) = (line.origin.as_ref(), painted.get(ix)) {
-                        rows.push(
-                            self.embed_line(origin, row, char_width, &editor, &line.gutter)
+                for (part, &(lo, hi)) in ranges[ix].iter().enumerate() {
+                    // What belongs to the row belongs to its first display line: the
+                    // gutter dot and the block's rule mark the row, not every piece of
+                    // it. A markdown span that straddles a break becomes two, each
+                    // measured from the piece it now lives on.
+                    let first = part == 0;
+                    let spans: Vec<(usize, usize, shale_core::mdstyle::Style)> = full_spans
+                        .iter()
+                        .filter(|(s, e, _)| *s < hi && *e > lo)
+                        .map(|span| (span.0.max(lo) - lo, span.1.min(hi) - lo, span.2))
+                        .collect();
+                    // The block being edited is not a picture: its rows are line elements
+                    // over the embedded buffer, which is what gives them a caret, a
+                    // selection and a click that lands on the right byte (roadmap P4.0b).
+                    if block.entered && !line.badge {
+                        if let (Some(origin), Some(row)) = (line.origin.as_ref(), painted.get(ix)) {
+                            rows.push(
+                                self.embed_line(
+                                    origin,
+                                    row,
+                                    (lo, hi),
+                                    char_width,
+                                    &editor,
+                                    if first { &line.gutter } else { &[] },
+                                )
                                 .into_any_element(),
-                        );
-                        continue;
+                            );
+                            continue;
+                        }
                     }
+                    out.push(
+                        PhantomLine {
+                            text: full[lo..hi].to_string().into(),
+                            family: self.font_family.clone(),
+                            // A heading inside an embedded note is sized like a heading of
+                            // that level anywhere else in the app.
+                            size: match painted.get(ix).and_then(|row| row.heading) {
+                                Some(level) => theme::font_size(level, self.font_size),
+                                None => self.font_size,
+                            },
+                            palette: Rc::clone(&self.palette),
+                            kind: match (block.kind, line.badge) {
+                                (BlockKind::Proposal, _) => PhantomKind::Added,
+                                (BlockKind::Embed, true) => PhantomKind::EmbedBadge,
+                                (BlockKind::Embed, false) => PhantomKind::Embed,
+                            },
+                            current: block.current,
+                            indent: line.depth,
+                            spans,
+                            // The row's address travels with it to the paint, which is where
+                            // the on-screen band gets paired back up with it.
+                            origin: line.origin.clone(),
+                            gutter: if first {
+                                line.gutter.clone()
+                            } else {
+                                Vec::new()
+                            },
+                            hits: Rc::clone(&self.phantom_hits),
+                        }
+                        .into_any_element(),
+                    );
                 }
-                out.push(
-                    PhantomLine {
-                        text: text.into(),
-                        family: self.font_family.clone(),
-                        // A heading inside an embedded note is sized like a heading of
-                        // that level anywhere else in the app.
-                        size: match painted.get(ix).and_then(|row| row.heading) {
-                            Some(level) => theme::font_size(level, self.font_size),
-                            None => self.font_size,
-                        },
-                        palette: Rc::clone(&self.palette),
-                        kind: match (block.kind, line.badge) {
-                            (BlockKind::Proposal, _) => PhantomKind::Added,
-                            (BlockKind::Embed, true) => PhantomKind::EmbedBadge,
-                            (BlockKind::Embed, false) => PhantomKind::Embed,
-                        },
-                        current: block.current,
-                        indent: line.depth,
-                        spans,
-                        // The row's address travels with it to the paint, which is where
-                        // the on-screen band gets paired back up with it.
-                        origin: line.origin.clone(),
-                        gutter: line.gutter.clone(),
-                        hits: Rc::clone(&self.phantom_hits),
-                    }
-                    .into_any_element(),
-                );
             }
             if !rows.is_empty() {
                 // A word inside the block being edited is a word the checker is
@@ -798,6 +846,7 @@ impl MarkdownEditor {
         &self,
         origin: &shale_core::transclude::Origin,
         painted: &embeds::PaintedRow,
+        segment: (usize, usize),
         char_width: Pixels,
         editor: &gpui::Entity<MarkdownEditor>,
         gutter: &[GutterMark],
@@ -807,8 +856,15 @@ impl MarkdownEditor {
             .as_ref()
             .expect("only the entered block reaches here");
         let buffer = embed.note.buffer.borrow();
-        let start = buffer.line_start(origin.row);
-        let end = buffer.line_end(origin.row);
+        // The row's painted map covers the whole buffer row; a soft-wrapped row hands
+        // one segment of it to this element, and the slice keeps the note offsets the
+        // segment came from. `start..end` is the buffer span the segment stands for,
+        // hidden markers inside it included, which is what the host's display lines
+        // hand their elements too.
+        let start = painted.map.offset_for_index(segment.0);
+        let end = painted.map.offset_for_index(segment.1);
+        let map = painted.map.slice(segment.0, segment.1);
+        let text = map.painted_text(buffer.text());
         let cursor = buffer.cursor();
         // The embedded note's own wiki-links on this row: coloured like links, and
         // followed by `gd` or ctrl-click, because a link inside a block you are typing
@@ -845,10 +901,16 @@ impl MarkdownEditor {
             if hi <= start || lo >= end {
                 return None;
             }
-            let s = painted.map.index_for_offset(lo);
-            let e = painted.map.index_for_offset(hi);
+            let s = map.index_for_offset(lo);
+            let e = map.index_for_offset(hi);
             (e > s).then_some((s, e))
         });
+        // A wrapped row belongs to one segment for caret purposes: the boundary between
+        // two segments goes to the later one, except at the end of the row, where there
+        // is no later one and the caret sits after the last character.
+        let holds_caret = cursor >= start && (cursor < end || end == buffer.line_end(origin.row));
+        let cursor_col = (cursor_row == origin.row && self.view != View::Preview && holds_caret)
+            .then(|| map.index_for_offset(cursor));
         LineElement {
             editor: editor.clone(),
             embed: true,
@@ -856,13 +918,12 @@ impl MarkdownEditor {
             index: origin.row,
             start,
             end,
-            text: painted.text.clone().into(),
-            map: painted.map.clone(),
+            text: text.into(),
+            map,
             hidden: Vec::new(),
             quotes: Vec::new(),
             line_sel,
-            cursor_col: (cursor_row == origin.row && self.view != View::Preview)
-                .then(|| painted.map.index_for_offset(cursor)),
+            cursor_col,
             cursor_dim: self.cursor_dim,
             insert: self.vim.mode() == Mode::Insert,
             // The embedded note's own links on this row: a link inside a block you are

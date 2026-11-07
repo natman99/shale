@@ -750,6 +750,74 @@ fn gd_on_the_embed_line_opens_a_tab_instead_of_editing_in_place(cx: &mut TestApp
     );
 }
 
+/// A block has no viewport of its own — the host scrolls, ruling 12 — so a row longer
+/// than the pane has to break, or it simply leaves the frame with no way back.
+#[gpui::test]
+fn a_long_line_in_the_block_wraps_where_the_host_would_break_it(cx: &mut TestAppContext) {
+    let long = "word ".repeat(120);
+    let gift = format!("{long}\n");
+    let (_dir, window) = vault_with(cx, &[("host.md", "![[gift]]\n"), ("gift.md", &gift)]);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show_at(&mut cx, &window, "host.md");
+    cx.simulate_keystrokes("ctrl-]");
+    let painted = painted_embed(&window, &mut cx);
+    assert!(
+        painted.len() > 1,
+        "a row several times wider than the pane breaks: {} pieces",
+        painted.len()
+    );
+    assert!(
+        painted.iter().all(|(row, _)| *row == 0),
+        "and every piece is still the same row of the embedded note: {painted:?}"
+    );
+    let joined: String = painted.iter().map(|(_, text)| text.as_str()).collect();
+    assert_eq!(
+        joined, long,
+        "the pieces cover the row, with nothing dropped at a break"
+    );
+}
+
+/// The point of wrapping a block's rows rather than clipping them is that the tail is
+/// still the tail: a click on it asks for a byte in it, and the caret can be put there.
+#[gpui::test]
+fn a_click_on_the_wrapped_tail_asks_for_a_byte_in_the_tail(cx: &mut TestAppContext) {
+    let long = "word ".repeat(120);
+    let gift = format!("{long}\n");
+    let (_dir, window) = vault_with(cx, &[("host.md", "![[gift]]\n"), ("gift.md", &gift)]);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show_at(&mut cx, &window, "host.md");
+    cx.simulate_keystrokes("ctrl-]");
+    let bands = window
+        .update(&mut cx, |ws, _window, cx| {
+            ws.editor()
+                .unwrap()
+                .read_with(cx, |editor, _cx| editor.embed_rows())
+        })
+        .unwrap();
+    let (_, left, top, bottom) = *bands
+        .last()
+        .filter(|_| bands.len() > 1)
+        .expect("the long row painted more than one band");
+    let at = gpui::point(gpui::px(left + 20.), gpui::px((top + bottom) / 2.));
+    let (row, offset) = window
+        .update(&mut cx, |ws, _window, cx| {
+            ws.editor()
+                .unwrap()
+                .read_with(cx, |editor, _cx| editor.embed_hover_at(at))
+        })
+        .unwrap()
+        .expect("the tail is a band the block painted");
+    assert_eq!(
+        row, 0,
+        "the tail is still the same row of the embedded note"
+    );
+    assert!(
+        offset > long.len() / 2,
+        "a click on the tail asks for a byte in the tail: {offset} of {}",
+        long.len()
+    );
+}
+
 /// Raw mode draws the `![[…]]` line and no body, so a caret inside a block has to
 /// come out with the mode. Left in, it sits inside something the frame refuses to
 /// paint: nothing on screen says where it is, and nothing can be done to what it is

@@ -162,10 +162,13 @@ impl Render for MarkdownEditor {
             let font_id = text_system.resolve_font(&font(self.font_family.clone()));
             text_system.layout_width(font_id, px(self.font_size), 'a')
         };
-        let display_lines = {
+        // One wrapper per (heading level, regular or wide face), so every row is
+        // measured with the face and size it will be painted with. They outlive the
+        // display-line pass because an embed's rows are measured with the same ones: a
+        // block that wraps with its own wrappers would break somewhere the paint has no
+        // glyphs for.
+        let mut wrappers: Vec<LineWrapperHandle> = {
             let text_system = window.text_system();
-            // One wrapper per (heading level, regular or wide face), so every
-            // row is measured with the face and size it will be painted with.
             let family = self.font_family.clone();
             let mut wrappers: Vec<LineWrapperHandle> = Vec::with_capacity(theme::SIZES * 2);
             for level in 0..theme::SIZES as u8 {
@@ -173,15 +176,16 @@ impl Render for MarkdownEditor {
                 wrappers.push(text_system.line_wrapper(font(family.clone()), size));
                 wrappers.push(text_system.line_wrapper(font(family.clone()).bold(), size));
             }
-            self.display_lines(
-                wrap_width,
-                &mut wrappers,
-                &row_styles,
-                &no_wrap,
-                &paint,
-                &collapsed,
-            )
+            wrappers
         };
+        let display_lines = self.display_lines(
+            wrap_width,
+            &mut wrappers,
+            &row_styles,
+            &no_wrap,
+            &paint,
+            &collapsed,
+        );
         // The review overlay (roadmap P2.5b): which rows a queued proposal would take
         // away, and the phantom lines that would replace them. Placed against this
         // frame's text, so a hunk that no longer fits the note is simply not here — the
@@ -735,12 +739,28 @@ impl Render for MarkdownEditor {
                         let before = frame
                             .before
                             .get(&index)
-                            .map(|blocks| self.phantom_lines(blocks, char_width, cx.entity()))
+                            .map(|blocks| {
+                                self.phantom_lines(
+                                    blocks,
+                                    char_width,
+                                    cx.entity(),
+                                    wrap_width,
+                                    &mut wrappers,
+                                )
+                            })
                             .unwrap_or_default();
                         let after = frame
                             .after
                             .get(&index)
-                            .map(|blocks| self.phantom_lines(blocks, char_width, cx.entity()))
+                            .map(|blocks| {
+                                self.phantom_lines(
+                                    blocks,
+                                    char_width,
+                                    cx.entity(),
+                                    wrap_width,
+                                    &mut wrappers,
+                                )
+                            })
                             .unwrap_or_default();
 
                         let line = div()
