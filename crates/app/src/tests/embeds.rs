@@ -43,6 +43,21 @@ fn embeds(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> Vec<S
         .unwrap()
 }
 
+/// The text each row of the block being edited was painted with. Markers hidden and
+/// markers kept are the same bytes in the buffer, so only the paint can tell them.
+fn painted_embed(
+    window: &WindowHandle<Workspace>,
+    cx: &mut VisualTestContext,
+) -> Vec<(usize, String)> {
+    window
+        .update(cx, |ws, _window, cx| {
+            ws.editor()
+                .unwrap()
+                .read_with(cx, |editor, _cx| editor.painted_embed_text())
+        })
+        .unwrap()
+}
+
 /// How many display lines the note on screen is laid out as.
 fn rows(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> usize {
     window
@@ -1080,5 +1095,34 @@ fn an_embed_of_a_missing_section_names_the_section_that_is_not_there(cx: &mut Te
         embeds(&window, &mut cx),
         vec![r#"embed row 0: badge no section "Nope" in gift"#],
         "the note is there; the section is what is missing, and the row says which"
+    );
+}
+
+/// Live preview reaches into the block being edited: the row the caret is on shows
+/// its syntax and every other row reads rendered, exactly as the note's own rows
+/// do. Hiding the markers on the line someone is typing on hides what they are
+/// typing.
+#[gpui::test]
+fn the_row_being_typed_in_shows_its_markers(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(
+        cx,
+        &[
+            ("host.md", "![[gift]]\n"),
+            ("gift.md", "**one**\n**two**\n"),
+        ],
+    );
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show_at(&mut cx, &window, "host.md");
+    cx.simulate_keystrokes("ctrl-]");
+    assert_eq!(
+        painted_embed(&window, &mut cx),
+        vec![(0, "**one**".to_string()), (1, "two".to_string())],
+        "the caret's row shows the syntax; the block's other rows read rendered"
+    );
+    cx.simulate_keystrokes("j");
+    assert_eq!(
+        painted_embed(&window, &mut cx),
+        vec![(0, "one".to_string()), (1, "**two**".to_string())],
+        "and the reveal follows the caret down"
     );
 }

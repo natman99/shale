@@ -51,11 +51,13 @@ pub(crate) struct PaintedRow {
 /// Dress an embed body the way live preview dresses the note's own rows.
 ///
 /// The host note hides the `#` of a heading and the `**` around bold text unless the
-/// cursor is on that row. An embed's rows have no cursor — they are not in the buffer,
-/// and until P4.0b nothing can put one there — so the rule resolves the same way for
-/// every one of them: markers hidden, always. Without this an embedded heading shows
-/// its `#` next to a host heading that has hidden its own, and the two readings of the
-/// same markdown sit one under the other.
+/// cursor is on that row. A block that is only being *read* has no cursor in it, so
+/// its rows all resolve to the hidden side — without that, an embedded heading would
+/// show its `#` next to a host heading that has hidden its own, and the two readings
+/// of the same markdown would sit one under the other. A block being **typed into**
+/// passes a [`Reveal`], and the row the caret or selection is on keeps its markers:
+/// hiding the syntax of the line someone is editing is hiding the thing they are
+/// editing.
 ///
 /// The scan runs over the **whole body at once** and is then cut per row, because a
 /// fence that opens on one row and closes on another is only visible to a scan that
@@ -66,7 +68,16 @@ pub(crate) struct PaintedRow {
 /// slice when nobody needs the note's coordinates: the joined body is a string that
 /// exists only for this frame, and a row painted as a picture has nothing to be
 /// measured against.
-pub(crate) fn paint_body(lines: &[String], starts: &[usize]) -> Vec<PaintedRow> {
+/// Which rows live preview shows as the file holds them: the ones the caret or the
+/// selection is on, in the note's byte coordinates. A block being typed into has
+/// them; a block being only read has none, and reads as its reader sees it.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct Reveal {
+    pub(crate) cursor: Option<usize>,
+    pub(crate) selection: Option<(usize, usize)>,
+}
+
+pub(crate) fn paint_body(lines: &[String], starts: &[usize], reveal: Reveal) -> Vec<PaintedRow> {
     let joined: String = lines
         .iter()
         .map(|line| {
@@ -99,7 +110,22 @@ pub(crate) fn paint_body(lines: &[String], starts: &[usize]) -> Vec<PaintedRow> 
             .map(|&note_start| note_start as isize - start as isize)
             .unwrap_or(0);
         let at = |x: usize| (x as isize + shift) as usize;
-        let hidden = mdlayout::hidden_ranges(&joined, &spans, start, end);
+        // Live preview's rule, in the note's coordinates: the row the caret or the
+        // selection is on keeps its markers, so the syntax of the line being worked
+        // on is visible and editable. A block that is only being read passes no
+        // reveal, and every row hides.
+        let (note_start, note_end) = (at(start), at(end));
+        let active = reveal
+            .cursor
+            .is_some_and(|c| c >= note_start && c <= note_end)
+            || reveal
+                .selection
+                .is_some_and(|(a, h)| a.max(h) >= note_start && a.min(h) <= note_end);
+        let hidden = if active {
+            Vec::new()
+        } else {
+            mdlayout::hidden_ranges(&joined, &spans, start, end)
+        };
         let pieces = mdlayout::visible_pieces(start, end, &hidden);
         let row_subs: Vec<(usize, char)> = subs
             .iter()
@@ -298,10 +324,33 @@ mod tests {
         paint_body(
             &lines.iter().map(|l| l.to_string()).collect::<Vec<_>>(),
             &[],
+            Reveal::default(),
         )
         .into_iter()
         .map(|row| (row.text, row.spans))
         .collect()
+    }
+
+    #[test]
+    fn a_revealed_row_keeps_its_markers_like_a_live_row_does() {
+        // The same body, read and edited. The row the caret is on shows its syntax;
+        // the rest of the block stays as its reader sees it.
+        let rows = paint_body(
+            &["**bold**".to_string(), "also **bold**".to_string()],
+            &[0, 9],
+            Reveal {
+                cursor: Some(3),
+                selection: None,
+            },
+        );
+        assert_eq!(
+            rows[0].text, "**bold**",
+            "the row being worked on shows the syntax"
+        );
+        assert_eq!(
+            rows[1].text, "also bold",
+            "the rest of the block reads rendered"
+        );
     }
 
     #[test]
@@ -325,6 +374,7 @@ mod tests {
                 .map(|l| l.to_string())
                 .collect::<Vec<_>>(),
             &[],
+            Reveal::default(),
         );
         assert_eq!(rows[0].heading, Some(2));
         assert_eq!(rows[1].heading, None);

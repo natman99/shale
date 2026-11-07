@@ -613,6 +613,26 @@ impl MarkdownEditor {
         }
     }
 
+    /// Which rows of a block live preview shows as the file holds them: the caret's
+    /// and the selection's, and only in the block being edited. A block that is only
+    /// being read has no caret inside it, so it reads rendered; preview mode hides
+    /// markers everywhere, in the block exactly as in the note.
+    fn block_reveal(&self, block: &Block) -> embeds::Reveal {
+        if !block.entered || self.view != View::Live {
+            return embeds::Reveal::default();
+        }
+        // The caret's buffer, which while the caret is inside is the embedded note's.
+        let buffer = self.buffer.borrow();
+        let selection = match self.vim.mode() {
+            Mode::Visual | Mode::VisualLine => self.vim.selection_range(&buffer),
+            _ => buffer.selection(),
+        };
+        embeds::Reveal {
+            cursor: Some(buffer.cursor()),
+            selection,
+        }
+    }
+
     /// The phantom rows for a run of blocks, in order: a collapsed block's count first
     /// (there is only one line of it), then the lines it would add.
     ///
@@ -677,7 +697,7 @@ impl MarkdownEditor {
                 Vec::new()
             };
             let painted = if block.kind == BlockKind::Embed {
-                embeds::paint_body(&texts, &starts)
+                embeds::paint_body(&texts, &starts, self.block_reveal(block))
             } else {
                 Vec::new()
             };

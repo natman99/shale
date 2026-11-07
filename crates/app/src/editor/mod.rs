@@ -1186,6 +1186,26 @@ impl MarkdownEditor {
             .collect()
     }
 
+    /// The same read for the block being edited: `(row of the embedded note, the
+    /// text it was painted with)`. A row that hid its markers and a row that kept
+    /// them are the same bytes in the buffer, so only the paint can tell them apart.
+    #[cfg(test)]
+    pub(crate) fn painted_embed_text(&self) -> Vec<(usize, String)> {
+        self.embed_hits
+            .iter()
+            .map(|hit| {
+                (
+                    hit.index,
+                    hit.segments
+                        .iter()
+                        .map(|segment| segment.line.text.to_string())
+                        .collect::<Vec<_>>()
+                        .concat(),
+                )
+            })
+            .collect()
+    }
+
     /// The painted text of every display line, one entry per painted piece: one
     /// for an ordinary line, one per cell for a table row.
     #[cfg(test)]
