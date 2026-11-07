@@ -30,7 +30,7 @@
 //! a dozen 8px glyphs are cheaper and more predictable to state as points than to
 //! transcribe path data and rescale.
 
-use gpui::{point, px, rgb, Bounds, PathBuilder, Pixels, Point, Size, Window};
+use gpui::{fill, point, px, rgb, Bounds, PathBuilder, Pixels, Point, Size, Window};
 use shale_core::mdstyle::CalloutKind;
 
 /// The side of the square a mark is drawn in, and the air it keeps from the text, both
@@ -134,6 +134,68 @@ pub(crate) fn mark_box(gutter_left: Pixels, row_top: Pixels, row_height: Pixels)
             width: MARK_SIZE,
             height: MARK_SIZE,
         },
+    }
+}
+
+/// What a row hangs in the gutter.
+///
+/// The column is 16 px wide and a mark is [`MARK_SIZE`], so it holds **one glyph** and
+/// any number of rules. [`paint_gutter`] therefore paints every [`GutterMark::Bar`]
+/// (they share one right-aligned edge and simply overlap) and then the **first** glyph
+/// in the list, ignoring the rest: a row that wants two glyphs to speak at once has to
+/// choose, and the choice is made by ordering the list, not by a rule buried in the
+/// painter. That is also how a new tenant decides what it yields to — a dirty dot that
+/// arrives after a callout's kind glyph loses, and the tab's dot still carries the news.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum GutterMark {
+    /// A shape from this module's vocabulary, centred in the row.
+    Glyph { mark: Mark, color: u32 },
+    /// A rule down the row's whole height: a proposal's bar, a changed-line rule.
+    Bar { width: Pixels, color: u32 },
+}
+
+/// Paint a row's gutter marks, placed by the one rule every tenant uses.
+///
+/// `gutter_left` is the **gutter's** left edge (a line element's `bounds` starts at the
+/// text column, so callers pass `bounds.left() - GUTTER`), and the row's height is
+/// passed rather than derived, because a wrapped row's element is taller than one line
+/// and a mark centred in the row is not a mark hung off its first line.
+///
+/// Not everything in the gutter is on this path yet: a folded heading's disclosure
+/// ([`crate::style::GLYPH_COLLAPSED`]) is a *shaped glyph* rather than a path, and it
+/// also records a click range that toggles the fold, so it is painted where that range
+/// is recorded. It belongs here too, and moving it is the job of whoever next needs the
+/// column — which is the point of the list.
+pub(crate) fn paint_gutter(
+    marks: &[GutterMark],
+    gutter_left: Pixels,
+    row_top: Pixels,
+    row_height: Pixels,
+    window: &mut Window,
+) {
+    for mark in marks
+        .iter()
+        .filter(|mark| matches!(mark, GutterMark::Bar { .. }))
+    {
+        let GutterMark::Bar { width, color } = *mark else {
+            continue;
+        };
+        let x = glyph_x(gutter_left, width);
+        window.paint_quad(fill(
+            Bounds::from_corners(point(x, row_top), point(x + width, row_top + row_height)),
+            rgb(color),
+        ));
+    }
+    if let Some(GutterMark::Glyph { mark, color }) = marks
+        .iter()
+        .find(|mark| matches!(mark, GutterMark::Glyph { .. }))
+    {
+        paint_mark(
+            *mark,
+            mark_box(gutter_left, row_top, row_height),
+            *color,
+            window,
+        );
     }
 }
 

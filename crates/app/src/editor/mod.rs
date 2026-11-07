@@ -1214,6 +1214,23 @@ impl MarkdownEditor {
     /// The companion to [`Editor::painted_callouts`], and the whole point of it is the
     /// difference between the two lists: a box of four rows paints four boxes and exactly
     /// one mark, on the header row's first display line.
+    /// Which painted rows carried an unsaved-work dot in the gutter, as
+    /// `(the note's own rows, an entered embed's rows)` — positions in paint order.
+    ///
+    /// The second list is the one that matters for P4.0b: an embedded note being typed
+    /// into has no tab of its own to light, and the dot is the only mark saying so.
+    #[cfg(test)]
+    pub fn painted_gutter_dots(&self) -> (Vec<usize>, Vec<usize>) {
+        let dots = |hits: &[crate::line::HitLine]| {
+            hits.iter()
+                .enumerate()
+                .filter(|(_, hit)| hit.gutter_dot)
+                .map(|(index, _)| index)
+                .collect()
+        };
+        (dots(&self.hit_lines), dots(&self.embed_hits))
+    }
+
     #[cfg(test)]
     pub fn painted_callout_marks(&self) -> Vec<usize> {
         self.hit_lines

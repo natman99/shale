@@ -778,6 +778,7 @@ impl Render for MarkdownEditor {
                                 palette: Rc::clone(&self.palette),
                                 fold,
                                 diff,
+                                gutter: Vec::new(),
                             })
                             // Where the pointer is over the note is reported to the
                             // window, which decides whether that is a word the

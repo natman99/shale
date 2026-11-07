@@ -766,13 +766,148 @@ fn an_embed_follows_a_note_being_edited_in_another_tab(cx: &mut TestAppContext) 
         .unwrap();
     assert_eq!(
         embeds(&window, &mut cx),
-        vec!["embed row 1", "  @gift.md:0 edited one", "  @gift.md:1 two",],
-        "the embed follows the unsaved edit, and the row it paints is still gift's row 0"
+        vec![
+            "embed row 1",
+            "  ●@gift.md:0 edited one",
+            "  @gift.md:1 two",
+        ],
+        // The dot is not noise: `gift` is ahead of its file in this window, and this is
+        // the only surface that says so besides the other tab.
+        "the embed follows the unsaved edit, and says where the unsaved edit is"
     );
     assert_eq!(
         std::fs::read_to_string(_dir.path().join("gift.md")).unwrap(),
         GIFT,
         "and none of this touched the file: the edit is still only in the buffer"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// The gutter's share of the save story (roadmap P4.0b).
+//
+// A tab's dot answers "which tab has unwritten work". Inside an embed that question
+// has no tab to answer it — an embedded note is not a tab — so the note's own rows
+// carry the mark, in the gutter column the callout's kind glyph and a folded heading's
+// disclosure already live in.
+// ---------------------------------------------------------------------------
+
+/// A note shown inside another note, ahead of its file, wears a dot in the gutter on the
+/// row where its run inside the block starts (roadmap P4.0b).
+///
+/// One dot per run rather than one per row: the mark says *this note is unwritten*, and a
+/// stripe of it down the body would say *these lines are different*, which is a different
+/// claim and a noisier one.
+#[gpui::test]
+fn a_note_ahead_of_its_file_wears_a_dot_in_the_gutter(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("host.md", HOST), ("gift.md", GIFT)]);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    window
+        .update(&mut cx, |ws, _window, _cx| ws.set_autosave(false))
+        .unwrap();
+    show_at(&mut cx, &window, "host.md");
+    assert_eq!(
+        embeds(&window, &mut cx),
+        vec!["embed row 1", "  @gift.md:0 one", "  @gift.md:1 two"],
+        "written, so the gutter has nothing to say"
+    );
+    cx.simulate_keystrokes("j ctrl-] A");
+    cx.simulate_input(" more");
+    cx.simulate_keystrokes("escape ctrl-o");
+    assert_eq!(
+        embeds(&window, &mut cx),
+        vec!["embed row 1", "  ●@gift.md:0 one more", "  @gift.md:1 two"],
+        "the dot is on the row where the run starts, and on that row only"
+    );
+    type_command("w", &mut cx);
+    assert_eq!(
+        embeds(&window, &mut cx),
+        vec!["embed row 1", "  @gift.md:0 one more", "  @gift.md:1 two"],
+        "and `:w` wrote the embed to its own file, so the mark is gone"
+    );
+    assert_eq!(
+        std::fs::read_to_string(_dir.path().join("gift.md")).unwrap(),
+        "one more\ntwo\n",
+        "which it only does because the dot's note is the note the caret typed into"
+    );
+}
+
+/// The dot belongs to a note, not to a block: a nested embed's rows are a *different*
+/// note's text, so an unwritten inner note is marked where its own run starts, and the
+/// outer block's top row stays clean.
+#[gpui::test]
+fn a_nested_embed_gets_its_own_dot_rather_than_its_hosts(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(
+        cx,
+        &[
+            ("host.md", "![[outer]]\n"),
+            ("outer.md", "top\n![[inner]]\n"),
+            ("inner.md", "deep\n"),
+        ],
+    );
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    window
+        .update(&mut cx, |ws, _window, _cx| ws.set_autosave(false))
+        .unwrap();
+    show_at(&mut cx, &window, "host.md");
+    // The inner note made dirty the way an author makes it dirty: open, type, and leave
+    // it unwritten. Two levels of *editing* are not on offer, so this is the only road in.
+    cx.simulate_keystrokes("ctrl-t");
+    // The picker's road, not `:e inner`: `:e` with no argument asks which note, and an
+    // argument it does not parse would leave the typing in a blank tab.
+    cx.simulate_keystrokes(":");
+    cx.simulate_input("e");
+    cx.simulate_keystrokes("enter");
+    cx.simulate_input("inner");
+    cx.simulate_keystrokes("enter");
+    cx.simulate_keystrokes("A");
+    cx.simulate_input("ZZ");
+    cx.simulate_keystrokes("escape");
+    window
+        .update(&mut cx, |ws, _window, cx| ws.show_tab_at(0, cx))
+        .unwrap();
+    let shape = embeds(&window, &mut cx);
+    assert!(
+        shape
+            .iter()
+            .any(|line| line.contains("●") && line.contains("@inner.md:0")),
+        "the inner note's run carries the mark: {shape:?}"
+    );
+    assert!(
+        !shape
+            .iter()
+            .any(|line| line.contains("●") && line.contains("@outer.md")),
+        "and the outer note, which is written, does not: {shape:?}"
+    );
+}
+
+/// The dot is not only in the frame — it is on the screen. The entered block's rows are
+/// line elements over the embedded note's buffer, and the first of them records the mark
+/// it actually painted, which is the guarantee that a mark reaching the element also
+/// reaches the gutter. Same record the callout tests lean on, and the reason the gutter's
+/// tenants share one painter: one record path, not one per feature.
+#[gpui::test]
+fn the_entered_block_paints_the_dot_on_its_first_row(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("host.md", HOST), ("gift.md", GIFT)]);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    window
+        .update(&mut cx, |ws, _window, _cx| ws.set_autosave(false))
+        .unwrap();
+    show_at(&mut cx, &window, "host.md");
+    cx.simulate_keystrokes("j ctrl-] A");
+    cx.simulate_input(" more");
+    repaint(&mut cx);
+    let dots = window
+        .update(&mut cx, |ws, _window, cx| ws.gutter_dots(cx))
+        .unwrap();
+    assert_eq!(
+        dots.1,
+        vec![0],
+        "the entered block's first row painted the dot, and no other row of it did"
+    );
+    assert_eq!(
+        dots.0,
+        Vec::<usize>::new(),
+        "and the host's own rows did not: it is written, and its embed's state is not its own"
     );
 }
 

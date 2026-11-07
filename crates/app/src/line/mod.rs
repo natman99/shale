@@ -25,7 +25,7 @@
 //! notes and search matches into the styled [`gpui::TextRun`]s a line is painted
 //! from — lives in [`runs`].
 
-mod marks;
+pub(crate) mod marks;
 pub(crate) mod phantom;
 mod runs;
 #[cfg(test)]
@@ -111,6 +111,12 @@ pub(crate) struct HitLine {
     /// check: one mark per box, not one per row.
     #[allow(dead_code)]
     pub(crate) callout_mark: bool,
+    /// Whether this row's gutter painted the unsaved-work dot. Recorded from what was
+    /// painted rather than from what the caller asked for, so a mark that reaches the
+    /// element and not the screen is a test failure and not an invisible regression —
+    /// which matters now that the gutter's tenants share one list and one painter.
+    #[allow(dead_code)]
+    pub(crate) gutter_dot: bool,
     /// How much of the line's colour survived the dimming system: 1.0 is the
     /// palette's own. Recorded so the focus-mode tests can see what the frame
     /// actually drew rather than what the model was asked for.
@@ -289,6 +295,13 @@ pub(crate) struct LineElement {
     /// is how it is painted: struck through, in the palette's red, with a bar down its
     /// left edge that continues into the phantom lines below.
     pub(crate) diff: Option<DiffRow>,
+    /// Marks the caller hangs in this row's gutter, beyond the ones the row's own state
+    /// already implies (see [`Self::gutter_marks`]).
+    ///
+    /// This is the door every future gutter feature walks through — an unsaved-work dot,
+    /// a line number, a bookmark — instead of a new field, a new colour argument and a
+    /// new paint call each time.
+    pub(crate) gutter: Vec<marks::GutterMark>,
 }
 
 /// A row a queued proposal would take away.
@@ -327,6 +340,37 @@ pub(crate) struct LinePrepaint {
 }
 
 impl LineElement {
+    /// Everything this row hangs in the gutter: what the row's own state implies, then
+    /// what the caller added.
+    ///
+    /// The order is the precedence — a callout's kind glyph outranks a dot the caller
+    /// pushed, because the kind cannot be carried by colour alone (that is `marks`' whole
+    /// reason for existing) while unsaved work is still reported by the tab. A new tenant
+    /// picks its place in this list rather than getting a field and a paint call of its
+    /// own.
+    fn gutter_marks(&self) -> Vec<marks::GutterMark> {
+        let mut out = Vec::new();
+        // A row a proposal would take away carries the hunk's rule down the gutter, so
+        // the struck rows and the phantom lines under them read as one block.
+        if let Some(diff) = self.diff {
+            out.push(marks::GutterMark::Bar {
+                width: if diff.current { px(3.) } else { px(2.) },
+                color: fade(diff.color, self.palette.bg, self.dim),
+            });
+        }
+        // A callout's type is carried by shape as well as colour, and only the header
+        // row's first display line draws it: a wrapped header is several display lines at
+        // one left edge, and a mark on each would be a stripe of the same glyph.
+        if let (Some(kind), true) = (self.callout, self.callout_mark) {
+            out.push(marks::GutterMark::Glyph {
+                mark: marks::mark_for(kind),
+                color: fade(self.palette.callout_accent(kind), self.palette.bg, self.dim),
+            });
+        }
+        out.extend(self.gutter.iter().copied());
+        out
+    }
+
     /// The x of a cell's content, measured from the line's left edge.
     fn cell_x(&self, cell_x: usize) -> Pixels {
         px(cell_x as f32 * f32::from(self.char_width))
@@ -671,24 +715,19 @@ impl Element for LineElement {
             );
         }
 
-        // A row a proposal would take away carries the hunk's bar down the **gutter**,
-        // the same 2 px rule the callout's box uses, so the struck rows and the phantom
-        // lines under them read as one block. It goes in the gutter rather than at the
-        // row's own left edge because `bounds` starts at the text column: a bar painted
-        // there sits on top of the first glyph, which is the one thing a struck line
-        // cannot afford — the line is the note's real text, and hiding its first letter
-        // hides what the proposal is actually about.
-        if let Some(diff) = self.diff {
-            let width = if diff.current { px(3.) } else { px(2.) };
-            let x = marks::glyph_x(bounds.left() - crate::style::GUTTER, width);
-            window.paint_quad(fill(
-                Bounds::from_corners(
-                    gpui::point(x, bounds.top()),
-                    gpui::point(x + width, bounds.bottom()),
-                ),
-                rgb(fade(diff.color, self.palette.bg, self.dim)),
-            ));
-        }
+        // Everything this row hangs in the gutter — a proposal's rule, a callout's kind
+        // glyph, whatever the caller added — through one painter, at one x. The column is
+        // measured back from the gutter's edge because `bounds` starts at the text
+        // column: a mark painted at `bounds.left()` sits on top of the first glyph, which
+        // is the one thing neither a struck line nor a marked heading can afford.
+        let gutter = self.gutter_marks();
+        marks::paint_gutter(
+            &gutter,
+            bounds.left() - crate::style::GUTTER,
+            bounds.top(),
+            px(self.height()),
+            window,
+        );
 
         // A fenced block's background covers the whole line, not just its text.
         // The block's own colours fade with the rest of the row, or a dimmed code
@@ -727,21 +766,6 @@ impl Element for LineElement {
             // `danger`/`bug` share one outright ([`marks`]). With live preview hiding the
             // `[!type]` header there is nothing else left saying which kind it is, so the
             // shape is the second channel `design-language.md` §8 asks for.
-            if self.callout_mark {
-                marks::paint_mark(
-                    marks::mark_for(kind),
-                    // The gutter is the strip of scroller padding immediately left of this
-                    // line's content, so it is measured back from here rather than from the
-                    // box: one number, shared with the layout that reserved it.
-                    marks::mark_box(
-                        bounds.left() - crate::style::GUTTER,
-                        bounds.top(),
-                        bounds.size.height,
-                    ),
-                    fade(self.palette.callout_accent(kind), self.palette.bg, self.dim),
-                    window,
-                );
-            }
         }
 
         // A thematic break is a rule across the editor, not the dashes the file
@@ -926,7 +950,23 @@ impl Element for LineElement {
                 bounds,
                 rule: self.rule,
                 callout: self.callout.is_some(),
-                callout_mark: self.callout.is_some() && self.callout_mark,
+                // Both read the list that was just painted: a callout's box and its kind
+                // mark are asked for by different fields, and the tests that hold "one
+                // mark per box" are only worth having if they measure the paint.
+                callout_mark: self.callout.is_some_and(|kind| {
+                    gutter.iter().any(|mark| {
+                        matches!(mark, marks::GutterMark::Glyph { mark, .. } if *mark == marks::mark_for(kind))
+                    })
+                }),
+                gutter_dot: gutter.iter().any(|mark| {
+                    matches!(
+                        mark,
+                        marks::GutterMark::Glyph {
+                            mark: marks::Mark::Dot,
+                            ..
+                        }
+                    )
+                }),
                 dim: self.dim,
                 fold_marker,
             };

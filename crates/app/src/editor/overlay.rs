@@ -29,6 +29,7 @@ use shale_core::diff::{self, Hunk};
 use shale_core::transclude::{Body, EmbedLine, EmbedRow, Origin};
 use shale_core::vim::Mode;
 
+use crate::line::marks::{self, GutterMark};
 use crate::line::phantom::{PhantomKind, PhantomLine};
 use crate::line::DisplayLine;
 use crate::theme;
@@ -223,7 +224,18 @@ impl MarkdownEditor {
                 Body::Badge(name) => out.push(format!("embed row {row}: badge {name}")),
                 Body::Lines(lines) => {
                     out.push(format!("embed row {row}"));
-                    for EmbedLine { depth, origin, row } in lines {
+                    // The gutter is part of the shape a test can pin. A dot that is not
+                    // in the frame cannot be asserted on; a dot in the frame but not on
+                    // screen is a different bug, and the paint tests' problem.
+                    let gutter = self.embed_gutter(
+                        &lines
+                            .iter()
+                            .map(|line| line.origin.clone())
+                            .collect::<Vec<_>>(),
+                    );
+                    for (EmbedLine { depth, origin, row }, row_gutter) in
+                        lines.into_iter().zip(gutter)
+                    {
                         let text = match row {
                             EmbedRow::Text(text) => text,
                             // Brackets because a stopped embed is a name, not a line.
@@ -235,10 +247,23 @@ impl MarkdownEditor {
                         let at = origin
                             .map(|o| format!("@{}:{}", o.path.display(), o.row))
                             .unwrap_or_default();
-                        out.push(if at.is_empty() {
-                            format!("{}{text}", "  ".repeat(depth))
+                        let dot = if row_gutter.iter().any(|mark| {
+                            matches!(
+                                mark,
+                                GutterMark::Glyph {
+                                    mark: marks::Mark::Dot,
+                                    ..
+                                }
+                            )
+                        }) {
+                            crate::style::GLYPH_DIRTY
                         } else {
-                            format!("{}{at} {text}", "  ".repeat(depth))
+                            ""
+                        };
+                        out.push(if at.is_empty() {
+                            format!("{}{dot}{text}", "  ".repeat(depth))
+                        } else {
+                            format!("{}{dot}{at} {text}", "  ".repeat(depth))
                         });
                     }
                 }
@@ -298,7 +323,7 @@ impl MarkdownEditor {
 /// The two share a type because the geometry is the same in both cases: rows that are
 /// not in the buffer, painted beside a host row, invisible to everything that moves
 /// through the note. What differs is where the text came from and how it is dressed.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Block {
     /// The lines to paint. Empty when the block is collapsed or is a bare badge.
     pub(crate) lines: Vec<BlockLine>,
@@ -323,7 +348,7 @@ pub(crate) enum BlockKind {
 }
 
 /// One row of a phantom block.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct BlockLine {
     pub(crate) text: String,
     /// How many embeds deep this row is: 0 for a proposal's rows, 1 for the body of the
@@ -339,6 +364,11 @@ pub(crate) struct BlockLine {
     /// caret in it, and the check for "is this section still there" all start here
     /// (roadmap P4.0b).
     pub(crate) origin: Option<Origin>,
+    /// What this row hangs in the gutter, decided by the frame and carried to whichever
+    /// element paints the row — a picture or a line element, since one embedded note's
+    /// rows can be either inside the same block. Today: the dot for a note ahead of its
+    /// file.
+    pub(crate) gutter: Vec<GutterMark>,
 }
 
 /// Where the overlay's pieces go in one frame.
@@ -404,6 +434,9 @@ impl MarkdownEditor {
                                 // A proposed row belongs to no note until the
                                 // proposal is accepted, so it has no address.
                                 origin: None,
+                                // ...and nothing to hang in the gutter beyond the
+                                // proposal's own rule.
+                                gutter: Vec::new(),
                             })
                             .collect()
                     },
@@ -430,6 +463,37 @@ impl MarkdownEditor {
     /// The transclusions (roadmap P4.0a): a row that is nothing but `![[…]]` shows the
     /// body of what it points at **under itself**.
     ///
+    /// The gutter marks for a body's rows: a dot on the first row of each note's run
+    /// inside the block, when that note is ahead of its file (roadmap P4.0b).
+    ///
+    /// Per run and not per block, because a nested embed's rows are a *different* note's
+    /// text — the outer block's top row is not where its unsaved words are. The host's
+    /// tab dot is already transitive, so the tab says *that* something is unwritten; this
+    /// says *which block on screen* it is in, which is the half a tab cannot tell you —
+    /// and an embedded note with no tab of its own has nothing else to light.
+    fn embed_gutter(&self, origins: &[Option<Origin>]) -> Vec<Vec<GutterMark>> {
+        let mut shown: Option<std::path::PathBuf> = None;
+        origins
+            .iter()
+            .map(|origin| match origin.as_ref() {
+                Some(o) if shown.as_ref() != Some(&o.path) => {
+                    shown = Some(o.path.clone());
+                    if self.notes.get(&o.path).is_some_and(|note| note.dirty.get()) {
+                        vec![GutterMark::Glyph {
+                            mark: marks::Mark::Dot,
+                            color: self.palette.accent,
+                        }]
+                    } else {
+                        Vec::new()
+                    }
+                }
+                // A badge row belongs to no note, and does not end the run of the note
+                // whose rows surround it.
+                _ => Vec::new(),
+            })
+            .collect()
+    }
+
     /// The host row stays on screen — it is the author's own text, editable, and the
     /// thing that says where the borrowed lines come from. The body hangs after it, which
     /// is the same anchor a proposal's additions use, so one insertion pass draws both.
@@ -474,7 +538,7 @@ impl MarkdownEditor {
                     entered: false,
                 },
                 Body::Lines(rows) => {
-                    let lines: Vec<BlockLine> = rows
+                    let mut lines: Vec<BlockLine> = rows
                         .into_iter()
                         .map(|EmbedLine { depth, origin, row }| match row {
                             EmbedRow::Text(text) => BlockLine {
@@ -482,15 +546,26 @@ impl MarkdownEditor {
                                 depth,
                                 badge: false,
                                 origin,
+                                gutter: Vec::new(),
                             },
                             EmbedRow::Badge(text) => BlockLine {
                                 text,
                                 depth,
                                 badge: true,
                                 origin: None,
+                                gutter: Vec::new(),
                             },
                         })
                         .collect();
+                    let gutter = self.embed_gutter(
+                        &lines
+                            .iter()
+                            .map(|line| line.origin.clone())
+                            .collect::<Vec<_>>(),
+                    );
+                    for (line, gutter) in lines.iter_mut().zip(gutter) {
+                        line.gutter = gutter;
+                    }
                     Block {
                         // One level of editing, so at most one block of the frame is
                         // the one being typed into.
@@ -553,6 +628,7 @@ impl MarkdownEditor {
                         indent: 0,
                         spans: Vec::new(),
                         origin: None,
+                        gutter: Vec::new(),
                         hits: Rc::clone(&self.phantom_hits),
                     }
                     .into_any_element(),
@@ -607,7 +683,7 @@ impl MarkdownEditor {
                 if block.entered && !line.badge {
                     if let (Some(origin), Some(row)) = (line.origin.as_ref(), painted.get(ix)) {
                         out.push(
-                            self.embed_line(origin, row, char_width, &editor)
+                            self.embed_line(origin, row, char_width, &editor, &line.gutter)
                                 .into_any_element(),
                         );
                         continue;
@@ -635,6 +711,7 @@ impl MarkdownEditor {
                         // The row's address travels with it to the paint, which is where
                         // the on-screen band gets paired back up with it.
                         origin: line.origin.clone(),
+                        gutter: line.gutter.clone(),
                         hits: Rc::clone(&self.phantom_hits),
                     }
                     .into_any_element(),
@@ -657,6 +734,7 @@ impl MarkdownEditor {
         painted: &embeds::PaintedRow,
         char_width: Pixels,
         editor: &gpui::Entity<MarkdownEditor>,
+        gutter: &[GutterMark],
     ) -> LineElement {
         let embed = self
             .entered
@@ -721,6 +799,7 @@ impl MarkdownEditor {
             palette: Rc::clone(&self.palette),
             fold: None,
             diff: None,
+            gutter: gutter.to_vec(),
         }
     }
 }

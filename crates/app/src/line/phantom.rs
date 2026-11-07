@@ -19,9 +19,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use gpui::{
-    fill, font, px, relative, rgb, App, Bounds, Element, ElementId, GlobalElementId,
-    InspectorElementId, IntoElement, LayoutId, Pixels, ShapedLine, SharedString,
-    Style as ElementStyle, Window,
+    font, px, relative, App, Bounds, Element, ElementId, GlobalElementId, InspectorElementId,
+    IntoElement, LayoutId, Pixels, ShapedLine, SharedString, Style as ElementStyle, Window,
 };
 use shale_core::theme::Palette;
 use shale_core::transclude::Origin;
@@ -90,6 +89,11 @@ pub(crate) struct PhantomLine {
     /// scan that sees both. An empty list means "plain", which is what a proposal's rows
     /// are: proposed text is not styled, it is a change being offered.
     pub(crate) spans: Vec<(usize, usize, shale_core::mdstyle::Style)>,
+    /// What the caller hangs in this row's gutter, beyond the block's own rule. The
+    /// unsaved-work dot for an embedded note arrives here (roadmap P4.0b) — the tab that
+    /// would otherwise carry that news may not exist, because an embedded note is not a
+    /// tab. See [`marks::GutterMark`] for what the column can hold.
+    pub(crate) gutter: Vec<marks::GutterMark>,
     /// Which note this row is a line of, and which row. `None` for a proposal's rows.
     pub(crate) origin: Option<Origin>,
     /// The editor's list of painted phantom rows, which this element adds itself to
@@ -102,6 +106,18 @@ pub(crate) struct PhantomLine {
 }
 
 impl PhantomLine {
+    /// The block's own rule first — it is what says where borrowed text starts and
+    /// stops, and it is derived from the row's kind rather than handed in — then whatever
+    /// the caller added.
+    fn gutter_marks(&self) -> Vec<marks::GutterMark> {
+        let mut out = vec![marks::GutterMark::Bar {
+            width: if self.current { px(3.) } else { px(2.) },
+            color: self.bar(),
+        }];
+        out.extend(self.gutter.iter().copied());
+        out
+    }
+
     fn height(&self) -> Pixels {
         px(theme::line_height(self.size))
     }
@@ -230,15 +246,18 @@ impl Element for PhantomLine {
         // gutter, at the same x the struck rows put theirs, and the phantom text stays in
         // the note's own text column — an addition that is indented away from the
         // column reads as a quote rather than as a line the note would gain.
-        let width = if self.current { px(3.) } else { px(2.) };
-        let x = marks::glyph_x(bounds.left() - crate::style::GUTTER, width);
-        window.paint_quad(fill(
-            Bounds::from_corners(
-                gpui::point(x, bounds.top()),
-                gpui::point(x + width, bounds.bottom()),
-            ),
-            rgb(self.bar()),
-        ));
+        // The block's rule, and whatever else this row carries, in the one gutter
+        // column: the same x a callout's kind glyph and a folded heading's disclosure
+        // hang from. The rule runs the length of the body whatever the row's indent, and
+        // so does the rest of the column — nesting steps the text, not the edge it hangs
+        // from.
+        marks::paint_gutter(
+            &self.gutter_marks(),
+            bounds.left() - crate::style::GUTTER,
+            bounds.top(),
+            self.height(),
+            window,
+        );
         if let Err(err) = line.paint(
             gpui::point(self.text_x(bounds), bounds.top()),
             self.height(),

@@ -281,6 +281,15 @@ impl Workspace {
             .unwrap_or_default()
     }
 
+    /// Which painted rows carried the gutter's unsaved-work dot, as
+    /// `(the note's own rows, an entered embed's rows)`.
+    #[cfg(test)]
+    pub(crate) fn gutter_dots<C: gpui::AppContext>(&self, cx: &mut C) -> (Vec<usize>, Vec<usize>) {
+        self.editor()
+            .map(|editor| editor.read_with(cx, |editor, _cx| editor.painted_gutter_dots()))
+            .unwrap_or_default()
+    }
+
     pub(crate) fn embed_shape<C: gpui::AppContext>(&self, cx: &mut C) -> Vec<String> {
         self.editor()
             .map(|editor| editor.update(cx, |editor, _cx| editor.embed_shape()))
