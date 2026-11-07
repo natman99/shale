@@ -128,10 +128,11 @@ pub(crate) struct Workspace {
     popup: Option<Entity<crate::popup::Popup>>,
     /// What had the keyboard before the popup took it, so closing hands it back.
     popup_return_focus: Option<gpui::FocusHandle>,
-    /// The display line the popup sits below. Its place is worked out again each
-    /// frame, so the panel follows the note as it scrolls and goes away when the
-    /// line does.
-    popup_anchor: Option<usize>,
+    /// The line the popup sits below, tagged with the line space it is counted in:
+    /// a panel about a word inside the block being edited hangs off a row of the
+    /// other note. Its place is worked out again each frame, so the panel follows
+    /// the note as it scrolls and goes away when the line does.
+    popup_anchor: Option<crate::editor::LineRef>,
     /// Whether the pointer opened the popup. Only then does moving off the word
     /// close it; a popup asked for with `K` stays until the user says otherwise.
     popup_from_pointer: bool,

@@ -77,12 +77,18 @@ impl Workspace {
             return;
         }
         let offset = handle.read_with(cx, |editor, _cx| editor.cursor_offset());
-        let line = handle.read_with(cx, |editor, _cx| editor.display_position().0);
+        // The row the caret is on, in the space that row is counted in: inside a
+        // block being edited it is a row of the other note, and a panel anchored
+        // by number alone would hang it off this window's line of the same number.
+        let line = handle.read_with(cx, |editor, _cx| editor.caret_line());
         self.open_popup_for(offset, line, false, window, cx);
     }
 
     /// The pointer moved over the note and landed on buffer offset `offset` of
-    /// display line `line`, with the pointer itself at the window position `at`.
+    /// line `line`, with the pointer itself at the window position `at`.
+    ///
+    /// `line` carries which note's rows it counts: a row inside the block being
+    /// edited belongs to the other buffer, and the panel has to hang off that row.
     ///
     /// Hovering is a request, not a command: it only opens a popup when the
     /// pointer is over a word the checker marked, and it only closes one it
@@ -93,7 +99,7 @@ impl Workspace {
     pub(super) fn pointer_hovered(
         &mut self,
         offset: usize,
-        line: usize,
+        line: crate::editor::LineRef,
         at: Point<Pixels>,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -229,11 +235,11 @@ impl Workspace {
     }
 
     /// Put a popup about the note covering `offset` on screen, anchored below
-    /// display line `line`, and point the keyboard at it.
+    /// line `line`, and point the keyboard at it.
     fn open_popup_for(
         &mut self,
         offset: usize,
-        line: usize,
+        line: crate::editor::LineRef,
         from_pointer: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -311,7 +317,16 @@ impl Workspace {
         self.popup_note = None;
         self.popup_from_pointer = false;
         self.popup_fixes.clear();
-        if let Some(focus) = self.popup_return_focus.take() {
+        // The keyboard has to land somewhere. Whatever had it before the panel is
+        // the first answer; if the panel took it from nothing at all, the note on
+        // screen is. A panel dropped with the keyboard still pointed at it is the
+        // whole failure this path exists to avoid, and it is total: no key, in any
+        // context, reaches anything.
+        let focus = self
+            .popup_return_focus
+            .take()
+            .or_else(|| Some(self.active_focus(cx)));
+        if let Some(focus) = focus {
             self.pending_focus = Some(focus);
         }
         cx.notify();

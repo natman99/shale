@@ -446,6 +446,13 @@ impl Render for Workspace {
         // move can arrive between frames — and near the bottom of the window the
         // panel has moved to above its line by then.
         let placed = self.popup_place(window, cx).map(|placed| placed.bounds);
+        // A panel with nowhere to be drawn is a panel nothing renders — and the
+        // keyboard is still pointed at it, because the element that would give it
+        // keys, and the note's keys with it, is not in the tree. So it goes here,
+        // and the `pending_focus` below catches the refocus in this same frame.
+        if self.popup.is_some() && placed.is_none() {
+            self.drop_popup(cx);
+        }
         let popup = self.popup_entity().zip(placed);
         // The one path that had to close a popup without a window to hand the
         // keyboard back with (the file watcher) left the refocus for here, which

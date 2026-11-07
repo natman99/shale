@@ -14,12 +14,9 @@
 use super::*;
 use crate::lsp::{Diagnostic, Fix};
 
+mod embed;
 mod keyboard;
 mod pointer;
-
-/// Put the checker's notes in the window's hands, as though the server had just
-/// published them.
-// `notes_from` lives in tests/mod.rs beside the other shared helpers.
 
 /// Two frames, so the note's lines have painted positions to measure against.
 fn paint(cx: &mut VisualTestContext) {

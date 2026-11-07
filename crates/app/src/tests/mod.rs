@@ -31,6 +31,13 @@ pub(crate) fn notes_from(notes: &[(&str, usize, usize)]) -> Vec<crate::lsp::Diag
         .collect()
 }
 
+/// Open a note by name, for fixtures whose vault holds more than one note.
+pub(crate) fn show_at(cx: &mut TestAppContext, window: &WindowHandle<Workspace>, name: &str) {
+    window
+        .update(cx, |ws, _window, cx| ws.open_note(&PathBuf::from(name), cx))
+        .unwrap();
+}
+
 pub(crate) fn repaint(cx: &mut VisualTestContext) {
     for _ in 0..2 {
         cx.update(|window, cx| window.draw(cx).clear(cx));

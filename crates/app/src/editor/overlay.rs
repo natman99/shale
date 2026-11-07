@@ -24,7 +24,8 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use gpui::{Context, IntoElement, Pixels, SharedString};
+use gpui::{Context, IntoElement, Pixels, SharedString, Styled};
+use gpui::{InteractiveElement, ParentElement};
 use shale_core::diff::{self, Hunk};
 use shale_core::transclude::{Body, EmbedLine, EmbedRow, Origin};
 use shale_core::vim::Mode;
@@ -680,6 +681,9 @@ impl MarkdownEditor {
             } else {
                 Vec::new()
             };
+            // The block being edited's rows go in one wrapper, so the block has one
+            // pointer handler rather than one per row.
+            let mut rows: Vec<gpui::AnyElement> = Vec::new();
             for (ix, line) in block.lines.iter().enumerate() {
                 let (text, spans) = match (block.kind, line.badge) {
                     (BlockKind::Embed, false) => {
@@ -694,7 +698,7 @@ impl MarkdownEditor {
                 // selection and a click that lands on the right byte (roadmap P4.0b).
                 if block.entered && !line.badge {
                     if let (Some(origin), Some(row)) = (line.origin.as_ref(), painted.get(ix)) {
-                        out.push(
+                        rows.push(
                             self.embed_line(origin, row, char_width, &editor, &line.gutter)
                                 .into_any_element(),
                         );
@@ -727,6 +731,36 @@ impl MarkdownEditor {
                         hits: Rc::clone(&self.phantom_hits),
                     }
                     .into_any_element(),
+                );
+            }
+            if !rows.is_empty() {
+                // A word inside the block being edited is a word the checker is
+                // looking at, so the pointer asks about it the way it asks about the
+                // note's own. Which row it is asking about comes from the bands this
+                // frame painted, and the number it reports is tagged as the other
+                // note's — the window cannot tell that from the number alone.
+                out.push(
+                    gpui::div()
+                        .w_full()
+                        .children(rows)
+                        .on_mouse_move({
+                            let editor = editor.clone();
+                            move |event: &gpui::MouseMoveEvent, _window, cx| {
+                                let at = event.position;
+                                let asked =
+                                    editor.read_with(cx, |editor, _cx| editor.embed_hover_at(at));
+                                if let Some((row, offset)) = asked {
+                                    editor.update(cx, |_, cx| {
+                                        cx.emit(crate::editor::EditorEvent::Hovered {
+                                            offset,
+                                            line: crate::editor::LineRef::Embed(row),
+                                            at,
+                                        })
+                                    });
+                                }
+                            }
+                        })
+                        .into_any_element(),
                 );
             }
         }

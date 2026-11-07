@@ -172,8 +172,11 @@ impl Workspace {
     /// screen when the frame centred the caret in the window.
     #[cfg(test)]
     pub(crate) fn display_line_is_visible<C: gpui::AppContext>(&self, cx: &C, line: usize) -> bool {
-        self.editor()
-            .is_some_and(|editor| editor.read_with(cx, |editor, _cx| editor.line_is_visible(line)))
+        self.editor().is_some_and(|editor| {
+            editor.read_with(cx, |editor, _cx| {
+                editor.line_is_visible(crate::editor::LineRef::Display(line))
+            })
+        })
     }
     #[cfg(test)]
     pub(crate) fn tree_rows(&self) -> Vec<PathBuf> {

@@ -787,13 +787,16 @@ impl Render for MarkdownEditor {
                             // worked out from the text that was painted on it.
                             .on_mouse_move(move |event: &gpui::MouseMoveEvent, _window, cx| {
                                 let offset = editor.read_with(cx, |editor, _cx| {
-                                    editor.offset_at_pointer_x(index, event.position.x)
+                                    editor.offset_at_pointer_x(
+                                        crate::editor::LineRef::Display(index),
+                                        event.position.x,
+                                    )
                                 });
                                 if let Some(offset) = offset {
                                     editor.update(cx, |_, cx| {
                                         cx.emit(EditorEvent::Hovered {
                                             offset,
-                                            line: index,
+                                            line: crate::editor::LineRef::Display(index),
                                             at: event.position,
                                         })
                                     });

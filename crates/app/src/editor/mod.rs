@@ -42,6 +42,22 @@ use self::wrap::{CachedRow, RowPaint};
 // does when a vault asks for none.
 pub(crate) use crate::theme::DEFAULT_FONT_SIZE;
 
+/// Which line space a row number is counted in.
+///
+/// The note on screen and the block being edited are two buffers, and each numbers
+/// its own rows from zero. A row number carried between the editor and the window —
+/// a pointer hover, the anchor of a panel — has to say which of the two it belongs
+/// to, because the window looks rows up in the lines it painted and an embed's row
+/// is not among them. Asked of the host's list, an embed's row finds either the
+/// wrong line or, past the end of the note, no line at all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LineRef {
+    /// A line of the note the tab is showing, as that note's display list numbers it.
+    Display(usize),
+    /// A row of the block the caret is inside, as the embedded note numbers it.
+    Embed(usize),
+}
+
 /// Events the editor emits for the workspace to handle.
 #[derive(Debug, Clone)]
 pub enum EditorEvent {
@@ -80,10 +96,14 @@ pub enum EditorEvent {
     /// grammar checker's copy of the document in step with the buffer.
     Changed,
     /// The pointer moved over the note, landing on buffer offset `offset` of
-    /// display line `line`, at the window position `at`.
+    /// line `line`, at the window position `at`.
+    ///
+    /// `line` says which line space the number is counted in: a row inside the
+    /// block being edited belongs to the other buffer, and the window has to know
+    /// that to find the band it was painted at.
     Hovered {
         offset: usize,
-        line: usize,
+        line: LineRef,
         at: gpui::Point<Pixels>,
     },
 }
@@ -671,13 +691,28 @@ impl MarkdownEditor {
     /// is why their records are kept out of `hit_lines`, whose offsets the host reads
     /// as its own.
     pub(crate) fn embed_offset_at(&self, point: gpui::Point<gpui::Pixels>) -> Option<usize> {
-        let hit = self.embed_hits.iter().find(|hit| {
+        self.embed_hit_at(point)
+            .map(|hit| hit.offset_for_x(point.x - hit.bounds.left()))
+    }
+
+    /// Which row of the block being edited the pointer is over, and the offset
+    /// under it. Read from the bands this frame painted, so the row is the one the
+    /// user is looking at rather than one inferred from where the pointer was.
+    pub(crate) fn embed_hover_at(
+        &self,
+        point: gpui::Point<gpui::Pixels>,
+    ) -> Option<(usize, usize)> {
+        let hit = self.embed_hit_at(point)?;
+        Some((hit.index, hit.offset_for_x(point.x - hit.bounds.left())))
+    }
+
+    fn embed_hit_at(&self, point: gpui::Point<gpui::Pixels>) -> Option<&HitLine> {
+        self.embed_hits.iter().find(|hit| {
             hit.bounds.top() <= point.y
                 && point.y < hit.bounds.bottom()
                 && hit.bounds.left() <= point.x
                 && point.x <= hit.bounds.right()
-        })?;
-        Some(hit.offset_for_x(point.x - hit.bounds.left()))
+        })
     }
 
     /// Where the entered block's rows were painted: `(row of the embedded note, left,
@@ -1201,10 +1236,8 @@ impl MarkdownEditor {
     /// margins, and a table row starts further in again — so the pointer is
     /// measured from where the line was painted. [`Self::offset_at_x`] takes the
     /// other coordinate space, measured from the line itself.
-    pub fn offset_at_pointer_x(&self, index: usize, x: Pixels) -> Option<usize> {
-        self.hit_lines
-            .iter()
-            .find(|hit| hit.index == index)
+    pub fn offset_at_pointer_x(&self, line: LineRef, x: Pixels) -> Option<usize> {
+        self.hit(line)
             .map(|hit| hit.offset_for_x(x - hit.bounds.left()))
     }
 
@@ -1351,14 +1384,23 @@ impl MarkdownEditor {
             .map(|hit| (hit.bounds.left(), hit.bounds.right()))
     }
 
-    /// Where display line `index` was painted, in window coordinates. The window
-    /// places the popup just below it, and asks again each frame, which is what
-    /// lets a popup follow the note as it scrolls.
-    pub fn hit_line_bounds(&self, index: usize) -> Option<gpui::Bounds<Pixels>> {
-        self.hit_lines
-            .iter()
-            .find(|hit| hit.index == index)
-            .map(|hit| hit.bounds)
+    /// The painted record for a row, looked up in the line space it was counted
+    /// in: the note's own display lines, or the block being edited's rows. The two
+    /// lists both number from zero, which is exactly why a bare number cannot say
+    /// which one it means.
+    fn hit(&self, line: LineRef) -> Option<&HitLine> {
+        let (list, index) = match line {
+            LineRef::Display(index) => (&self.hit_lines, index),
+            LineRef::Embed(index) => (&self.embed_hits, index),
+        };
+        list.iter().find(|hit| hit.index == index)
+    }
+
+    /// Where line `line` was painted, in window coordinates. The window places
+    /// the popup just below it, and asks again each frame, which is what lets a
+    /// popup follow the note as it scrolls.
+    pub fn hit_line_bounds(&self, line: LineRef) -> Option<gpui::Bounds<Pixels>> {
+        self.hit(line).map(|hit| hit.bounds)
     }
 
     /// Whether display line `index` is inside the scroll container's viewport as
@@ -1367,8 +1409,8 @@ impl MarkdownEditor {
     /// Every line is laid out, scrolled away or not, so the window asks this
     /// before drawing a panel over a line: a panel over a word that is not on
     /// screen would float over the sidebar or the status bar instead.
-    pub fn line_is_visible(&self, index: usize) -> bool {
-        let Some(hit) = self.hit_lines.iter().find(|hit| hit.index == index) else {
+    pub fn line_is_visible(&self, line: LineRef) -> bool {
+        let Some(hit) = self.hit(line) else {
             return false;
         };
         let view = self.scroll_handle.bounds();
@@ -1449,6 +1491,18 @@ impl MarkdownEditor {
             self.buffer.borrow().display_index_for(&self.slot, cursor),
             self.buffer.borrow().display_col(&self.slot, cursor),
         )
+    }
+
+    /// Which row the caret is on, tagged with the line space that row is counted
+    /// in. Inside a block being edited the number is a row of the other note, and
+    /// anything that measures it against this window's painted lines has to know.
+    pub fn caret_line(&self) -> LineRef {
+        let row = self.display_position().0;
+        if self.entered.is_some() {
+            LineRef::Embed(row)
+        } else {
+            LineRef::Display(row)
+        }
     }
 
     fn mark_dirty(&mut self, cx: &mut Context<Self>) {

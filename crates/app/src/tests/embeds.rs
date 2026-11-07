@@ -727,13 +727,6 @@ fn switching_notes_repoints_the_embed_resolver(cx: &mut TestAppContext) {
     );
 }
 
-/// Open a note by name rather than the fixture's `a.md`.
-fn show_at(cx: &mut TestAppContext, window: &WindowHandle<Workspace>, name: &str) {
-    window
-        .update(cx, |ws, _window, cx| ws.open_note(&PathBuf::from(name), cx))
-        .unwrap();
-}
-
 /// An embed shows a note as this window has it, not as the disk has it (roadmap
 /// P4.0b ruling 12). A note open in another tab with unsaved edits embeds *with*
 /// those edits: one window must not show two versions of one note, and the
