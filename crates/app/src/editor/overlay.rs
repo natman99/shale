@@ -26,11 +26,11 @@ use std::rc::Rc;
 
 use gpui::{Context, SharedString};
 use shale_core::diff::{self, Hunk};
-use shale_core::transclude::{Body, EmbedLine, EmbedRow};
+use shale_core::transclude::{Body, EmbedLine, EmbedRow, Origin};
 
 use crate::line::phantom::{PhantomKind, PhantomLine};
-use crate::theme;
 use crate::line::DisplayLine;
+use crate::theme;
 
 use super::{embeds, MarkdownEditor, View};
 
@@ -119,9 +119,7 @@ impl MarkdownEditor {
                     removed: at.removed,
                     added: at.added,
                     current: proposal.current == Some(hunk),
-                    collapsed: self
-                        .collapsed_inline
-                        .contains(&(proposal.id.clone(), hunk)),
+                    collapsed: self.collapsed_inline.contains(&(proposal.id.clone(), hunk)),
                 });
             }
         }
@@ -210,19 +208,36 @@ impl MarkdownEditor {
             return Vec::new();
         }
         let mut out = Vec::new();
-        for (row, body) in self.embeds.resolve(vault, self.buffer.borrow().text()) {
+        let sources = embeds::OpenFirst {
+            notes: &self.notes,
+            vault,
+        };
+        for (row, body) in self
+            .embeds
+            .resolve(vault, self.buffer.borrow().text(), &sources)
+        {
             match body {
                 Body::Nothing => {}
                 Body::Badge(name) => out.push(format!("embed row {row}: badge {name}")),
                 Body::Lines(lines) => {
                     out.push(format!("embed row {row}"));
-                    for EmbedLine { depth, row } in lines {
+                    for EmbedLine { depth, origin, row } in lines {
                         let text = match row {
                             EmbedRow::Text(text) => text,
                             // Brackets because a stopped embed is a name, not a line.
                             EmbedRow::Badge(text) => format!("[{text}]"),
                         };
-                        out.push(format!("{}{text}", "  ".repeat(depth)));
+                        // The address is part of the shape a test can pin: a painted
+                        // row that does not know which note and row it came from
+                        // cannot be clicked, caret-ed into, or checked for existing.
+                        let at = origin
+                            .map(|o| format!("@{}:{}", o.path.display(), o.row))
+                            .unwrap_or_default();
+                        out.push(if at.is_empty() {
+                            format!("{}{text}", "  ".repeat(depth))
+                        } else {
+                            format!("{}{at} {text}", "  ".repeat(depth))
+                        });
                     }
                 }
             }
@@ -268,7 +283,6 @@ impl MarkdownEditor {
             false
         }
     }
-
 }
 
 /// One phantom block: the lines one hunk would add, or the count it shows when the user
@@ -309,6 +323,12 @@ pub(crate) struct BlockLine {
     /// depth cap, or one already on the chain. It wears the link colour, because the
     /// name is the thing the reader can act on.
     pub(crate) badge: bool,
+    /// Which note this row is a line *of*, and which row of it. `None` for a
+    /// proposal's rows (they belong to no note until they are accepted) and for a
+    /// badge. This is what makes the painted row addressable: a click on it, a
+    /// caret in it, and the check for "is this section still there" all start here
+    /// (roadmap P4.0b).
+    pub(crate) origin: Option<Origin>,
 }
 
 /// Where the overlay's pieces go in one frame.
@@ -360,9 +380,7 @@ impl MarkdownEditor {
                 let block = Block {
                     // A collapsed hunk trades its lines for a count, which is what lets
                     // a twelve-line proposal be skimmed without twelve rows of green.
-                    badge: placed
-                        .collapsed
-                        .then(|| format!("−{removed} +{added}")),
+                    badge: placed.collapsed.then(|| format!("−{removed} +{added}")),
                     lines: if placed.collapsed {
                         Vec::new()
                     } else {
@@ -372,6 +390,9 @@ impl MarkdownEditor {
                                 text,
                                 depth: 0,
                                 badge: false,
+                                // A proposed row belongs to no note until the
+                                // proposal is accepted, so it has no address.
+                                origin: None,
                             })
                             .collect()
                     },
@@ -416,7 +437,14 @@ impl MarkdownEditor {
         if self.view == View::Raw {
             return;
         }
-        for (row, body) in self.embeds.resolve(vault, self.buffer.borrow().text()) {
+        let sources = embeds::OpenFirst {
+            notes: &self.notes,
+            vault,
+        };
+        for (row, body) in self
+            .embeds
+            .resolve(vault, self.buffer.borrow().text(), &sources)
+        {
             // A row folded away has no display line to hang a body under, and painting
             // one anyway would show content from behind a closed fold.
             let Some(&host) = last_of.get(&row) else {
@@ -433,9 +461,19 @@ impl MarkdownEditor {
                 Body::Lines(rows) => Block {
                     lines: rows
                         .into_iter()
-                        .map(|EmbedLine { depth, row }| match row {
-                            EmbedRow::Text(text) => BlockLine { text, depth, badge: false },
-                            EmbedRow::Badge(text) => BlockLine { text, depth, badge: true },
+                        .map(|EmbedLine { depth, origin, row }| match row {
+                            EmbedRow::Text(text) => BlockLine {
+                                text,
+                                depth,
+                                badge: false,
+                                origin,
+                            },
+                            EmbedRow::Badge(text) => BlockLine {
+                                text,
+                                depth,
+                                badge: true,
+                                origin: None,
+                            },
                         })
                         .collect(),
                     badge: None,
@@ -484,10 +522,9 @@ impl MarkdownEditor {
             };
             for (ix, line) in block.lines.iter().enumerate() {
                 let (text, spans) = match (block.kind, line.badge) {
-                    (BlockKind::Embed, false) => (
-                        painted[ix].text.clone(),
-                        painted[ix].spans.clone(),
-                    ),
+                    (BlockKind::Embed, false) => {
+                        (painted[ix].text.clone(), painted[ix].spans.clone())
+                    }
                     // A stopped embed is a name, not markdown: it keeps the link
                     // colour and nothing else.
                     _ => (line.text.clone(), Vec::new()),

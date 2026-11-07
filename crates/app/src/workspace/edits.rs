@@ -5,7 +5,7 @@
 //! checked edits in [`shale_core::Vault`].
 
 use std::path::{Path, PathBuf};
-use std::rc::{Rc, Weak};
+use std::rc::Rc;
 
 use anyhow::{Context as _, Result};
 use gpui::{prelude::*, Context, Entity, Focusable, Window};
@@ -431,7 +431,7 @@ impl Workspace {
                 // The note's buffer is shared, so the rewrite lands in it once and
                 // every view of the note is told that what it measured against the
                 // old text is stale (roadmap P4.17).
-                if let Some(note) = self.notes.get(&path).and_then(Weak::upgrade) {
+                if let Some(note) = self.notes.get(&path) {
                     note.buffer.borrow_mut().set_text(text.clone());
                     note.dirty.set(false);
                     self.reload_views_of(&path, cx);
@@ -470,6 +470,7 @@ impl Workspace {
             editor.update(cx, |editor, cx| {
                 editor.set_known_links(self.known.clone(), cx);
                 editor.set_vault(Rc::clone(&vault), self.attachments.clone(), cx);
+                editor.set_notes(Rc::clone(&self.notes), cx);
                 // The disk moved, so every embed body this note is showing is a guess
                 // about another file (roadmap P4.0a). `set_embed_context` refreshes the
                 // note list; `invalidate_embeds` drops the bodies the old list answered.

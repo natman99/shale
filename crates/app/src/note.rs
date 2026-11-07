@@ -29,7 +29,10 @@
 //! flag (P4.0b's transitive dot).
 
 use std::cell::{Cell, RefCell};
-use std::rc::Rc;
+use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
+use std::path::{Path, PathBuf};
+use std::rc::{Rc, Weak};
 
 use shale_core::buffer::Buffer;
 
@@ -59,5 +62,84 @@ impl Note {
             buffer: Rc::new(RefCell::new(Buffer::default())),
             dirty: Cell::new(false),
         })
+    }
+}
+
+/// The window's notes, keyed by path, held weakly (roadmap P4.17).
+///
+/// The window owns this and hands a clone to every view that needs to ask "is
+/// this note already open, and what does it say right now?" — which is what an
+/// embed needs in order to show a note as the window has it in hand rather than
+/// as the disk has it (P4.0b ruling 12).
+#[derive(Default)]
+pub(crate) struct Registry {
+    entries: RefCell<HashMap<PathBuf, Weak<Note>>>,
+}
+
+impl Registry {
+    /// The open note for `path`, if a view is holding one.
+    pub fn get(&self, path: &Path) -> Option<Rc<Note>> {
+        self.entries.borrow().get(path).and_then(Weak::upgrade)
+    }
+
+    /// Register a note. Called once per path by `Workspace::note_entry`.
+    pub fn insert(&self, path: &Path, note: &Rc<Note>) {
+        // Entries for notes no view holds any more are dead weight: a closed tab
+        // cannot upgrade them, and the next open re-reads the file. Sweeping on
+        // insert keeps the map to the notes on screen without any close path
+        // having to remember to unregister.
+        let mut entries = self.entries.borrow_mut();
+        if entries.len() > 32 {
+            entries.retain(|_, living| living.strong_count() > 0);
+        }
+        entries.insert(path.to_path_buf(), Rc::downgrade(note));
+    }
+
+    /// A number that changes whenever the text of *any* open note changes.
+    ///
+    /// This is how an embed cache stays honest without polling and without a
+    /// freshness policy (P4.0b ruling 16): `Buffer::change_id()` counts every
+    /// edit, so a note edited in a tab — or in an embed block of itself — moves
+    /// the number, and the next paint re-resolves. A handful of open notes,
+    /// hashed once per frame.
+    pub fn stamp(&self) -> u64 {
+        let mut hasher = FnvHasher::default();
+        // Sorted so the number does not depend on HashMap iteration order.
+        let entries = self.entries.borrow();
+        let mut ids: Vec<(&PathBuf, u64)> = entries
+            .iter()
+            .filter_map(|(path, weak)| {
+                let note = weak.upgrade()?;
+                // Read the number here rather than in the returned tuple: the borrow
+                // guard would otherwise outlive `note`.
+                let change = note.buffer.borrow().change_id();
+                Some((path, change))
+            })
+            .collect();
+        ids.sort();
+        for (path, change) in ids {
+            path.hash(&mut hasher);
+            change.hash(&mut hasher);
+        }
+        hasher.finish()
+    }
+}
+
+/// A small non-cryptographic hasher; the stamp only has to change when its
+/// inputs do.
+#[derive(Default)]
+struct FnvHasher(u64);
+
+impl Hasher for FnvHasher {
+    fn write(&mut self, bytes: &[u8]) {
+        for byte in bytes {
+            self.0 = (self.0 ^ *byte as u64).wrapping_mul(0x100_0000_01b3);
+        }
+    }
+    fn write_u64(&mut self, n: u64) {
+        self.write(&n.to_le_bytes());
+    }
+    fn finish(&self) -> u64 {
+        self.0
     }
 }

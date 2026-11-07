@@ -260,7 +260,11 @@ impl Workspace {
     /// `None` when the pane's editor painted no line at all — which is what a
     /// collapsed viewport looks like from the hit-test side.
     #[cfg(test)]
-    pub(crate) fn pane_hit_box(&self, pix: usize, cx: &gpui::App) -> Option<(gpui::Pixels, gpui::Pixels, gpui::Pixels)> {
+    pub(crate) fn pane_hit_box(
+        &self,
+        pix: usize,
+        cx: &gpui::App,
+    ) -> Option<(gpui::Pixels, gpui::Pixels, gpui::Pixels)> {
         let editor = self.panes[pix].active_tab().editor()?;
         editor.read_with(cx, |editor, _cx| {
             let (top, bottom) = editor.hit_line_edges(0)?;
@@ -440,7 +444,8 @@ impl Workspace {
     /// Whether the view is moving its own camera right now (the local graph's drift).
     #[cfg(test)]
     pub(crate) fn graph_reframing(&self, cx: &gpui::App) -> bool {
-        self.graph_view().is_some_and(|view| view.read(cx).reframing())
+        self.graph_view()
+            .is_some_and(|view| view.read(cx).reframing())
     }
     /// One tick of that drift, by hand.
     #[cfg(test)]
@@ -456,7 +461,8 @@ impl Workspace {
     /// Which node carries the "this is the note the window is showing" mark, if any.
     #[cfg(test)]
     pub(crate) fn graph_centre_mark(&self, cx: &gpui::App) -> Option<usize> {
-        self.graph_view().and_then(|view| view.read(cx).centre_mark())
+        self.graph_view()
+            .and_then(|view| view.read(cx).centre_mark())
     }
     /// Where a node is on screen, in window px: the way a test aims the pointer at a dot
     /// without working the camera out for itself.
@@ -552,7 +558,10 @@ impl Workspace {
     /// dolly's whole contract is this number: travel, bounded by the cloud's radius.
     #[cfg(test)]
     pub(crate) fn graph_eye_distance(&self, cx: &gpui::App) -> Option<f32> {
-        self.graph_view()?.read(cx).camera3().map(|camera| camera.dist)
+        self.graph_view()?
+            .read(cx)
+            .camera3()
+            .map(|camera| camera.dist)
     }
     /// The layout's third axis, straight off the window's sim: how a test tells a graph
     /// that opened up from one that stayed flat.
@@ -630,11 +639,7 @@ impl Workspace {
     /// tests that want a tab gone ask the window rather than typing a word it cannot
     /// hear.
     #[cfg(test)]
-    pub(crate) fn close_active_tab(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> bool {
+    pub(crate) fn close_active_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let index = self.pane().active;
         self.close_tab(index, window, cx)
     }

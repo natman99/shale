@@ -73,12 +73,29 @@ pub fn line_embed(line: &str) -> Option<EmbedRef> {
     })
 }
 
+/// Where a painted row came from: which note, and which row of it.
+///
+/// This is what turns an embed's rows from a picture into a place. A row that
+/// knows its note and row can be clicked, can hold a caret, and can be checked
+/// for still existing — which is what a section badge and an entered embed both
+/// need (P4.0b). A row that is only a string can be looked at.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Origin {
+    pub path: PathBuf,
+    /// Zero-based line index within that note.
+    pub row: usize,
+}
+
 /// One row an embed contributes, and how far inside it sits.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EmbedLine {
     /// 1 is the host's own embed; a nested embed's rows are deeper. Drives the
     /// indent and the rule the app draws down the side of the block.
     pub depth: usize,
+    /// The note this row is a line *of*, when it is one. `None` for a row the
+    /// resolver invented — a badge naming a note that stopped expanding — which
+    /// is content to read and nothing to edit.
+    pub origin: Option<Origin>,
     pub row: EmbedRow,
 }
 
@@ -103,15 +120,52 @@ pub enum Body {
     Lines(Vec<EmbedLine>),
 }
 
-/// The body a note embed contributes, starting at depth 1.
+/// Where the resolver reads a note's text.
+///
+/// The default is the file. The app answers from an open buffer when it has one:
+/// an embed must show the note as Shale has it in hand, not as the disk has it,
+/// or a window displays two versions of one note at once (P4.0b ruling 12).
+pub trait Sources {
+    /// The note's current text, or `None` if there is no such note.
+    fn text(&self, path: &Path) -> Option<String>;
+
+    /// A number that moves whenever any note this resolver can reach changes.
+    ///
+    /// A cache keyed on it needs no freshness policy: it is thrown out exactly
+    /// when a note is edited, and not re-resolved when nothing happened. The
+    /// default is a constant, which is right for a source that changes by
+    /// outside means and gets invalidated by a watcher instead.
+    fn stamp(&self) -> u64 {
+        0
+    }
+}
+
+impl Sources for Vault {
+    fn text(&self, path: &Path) -> Option<String> {
+        self.read(path).ok()
+    }
+}
+
+/// The body a note embed contributes, read from the files.
 ///
 /// `host` is the note holding the embed, so a self-embed is caught by the chain
 /// instead of spending the depth budget on itself. `entries` is the vault's
 /// markdown list the caller already holds — resolution is a table lookup, and
 /// building the table per embed would cost more than reading the note.
 pub fn resolve(vault: &Vault, entries: &[VaultEntry], host: &Path, embed: &EmbedRef) -> Body {
+    resolve_from(vault, entries, host, embed, vault)
+}
+
+/// As [`resolve`], reading each note through `sources`.
+pub fn resolve_from(
+    vault: &Vault,
+    entries: &[VaultEntry],
+    host: &Path,
+    embed: &EmbedRef,
+    sources: &dyn Sources,
+) -> Body {
     let mut chain = vec![host.to_path_buf()];
-    expand(vault, entries, embed, 1, &mut chain)
+    expand(vault, entries, embed, 1, &mut chain, sources)
 }
 
 fn expand(
@@ -120,6 +174,7 @@ fn expand(
     embed: &EmbedRef,
     depth: usize,
     chain: &mut Vec<PathBuf>,
+    sources: &dyn Sources,
 ) -> Body {
     let Some(entry) = vault.resolve_link(&embed.target, entries).ok().flatten() else {
         // Not a note. An attachment is the image renderer's row; anything else
@@ -130,13 +185,15 @@ fn expand(
     if chain.contains(&path) {
         return Body::Badge(label(embed, entry.stem()));
     }
-    let Ok(text) = vault.read(&path) else {
+    let Some(text) = sources.text(&path) else {
         return Body::Nothing;
     };
-    let wanted = match embed.anchor.as_deref() {
-        None => text.lines().map(str::to_string).collect(),
-        Some(anchor) => match section(&text, anchor) {
-            Some(lines) => lines,
+    // The section the anchor names, as *rows of the note* rather than as strings,
+    // so every painted row keeps the address it was cut from.
+    let wanted: Vec<(usize, &str)> = match embed.anchor.as_deref() {
+        None => text.lines().enumerate().collect(),
+        Some(anchor) => match section_rows(&text, anchor) {
+            Some(rows) => rows,
             // An anchor that names no heading: leave the line as written rather
             // than painting an empty block that looks like a successful embed.
             None => return Body::Nothing,
@@ -145,8 +202,8 @@ fn expand(
     // This note is now on the path to everything inside it. Without the push,
     // `a -> b -> a` only stops at the depth cap, spending the whole budget on
     // two notes instead of saying "you are already here" at the second `a`.
-    chain.push(path);
-    let rows = rows_of(vault, entries, &wanted, depth, chain);
+    chain.push(path.clone());
+    let rows = rows_of(vault, entries, &path, &wanted, depth, chain, sources);
     chain.pop();
     if rows.is_empty() {
         return Body::Nothing;
@@ -154,37 +211,52 @@ fn expand(
     Body::Lines(rows)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn rows_of(
     vault: &Vault,
     entries: &[VaultEntry],
-    section: &[String],
+    note: &Path,
+    wanted: &[(usize, &str)],
     depth: usize,
     chain: &mut Vec<PathBuf>,
+    sources: &dyn Sources,
 ) -> Vec<EmbedLine> {
     let mut rows = Vec::new();
-    for line in section.iter().map(|l| l.as_str()) {
+    for (row, line) in wanted.iter().copied() {
+        let here = || {
+            Some(Origin {
+                path: note.to_path_buf(),
+                row,
+            })
+        };
         match line_embed(line) {
-            // A nested embed, with the budget left to expand it.
+            // A nested embed, with the budget left to expand it. Its rows carry
+            // the *nested* note's origin, which is the honest one: clicking one
+            // of them lands in the note it is a line of.
             Some(inner) if depth < MAX_DEPTH => {
-                match expand(vault, entries, &inner, depth + 1, chain) {
-                Body::Lines(inner_rows) => rows.extend(inner_rows),
-                Body::Badge(name) => rows.push(EmbedLine {
-                    depth: depth + 1,
-                    row: EmbedRow::Badge(name),
-                }),
-                Body::Nothing => rows.push(EmbedLine {
-                    depth,
-                    row: EmbedRow::Text(line.to_string()),
-                }),
+                match expand(vault, entries, &inner, depth + 1, chain, sources) {
+                    Body::Lines(inner_rows) => rows.extend(inner_rows),
+                    Body::Badge(name) => rows.push(EmbedLine {
+                        depth: depth + 1,
+                        origin: None,
+                        row: EmbedRow::Badge(name),
+                    }),
+                    Body::Nothing => rows.push(EmbedLine {
+                        depth,
+                        origin: here(),
+                        row: EmbedRow::Text(line.to_string()),
+                    }),
+                }
             }
-            },
             // Out of budget: the name, not the content.
             Some(inner) => rows.push(EmbedLine {
                 depth,
+                origin: None,
                 row: EmbedRow::Badge(label(&inner, inner.target.as_str())),
             }),
             None => rows.push(EmbedLine {
                 depth,
+                origin: here(),
                 row: EmbedRow::Text(line.to_string()),
             }),
         }
@@ -202,19 +274,22 @@ fn label(embed: &EmbedRef, stem: &str) -> String {
         .unwrap_or_else(|| stem.to_string())
 }
 
-/// The lines of the section a heading anchor names: the heading itself through
-/// the line before the next heading of the same or shallower level.
+/// The rows of the section a heading anchor names, as `(row, line)` pairs.
+///
+/// The row numbers are the point: they are what make an embedded line
+/// addressable — "this painted row is row 7 of `gift.md`" — which is what a
+/// click, a caret, and a "this section is gone" badge all need (P4.0b).
 ///
 /// Matched on the heading's text, trimmed of `#`, case-insensitively — the same
 /// slack the link resolver gives a target, for the same reason: the author types
 /// from memory. A `#` inside a fenced code block is neither a heading nor a
 /// boundary; the fence itself is part of the section it sits in.
-pub fn section(text: &str, anchor: &str) -> Option<Vec<String>> {
+pub fn section_rows<'a>(text: &'a str, anchor: &str) -> Option<Vec<(usize, &'a str)>> {
     let want = anchor.trim().to_lowercase();
     let mut inside_fence = false;
     let mut level: Option<usize> = None;
-    let mut out: Vec<String> = Vec::new();
-    for line in text.lines() {
+    let mut out: Vec<(usize, &'a str)> = Vec::new();
+    for (index, line) in text.lines().enumerate() {
         if fence(line) {
             inside_fence = !inside_fence;
         }
@@ -226,18 +301,24 @@ pub fn section(text: &str, anchor: &str) -> Option<Vec<String>> {
         match (level, heading) {
             (None, Some(_)) if heading_text(line).eq_ignore_ascii_case(&want) => {
                 level = Some(heading.unwrap());
-                out.push(line.to_string());
+                out.push((index, line));
             }
             (Some(lvl), Some(h)) if h <= lvl => break,
             (Some(_), _) | (None, None) => {
                 if level.is_some() {
-                    out.push(line.to_string());
+                    out.push((index, line));
                 }
             }
             (None, Some(_)) => {}
         }
     }
     (!out.is_empty()).then_some(out)
+}
+
+/// As [`section_rows`], with the row numbers dropped.
+pub fn section(text: &str, anchor: &str) -> Option<Vec<String>> {
+    section_rows(text, anchor)
+        .map(|rows| rows.into_iter().map(|(_, line)| line.to_string()).collect())
 }
 
 /// The line a heading anchor names, or `None` if no heading matches.
@@ -333,9 +414,13 @@ mod tests {
 
     #[test]
     fn a_section_runs_to_the_next_heading_of_its_own_level_or_shallower() {
-        let text = "# Top\nintro\n## The Fall\nfirst\n### Deep\nstill the fall\n## The Return\nnot this\n";
+        let text =
+            "# Top\nintro\n## The Fall\nfirst\n### Deep\nstill the fall\n## The Return\nnot this\n";
         let s = section(text, "The Fall").unwrap();
-        assert_eq!(s, vec!["## The Fall", "first", "### Deep", "still the fall"]);
+        assert_eq!(
+            s,
+            vec!["## The Fall", "first", "### Deep", "still the fall"]
+        );
         // Shallower ends it too.
         let s = section("# Top", "Top").unwrap();
         assert_eq!(s, vec!["# Top"]);
@@ -348,7 +433,18 @@ mod tests {
     fn a_heading_inside_a_code_block_is_not_a_section_boundary() {
         let text = "## Real\nbefore\n```\n# Fake\n```\nafter\n## Next\nstop\n";
         let s = section(text, "Real").unwrap();
-        assert_eq!(s, vec!["## Real", "before", "```", "# Fake", "```", "after"]);
+        assert_eq!(
+            s,
+            vec!["## Real", "before", "```", "# Fake", "```", "after"]
+        );
+    }
+
+    /// The address a painted row is expected to carry.
+    fn at(path: &str, row: usize) -> Option<Origin> {
+        Some(Origin {
+            path: path.into(),
+            row,
+        })
     }
 
     fn vault_with(files: &[(&str, &str)]) -> (TempDir, Vault, Vec<VaultEntry>) {
@@ -379,10 +475,12 @@ mod tests {
             vec![
                 EmbedLine {
                     depth: 1,
+                    origin: at("gift.md", 0),
                     row: EmbedRow::Text("one".into())
                 },
                 EmbedLine {
                     depth: 1,
+                    origin: at("gift.md", 1),
                     row: EmbedRow::Text("two".into())
                 },
             ]
@@ -401,6 +499,11 @@ mod tests {
         };
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].row, EmbedRow::Text("## Middle".into()));
+        assert_eq!(
+            rows[0].origin,
+            at("gift.md", 2),
+            "the section's rows keep their row numbers in the note, not in the block"
+        );
     }
 
     #[test]
@@ -419,10 +522,14 @@ mod tests {
             vec![
                 EmbedLine {
                     depth: 1,
+                    origin: at("a.md", 0),
                     row: EmbedRow::Text("a-text".into())
                 },
+                // The nested row belongs to `b`, and says so: clicking it lands in
+                // the note it is a line of, not in the note that embedded it.
                 EmbedLine {
                     depth: 2,
+                    origin: at("b.md", 0),
                     row: EmbedRow::Text("b-text".into())
                 },
             ]
@@ -439,14 +546,19 @@ mod tests {
             ("b.md", "![[c]]"),
             ("c.md", "third level"),
         ]);
-        let Body::Lines(rows) = resolve(&v, &entries, Path::new("host.md"), &line_embed("![[a]]").unwrap())
-        else {
+        let Body::Lines(rows) = resolve(
+            &v,
+            &entries,
+            Path::new("host.md"),
+            &line_embed("![[a]]").unwrap(),
+        ) else {
             panic!("expected lines");
         };
         assert_eq!(
             rows,
             vec![EmbedLine {
                 depth: 3,
+                origin: at("c.md", 0),
                 row: EmbedRow::Text("third level".into())
             }]
         );
@@ -458,14 +570,19 @@ mod tests {
             ("c.md", "![[d]]"),
             ("d.md", "never painted"),
         ]);
-        let Body::Lines(rows) = resolve(&v, &entries, Path::new("host.md"), &line_embed("![[a]]").unwrap())
-        else {
+        let Body::Lines(rows) = resolve(
+            &v,
+            &entries,
+            Path::new("host.md"),
+            &line_embed("![[a]]").unwrap(),
+        ) else {
             panic!("expected lines");
         };
         assert_eq!(
             rows,
             vec![EmbedLine {
                 depth: 3,
+                origin: None,
                 row: EmbedRow::Badge("d".into())
             }],
             "over budget: the name, not the content"
@@ -484,12 +601,14 @@ mod tests {
             vec![
                 EmbedLine {
                     depth: 1,
+                    origin: at("a.md", 0),
                     row: EmbedRow::Text("text".into())
                 },
                 // The badge sits one level deeper than a's own text, which is
                 // where the content it replaces would have been.
                 EmbedLine {
                     depth: 2,
+                    origin: None,
                     row: EmbedRow::Badge("host".into())
                 },
             ]
@@ -500,19 +619,35 @@ mod tests {
     fn a_self_embed_badges_at_the_first_level() {
         let (_d, v, entries) = vault_with(&[("host.md", "![[host]]")]);
         let e = line_embed("![[host]]").unwrap();
-        assert_eq!(resolve(&v, &entries, Path::new("host.md"), &e), Body::Badge("host".into()));
+        assert_eq!(
+            resolve(&v, &entries, Path::new("host.md"), &e),
+            Body::Badge("host".into())
+        );
     }
 
     #[test]
     fn an_attachment_or_missing_target_contributes_nothing_and_leaves_the_line() {
-        let (_d, v, entries) = vault_with(&[("host.md", "![[diagram.png]]\n![[nowhere]]"), ("diagram.png", "x")]);
+        let (_d, v, entries) = vault_with(&[
+            ("host.md", "![[diagram.png]]\n![[nowhere]]"),
+            ("diagram.png", "x"),
+        ]);
         assert_eq!(
-            resolve(&v, &entries, Path::new("host.md"), &line_embed("![[diagram.png]]").unwrap()),
+            resolve(
+                &v,
+                &entries,
+                Path::new("host.md"),
+                &line_embed("![[diagram.png]]").unwrap()
+            ),
             Body::Nothing,
             "the image renderer owns that row"
         );
         assert_eq!(
-            resolve(&v, &entries, Path::new("host.md"), &line_embed("![[nowhere]]").unwrap()),
+            resolve(
+                &v,
+                &entries,
+                Path::new("host.md"),
+                &line_embed("![[nowhere]]").unwrap()
+            ),
             Body::Nothing,
             "a broken link is honest as its own text until P6.9 gives it a badge"
         );
@@ -522,7 +657,12 @@ mod tests {
     fn an_anchor_that_names_no_heading_leaves_the_line_rather_than_painting_empty() {
         let (_d, v, entries) = vault_with(&[("host.md", "![[gift#Nope]]"), ("gift.md", "# Top\n")]);
         assert_eq!(
-            resolve(&v, &entries, Path::new("host.md"), &line_embed("![[gift#Nope]]").unwrap()),
+            resolve(
+                &v,
+                &entries,
+                Path::new("host.md"),
+                &line_embed("![[gift#Nope]]").unwrap()
+            ),
             Body::Nothing
         );
     }
@@ -537,14 +677,19 @@ mod tests {
             ("b.md", "![[c]]"),
             ("c.md", "![[d|the last]]"),
         ]);
-        let Body::Lines(rows) = resolve(&v, &entries, Path::new("host.md"), &line_embed("![[a]]").unwrap())
-        else {
+        let Body::Lines(rows) = resolve(
+            &v,
+            &entries,
+            Path::new("host.md"),
+            &line_embed("![[a]]").unwrap(),
+        ) else {
             panic!("expected lines");
         };
         assert_eq!(
             rows,
             vec![EmbedLine {
                 depth: 3,
+                origin: None,
                 row: EmbedRow::Badge("the last".into())
             }],
             "the author's name survives the depth cap"
@@ -555,9 +700,21 @@ mod tests {
     fn heading_row_finds_the_line_an_anchor_names() {
         let text = "# Top\nintro\n```\n# Fake\n```\n## The Fall\nbody\n";
         assert_eq!(heading_row(text, "The Fall"), Some(5));
-        assert_eq!(heading_row(text, "the fall"), Some(5), "matched case-insensitively");
-        assert_eq!(heading_row(text, "  The Fall  "), Some(5), "padded like an author types");
-        assert_eq!(heading_row(text, "Fake"), None, "a `#` inside a fence is not a heading");
+        assert_eq!(
+            heading_row(text, "the fall"),
+            Some(5),
+            "matched case-insensitively"
+        );
+        assert_eq!(
+            heading_row(text, "  The Fall  "),
+            Some(5),
+            "padded like an author types"
+        );
+        assert_eq!(
+            heading_row(text, "Fake"),
+            None,
+            "a `#` inside a fence is not a heading"
+        );
         assert_eq!(heading_row(text, "Nowhere"), None);
     }
 
@@ -565,7 +722,11 @@ mod tests {
     fn targets_lists_what_a_note_embeds_so_the_cache_knows_when_to_drop() {
         let text = "text\n![[a]]\n![[b#H]]\nsee ![[c]] inline\n![[a]]\n";
         let t = targets(text);
-        assert_eq!(t.len(), 2, "a twice is one target; c is inline, not an embed");
+        assert_eq!(
+            t.len(),
+            2,
+            "a twice is one target; c is inline, not an embed"
+        );
         assert!(t.contains("a") && t.contains("b"));
     }
 }

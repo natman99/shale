@@ -41,9 +41,9 @@ pub(crate) use keys::keybindings;
 pub(crate) use open::PickerTarget;
 pub(crate) use render::vault_title;
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
-use std::rc::{Rc, Weak};
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 use gpui::{prelude::*, Context, Entity, SharedString, Subscription, Task, Window};
@@ -105,7 +105,7 @@ pub(crate) struct Workspace {
     /// last one lets go the entry is simply stale. No close path has to remember
     /// to release it, which is the kind of thing this repo has historically gotten
     /// wrong.
-    notes: HashMap<PathBuf, Weak<crate::note::Note>>,
+    notes: Rc<crate::note::Registry>,
     /// The spell and grammar checker, when one is configured and was started.
     /// It owns a server process; the window only talks to it.
     spell: Option<Entity<Spell>>,
@@ -476,7 +476,7 @@ impl Workspace {
             theme_name: theme_name.clone(),
             follow_desktop,
             theme_backup: None,
-            notes: HashMap::new(),
+            notes: Rc::new(crate::note::Registry::default()),
             spell,
             checker_notes: Vec::new(),
             popup: None,
@@ -859,7 +859,7 @@ impl Workspace {
                             // shared, so one update covers every view of it, and each
                             // view is then told to drop what it measured against the
                             // text that was there (roadmap P4.17).
-                            if let Some(note) = self.notes.get(&path).and_then(Weak::upgrade) {
+                            if let Some(note) = self.notes.get(&path) {
                                 note.buffer.borrow_mut().set_text(text.clone());
                                 note.dirty.set(false);
                                 self.reload_views_of(&path, cx);

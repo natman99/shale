@@ -251,6 +251,11 @@ pub struct MarkdownEditor {
     /// the note's; `dirty` is the note's too, so two views of one file cannot
     /// disagree about whether it has unsaved edits. See [`crate::note`].
     note: Rc<Note>,
+    /// The window's other open notes. An embed reads a note from here when this
+    /// window has it in hand, and from the file when it does not (roadmap P4.0b
+    /// ruling 12) — so an embed of a note being edited in another tab shows the
+    /// edits, not the last saved version.
+    notes: Rc<crate::note::Registry>,
 }
 
 impl MarkdownEditor {
@@ -293,6 +298,7 @@ impl MarkdownEditor {
             pending_edits: Vec::new(),
             collapsed_inline: HashSet::new(),
             embeds: embeds::Cache::new(),
+            notes: Rc::new(crate::note::Registry::default()),
         }
     }
 
@@ -342,6 +348,13 @@ impl MarkdownEditor {
     /// What the editor cannot discover for itself about transclusion: which note it is
     /// showing (the first link in the chain that stops an embed loop) and what notes the
     /// vault holds (what a link target resolves against).
+    /// Hand this view the window's note registry. Without it an embed still works —
+    /// it just reads files, which is what it did before embeds could be edited.
+    pub(crate) fn set_notes(&mut self, notes: Rc<crate::note::Registry>, cx: &mut Context<Self>) {
+        self.notes = notes;
+        cx.notify();
+    }
+
     pub(crate) fn set_embed_context(
         &mut self,
         host: Option<&std::path::Path>,

@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 
 use shale_core::mdlayout;
 use shale_core::mdstyle::{quotes, style_spans, Style};
-use shale_core::transclude::{self, Body};
+use shale_core::transclude::{self, Body, Sources};
 use shale_core::vault::{Vault, VaultEntry};
 
 use crate::preview::PieceMap;
@@ -51,8 +51,15 @@ pub(crate) struct PaintedRow {
 /// sees both; styling rows one at a time would paint the second half of a code block
 /// as prose.
 pub(crate) fn paint_body(lines: &[String]) -> Vec<PaintedRow> {
-    let joined: String = lines.iter().map(|line| format!("{line}
-")).collect();
+    let joined: String = lines
+        .iter()
+        .map(|line| {
+            format!(
+                "{line}
+"
+            )
+        })
+        .collect();
     let spans = style_spans(&joined);
     // The straight quotes the frame draws curly, exactly as the note's own rows get
     // them: an embedded sentence should not be the one place typography changes.
@@ -77,12 +84,10 @@ pub(crate) fn paint_body(lines: &[String]) -> Vec<PaintedRow> {
             .filter(|(at, _)| *at >= start && *at < end)
             .collect();
         let map = PieceMap::with_substitutions(&pieces, &row_subs);
-        let heading = spans
-            .iter()
-            .find_map(|span| match span.style {
-                Style::Heading { level } if span.start >= start && span.start < end => Some(level),
-                _ => None,
-            });
+        let heading = spans.iter().find_map(|span| match span.style {
+            Style::Heading { level } if span.start >= start && span.start < end => Some(level),
+            _ => None,
+        });
         out.push(PaintedRow {
             // The pieces name offsets into `joined`, so the painted string is read
             // from the same string — and holds only this row, because only this
@@ -111,6 +116,35 @@ pub(crate) struct Cache {
     /// The note holding the embeds, so the resolver's chain catches a self-embed.
     host: PathBuf,
     bodies: HashMap<Key, Body>,
+    /// What the sources reported the last time round. When it has moved, every body
+    /// is thrown out — which is how an embed of a note open in another tab follows
+    /// that tab's unsaved edits (roadmap P4.0b ruling 16).
+    stamp: u64,
+}
+
+/// Where an embedded note's text comes from: the window's copy if it has one, the
+/// file otherwise.
+///
+/// The order is the whole point (roadmap P4.0b ruling 12). A note open in a tab with
+/// unsaved edits is *in hand*; an embed of it in another tab shows what the user is
+/// looking at, not what the disk remembers. Reading the file instead would show one
+/// version of a note in one tab and another in the next.
+pub(crate) struct OpenFirst<'a> {
+    pub(crate) notes: &'a crate::note::Registry,
+    pub(crate) vault: &'a Vault,
+}
+
+impl Sources for OpenFirst<'_> {
+    fn text(&self, path: &Path) -> Option<String> {
+        if let Some(note) = self.notes.get(path) {
+            return Some(note.buffer.borrow().text().to_string());
+        }
+        self.vault.read(path).ok()
+    }
+
+    fn stamp(&self) -> u64 {
+        self.notes.stamp()
+    }
 }
 
 impl Cache {
@@ -119,6 +153,7 @@ impl Cache {
             entries: Vec::new(),
             host: PathBuf::new(),
             bodies: HashMap::new(),
+            stamp: 0,
         }
     }
 
@@ -155,7 +190,19 @@ impl Cache {
     ///
     /// `Body::Nothing` rows are left out: an attachment embed is the image renderer's
     /// row, and a target that resolves to no note stays as the text the author wrote.
-    pub(crate) fn resolve(&mut self, vault: &Vault, text: &str) -> Vec<(usize, Body)> {
+    pub(crate) fn resolve(
+        &mut self,
+        vault: &Vault,
+        text: &str,
+        sources: &dyn Sources,
+    ) -> Vec<(usize, Body)> {
+        // Any open note's text moving — including one embedded here — retires every
+        // body. The scan below re-fills only the embeds this host actually has.
+        let stamp = sources.stamp();
+        if stamp != self.stamp {
+            self.bodies.clear();
+        }
+        self.stamp = stamp;
         let mut out = Vec::new();
         for (row, line) in text.lines().enumerate() {
             let Some(embed) = transclude::line_embed(line) else {
@@ -168,7 +215,9 @@ impl Cache {
             let body = self
                 .bodies
                 .entry(key)
-                .or_insert_with(|| transclude::resolve(vault, &self.entries, &self.host, &embed))
+                .or_insert_with(|| {
+                    transclude::resolve_from(vault, &self.entries, &self.host, &embed, sources)
+                })
                 .clone();
             if body != Body::Nothing {
                 out.push((row, body));
@@ -194,7 +243,10 @@ mod tests {
         let rows = painted(&["# Gift", "body"]);
         assert_eq!(rows[0].0, "Gift", "the `#` and its space are hidden");
         assert!(
-            rows[0].1.iter().any(|(s, _, _)| (*s..rows[0].0.len()).contains(s)),
+            rows[0]
+                .1
+                .iter()
+                .any(|(s, _, _)| (*s..rows[0].0.len()).contains(s)),
             "the heading style still covers the painted word"
         );
     }
@@ -226,12 +278,14 @@ mod tests {
     #[test]
     fn a_fence_opening_on_one_row_still_styles_the_next() {
         let rows = painted(&["```", "let x = 1;", "```"]);
-        assert_eq!(rows[1].0, "let x = 1;", "the code line is painted as written");
+        assert_eq!(
+            rows[1].0, "let x = 1;",
+            "the code line is painted as written"
+        );
         assert!(
-            rows[1]
-                .1
-                .iter()
-                .any(|(s, e, style)| *s == 0 && *e == rows[1].0.len() && matches!(style, Style::CodeBlock)),
+            rows[1].1.iter().any(|(s, e, style)| *s == 0
+                && *e == rows[1].0.len()
+                && matches!(style, Style::CodeBlock)),
             "the whole row is styled as code because the scan saw the fence above it"
         );
     }

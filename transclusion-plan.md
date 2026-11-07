@@ -195,6 +195,21 @@ seam (ruling 6); `ensure_cursor_visible` and typewriter scroll work on view rows
 entered embed, rows are ordinary buffer rows — real cursor, real selection, real marker
 hiding — while nested embeds stay phantom blocks.
 
+**M2a landed.** Every embed row now carries an `Origin { path, row }`
+(`transclude::Origin`), which turns a painted row into an address: something to click,
+to put a caret in, and to check for still existing. The resolver reads note text through
+a `Sources` trait, and the app's implementation answers from the window's registry
+before it reads the file — so an embed of a note open in another tab shows that tab's
+unsaved edits (ruling 12). The registry's `stamp()` hashes every open buffer's
+`change_id`; when it moves, cached bodies are thrown out. That is ruling 16 with no
+polling and no freshness policy: an edit anywhere in the window, a re-resolve on the
+next paint, nothing in between.
+
+Still owed in M2: the display list itself. `HitLine` is the address record and
+`LineLayout::build` is the shaping pass an embed row can reuse, but neither knows which
+buffer a row belongs to — that tag, and the caret carrying it, is what M2b adds, along
+with motions clamping at the seam.
+
 **M3 — entry and exit.** The hit-test from a phantom row back to the body row under it
 (already P4.0a's leftover #1, and the same machinery click-to-open and the hover card
 need), `ctrl-]` recording a jump, `ctrl-o` leaving, the seam header naming the note, the

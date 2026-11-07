@@ -7,7 +7,6 @@
 
 use super::*;
 
-
 /// What the note on screen would paint for its transclusions.
 fn embeds(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> Vec<String> {
     window
@@ -35,7 +34,7 @@ fn a_transclusion_paints_the_other_notes_lines_under_the_line_that_asks_for_them
     show_at(&mut cx, &window, "host.md");
     assert_eq!(
         embeds(&window, &mut cx),
-        vec!["embed row 1", "  one", "  two"],
+        vec!["embed row 1", "  @gift.md:0 one", "  @gift.md:1 two"],
         "the embed's own row, then the body it brings"
     );
 }
@@ -50,7 +49,11 @@ fn an_embedded_body_does_not_enter_the_notes_display_model(cx: &mut TestAppConte
     // Two rows are painted and zero rows exist. The note is still the three lines it
     // has on disk, which is what keeps `j`, the ruler, search and folds answering for
     // the note rather than for everything the view happens to be showing.
-    assert_eq!(embeds(&window, &mut cx).len(), 3, "the embed and its two body rows");
+    assert_eq!(
+        embeds(&window, &mut cx).len(),
+        3,
+        "the embed and its two body rows"
+    );
     assert_eq!(
         rows(&window, &mut cx),
         4,
@@ -69,10 +72,10 @@ fn an_anchored_transclusion_paints_only_the_section_it_names(cx: &mut TestAppCon
         embeds(&window, &mut cx),
         vec![
             "embed row 0",
-            "  ## Middle",
-            "  the part",
-            "  ### Deeper",
-            "  still the part",
+            "  @gift.md:2 ## Middle",
+            "  @gift.md:3 the part",
+            "  @gift.md:4 ### Deeper",
+            "  @gift.md:5 still the part",
         ],
         "the section runs to the next heading of its own level"
     );
@@ -103,22 +106,25 @@ fn an_embed_that_resolves_to_no_note_paints_no_body(cx: &mut TestAppContext) {
 /// instead of merely expensive.
 #[gpui::test]
 fn nested_transclusions_step_deeper_and_the_cap_stops_at_a_name(cx: &mut TestAppContext) {
-    let (_dir, window) = vault_with(cx, &[
-        ("host.md", "![[a]]\n"),
-        ("a.md", "a-text\n![[b]]\n"),
-        ("b.md", "b-text\n![[c]]\n"),
-        ("c.md", "c-text\n![[d]]\n"),
-        ("d.md", "never painted\n"),
-    ]);
+    let (_dir, window) = vault_with(
+        cx,
+        &[
+            ("host.md", "![[a]]\n"),
+            ("a.md", "a-text\n![[b]]\n"),
+            ("b.md", "b-text\n![[c]]\n"),
+            ("c.md", "c-text\n![[d]]\n"),
+            ("d.md", "never painted\n"),
+        ],
+    );
     let mut cx = VisualTestContext::from_window(window.into(), cx);
     show_at(&mut cx, &window, "host.md");
     assert_eq!(
         embeds(&window, &mut cx),
         vec![
             "embed row 0",
-            "  a-text",
-            "    b-text",
-            "      c-text",
+            "  @a.md:0 a-text",
+            "    @b.md:0 b-text",
+            "      @c.md:0 c-text",
             "      [d]",
         ],
         "three levels of content, and the fourth is a name the reader can act on"
@@ -140,7 +146,10 @@ fn raw_mode_shows_the_embed_line_and_no_body(cx: &mut TestAppContext) {
     let (_dir, window) = vault_with(cx, &[("host.md", HOST), ("gift.md", GIFT)]);
     let mut cx = VisualTestContext::from_window(window.into(), cx);
     show_at(&mut cx, &window, "host.md");
-    assert!(!embeds(&window, &mut cx).is_empty(), "live preview shows the body");
+    assert!(
+        !embeds(&window, &mut cx).is_empty(),
+        "live preview shows the body"
+    );
     cx.simulate_keystrokes(": r a w enter");
     assert_eq!(
         embeds(&window, &mut cx),
@@ -160,7 +169,7 @@ fn typing_an_embed_shows_it_on_the_next_frame(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("o ! [ [ g i f t ] ] escape");
     assert_eq!(
         embeds(&window, &mut cx),
-        vec!["embed row 1", "  one", "  two"],
+        vec!["embed row 1", "  @gift.md:0 one", "  @gift.md:1 two"],
         "the line just typed is an embed the very next frame shows"
     );
 }
@@ -169,15 +178,12 @@ fn typing_an_embed_shows_it_on_the_next_frame(cx: &mut TestAppContext) {
 /// new host, so a self-embed is caught against the note now on screen.
 #[gpui::test]
 fn switching_notes_repoints_the_embed_resolver(cx: &mut TestAppContext) {
-    let (_dir, window) = vault_with(cx, &[
-        ("a.md", "![[b]]\n"),
-        ("b.md", "text\n![[b]]\n"),
-    ]);
+    let (_dir, window) = vault_with(cx, &[("a.md", "![[b]]\n"), ("b.md", "text\n![[b]]\n")]);
     let mut cx = VisualTestContext::from_window(window.into(), cx);
     show_at(&mut cx, &window, "a.md");
     assert_eq!(
         embeds(&window, &mut cx),
-        vec!["embed row 0", "  text", "    [b]"],
+        vec!["embed row 0", "  @b.md:0 text", "    [b]"],
         "b is on the chain once, so its self-embed badges — one level deeper, where its          content would have been"
     );
     show_at(&mut cx, &window, "b.md");
@@ -191,8 +197,48 @@ fn switching_notes_repoints_the_embed_resolver(cx: &mut TestAppContext) {
 /// Open a note by name rather than the fixture's `a.md`.
 fn show_at(cx: &mut TestAppContext, window: &WindowHandle<Workspace>, name: &str) {
     window
-        .update(cx, |ws, _window, cx| {
-            ws.open_note(&PathBuf::from(name), cx)
-        })
+        .update(cx, |ws, _window, cx| ws.open_note(&PathBuf::from(name), cx))
         .unwrap();
+}
+
+/// An embed shows a note as this window has it, not as the disk has it (roadmap
+/// P4.0b ruling 12). A note open in another tab with unsaved edits embeds *with*
+/// those edits: one window must not show two versions of one note, and the
+/// version the author is looking at is the one that wins.
+#[gpui::test]
+fn an_embed_follows_a_note_being_edited_in_another_tab(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("host.md", HOST), ("gift.md", GIFT)]);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    window
+        .update(&mut cx, |ws, _window, _cx| ws.set_autosave(false))
+        .unwrap();
+    show_at(&mut cx, &window, "host.md");
+    // A second tab, then the other note put into it through the picker — the road
+    // an author actually takes, and the one that leaves the keyboard where the
+    // typing has to land.
+    cx.simulate_keystrokes("ctrl-t");
+    cx.simulate_keystrokes(":");
+    cx.simulate_input("e");
+    cx.simulate_keystrokes("enter");
+    cx.simulate_input("gift");
+    cx.simulate_keystrokes("enter");
+    cx.simulate_keystrokes("I");
+    cx.simulate_input("edited ");
+    cx.simulate_keystrokes("escape");
+    // Back to the host tab. Its embed reads the window's copy of `gift` — the one
+    // with the word just typed into it — and not the file, which still says `one`.
+    // Back to the host tab.
+    window
+        .update(&mut cx, |ws, _window, cx| ws.show_tab_at(0, cx))
+        .unwrap();
+    assert_eq!(
+        embeds(&window, &mut cx),
+        vec!["embed row 1", "  @gift.md:0 edited one", "  @gift.md:1 two",],
+        "the embed follows the unsaved edit, and the row it paints is still gift's row 0"
+    );
+    assert_eq!(
+        std::fs::read_to_string(_dir.path().join("gift.md")).unwrap(),
+        GIFT,
+        "and none of this touched the file: the edit is still only in the buffer"
+    );
 }

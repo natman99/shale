@@ -7,7 +7,7 @@
 //! state directly and calls its neighbours through the same `pub(super)` doors.
 
 use std::path::{Path, PathBuf};
-use std::rc::{Rc, Weak};
+use std::rc::Rc;
 use std::time::Duration;
 
 use gpui::{Context, Window};
@@ -29,7 +29,7 @@ impl Workspace {
     /// somewhere else in the window arrives with those edits — re-reading the file
     /// here would throw them away.
     pub(crate) fn note_entry(&mut self, path: &Path, cx: &mut Context<Self>) -> Option<Rc<Note>> {
-        if let Some(living) = self.notes.get(path).and_then(Weak::upgrade) {
+        if let Some(living) = self.notes.get(path) {
             return Some(living);
         }
         let text = match self.vault.read(path) {
@@ -42,14 +42,7 @@ impl Workspace {
         };
         tracing::debug!(path = %path.display(), bytes = text.len(), "note registered");
         let note = Note::from_text(text);
-        // Entries for notes no view holds any more are dead weight: a closed tab
-        // cannot upgrade them, and the next open re-reads the file. Sweeping on
-        // insert keeps the map to the notes on screen without any close path
-        // having to remember to unregister.
-        if self.notes.len() > 32 {
-            self.notes.retain(|_, living| living.strong_count() > 0);
-        }
-        self.notes.insert(path.to_path_buf(), Rc::downgrade(&note));
+        self.notes.insert(path, &note);
         Some(note)
     }
 
