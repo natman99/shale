@@ -845,15 +845,12 @@ impl MarkdownEditor {
                 .then(|| painted.map.index_for_offset(cursor)),
             cursor_dim: self.cursor_dim,
             insert: self.vim.mode() == Mode::Insert,
-            // The embedded note's own links, marks and search matches are not drawn
-            // yet: they belong to the other buffer's caches, which this view does not
-            // keep. Owed with the rest of the block's parity.
+            // The embedded note's own links on this row: a link inside a block you are
+            // typing into that does nothing is a hole in the block, not in the note.
             links,
             spans: painted.buffer_spans.clone(),
-            // The embedded note's checker marks and this view's search matches are not
-            // drawn yet: the first belongs to a file the checker has not been told
-            // about, the second to a query that has not been asked of this buffer.
-            // Owed with the rest of the block's parity.
+            // The checker's notes for this note, clipped to the row: the server holds
+            // this buffer while the caret is inside it.
             marks,
             // No search matches: `/` asks the note's own buffer and stops at the seam,
             // so there is nothing to draw in a block that belongs to another note.
