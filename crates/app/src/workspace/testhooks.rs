@@ -281,6 +281,27 @@ impl Workspace {
             .unwrap_or_default()
     }
 
+    /// The text of whichever buffer the caret is in — what the checker is sent when a
+    /// buffer changes.
+    #[cfg(test)]
+    pub(crate) fn caret_text<C: gpui::AppContext>(&self, cx: &mut C) -> String {
+        self.editor()
+            .map(|editor| editor.read_with(cx, |editor, _cx| editor.caret_text()))
+            .unwrap_or_default()
+    }
+
+    /// Which painted rows drew a checker's squiggle, as `(the note's own rows, an
+    /// entered embed's rows)`.
+    #[cfg(test)]
+    pub(crate) fn painted_marks<C: gpui::AppContext>(
+        &self,
+        cx: &mut C,
+    ) -> (Vec<usize>, Vec<usize>) {
+        self.editor()
+            .map(|editor| editor.read_with(cx, |editor, _cx| editor.painted_marks()))
+            .unwrap_or_default()
+    }
+
     /// Which painted rows carried the gutter's unsaved-work dot, as
     /// `(the note's own rows, an entered embed's rows)`.
     #[cfg(test)]

@@ -131,7 +131,15 @@ impl Workspace {
         };
         let entered = editor.update(cx, |editor, cx| editor.enter_embed(&origin, cx));
         tracing::debug!(path = %path.display(), entered, "embed entry");
-        if !entered {
+        if entered {
+            // The checker holds one document, and it follows the caret rather than the
+            // tab: the text being typed is the embedded note's, so the server is handed
+            // that file and its answers become that buffer's underlines. Leaving it on
+            // the host would mean the words actually being written are the ones nobody
+            // is looking at.
+            let text = editor.read_with(cx, |editor, _cx| editor.caret_text());
+            self.checker_opened(path, &text, cx);
+        } else {
             self.say("cannot edit that embed here", cx);
         }
     }

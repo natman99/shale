@@ -19,17 +19,7 @@ mod pointer;
 
 /// Put the checker's notes in the window's hands, as though the server had just
 /// published them.
-fn notes_from(notes: &[(&str, usize, usize)]) -> Vec<Diagnostic> {
-    notes
-        .iter()
-        .map(|(message, start, end)| Diagnostic {
-            start: *start,
-            end: *end,
-            message: message.to_string(),
-            code: "SpellCheck".into(),
-        })
-        .collect()
-}
+// `notes_from` lives in tests/mod.rs beside the other shared helpers.
 
 /// Two frames, so the note's lines have painted positions to measure against.
 fn paint(cx: &mut VisualTestContext) {

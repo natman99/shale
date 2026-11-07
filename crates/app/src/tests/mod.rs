@@ -18,6 +18,19 @@ pub(crate) fn type_command(line: &str, cx: &mut VisualTestContext) {
     cx.simulate_keystrokes("enter");
 }
 
+/// Checker notes as the window would receive them from the server.
+pub(crate) fn notes_from(notes: &[(&str, usize, usize)]) -> Vec<crate::lsp::Diagnostic> {
+    notes
+        .iter()
+        .map(|(message, start, end)| crate::lsp::Diagnostic {
+            start: *start,
+            end: *end,
+            message: message.to_string(),
+            code: "SpellCheck".into(),
+        })
+        .collect()
+}
+
 pub(crate) fn repaint(cx: &mut VisualTestContext) {
     for _ in 0..2 {
         cx.update(|window, cx| window.draw(cx).clear(cx));

@@ -880,6 +880,60 @@ fn a_nested_embed_gets_its_own_dot_rather_than_its_hosts(cx: &mut TestAppContext
     );
 }
 
+/// The checker follows the caret into an embed. It holds one document, so while the
+/// caret is inside, the server is looking at the embedded note — and its notes are bytes
+/// of *that* buffer. Filed among the host's, the same byte offset would underline the
+/// wrong note's word.
+#[gpui::test]
+fn the_checkers_notes_land_on_the_note_being_edited(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("host.md", HOST), ("gift.md", GIFT)]);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show_at(&mut cx, &window, "host.md");
+    cx.simulate_keystrokes("j ctrl-]");
+    assert_eq!(
+        window
+            .update(&mut cx, |ws, _window, cx| ws.caret_text(cx))
+            .unwrap(),
+        GIFT,
+        "the buffer a change is sent as is the one being typed into, not the tab's"
+    );
+    window
+        .update(&mut cx, |ws, _window, cx| {
+            ws.set_checker_notes(notes_from(&[("spelled wrong", 0, 3)]), cx)
+        })
+        .unwrap();
+    repaint(&mut cx);
+    let marks = window
+        .update(&mut cx, |ws, _window, cx| ws.painted_marks(cx))
+        .unwrap();
+    assert_eq!(
+        marks.1,
+        vec![0],
+        "the embedded note's first row drew the squiggle over its `one`"
+    );
+    assert_eq!(
+        marks.0,
+        Vec::<usize>::new(),
+        "and no row of the host did: byte 0 of the host is `b`, not a misspelling"
+    );
+    // Out again: the server is handed the host back, and its next answer belongs to it.
+    cx.simulate_keystrokes("escape ctrl-o");
+    window
+        .update(&mut cx, |ws, _window, cx| {
+            ws.set_checker_notes(notes_from(&[("spelled wrong", 0, 6)]), cx)
+        })
+        .unwrap();
+    repaint(&mut cx);
+    let marks = window
+        .update(&mut cx, |ws, _window, cx| ws.painted_marks(cx))
+        .unwrap();
+    assert_eq!(
+        marks.0,
+        vec![0],
+        "the host's first row drew the next answer over its `before`"
+    );
+}
+
 /// A wiki-link inside the block being edited is a link, not a picture of one: `gd`
 /// follows it from the caret (roadmap P4.0b parity).
 ///

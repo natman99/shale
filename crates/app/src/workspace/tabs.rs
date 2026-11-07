@@ -368,6 +368,16 @@ impl Workspace {
                     None if *dirty => self.say(format!("{stem} has unsaved edits"), cx),
                     None => {}
                 }
+                // The checker follows the caret back out too. It has been holding the
+                // embedded note, so the host's underlines are whatever it last said
+                // about a different file: hand the host back and let it answer again.
+                if let Some(path) = self.note() {
+                    let text = self
+                        .editor()
+                        .map(|editor| editor.read_with(cx, |editor, _cx| editor.text()))
+                        .unwrap_or_default();
+                    self.checker_opened(&path, &text, cx);
+                }
             }
             EditorEvent::CreateLink { target } => {
                 // Only the tab on screen can be clicked or `gd`-ed, but a link

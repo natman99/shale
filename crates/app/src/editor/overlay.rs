@@ -759,6 +759,14 @@ impl MarkdownEditor {
         // The embedded note's own wiki-links on this row: coloured like links, and
         // followed by `gd` or ctrl-click, because a link inside a block you are typing
         // into that does nothing is a hole in the block, not in the note.
+        // The checker's notes for this note, clipped to the row — the server is looking
+        // at this buffer while the caret is inside it.
+        let marks: Vec<(usize, usize)> = embed
+            .marks
+            .iter()
+            .filter(|(s, e)| *s < end && *e > start)
+            .map(|&(s, e)| (s.max(start), e.min(end)))
+            .collect();
         let links: Vec<(usize, usize, bool)> = embed
             .links
             .iter()
@@ -812,7 +820,9 @@ impl MarkdownEditor {
             // drawn yet: the first belongs to a file the checker has not been told
             // about, the second to a query that has not been asked of this buffer.
             // Owed with the rest of the block's parity.
-            marks: Vec::new(),
+            marks,
+            // No search matches: `/` asks the note's own buffer and stops at the seam,
+            // so there is nothing to draw in a block that belongs to another note.
             hits: Vec::new(),
             active: None,
             size: match painted.heading {

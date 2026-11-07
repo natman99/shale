@@ -117,6 +117,11 @@ pub(crate) struct HitLine {
     /// which matters now that the gutter's tenants share one list and one painter.
     #[allow(dead_code)]
     pub(crate) gutter_dot: bool,
+    /// Whether this row drew a checker's squiggle. Recorded for the same reason as the
+    /// two above: the marks a row was *handed* and the squiggles it *drew* are different
+    /// claims once two buffers' marks can reach one screen.
+    #[allow(dead_code)]
+    pub(crate) marked: bool,
     /// How much of the line's colour survived the dimming system: 1.0 is the
     /// palette's own. Recorded so the focus-mode tests can see what the frame
     /// actually drew rather than what the model was asked for.
@@ -958,6 +963,7 @@ impl Element for LineElement {
                         matches!(mark, marks::GutterMark::Glyph { mark, .. } if *mark == marks::mark_for(kind))
                     })
                 }),
+                marked: !self.marks.is_empty(),
                 gutter_dot: gutter.iter().any(|mark| {
                     matches!(
                         mark,

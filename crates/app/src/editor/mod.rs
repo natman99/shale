@@ -172,6 +172,13 @@ pub(crate) struct Entered {
     /// asked by `gd`, `gD` and ctrl-click while the caret is inside.
     links: Vec<WikiLink>,
     links_change: u64,
+    /// The checker's notes for the embedded note, as offsets into *its* buffer.
+    ///
+    /// The checker holds one document and follows the caret, so while the caret is in
+    /// here the server is looking at this note — and its answers are bytes of this
+    /// buffer. Filed among the host's marks they would underline the same byte of the
+    /// wrong note.
+    marks: Vec<(usize, usize)>,
     /// The host's view state, parked here while the caret is inside.
     ///
     /// The editor has one `slot`, and it belongs to whichever buffer the caret is
@@ -587,6 +594,9 @@ impl MarkdownEditor {
             last,
             links: extract_wikilinks(note.buffer.borrow().text()),
             links_change: note.buffer.borrow().change_id(),
+            // The checker has not been told about this note yet; the marks arrive when
+            // it answers (workspace/notes.rs hands it over on entry).
+            marks: Vec::new(),
             host_slot,
         });
         let start = self.buffer.borrow().line_start(row);
@@ -793,6 +803,12 @@ impl MarkdownEditor {
         self.note.buffer.borrow().text().to_string()
     }
 
+    /// The text of whichever buffer the caret is in — which is what the checker is
+    /// holding, and what a change has to be sent as.
+    pub fn caret_text(&self) -> String {
+        self.buffer.borrow().text().to_string()
+    }
+
     /// How many words the buffer holds, by [`shale_core::word_count`]: whitespace
     /// runs holding at least one letter or digit, so a heading's `#`, a bullet's `-`
     /// and bold's `**` are not words.
@@ -839,8 +855,23 @@ impl MarkdownEditor {
     /// The ranges to draw as the checker's notes, as buffer byte offsets. Empty
     /// clears them.
     pub(crate) fn set_marks(&mut self, marks: Vec<(usize, usize)>, cx: &mut Context<Self>) {
-        if marks != self.marks {
-            self.marks = marks;
+        // Whichever buffer the caret is in is the one the checker was handed, so that is
+        // the buffer these offsets belong to. The other note keeps the marks it already
+        // has: they are still valid offsets into it, just not what the server is looking
+        // at right now, and they refresh the moment the caret goes back.
+        let changed = match self.entered.as_mut() {
+            Some(embed) => {
+                let same = marks == embed.marks;
+                embed.marks = marks;
+                !same
+            }
+            None => {
+                let same = marks == self.marks;
+                self.marks = marks;
+                !same
+            }
+        };
+        if changed {
             cx.notify();
         }
     }
@@ -1229,6 +1260,21 @@ impl MarkdownEditor {
     ///
     /// The second list is the one that matters for P4.0b: an embedded note being typed
     /// into has no tab of its own to light, and the dot is the only mark saying so.
+    /// Which painted rows drew a checker's squiggle, as `(the note's own rows, an
+    /// entered embed's rows)`. The two lists are the point: the checker holds whichever
+    /// buffer the caret is in, and its notes must land on that one.
+    #[cfg(test)]
+    pub fn painted_marks(&self) -> (Vec<usize>, Vec<usize>) {
+        let marked = |hits: &[crate::line::HitLine]| {
+            hits.iter()
+                .enumerate()
+                .filter(|(_, hit)| hit.marked)
+                .map(|(index, _)| index)
+                .collect()
+        };
+        (marked(&self.hit_lines), marked(&self.embed_hits))
+    }
+
     #[cfg(test)]
     pub fn painted_gutter_dots(&self) -> (Vec<usize>, Vec<usize>) {
         let dots = |hits: &[crate::line::HitLine]| {

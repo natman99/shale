@@ -50,7 +50,10 @@ impl Workspace {
             // a stale copy of.
             return;
         };
-        let text = editor.read_with(cx, |editor, _cx| editor.text());
+        // The caret's buffer, not the tab's: while the caret is inside an embed that is
+        // the document the checker is holding, and sending it the host's text would
+        // check a note nobody is typing into.
+        let text = editor.read_with(cx, |editor, _cx| editor.caret_text());
         spell.update(cx, |spell, cx| spell.changed(&text, cx));
     }
 
