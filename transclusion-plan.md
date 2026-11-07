@@ -399,6 +399,14 @@ nothing (a `gd` that does nothing) or a squiggle on the wrong note.
   into a missing one. The trap is general — anything that focuses an entity which may not
   be in the tree kills the whole window, not just that entity.
 
+- **Ruling: live preview reaches into the block being edited.** The host's rule is that
+  the rows the caret or selection touches keep their markdown markers; the embed pass was
+  written for read-only pictures and hid markers on every row, so the line being typed on
+  hid the syntax being typed. `paint_body` takes a `Reveal` (cursor + selection in the
+  note's byte coordinates); the entered block passes one, a read-only block passes none.
+  The P4.0a rule — a block that is only being read reads rendered — is kept where it still
+  applies, and preview mode hides everywhere in the block exactly as in the note.
+
 - **The block being edited reports the pointer.** Its rows hang below the host line's box,
   so no handler covered them and hovering a marked word inside the block said nothing. One
   handler per block, resolving the row from the bands this frame painted rather than from
