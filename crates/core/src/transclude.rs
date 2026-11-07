@@ -194,9 +194,14 @@ fn expand(
         None => text.lines().enumerate().collect(),
         Some(anchor) => match section_rows(&text, anchor) {
             Some(rows) => rows,
-            // An anchor that names no heading: leave the line as written rather
-            // than painting an empty block that looks like a successful embed.
-            None => return Body::Nothing,
+            // The note is there and the section is not. Say so rather than
+            // painting an empty block that reads as a successful embed, and say it
+            // in the same words a followed link uses when its heading is missing,
+            // so the two surfaces cannot disagree about what went wrong (ruled
+            // 2026-11-06, and P4.6a's wording).
+            None => {
+                return Body::Badge(format!("no section \"{anchor}\" in {}", entry.stem()));
+            }
         },
     };
     // This note is now on the path to everything inside it. Without the push,
@@ -654,7 +659,7 @@ mod tests {
     }
 
     #[test]
-    fn an_anchor_that_names_no_heading_leaves_the_line_rather_than_painting_empty() {
+    fn an_anchor_that_names_no_heading_says_which_section_is_missing() {
         let (_d, v, entries) = vault_with(&[("host.md", "![[gift#Nope]]"), ("gift.md", "# Top\n")]);
         assert_eq!(
             resolve(
@@ -663,7 +668,9 @@ mod tests {
                 Path::new("host.md"),
                 &line_embed("![[gift#Nope]]").unwrap()
             ),
-            Body::Nothing
+            // Not `Nothing`, which is for a target that is no note at all: the note
+            // is there, and the reader is owed the reason the block is empty.
+            Body::Badge("no section \"Nope\" in gift".into())
         );
     }
 

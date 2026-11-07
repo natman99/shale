@@ -304,3 +304,18 @@ fn a_painted_embed_row_answers_with_where_it_came_from(cx: &mut TestAppContext) 
         "the note's own first row belongs to the note"
     );
 }
+
+/// An embed of a note that exists but has no such section says so, in the same
+/// words a followed link uses (ruled 2026-11-06). An empty block would read as a
+/// successful embed; the raw line hides the reason inside a typo.
+#[gpui::test]
+fn an_embed_of_a_missing_section_names_the_section_that_is_not_there(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("host.md", "![[gift#Nope]]\n"), ("gift.md", "# Top\n")]);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show_at(&mut cx, &window, "host.md");
+    assert_eq!(
+        embeds(&window, &mut cx),
+        vec![r#"embed row 0: badge no section "Nope" in gift"#],
+        "the note is there; the section is what is missing, and the row says which"
+    );
+}
