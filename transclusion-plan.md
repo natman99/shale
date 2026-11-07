@@ -399,6 +399,16 @@ nothing (a `gd` that does nothing) or a squiggle on the wrong note.
   into a missing one. The trap is general — anything that focuses an entity which may not
   be in the tree kills the whole window, not just that entity.
 
+- **Ruling: a view that stops drawing a block also stops the caret living in one.** Raw
+  mode draws the `![[…]]` line and no body, so `:raw` inside an embed exits it in the same
+  keystroke — the alternative is a position with nothing under it, escapable only by a key
+  the user has to already know. The Q5 rescue could not catch it: `embed_frame` returns
+  early for Raw (which is why Raw is cheap), and that return skipped the "was my block
+  painted?" check. Related trap: while the caret is inside a block, the host's view state is
+  *parked* in `Entered`, so anything that mutates view state (`set_read_only`, and later
+  folds or segments) has to write the parked copy too — preview mode was marking the
+  embedded note's slot and handing back an editable host.
+
 - **Ruling: live preview reaches into the block being edited.** The host's rule is that
   the rows the caret or selection touches keep their markdown markers; the embed pass was
   written for read-only pictures and hid markers on every row, so the line being typed on
