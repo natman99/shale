@@ -288,6 +288,36 @@ Two ordering facts the map settled, both easy to get wrong:
   the flag is reset per frame at `render.rs:55`, and the first claimant is already the
   host's first line.
 
+**M3a landed (entry, exit, the seam).** `ctrl-]` on a `![[…]]` line, and a click inside
+a body, move the caret into the embedded note; `ctrl-o` walks out, taking the key before
+the jump chain while an embed holds it. The status bar carries `in ![[gift]]` as a state
+segment, and dirty follows the caret rather than the tab. The seam is enforced in one
+place — the caret is clamped to the section after each keystroke — so `j`, `}`, `gg`, `G`
+and a search's `n` all stop at the section's edges without any of them knowing an edge
+exists. Five tests in `tests/embeds.rs`.
+
+Two rulings this surfaced that the design pass had not reached:
+
+- **Ruling 19: the view slot follows the caret, and the host's is parked.** The editor
+  has one `slot` — display segments, folds, preview mode — and those are offsets into
+  *one* buffer. Applying the host's segments to the embedded note makes `j` land on the
+  wrong row and the ruler report nonsense. So entering swaps the editor's slot for the
+  embedded note's (laid out one display line per row, which is how the block is painted)
+  and parks the host's inside `Entered`, where the paint path reaches it through
+  `host_slot()`. Three paint sites changed instead of the 25 caret sites.
+- **Ruling 20: a note the caret has typed into does not go back to being a picture.**
+  Notes are kept alive by the view showing them — the registry holds a `Weak`. An embed
+  breaks that chain: the caret typed into a note no tab shows, then left, and the last
+  strong reference went with it, taking the unsaved edits. The window now holds dirty
+  embeds it has no tab for (`held_embeds`) and says so in the status line. Ruling 18's
+  tab materialisation belongs on the save path, which is M4 — and M4 owns releasing the
+  hold, because a written note can be let go.
+
+**M3b still owes:** the entered block painted as real line elements, so the caret is
+visible where it is (today it edits a block it cannot see a caret in), column-accurate
+entry from a click (today the click chooses the row and the caret starts at its
+beginning), and soft-wrap for the block's rows.
+
 **M4 — the save story.** Transitive dirty dot, `:w` writing host + embeds, the close
 warning enumerating dirty embeds, autosave covering them, and a partial write failure
 naming which note wrote.
