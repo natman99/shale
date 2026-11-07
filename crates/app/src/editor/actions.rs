@@ -85,6 +85,8 @@ impl MarkdownEditor {
         let outcome =
             self.vim
                 .handle_normal_key(key, &mut self.buffer.borrow_mut(), &mut self.slot);
+        // Inside an embed, the section's edges are the caret's edges (roadmap P4.0b).
+        self.clamp_to_embed();
         let changed = self.buffer.borrow().text() != before;
         if changed {
             self.mark_dirty(cx);

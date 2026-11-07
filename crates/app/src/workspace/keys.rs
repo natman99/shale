@@ -158,6 +158,11 @@ fn build() -> (Vec<KeyBinding>, Vec<KeymapRow>) {
     // in the note's own context (see below).
     bind_named!(b, global, [
         "ctrl-shift-p" => CommandPalette => "open the command palette",
+        // Into the embed the caret is standing on (roadmap P4.0b). vim's tag jump is
+        // already the key for "go read the thing this line points at", and it is free
+        // here. `ctrl-o` walks back out: the same key as the jump chain, taken by the
+        // embed while the caret is inside one, so the two never compete.
+        "ctrl-]" => EnterEmbed => "step into the embed on this line",
     ]);
     // Moving the keyboard between panels, vim-window style. gpui matches a
     // two-stroke binding natively: `ctrl-w` alone is kept as pending input
@@ -514,7 +519,10 @@ fn build() -> (Vec<KeyBinding>, Vec<KeymapRow>) {
     // because nothing else in this context wants them: the graph has no counts, no
     // registers and no windows of its own, and the filter strip — the only place a digit
     // could be typed as text — has a context of its own.
-    for (key, dim) in [("2", crate::graph::Dim::Two), ("3", crate::graph::Dim::Three)] {
+    for (key, dim) in [
+        ("2", crate::graph::Dim::Two),
+        ("3", crate::graph::Dim::Three),
+    ] {
         b.bind(
             graph,
             key,
@@ -538,7 +546,12 @@ fn build() -> (Vec<KeyBinding>, Vec<KeymapRow>) {
         );
     }
     // `\` widens all the way out: the local view off, the whole vault back on screen.
-    b.bind(graph, "\\", GraphLocal(Some(0)), "show the whole vault again");
+    b.bind(
+        graph,
+        "\\",
+        GraphLocal(Some(0)),
+        "show the whole vault again",
+    );
     // The arrows move the view, and their shift forms move it three times as far, which
     // is the spec's "`Shift` = 3× speed".
     // The shift forms are spelled out rather than built with `format!`, because a

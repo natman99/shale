@@ -106,6 +106,15 @@ pub(crate) struct Workspace {
     /// to release it, which is the kind of thing this repo has historically gotten
     /// wrong.
     notes: Rc<crate::note::Registry>,
+    /// Embedded notes the caret has finished editing but no tab shows.
+    ///
+    /// A note is normally kept alive by the view showing it: the registry holds a
+    /// `Weak`, and when the last view lets go the buffer goes. An embed breaks that.
+    /// The caret typed into a note no tab is showing, then left, and nothing is
+    /// looking at it any more — without a strong reference here, the buffer and the
+    /// unsaved edits inside it would be dropped on the way out. P4.0b M4 owns when
+    /// these are released: a save writes them and lets go.
+    held_embeds: Vec<Rc<crate::note::Note>>,
     /// The spell and grammar checker, when one is configured and was started.
     /// It owns a server process; the window only talks to it.
     spell: Option<Entity<Spell>>,
@@ -477,6 +486,7 @@ impl Workspace {
             follow_desktop,
             theme_backup: None,
             notes: Rc::new(crate::note::Registry::default()),
+            held_embeds: Vec::new(),
             spell,
             checker_notes: Vec::new(),
             popup: None,
@@ -673,6 +683,7 @@ impl Workspace {
                 // the tab itself makes, which needs no window.
                 EditorEvent::FollowLink { .. }
                 | EditorEvent::CreateLink { .. }
+                | EditorEvent::EnterEmbedAt { .. }
                 | EditorEvent::Changed => {}
             },
         ));

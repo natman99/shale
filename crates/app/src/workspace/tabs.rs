@@ -342,6 +342,15 @@ impl Workspace {
             }
             // `gD` ignores the anchor: the note it creates has no headings, and an
             // anchor must never leak into the name of a file (roadmap P4.6a).
+            // A click inside an embed's body, or `ctrl-]` on its `![[…]]` line
+            // (roadmap P4.0b). Both come here because opening the embedded note is
+            // the window's job; the editor takes the caret back from there.
+            EditorEvent::EnterEmbedAt { path, row } => {
+                if !active {
+                    self.show_tab(index, cx);
+                }
+                self.enter_embed_at(index, path, *row, cx);
+            }
             EditorEvent::CreateLink { target } => {
                 // Only the tab on screen can be clicked or `gd`-ed, but a link
                 // followed in a tab that is not on screen would otherwise edit the

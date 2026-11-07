@@ -7,6 +7,34 @@
 
 use super::*;
 
+// ---------------------------------------------------------------------------
+// M3: stepping into an embed (roadmap P4.0b).
+//
+// The promise being pinned here is where the caret is. Everything above this line
+// is about a body being *shown*; from here it is about a body being *typed into*,
+// and the two must not be confused: the host keeps painting its own note, the
+// embedded note keeps its own buffer, and the only thing that moves is the caret.
+// ---------------------------------------------------------------------------
+
+/// What the status bar says about which note the caret is in.
+fn badge(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> String {
+    window
+        .update(cx, |ws, _window, cx| ws.embed_badge(cx))
+        .unwrap_or_default()
+}
+
+/// A note this window holds: its text and its dirty flag.
+fn state(
+    window: &WindowHandle<Workspace>,
+    name: &str,
+    cx: &mut VisualTestContext,
+) -> (String, bool) {
+    window
+        .update(cx, |ws, _window, _cx| ws.note_state(name))
+        .unwrap()
+        .unwrap_or_default()
+}
+
 /// What the note on screen would paint for its transclusions.
 fn embeds(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> Vec<String> {
     window
@@ -58,6 +86,145 @@ fn an_embedded_body_does_not_enter_the_notes_display_model(cx: &mut TestAppConte
         rows(&window, &mut cx),
         4,
         "three lines of text plus the empty line the trailing newline makes — and not          one more for the two rows the embed paints"
+    );
+}
+
+/// `ctrl-]` on a `![[…]]` line puts the caret in the other note, and the typing
+/// follows the caret rather than the tab.
+#[gpui::test]
+fn ctrl_bracket_steps_into_the_embed_under_the_caret(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("host.md", HOST), ("gift.md", GIFT)]);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show_at(&mut cx, &window, "host.md");
+    assert_eq!(
+        badge(&window, &mut cx),
+        "",
+        "the caret starts in the note on screen"
+    );
+
+    // Down onto the `![[gift]]` line, then in.
+    cx.simulate_keystrokes("j ctrl-]");
+    assert_eq!(badge(&window, &mut cx), "in ![[gift]]");
+
+    cx.simulate_keystrokes("i X escape");
+    assert_eq!(
+        state(&window, "gift", &mut cx).0,
+        "Xone\ntwo\n",
+        "the character landed in the embedded note"
+    );
+    assert_eq!(
+        state(&window, "host", &mut cx).0,
+        HOST,
+        "and not one character in the note the tab is showing"
+    );
+}
+
+/// `ctrl-o` walks back out — the same key as the jump chain, taken by the embed
+/// while the caret is inside one (ruling 2).
+#[gpui::test]
+fn ctrl_o_walks_back_out_of_an_embed(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("host.md", HOST), ("gift.md", GIFT)]);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show_at(&mut cx, &window, "host.md");
+    cx.simulate_keystrokes("j ctrl-] i X escape ctrl-o");
+    assert_eq!(
+        badge(&window, &mut cx),
+        "",
+        "the caret is back in the note on screen"
+    );
+    cx.simulate_keystrokes("i Y escape");
+    assert_eq!(
+        state(&window, "host", &mut cx).0,
+        "before\nY![[gift]]\nafter\n",
+        "and the host's caret was left exactly where it was parked"
+    );
+    assert_eq!(
+        state(&window, "gift", &mut cx).0,
+        "Xone\ntwo\n",
+        "leaving did not drop the note the caret had been typing into"
+    );
+}
+
+/// The seam: the section's edges are the caret's edges, so `G` and `gg` stop at
+/// them and so does every other motion, without knowing they exist.
+#[gpui::test]
+fn the_seam_stops_motions_at_the_sections_edges(cx: &mut TestAppContext) {
+    let gift = "# Top\none\ntwo\n# Below\nnot shown\n";
+    let (_dir, window) = vault_with(cx, &[("host.md", "![[gift#Top]]\n"), ("gift.md", gift)]);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show_at(&mut cx, &window, "host.md");
+    cx.simulate_keystrokes("ctrl-]");
+    // The section is rows 0..=2 of gift: the heading and its two lines. `# Below`
+    // is in the buffer and not on screen, so it is out of reach.
+    cx.simulate_keystrokes("G");
+    assert_eq!(
+        window
+            .update(&mut cx, |ws, _w, cx| ws.cursor_position(cx))
+            .unwrap()
+            .0,
+        2,
+        "`G` stopped at the last row the embed shows"
+    );
+    cx.simulate_keystrokes("j j j");
+    assert_eq!(
+        window
+            .update(&mut cx, |ws, _w, cx| ws.cursor_position(cx))
+            .unwrap()
+            .0,
+        2,
+        "and so did walking down past it"
+    );
+    cx.simulate_keystrokes("g g");
+    assert_eq!(
+        window
+            .update(&mut cx, |ws, _w, cx| ws.cursor_position(cx))
+            .unwrap()
+            .0,
+        0,
+        "`gg` stopped at the first row it shows"
+    );
+}
+
+/// A click inside the body enters that embed. It has to be asked before the click
+/// scan looks for a host line, because that scan answers a point in the body with
+/// the host row above it.
+#[gpui::test]
+fn clicking_an_embeds_body_steps_into_it(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("host.md", HOST), ("gift.md", GIFT)]);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show_at(&mut cx, &window, "host.md");
+    let band = window
+        .update(&mut cx, |ws, _w, cx| ws.phantom_rows(cx))
+        .unwrap()
+        .into_iter()
+        .find(|(what, ..)| what.ends_with(":1"))
+        .expect("the body's second row is painted");
+    let (_, left, top, bottom) = band;
+    cx.simulate_click(
+        gpui::point(gpui::px(left + 4.0), gpui::px((top + bottom) / 2.0)),
+        gpui::Modifiers::default(),
+    );
+    assert_eq!(badge(&window, &mut cx), "in ![[gift]]");
+    cx.simulate_keystrokes("i Z escape");
+    assert_eq!(
+        state(&window, "gift", &mut cx).0,
+        "one\nZtwo\n",
+        "the click chose the row; the caret starts at its beginning"
+    );
+}
+
+/// Dirty follows the caret. The embedded note is the one with unsaved edits, even
+/// though no tab is showing it (ruling 17).
+#[gpui::test]
+fn typing_in_an_embed_dirties_the_embedded_note(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("host.md", HOST), ("gift.md", GIFT)]);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show_at(&mut cx, &window, "host.md");
+    cx.simulate_keystrokes("j ctrl-] i ! escape");
+    assert!(state(&window, "gift", &mut cx).1, "the embed is dirty");
+    assert!(
+        !state(&window, "host", &mut cx).1,
+        "the host was not touched, so it is not dirty"
     );
 }
 
@@ -310,7 +477,10 @@ fn a_painted_embed_row_answers_with_where_it_came_from(cx: &mut TestAppContext) 
 /// successful embed; the raw line hides the reason inside a typo.
 #[gpui::test]
 fn an_embed_of_a_missing_section_names_the_section_that_is_not_there(cx: &mut TestAppContext) {
-    let (_dir, window) = vault_with(cx, &[("host.md", "![[gift#Nope]]\n"), ("gift.md", "# Top\n")]);
+    let (_dir, window) = vault_with(
+        cx,
+        &[("host.md", "![[gift#Nope]]\n"), ("gift.md", "# Top\n")],
+    );
     let mut cx = VisualTestContext::from_window(window.into(), cx);
     show_at(&mut cx, &window, "host.md");
     assert_eq!(

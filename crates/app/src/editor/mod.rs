@@ -57,6 +57,13 @@ pub enum EditorEvent {
     /// it does not exist (`gD`). The editor does not know the vault: it reports what
     /// is under the cursor and lets the window decide what creating means.
     CreateLink { target: String },
+    /// The user clicked inside an embed's body (roadmap P4.0b). A click knows more
+    /// than a caret: the painted row answers with the note it was cut from and the
+    /// row of it, so this names the note outright.
+    EnterEmbedAt {
+        path: std::path::PathBuf,
+        row: usize,
+    },
     /// The note's text changed. The workspace uses this to keep the spell and
     /// grammar checker's copy of the document in step with the buffer.
     Changed,
@@ -131,6 +138,30 @@ impl View {
 /// and the current match if that overlaps too. Buffer byte ranges, clipped to the
 /// line.
 type LineHits = (Vec<(usize, usize)>, Option<(usize, usize)>);
+
+/// The embed this view is editing. See `MarkdownEditor::entered`.
+pub(crate) struct Entered {
+    /// The embedded note, borrowed from the window's registry — the same buffer a
+    /// tab of that note would show, so the two views cannot disagree about it.
+    note: Rc<Note>,
+    /// Which note it is, as the registry keys it. The name the status bar shows and
+    /// the way back to the body this block came from.
+    path: std::path::PathBuf,
+    /// The first and last rows of the embedded note on screen, inclusive: the section
+    /// the embed names, not the whole note. An embed of `# Tasks` shows and edits
+    /// `# Tasks`, and the seam stops `j`/`k` at that section's edges.
+    first: usize,
+    last: usize,
+    /// The host's view state, parked here while the caret is inside.
+    ///
+    /// The editor has one `slot`, and it belongs to whichever buffer the caret is
+    /// in: display segments, folds and preview mode are offsets and flags over one
+    /// buffer, and the host's mean nothing applied to the embedded note — a `j`
+    /// measured against the host's rows would land on the wrong row of this one.
+    /// The tab is still *painting* the host, though, so its wrap points and open
+    /// folds have to survive the visit; this is where they wait.
+    host_slot: ViewSlot,
+}
 
 pub struct MarkdownEditor {
     /// The editor's focus handle; the line element needs it to register input
@@ -253,6 +284,16 @@ pub struct MarkdownEditor {
     /// The bodies of this note's `![[transclusions]]`, cached across frames and dropped
     /// when the vault changes (roadmap P4.0a).
     embeds: embeds::Cache,
+    /// The embed this view is editing, if any (roadmap P4.0b).
+    ///
+    /// Entering an embed moves the caret into the other note's buffer without moving
+    /// this tab off its own: `buffer` becomes the embedded note's, `note` stays the
+    /// host's, and the host keeps painting its own rows with the embed's body hanging
+    /// off them. That is why the two handles are named apart — see `buffer`.
+    ///
+    /// One level only: a read-only embed of a note that is itself being edited stays
+    /// read-only, and entering an embed while inside one is refused.
+    entered: Option<Entered>,
     /// The note this view is showing, shared with every other view of it (and
     /// with the window's registry). The text, the caret and the undo history are
     /// the note's; `dirty` is the note's too, so two views of one file cannot
@@ -310,6 +351,7 @@ impl MarkdownEditor {
             pending_edits: Vec::new(),
             collapsed_inline: HashSet::new(),
             embeds: embeds::Cache::new(),
+            entered: None,
             phantom_hits: Rc::new(RefCell::new(Vec::new())),
             notes: Rc::new(crate::note::Registry::default()),
         }
@@ -327,6 +369,9 @@ impl MarkdownEditor {
     pub(crate) fn set_note(&mut self, note: Rc<Note>, cx: &mut Context<Self>) {
         self.buffer = Rc::clone(&note.buffer);
         self.note = note;
+        // Changing tab changes the note under the caret, so an embed being edited
+        // here is left behind; its buffer outlives the view, held by the registry.
+        self.entered = None;
         self.slot.clear();
         self.wrap_cache = None;
         self.vim.enter_normal();
@@ -414,6 +459,152 @@ impl MarkdownEditor {
 
     /// Hand this view the window's note registry. Without it an embed still works —
     /// it just reads files, which is what it did before embeds could be edited.
+    /// The embed the caret's row is, if the row is one: a line that is nothing but
+    /// `![[note#section]]` (roadmap P4.0b).
+    ///
+    /// The whole-line rule is the resolver's, not a convenience: an embed inside a
+    /// sentence is a link the author is writing, and `ctrl-]` there should follow it
+    /// the way `gd` does, not swallow the sentence.
+    pub(crate) fn embed_under_caret(&self) -> Option<(String, Option<String>)> {
+        let host = self.note.buffer.borrow();
+        let (row, _) = host.row_col(host.cursor());
+        let start = host.line_start(row);
+        let end = host.line_end(row);
+        let text = host.text()[start..end].to_string();
+        let embed = shale_core::transclude::line_embed(&text)?;
+        Some((embed.target, embed.anchor))
+    }
+
+    /// Step into the embed that shows `origin`'s note, landing the caret on
+    /// `origin`'s row (roadmap P4.0b).
+    ///
+    /// The note has to be in this window's registry: a note being edited is a note
+    /// the window holds, so the workspace opens it first if it is not. The editable
+    /// range comes from the body this view is already showing, which makes "what can
+    /// be edited" exactly "what is on screen".
+    pub(crate) fn enter_embed(
+        &mut self,
+        origin: &shale_core::transclude::Origin,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if self.entered.is_some() {
+            // One level of editing. Nested embeds stay read-only.
+            return false;
+        }
+        let Some(note) = self.notes.get(&origin.path) else {
+            return false;
+        };
+        let (Some(first), Some(last)) = self.embeds.rows_of(&origin.path) else {
+            return false;
+        };
+        // The host's caret is not moved by entering, so it is still on the `![[…]]`
+        // line when the caret comes back out — no bookkeeping needed for where the
+        // author was standing.
+        let row = origin.row.clamp(first, last);
+        self.buffer = Rc::clone(&note.buffer);
+        // The caret's slot becomes the embedded note's, laid out the way the block is
+        // painted: one display line per row, no soft wrap. That is what `j`/`k` and
+        // the ruler step over, and it has to agree with the paint or the two fall out
+        // of step — the same rule the note's own wrap model obeys.
+        let host_slot = std::mem::replace(&mut self.slot, ViewSlot::new());
+        {
+            let buf = self.buffer.borrow();
+            let segments: Vec<Vec<usize>> = (0..buf.line_count())
+                .map(|row| vec![buf.line_start(row)])
+                .collect();
+            self.slot.set_segments(segments);
+        }
+        self.entered = Some(Entered {
+            note: Rc::clone(&note),
+            path: origin.path.clone(),
+            first,
+            last,
+            host_slot,
+        });
+        let start = self.buffer.borrow().line_start(row);
+        self.buffer.borrow_mut().set_cursor(start);
+        cx.notify();
+        true
+    }
+
+    /// Step back out of the embed. The caret the embed was holding stays in the
+    /// embedded buffer — one caret per note per window — and the host's caret is
+    /// exactly where it was left.
+    pub(crate) fn exit_embed(&mut self, cx: &mut Context<Self>) {
+        let Some(embed) = self.entered.take() else {
+            return;
+        };
+        self.buffer = Rc::clone(&self.note.buffer);
+        // The host's view state comes back exactly as it was left: the same wrap
+        // points, the same open folds. Coming out of an embed should not be a reason
+        // to re-measure the note.
+        self.slot = embed.host_slot;
+        cx.notify();
+    }
+
+    pub(crate) fn is_entered(&self) -> bool {
+        self.entered.is_some()
+    }
+
+    /// The embed being edited, note and all — handed out so the window can keep the
+    /// note alive past the moment this view lets go of it. A note the caret has been
+    /// typing into is not a picture any more, and dropping the last strong reference
+    /// to it would drop the edits with it.
+    pub(crate) fn entered_note(&self) -> Option<(std::path::PathBuf, Rc<Note>)> {
+        let embed = self.entered.as_ref()?;
+        Some((embed.path.clone(), Rc::clone(&embed.note)))
+    }
+
+    /// What the status bar calls the embed being edited. A segment that names the
+    /// note, because "you are typing in another file" is the thing worth seeing
+    /// before typing into it (ruling 3).
+    pub(crate) fn entered_name(&self) -> Option<String> {
+        self.entered
+            .as_ref()
+            .and_then(|embed| embed.path.file_stem())
+            .map(|stem| stem.to_string_lossy().into_owned())
+    }
+
+    /// The view state the *host* note is painted through: the editor's slot, or the
+    /// one parked inside `entered` while the caret is elsewhere. Every paint and wrap
+    /// call goes through this, because the tab keeps showing its own note however far
+    /// the caret has wandered.
+    fn host_slot(&mut self) -> &mut ViewSlot {
+        match &mut self.entered {
+            Some(embed) => &mut embed.host_slot,
+            None => &mut self.slot,
+        }
+    }
+
+    fn host_slot_ref(&self) -> &ViewSlot {
+        match &self.entered {
+            Some(embed) => &embed.host_slot,
+            None => &self.slot,
+        }
+    }
+
+    /// Pull the caret back inside the embed's section (roadmap P4.0b).
+    ///
+    /// Clamping after the keystroke rather than refusing the motion is what makes
+    /// the seam one rule instead of several: `j`, `}`, `%`, a search's `n`, `gg` and
+    /// `G` all stop at the section's edges without any of them knowing the edge
+    /// exists. The ruling is that the seam is a buffer boundary and everything
+    /// buffer-scoped stops there — this is where that gets enforced.
+    fn clamp_to_embed(&mut self) {
+        let Some(embed) = &self.entered else {
+            return;
+        };
+        let (first, last) = (embed.first, embed.last);
+        let buf = Rc::clone(&self.buffer);
+        let mut buffer = buf.borrow_mut();
+        let row = buffer.row_col(buffer.cursor()).0;
+        if row < first || row > last {
+            let target = row.clamp(first, last);
+            let start = buffer.line_start(target);
+            buffer.set_cursor(start);
+        }
+    }
+
     pub(crate) fn set_notes(&mut self, notes: Rc<crate::note::Registry>, cx: &mut Context<Self>) {
         self.notes = notes;
         cx.notify();
@@ -1051,7 +1242,12 @@ impl MarkdownEditor {
     }
 
     fn mark_dirty(&mut self, cx: &mut Context<Self>) {
-        self.note.dirty.set(true);
+        // Dirty follows the caret, not the tab: typing inside an embed makes the
+        // embedded note dirty, and the host's tab lights through it (ruling 17).
+        match &self.entered {
+            Some(embed) => embed.note.dirty.set(true),
+            None => self.note.dirty.set(true),
+        }
         // gpui queues an emit rather than running the handlers inside this
         // update, so the workspace is free to read the buffer back from its
         // handler.

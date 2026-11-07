@@ -11,7 +11,7 @@ use shale_core::vim::{Key, Mode};
 
 use crate::line::HitLine;
 
-use super::MarkdownEditor;
+use super::{EditorEvent, MarkdownEditor};
 
 impl MarkdownEditor {
     pub(super) fn on_click(
@@ -22,6 +22,18 @@ impl MarkdownEditor {
     ) {
         let y = event.position.y;
         let x = event.position.x;
+        // A click inside an embed's body asks to edit that embed (roadmap P4.0b), and
+        // it has to be asked *before* the scan below: that scan falls through to "the
+        // last line whose top is at or above y", so a click in a phantom band would
+        // otherwise move the host's caret to the row above the block — a caret in the
+        // wrong note, from a click that looked like it landed on the right text.
+        if let Some(origin) = self.origin_at(event.position) {
+            cx.emit(EditorEvent::EnterEmbedAt {
+                path: origin.path,
+                row: origin.row,
+            });
+            return;
+        }
         // Find the display line containing y (or the closest one above it).
         let mut best: Option<&HitLine> = None;
         for hit in &self.hit_lines {

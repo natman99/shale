@@ -157,6 +157,9 @@ actions!(
         // forward), the way vim and neovim do.
         JumpBack,
         JumpForward,
+        // Stepping into the embed under the caret (`ctrl-]`, vim's tag jump), or
+        // clicking one (roadmap P4.0b). `ctrl-o` walks back out again.
+        EnterEmbed,
         // Searching every note's text (`ctrl-shift-f`).
         SearchVault,
         // Searching the note that is open (`/`), and stepping through its matches

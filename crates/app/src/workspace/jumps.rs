@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 
 use gpui::{Context, Window};
 
-use crate::acts::{JumpBack, JumpForward};
+use crate::acts::{EnterEmbed, JumpBack, JumpForward};
 
 use super::Workspace;
 
@@ -150,7 +150,50 @@ impl Workspace {
         if self.overlay_owns_keys() {
             return;
         }
+        // Inside an embed, `ctrl-o` means out (ruling 2) — the same key, the same
+        // idea of stepping back to where the caret came from. Only when the caret is
+        // not in an embed does it walk the note chain, so the two never compete.
+        let inside = self
+            .pane()
+            .active_tab()
+            .editor()
+            .is_some_and(|editor| editor.read(cx).is_entered());
+        if inside {
+            self.exit_embed(cx);
+            self.say("back in the note", cx);
+            return;
+        }
         self.step_jump(false, cx);
+    }
+
+    /// `ctrl-]`: step into the embed the caret's line is (roadmap P4.0b). vim's tag
+    /// jump, which is already the key for "go read the thing this line names".
+    pub(super) fn enter_embed_key(
+        &mut self,
+        _: &EnterEmbed,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.overlay_owns_keys() {
+            return;
+        }
+        let Some(editor) = self.pane().active_tab().editor().cloned() else {
+            return;
+        };
+        let Some((target, anchor)) = editor.update(cx, |editor, _| editor.embed_under_caret())
+        else {
+            self.say("no embed on this line", cx);
+            return;
+        };
+        match self.vault.resolve_link(&target, &self.entries) {
+            Ok(Some(entry)) => {
+                let path = entry.path.clone();
+                let tab = self.pane().active;
+                let _ = anchor;
+                self.enter_embed_at(tab, &path, 0, cx);
+            }
+            _ => self.say(format!("no note \"{target}\""), cx),
+        }
     }
 
     /// `ctrl-i`: forward again along the same path.

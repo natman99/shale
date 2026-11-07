@@ -217,6 +217,27 @@ impl Workspace {
     #[cfg(test)]
     /// Where the last paint put the phantom rows of embedded notes, and what each one
     /// is a line of — the seam's clickable half, for the tests that click on it.
+    /// The status bar's embed segment (roadmap P4.0b): the note the caret is inside,
+    /// or empty when it is in the tab's own note.
+    pub(crate) fn embed_badge<C: gpui::AppContext>(&self, cx: &C) -> String {
+        self.pane()
+            .active_tab()
+            .editor()
+            .and_then(|editor| editor.read_with(cx, |editor, _cx| editor.entered_name()))
+            .map(|stem| format!("in ![[{stem}]]"))
+            .unwrap_or_default()
+    }
+
+    /// A note this window holds, by name: its text and whether it has unsaved edits.
+    /// Independent of which tab is on screen, which is the whole point of an embed —
+    /// the note being typed into may not have a tab at all.
+    pub(crate) fn note_state(&self, name: &str) -> Option<(String, bool)> {
+        let entry = self.entries.iter().find(|e| e.stem() == name)?;
+        let note = self.notes.get(&entry.path)?;
+        let text = note.buffer.borrow().text().to_string();
+        Some((text, note.dirty.get()))
+    }
+
     pub(crate) fn phantom_rows<C: gpui::AppContext>(&self, cx: &C) -> Vec<(String, f32, f32, f32)> {
         self.editor()
             .map(|editor| editor.read_with(cx, |editor, _cx| editor.phantom_rows()))

@@ -148,6 +148,28 @@ impl Sources for OpenFirst<'_> {
 }
 
 impl Cache {
+    /// The first and last rows of `path`'s note among the bodies this frame holds.
+    ///
+    /// An entered embed can only edit what it shows, and this is what it shows. A
+    /// body can hold rows from other notes as well — an embed inside the embed — so
+    /// the answer is this note's first and last row, and the rows between them
+    /// belong to whoever they came from.
+    pub(crate) fn rows_of(&self, path: &Path) -> (Option<usize>, Option<usize>) {
+        let mut first: Option<usize> = None;
+        let mut last: Option<usize> = None;
+        for body in self.bodies.values() {
+            if let Body::Lines(rows) = body {
+                for line in rows {
+                    if let Some(origin) = line.origin.as_ref().filter(|o| o.path == path) {
+                        first = Some(first.map_or(origin.row, |f| f.min(origin.row)));
+                        last = Some(last.map_or(origin.row, |l| l.max(origin.row)));
+                    }
+                }
+            }
+        }
+        (first, last)
+    }
+
     pub(crate) fn new() -> Self {
         Self {
             entries: Vec::new(),

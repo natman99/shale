@@ -30,6 +30,7 @@ in hand. `docs/keys.md` is the human map of both halves.
 | `ctrl-shift-f` | Search the vault | `SearchVault` | `vault.search` |
 | `ctrl-t` | Open this note in a new tab | `TabNew` | `tab.new` |
 | `ctrl-shift-p` | open the command palette | `CommandPalette` | — |
+| `ctrl-]` | step into the embed on this line | `EnterEmbed` | — |
 | `ctrl-w h` | hand the keyboard to the pane on the left | `WindowLeft` | `window.left` |
 | `ctrl-w l` | hand the keyboard to the pane on the right | `WindowRight` | `window.right` |
 | `ctrl-w j` | hand the keyboard to the pane below | `WindowDown` | — |

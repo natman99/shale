@@ -100,7 +100,12 @@ impl Render for MarkdownEditor {
         // Folding: a closed section's rows take no display line at all, exactly
         // like a hidden fence line, which is what keeps j/k, the ruler and the
         // scroll position in step with what is on screen. The text is untouched.
-        let folds = self.note.buffer.borrow_mut().fold_view(&mut self.slot);
+        // The host's folds, from the host's parked slot — see `host_slot`. The handle
+        // is cloned because the slot borrow needs `self` mutably and the buffer read
+        // needs it immutably, which is the same fact the two halves of this view are
+        // made of.
+        let host_buffer = Rc::clone(&self.note.buffer);
+        let folds = host_buffer.borrow_mut().fold_view(self.host_slot());
         for (row, hidden) in collapsed.iter_mut().enumerate() {
             if folds.collapsed.get(row).is_some_and(|c| *c) {
                 *hidden = true;
@@ -183,7 +188,7 @@ impl Render for MarkdownEditor {
             .note
             .buffer
             .borrow()
-            .display_index_for(&self.slot, cursor);
+            .display_index_for(self.host_slot_ref(), cursor);
         // Focus mode: one alpha per buffer row, measured from the block (or the
         // heading section) the cursor is in. Raw mode is the file as it sits on
         // disk, so it never fades anything.

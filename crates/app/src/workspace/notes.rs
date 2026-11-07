@@ -46,6 +46,67 @@ impl Workspace {
         Some(note)
     }
 
+    /// Step a tab's editor into the embed that shows `path` (roadmap P4.0b).
+    ///
+    /// The request comes here rather than being answered inside the editor because
+    /// the caret cannot live in a note the window has never read: `note_entry` is
+    /// what puts it in the registry, which is also what keeps it alive while the
+    /// embed holds it and what makes a tab of the same note show the same text.
+    /// `row` is only a landing hint — the editable range is whatever this view is
+    /// already showing, which the editor knows and the window does not.
+    pub(super) fn enter_embed_at(
+        &mut self,
+        tab: usize,
+        path: &Path,
+        row: usize,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(note) = self.note_entry(path, cx) else {
+            return;
+        };
+        let Some(editor) = self.pane().tabs.get(tab).and_then(|t| t.editor()).cloned() else {
+            let _ = note;
+            return;
+        };
+        let origin = shale_core::transclude::Origin {
+            path: path.to_path_buf(),
+            row,
+        };
+        let entered = editor.update(cx, |editor, cx| editor.enter_embed(&origin, cx));
+        tracing::debug!(path = %path.display(), entered, "embed entry");
+        if !entered {
+            self.say("cannot edit that embed here", cx);
+        }
+    }
+
+    /// Step back out of the embed the tab's editor is holding.
+    pub(super) fn exit_embed(&mut self, cx: &mut Context<Self>) {
+        let Some(editor) = self.pane().active_tab().editor().cloned() else {
+            return;
+        };
+        // The note being left, taken before the editor lets go of it.
+        let left = editor.read_with(cx, |editor, _cx| editor.entered_note());
+        editor.update(cx, |editor, cx| editor.exit_embed(cx));
+        let Some((path, note)) = left else {
+            return;
+        };
+        if !note.dirty.get() || self.held_embeds.iter().any(|held| Rc::ptr_eq(held, &note)) {
+            return;
+        }
+        // A note the caret has typed into is not a picture any more. If no tab is
+        // showing it, this window is the only thing that can still hold its text,
+        // and letting it go would lose the edit silently — the worst kind of wrong
+        // an editor can do. Ruling 18 says such a note gets a tab; until M4 puts
+        // that on the save path, holding it here keeps the edit alive, and the
+        // status line says so rather than pretending nothing happened.
+        self.held_embeds.push(note);
+        let stem = path
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| path.display().to_string());
+        self.say(format!("{stem} has unsaved edits"), cx);
+    }
+
     pub(crate) fn open_note(&mut self, path: &PathBuf, cx: &mut Context<Self>) {
         // What makes a note "recent" is having it in hand, whichever door it
         // came through -- picker, tree, `gd`, a tab click, the agent -- and it

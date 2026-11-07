@@ -177,7 +177,9 @@ impl Workspace {
         // value converges after one frame and the editor repaints this frame
         // with the flag already correct.
         if let TabContent::Note { editor, .. } = &self.panes[pix].active_tab().content {
-            editor.update(cx, |editor, _cx| editor.cursor_dim = pix != self.active_pane);
+            editor.update(cx, |editor, _cx| {
+                editor.cursor_dim = pix != self.active_pane
+            });
         }
         // The slot belongs to the tab on screen in *this* pane: a note tab's
         // editor or the graph view, never both, and never the active pane's.
@@ -209,11 +211,12 @@ impl Workspace {
             // lone pane would just gain a frame around the whole editor.
             .rounded(crate::style::PANE_RADIUS)
             .when(self.panes.len() > 1, |d| {
-                d.border_1().border_color(gpui::rgb(if pix == self.active_pane {
-                    self.palette.ui_active_border
-                } else {
-                    self.palette.ui_border
-                }))
+                d.border_1()
+                    .border_color(gpui::rgb(if pix == self.active_pane {
+                        self.palette.ui_active_border
+                    } else {
+                        self.palette.ui_border
+                    }))
             })
             .child(self.tab_bar(pix, cx))
             .child(
@@ -506,6 +509,17 @@ impl Render for Workspace {
         // The open note's own word count, live from the buffer. It is state, not a
         // message: it is true for exactly as long as it is shown, and it moves with
         // the typing rather than a save later.
+        // Which embed the caret is inside, if any. A state segment, not a message:
+        // it is true exactly as long as it is true, and it is the fact the user needs
+        // *before* the keystroke they are about to type lands in another note.
+        let embed = match &editor {
+            Some(editor) => editor
+                .read(cx)
+                .entered_name()
+                .map(|stem| format!("in ![[{stem}]]"))
+                .unwrap_or_default(),
+            None => String::new(),
+        };
         let words = word_badge(
             self.note().is_some(),
             editor
@@ -531,6 +545,9 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::save))
             .on_action(cx.listener(Self::quit))
             .on_action(cx.listener(Self::quit_forced))
+            // Into the embed under the caret (`ctrl-]`); `ctrl-o` walks back out, and
+            // that handler already exists as the jump chain (roadmap P4.0b).
+            .on_action(cx.listener(Self::enter_embed_key))
             // The vault edits are available from anywhere: the tree's selection
             // says what they act on, and the open note is the fallback.
             .on_action(cx.listener(Self::new_note))
@@ -829,6 +846,15 @@ impl Render for Workspace {
                         // both sides of nothing and split the bar with a wider space
                         // than anywhere else in it.
                         d.child(self.status.clone())
+                    })
+                    .when(!embed.is_empty(), |d| {
+                        // Accent, not quiet: this is the one segment that says the
+                        // caret is not where the tab says it is.
+                        d.child(
+                            div()
+                                .text_color(gpui::rgb(self.palette.accent))
+                                .child(embed),
+                        )
                     })
                     .when(!spell.is_empty(), |d| d.child(spell))
                     // The search's own readout, so the count does not overwrite the
