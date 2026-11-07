@@ -365,11 +365,29 @@ glyph and any number of rules, so a row's list is in precedence order and the ca
 chooses it — a callout's kind glyph outranks the dirty dot, because the kind cannot be
 carried by colour alone while unsaved work is still reported by the tab.
 
-**Still owed before P4.0b closes:** the entered block's own links, marks and search
-matches are not drawn (they belong to the other buffer's caches, which this view does not
-keep), the block's rows do not soft-wrap, and a folded heading's disclosure glyph is the
-one gutter tenant not yet on `GutterMark` — it is a shaped glyph rather than a path and it
-records a click range, so it is painted where that range is recorded.
+**The entered block is a note, not a picture of one.** A wiki-link inside the block being
+edited is followed by `gd`, `gD` and ctrl-click, and coloured like a link; the spell and
+grammar checker is handed the embedded note while the caret is inside it and the host back
+when the caret leaves, and its notes underline bytes of whichever buffer it is holding.
+Both are the `buffer` / `note.buffer` split applied one record type later: an offset is a
+byte of one note or of the other, and answering it out of the wrong list is a silent
+nothing (a `gd` that does nothing) or a squiggle on the wrong note.
+
+- **Ruling: `/` does not search embedded text.** Search is buffer-scoped, and the seam is
+  a buffer boundary — so a word on screen can be invisible to search, and that is the
+  intended shape rather than an oversight.
+- **Ruling: the checker follows the caret, not the tab.** It holds one document; the
+  document it holds is the one being typed into.
+
+- **Ruling: a paint record reads what was painted.** `HitLine`'s `callout_mark`,
+  `gutter_dot` and `marked` are all derived from what the frame drew, because "the row was
+  handed these ranges" and "the row drew these marks" stopped being the same claim the
+  moment two buffers' records could reach one screen.
+
+**Still owed before P4.0b closes:** the entered block's rows do not soft-wrap, and a
+folded heading's disclosure glyph is the one gutter tenant not yet on `GutterMark` — it is
+a shaped glyph rather than a path and it records a click range, so it is painted where that
+range is recorded.
 
 M1 before M3 is not a preference, it is the ordering rule.
 
