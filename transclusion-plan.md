@@ -384,6 +384,26 @@ nothing (a `gd` that does nothing) or a squiggle on the wrong note.
   handed these ranges" and "the row drew these marks" stopped being the same claim the
   moment two buffers' records could reach one screen.
 
+- **Ruling: a row number carried between the editor and the window names its line space.**
+  `LineRef::Display` / `LineRef::Embed`. The two hit lists — `hit_lines` and `embed_hits` —
+  both number from zero and share nothing else, so a bare number is not ambiguous in the
+  code, only at the seam where one hands it to the other. Found as a freeze: `K` inside an
+  entered embed anchored its panel on the host's line of the same number, and past the end
+  of the host's display list the answer was "no such line" — so the panel was never
+  rendered while still holding the keyboard, and no key in any context reached anything.
+  Shallower in, the same bug was quieter: a panel over the wrong word.
+
+- **Ruling: a panel that cannot be drawn does not keep the keyboard.** The render drops it
+  and `drop_popup` falls back to the note on screen when it has no record of who held the
+  focus. This is the belt, not the fix: it turns a mis-anchored panel from a frozen window
+  into a missing one. The trap is general — anything that focuses an entity which may not
+  be in the tree kills the whole window, not just that entity.
+
+- **The block being edited reports the pointer.** Its rows hang below the host line's box,
+  so no handler covered them and hovering a marked word inside the block said nothing. One
+  handler per block, resolving the row from the bands this frame painted rather than from
+  where the pointer is guessed to be.
+
 **Still owed before P4.0b closes:** the entered block's rows do not soft-wrap, and a
 folded heading's disclosure glyph is the one gutter tenant not yet on `GutterMark` — it is
 a shaped glyph rather than a path and it records a click range, so it is painted where that
