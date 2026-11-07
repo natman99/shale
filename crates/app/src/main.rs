@@ -17,6 +17,7 @@ mod line;
 mod list;
 mod live;
 mod lsp;
+mod note;
 mod picker;
 mod popup;
 mod preview;
@@ -81,8 +82,10 @@ fn main() -> Result<()> {
         .vault
         .clone()
         .or_else(|| RecentVaults::load().startup_vault())
-        .context("no vault: name one on the command line, or open one from \
-                  another vault's `:vault` picker first")?;
+        .context(
+            "no vault: name one on the command line, or open one from \
+                  another vault's `:vault` picker first",
+        )?;
 
     // Roadmap P1.5: a termination signal is an exit the user asked for, not a crash.
     // The handler runs in signal context, where the only safe work is an atomic

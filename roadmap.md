@@ -1170,6 +1170,19 @@ edges, query nodes, MCP canvas tools) is P6.10.
   differently, and one note can be Preview in a tab and Live in an embed). `dirty` moves the
   other way, onto the entry. `apply_disk_changes` then walks the registry instead of the tab
   list, and both write paths (`write_tab`, `autosave`) cover entries no tab holds.
+  **Landed 2026-11-06** (`crates/app/src/note.rs`, `Workspace::note_entry`). Two changes
+  to the sketch, forced by the code rather than chosen: the entry holds
+  `Rc<RefCell<Buffer>>` and not `Entity<Buffer>`, because the vim engine is handed
+  `&mut Buffer` and `&mut ViewSlot` in one call and a gpui `Entity` cannot reach the
+  window's other state from inside its own update closure; and the registry holds
+  `Weak` handles, so a note dies when the last view lets go and no close path has to
+  remember to unregister it. `dirty` moved off `MarkdownEditor` onto the entry, and
+  `read_only` moved the other way, onto `ViewSlot` — preview is a property of a view,
+  and on a shared buffer it would otherwise let a reading tab lock an editing one out
+  (pinned by `preview_one_tab_does_not_lock_the_other_tab_of_the_same_note`).
+  `apply_disk_changes` and the vault-wide rewrite update the entry once and then tell
+  every view of it (`reload_views_of`). Still open, and owned by P4.0b's M4: the two
+  write paths reaching entries no tab holds.
   **Worth landing on its own:** it is also what makes a preview pane beside a live editor,
   the same note in two panes, and cross-window consistency possible at all, and it retires
   the last-writer-wins hazard between a dirty tab and an outside write.

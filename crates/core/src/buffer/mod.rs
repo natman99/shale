@@ -1,7 +1,6 @@
 //! A small text buffer with cursor/selection and undo, designed for
 //! markdown notes (whole-file `String` storage is fine at this scale).
 
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Snapshot {
     text: String,
@@ -30,13 +29,6 @@ pub struct Buffer {
     desired_col: Option<usize>,
     /// True while insert-mode edits are being coalesced into one undo step.
     group_open: bool,
-    /// Whether the text is protected from edits — preview mode. Motions, the
-    /// selection, folding and the undo history all keep working; only the text
-    /// itself is off limits. The flag lives on the buffer rather than in the
-    /// editor because the text is reached by several routes (the vim engine, the
-    /// table splices, paste, the IME input handler), and a guard that only one of
-    /// them honours is no guard.
-    read_only: bool,
     /// Bumped on every mutation, so the UI can cache per-text computations
     /// (like soft-wrap boundaries) across frames.
     change_id: u64,
@@ -72,7 +64,6 @@ impl Buffer {
             redo: Vec::new(),
             desired_col: None,
             group_open: false,
-            read_only: false,
             change_id: 0,
         }
     }
@@ -141,19 +132,6 @@ impl Buffer {
     /// Changes to the buffer text, for caching UI-side derived data.
     pub fn change_id(&self) -> u64 {
         self.change_id
-    }
-
-    /// Whether the text is protected from edits (preview mode).
-    pub fn is_read_only(&self) -> bool {
-        self.read_only
-    }
-
-    /// Protect the text, or stop protecting it. Nothing else moves: the cursor,
-    /// the selection, the folds and the undo history stay exactly as they are,
-    /// and [`Self::set_text`] still loads a note into a protected buffer — that
-    /// is the window opening a file, not the user editing one.
-    pub fn set_read_only(&mut self, read_only: bool) {
-        self.read_only = read_only;
     }
 }
 

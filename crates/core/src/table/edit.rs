@@ -16,7 +16,7 @@
 //! undo group, so one `u` undoes one command.
 
 use super::{tables, Cell, Table, TableRow};
-use crate::buffer::Buffer;
+use crate::buffer::{Buffer, ViewSlot};
 
 /// The text that makes one new column on a row: a dash run on the delimiter row
 /// (so the row stays a valid delimiter), empty padding elsewhere. Returned as
@@ -78,20 +78,32 @@ fn landing(buf: &Buffer, first_row: usize, row: usize, column: usize) -> Option<
 /// Delete the table row at `row_index`, then report where the cursor should go:
 /// the cell in the same column of the row that took its place, or the row above
 /// when the last row was deleted. One undo step.
-pub fn delete_row(buf: &mut Buffer, table: &Table, row_index: usize, column: usize) {
+pub fn delete_row(
+    buf: &mut Buffer,
+    view: &ViewSlot,
+    table: &Table,
+    row_index: usize,
+    column: usize,
+) {
     let Some(row) = table.rows.get(row_index) else {
         return;
     };
     let first_row = table.rows.first().map(|r| r.row).unwrap_or(row.row);
     let (start, end) = buf.line_range(row.row, 1);
-    buf.delete_range(start, end);
+    buf.delete_range(view, start, end);
     if let Some(offset) = landing(buf, first_row, row_index, column) {
         buf.set_cursor(offset);
     }
 }
 
 /// Delete column `column` from every row of the table, as one undo step.
-pub fn delete_column(buf: &mut Buffer, table: &Table, row_index: usize, column: usize) {
+pub fn delete_column(
+    buf: &mut Buffer,
+    view: &ViewSlot,
+    table: &Table,
+    row_index: usize,
+    column: usize,
+) {
     if table.columns < 2 {
         // A one-column table is not a table any more; leave it alone rather
         // than leaving a line of bare pipes behind.
@@ -105,7 +117,7 @@ pub fn delete_column(buf: &mut Buffer, table: &Table, row_index: usize, column: 
             continue;
         };
         if let Some((start, end)) = column_cut(row, cell) {
-            buf.delete_range(start, end);
+            buf.delete_range(view, start, end);
         }
     }
     buf.end_undo_group();
@@ -115,16 +127,35 @@ pub fn delete_column(buf: &mut Buffer, table: &Table, row_index: usize, column: 
 }
 
 /// Insert an empty row after `row_index`, keeping every column.
-pub fn insert_row_after(buf: &mut Buffer, table: &Table, row_index: usize, column: usize) {
-    insert_row(buf, table, row_index, column, true);
+pub fn insert_row_after(
+    buf: &mut Buffer,
+    view: &ViewSlot,
+    table: &Table,
+    row_index: usize,
+    column: usize,
+) {
+    insert_row(buf, view, table, row_index, column, true);
 }
 
 /// Insert an empty row before `row_index`, keeping every column.
-pub fn insert_row_before(buf: &mut Buffer, table: &Table, row_index: usize, column: usize) {
-    insert_row(buf, table, row_index, column, false);
+pub fn insert_row_before(
+    buf: &mut Buffer,
+    view: &ViewSlot,
+    table: &Table,
+    row_index: usize,
+    column: usize,
+) {
+    insert_row(buf, view, table, row_index, column, false);
 }
 
-fn insert_row(buf: &mut Buffer, table: &Table, row_index: usize, column: usize, after: bool) {
+fn insert_row(
+    buf: &mut Buffer,
+    view: &ViewSlot,
+    table: &Table,
+    row_index: usize,
+    column: usize,
+    after: bool,
+) {
     let Some(row) = table.rows.get(row_index) else {
         return;
     };
@@ -153,7 +184,7 @@ fn insert_row(buf: &mut Buffer, table: &Table, row_index: usize, column: usize, 
         new_index = table.delimiter + 1;
         text = format!("\n{line}");
     }
-    buf.insert_at(target, &text);
+    buf.insert_at(view, target, &text);
     buf.end_undo_group();
     if let Some(offset) = landing(buf, first_row, new_index, column) {
         buf.set_cursor(offset);
@@ -161,16 +192,35 @@ fn insert_row(buf: &mut Buffer, table: &Table, row_index: usize, column: usize, 
 }
 
 /// Insert an empty column after `column`.
-pub fn insert_column_after(buf: &mut Buffer, table: &Table, row_index: usize, column: usize) {
-    insert_column(buf, table, row_index, column, true);
+pub fn insert_column_after(
+    buf: &mut Buffer,
+    view: &ViewSlot,
+    table: &Table,
+    row_index: usize,
+    column: usize,
+) {
+    insert_column(buf, view, table, row_index, column, true);
 }
 
 /// Insert an empty column before `column`.
-pub fn insert_column_before(buf: &mut Buffer, table: &Table, row_index: usize, column: usize) {
-    insert_column(buf, table, row_index, column, false);
+pub fn insert_column_before(
+    buf: &mut Buffer,
+    view: &ViewSlot,
+    table: &Table,
+    row_index: usize,
+    column: usize,
+) {
+    insert_column(buf, view, table, row_index, column, false);
 }
 
-fn insert_column(buf: &mut Buffer, table: &Table, row_index: usize, column: usize, after: bool) {
+fn insert_column(
+    buf: &mut Buffer,
+    view: &ViewSlot,
+    table: &Table,
+    row_index: usize,
+    column: usize,
+    after: bool,
+) {
     let first_row = table.rows.first().map(|r| r.row).unwrap_or(0);
     buf.begin_undo_group();
     for (index, row) in table.rows.iter().enumerate().rev() {
@@ -180,7 +230,7 @@ fn insert_column(buf: &mut Buffer, table: &Table, row_index: usize, column: usiz
         let (after_text, before_text) = new_column_text(table, index);
         let text = if after { after_text } else { before_text };
         if let Some((at, text)) = column_splice(row, cell, after, text) {
-            buf.insert_at(at, &text);
+            buf.insert_at(view, at, &text);
         }
     }
     buf.end_undo_group();
@@ -200,7 +250,14 @@ fn line_text(buf: &Buffer, row: &TableRow) -> String {
 /// swaps it with the first body row rather than pushing it under the rule. The
 /// rows in between shift the other way by one, each keeping its own text exactly
 /// as the user left it, and the cursor follows the row that moved.
-pub fn move_row(buf: &mut Buffer, table: &Table, row_index: usize, column: usize, delta: isize) {
+pub fn move_row(
+    buf: &mut Buffer,
+    view: &ViewSlot,
+    table: &Table,
+    row_index: usize,
+    column: usize,
+    delta: isize,
+) {
     let rows: Vec<usize> = table.navigable_rows().collect();
     if rows.len() < 2 {
         return;
@@ -233,8 +290,8 @@ pub fn move_row(buf: &mut Buffer, table: &Table, row_index: usize, column: usize
     // newline: only the content between `start` and `end` is replaced.
     for (slot, &index) in block.iter().enumerate().rev() {
         let row = &table.rows[index];
-        buf.delete_range(row.start, row.end);
-        buf.insert_at(row.start, &texts[slot]);
+        buf.delete_range(view, row.start, row.end);
+        buf.insert_at(view, row.start, &texts[slot]);
     }
     buf.end_undo_group();
     if let Some(offset) = landing(buf, first_row, rows[to], column) {
@@ -280,7 +337,14 @@ fn rotated_columns(
 /// left), as one undo step. The delimiter row's cell travels with the column, so
 /// the row stays a valid delimiter, the columns in between shift the other way
 /// by one, and the cursor follows the column that moved.
-pub fn move_column(buf: &mut Buffer, table: &Table, row_index: usize, column: usize, delta: isize) {
+pub fn move_column(
+    buf: &mut Buffer,
+    view: &ViewSlot,
+    table: &Table,
+    row_index: usize,
+    column: usize,
+    delta: isize,
+) {
     if table.columns < 2 {
         return;
     }
@@ -299,8 +363,8 @@ pub fn move_column(buf: &mut Buffer, table: &Table, row_index: usize, column: us
     // Bottom-up so the offsets of the rows above stay valid.
     for row in table.rows.iter().rev() {
         if let Some((start, end, text)) = rotated_columns(buf, row, lo, hi, to > column) {
-            buf.delete_range(start, end);
-            buf.insert_at(start, &text);
+            buf.delete_range(view, start, end);
+            buf.insert_at(view, start, &text);
         }
     }
     buf.end_undo_group();
@@ -323,7 +387,7 @@ mod tests {
         buf.set_cursor(cursor);
         let t = &tables(buf.text())[0];
         let (row, column) = t.cell_at(cursor).unwrap();
-        delete_row(&mut buf, t, row, column);
+        delete_row(&mut buf, &ViewSlot::new(), t, row, column);
         assert_eq!(buf.text(), "| a | bb |\n| --- | --- |\n| 1 | 2 |\n");
         let after = tables(buf.text())[0].cell_at(buf.cursor()).unwrap();
         assert_eq!(after, (2, 0), "the row that moved up is selected");
@@ -337,7 +401,7 @@ mod tests {
         buf.set_cursor(cursor);
         let (row, column) = tables(buf.text())[0].cell_at(cursor).unwrap();
         let t = tables(buf.text())[0].clone();
-        delete_row(&mut buf, &t, row, column);
+        delete_row(&mut buf, &ViewSlot::new(), &t, row, column);
         let after = tables(buf.text())[0].cell_at(buf.cursor()).unwrap();
         assert_eq!(
             after,
@@ -355,7 +419,7 @@ mod tests {
         let t = tables(buf.text())[0].clone();
         let (row, column) = t.cell_at(cursor).unwrap();
         assert_eq!((row, column), (2, 1));
-        delete_column(&mut buf, &t, row, column);
+        delete_column(&mut buf, &ViewSlot::new(), &t, row, column);
         assert_eq!(buf.text(), "| a | c |\n| --- | --- |\n| 1 | 3 |\n");
         let after = tables(buf.text())[0].cell_at(buf.cursor()).unwrap();
         assert_eq!(after, (2, 1), "the cell that took the column's place");
@@ -367,7 +431,7 @@ mod tests {
         let text = "| a | b |\n| --- | --- |\n| 1 | 2 |\n";
         let mut buf = Buffer::new(text.to_string());
         let t = tables(buf.text())[0].clone();
-        delete_column(&mut buf, &t, 2, 0);
+        delete_column(&mut buf, &ViewSlot::new(), &t, 2, 0);
         assert_eq!(buf.text(), "| b |\n| --- |\n| 2 |\n");
     }
 
@@ -380,7 +444,7 @@ mod tests {
         let t = tables(buf.text())[0].clone();
         let (row, column) = t.cell_at(cursor).unwrap();
         assert_eq!(column, 1);
-        delete_column(&mut buf, &t, row, column);
+        delete_column(&mut buf, &ViewSlot::new(), &t, row, column);
         assert_eq!(buf.text(), "| a |\n| --- |\n| 1 |\n");
         let after = tables(buf.text())[0].cell_at(buf.cursor()).unwrap();
         assert_eq!(after, (2, 0), "clamped to the only column");
@@ -393,7 +457,7 @@ mod tests {
         let cursor = buf.text().find('1').unwrap();
         buf.set_cursor(cursor);
         let t = tables(buf.text())[0].clone();
-        delete_column(&mut buf, &t, 2, 0);
+        delete_column(&mut buf, &ViewSlot::new(), &t, 2, 0);
         assert_eq!(buf.text(), text, "nothing to delete");
     }
 
@@ -402,7 +466,7 @@ mod tests {
         let text = "| a   | bb | c |\n| --- | -- | - |\n| 111 | 2  | 3 |\n";
         let mut buf = Buffer::new(text.to_string());
         let t = tables(buf.text())[0].clone();
-        delete_column(&mut buf, &t, 2, 1);
+        delete_column(&mut buf, &ViewSlot::new(), &t, 2, 1);
         assert_eq!(buf.text(), "| a   | c |\n| --- | - |\n| 111 | 3 |\n");
     }
 
@@ -413,7 +477,7 @@ mod tests {
         let cursor = buf.text().find('1').unwrap();
         buf.set_cursor(cursor);
         let t = tables(buf.text())[0].clone();
-        insert_row_after(&mut buf, &t, 2, 1);
+        insert_row_after(&mut buf, &ViewSlot::new(), &t, 2, 1);
         assert_eq!(buf.text(), "| a | b |\n| --- | --- |\n| 1 | 2 |\n|  |  |\n");
         let after = tables(buf.text())[0].cell_at(buf.cursor()).unwrap();
         assert_eq!(after, (3, 1), "the new row, same column");
@@ -424,7 +488,7 @@ mod tests {
         let text = "| a | b |\n| --- | --- |\n| 1 | 2 |\n";
         let mut buf = Buffer::new(text.to_string());
         let t = tables(buf.text())[0].clone();
-        insert_row_before(&mut buf, &t, 2, 0);
+        insert_row_before(&mut buf, &ViewSlot::new(), &t, 2, 0);
         assert_eq!(buf.text(), "| a | b |\n| --- | --- |\n|  |  |\n| 1 | 2 |\n");
         let after = tables(buf.text())[0].cell_at(buf.cursor()).unwrap();
         assert_eq!(after, (2, 0), "the new row, same column");
@@ -437,7 +501,7 @@ mod tests {
         let cursor = buf.text().find('1').unwrap();
         buf.set_cursor(cursor);
         let t = tables(buf.text())[0].clone();
-        insert_column_after(&mut buf, &t, 2, 0);
+        insert_column_after(&mut buf, &ViewSlot::new(), &t, 2, 0);
         assert_eq!(
             buf.text(),
             "| a |  | b |\n| --- | --- | --- |\n| 1 |  | 2 |\n"
@@ -451,7 +515,7 @@ mod tests {
         let text = "| a | b |\n| --- | --- |\n| 1 | 2 |\n";
         let mut buf = Buffer::new(text.to_string());
         let t = tables(buf.text())[0].clone();
-        insert_column_before(&mut buf, &t, 2, 1);
+        insert_column_before(&mut buf, &ViewSlot::new(), &t, 2, 1);
         assert_eq!(
             buf.text(),
             "| a |  | b |\n| --- | --- | --- |\n| 1 |  | 2 |\n"
@@ -465,7 +529,7 @@ mod tests {
         let text = "| a | b |\n| --- | --- |\n| 1 | 2 |\n";
         let mut buf = Buffer::new(text.to_string());
         let t = tables(buf.text())[0].clone();
-        insert_column_after(&mut buf, &t, 2, 1);
+        insert_column_after(&mut buf, &ViewSlot::new(), &t, 2, 1);
         assert_eq!(
             buf.text(),
             "| a | b |  |\n| --- | --- | --- |\n| 1 | 2 |  |\n"
@@ -478,7 +542,7 @@ mod tests {
         let text = "| a | b | c |\n| --- | --- | --- |\n| 1 |\n";
         let mut buf = Buffer::new(text.to_string());
         let t = tables(buf.text())[0].clone();
-        insert_column_after(&mut buf, &t, 2, 1);
+        insert_column_after(&mut buf, &ViewSlot::new(), &t, 2, 1);
         assert_eq!(
             buf.text(),
             "| a | b |  | c |\n| --- | --- | --- | --- |\n| 1 |  |\n"
@@ -493,7 +557,7 @@ mod tests {
         let t = tables(text)[0].clone();
         // The cursor is on `1`, the first body row; one step down swaps it with
         // `3 | 4`, and the cursor follows the row that moved.
-        move_row(&mut buf, &t, 2, 0, 1);
+        move_row(&mut buf, &ViewSlot::new(), &t, 2, 0, 1);
         assert_eq!(
             buf.text(),
             "| a | bb |\n| --- | --- |\n| 3 | 4 |\n| 1 | 2 |\n"
@@ -506,7 +570,7 @@ mod tests {
         let text = "| a | bb |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |\n";
         let mut buf = Buffer::new(text.to_string());
         let t = tables(text)[0].clone();
-        move_row(&mut buf, &t, 3, 1, -1);
+        move_row(&mut buf, &ViewSlot::new(), &t, 3, 1, -1);
         assert_eq!(
             buf.text(),
             "| a | bb |\n| --- | --- |\n| 3 | 4 |\n| 1 | 2 |\n"
@@ -521,7 +585,7 @@ mod tests {
         let t = tables(text)[0].clone();
         // The delimiter row never moves: the header swaps with the first body
         // row rather than being pushed under the rule.
-        move_row(&mut buf, &t, 0, 0, 1);
+        move_row(&mut buf, &ViewSlot::new(), &t, 0, 0, 1);
         assert_eq!(
             buf.text(),
             "| 1 | 2 |\n| --- | --- |\n| a | bb |\n| 3 | 4 |\n"
@@ -540,7 +604,7 @@ mod tests {
         let text = "| a |\n| --- |\n| 1 |\n| 2 |\n| 3 |\n";
         let mut buf = Buffer::new(text.to_string());
         let t = tables(text)[0].clone();
-        move_row(&mut buf, &t, 2, 0, 2);
+        move_row(&mut buf, &ViewSlot::new(), &t, 2, 0, 2);
         assert_eq!(
             buf.text(),
             "| a |\n| --- |\n| 2 |\n| 3 |\n| 1 |\n",
@@ -553,8 +617,8 @@ mod tests {
         let text = "| a |\n| --- |\n| 1 |\n";
         let mut buf = Buffer::new(text.to_string());
         let t = tables(text)[0].clone();
-        move_row(&mut buf, &t, 2, 0, 5);
-        move_row(&mut buf, &t, 0, 0, -5);
+        move_row(&mut buf, &ViewSlot::new(), &t, 2, 0, 5);
+        move_row(&mut buf, &ViewSlot::new(), &t, 0, 0, -5);
         assert_eq!(buf.text(), text);
         assert_eq!(buf.undo_depth(), 0, "a no-op leaves no undo step");
     }
@@ -564,7 +628,7 @@ mod tests {
         let text = "| a | bb | ccc |\n| --- | --- | --- |\n| 1 | 22 | 333 |\n";
         let mut buf = Buffer::new(text.to_string());
         let t = tables(text)[0].clone();
-        move_column(&mut buf, &t, 2, 0, 1);
+        move_column(&mut buf, &ViewSlot::new(), &t, 2, 0, 1);
         assert_eq!(
             buf.text(),
             "| bb | a | ccc |\n| --- | --- | --- |\n| 22 | 1 | 333 |\n"
@@ -578,7 +642,7 @@ mod tests {
         let text = "| a | bb | ccc |\n| --- | :---: | --- |\n| 1 | 22 | 333 |\n";
         let mut buf = Buffer::new(text.to_string());
         let t = tables(text)[0].clone();
-        move_column(&mut buf, &t, 2, 1, -1);
+        move_column(&mut buf, &ViewSlot::new(), &t, 2, 1, -1);
         assert_eq!(
             buf.text(),
             "| bb | a | ccc |\n| :---: | --- | --- |\n| 22 | 1 | 333 |\n",
@@ -593,7 +657,7 @@ mod tests {
         let text = "| a | bb | ccc |\n| --- | --- | --- |\n| 1 | 22 | 333 |\n";
         let mut buf = Buffer::new(text.to_string());
         let t = tables(text)[0].clone();
-        move_column(&mut buf, &t, 2, 0, 2);
+        move_column(&mut buf, &ViewSlot::new(), &t, 2, 0, 2);
         assert_eq!(
             buf.text(),
             "| bb | ccc | a |\n| --- | --- | --- |\n| 22 | 333 | 1 |\n"
@@ -605,7 +669,7 @@ mod tests {
         let text = "| a | b | c |\n| --- | --- | --- |\n| 1 |\n";
         let mut buf = Buffer::new(text.to_string());
         let t = tables(text)[0].clone();
-        move_column(&mut buf, &t, 2, 0, 1);
+        move_column(&mut buf, &ViewSlot::new(), &t, 2, 0, 1);
         assert_eq!(
             buf.text(),
             "| b | a | c |\n| --- | --- | --- |\n| 1 |\n",
@@ -619,11 +683,11 @@ mod tests {
     fn a_table_edit_is_one_undo_step() {
         let text = "| a | bb | ccc |\n| --- | --- | --- |\n| 1 | 22 | 333 |\n";
         let edits: [fn(&mut Buffer, &Table); 5] = [
-            |buf, t| delete_column(buf, t, 2, 1),
-            |buf, t| insert_column_after(buf, t, 2, 1),
-            |buf, t| insert_column_before(buf, t, 2, 1),
-            |buf, t| move_column(buf, t, 2, 1, 1),
-            |buf, t| move_row(buf, t, 2, 1, -1),
+            |buf, t| delete_column(buf, &ViewSlot::new(), t, 2, 1),
+            |buf, t| insert_column_after(buf, &ViewSlot::new(), t, 2, 1),
+            |buf, t| insert_column_before(buf, &ViewSlot::new(), t, 2, 1),
+            |buf, t| move_column(buf, &ViewSlot::new(), t, 2, 1, 1),
+            |buf, t| move_row(buf, &ViewSlot::new(), t, 2, 1, -1),
         ];
         for edit in edits {
             let mut buf = Buffer::new(text.to_string());
@@ -631,9 +695,9 @@ mod tests {
             edit(&mut buf, &t);
             assert_ne!(buf.text(), text, "the edit did nothing");
             assert_eq!(buf.undo_depth(), 1, "one step: {text:?}");
-            buf.undo();
+            buf.undo(&ViewSlot::new());
             assert_eq!(buf.text(), text, "one undo puts the table back");
-            buf.redo();
+            buf.redo(&ViewSlot::new());
             assert_ne!(buf.text(), text, "and one redo takes it back off");
         }
     }

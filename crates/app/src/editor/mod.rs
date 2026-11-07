@@ -22,6 +22,7 @@ use std::cell::RefCell;
 use std::collections::HashSet;
 use std::rc::Rc;
 
+use crate::note::Note;
 use gpui::{
     App, Context, EventEmitter, FocusHandle, Focusable, Pixels, ScrollHandle, SharedString,
 };
@@ -245,14 +246,22 @@ pub struct MarkdownEditor {
     /// The bodies of this note's `![[transclusions]]`, cached across frames and dropped
     /// when the vault changes (roadmap P4.0a).
     embeds: embeds::Cache,
-    dirty: bool,
+    /// The note this view is showing, shared with every other view of it (and
+    /// with the window's registry). The text, the caret and the undo history are
+    /// the note's; `dirty` is the note's too, so two views of one file cannot
+    /// disagree about whether it has unsaved edits. See [`crate::note`].
+    note: Rc<Note>,
 }
 
 impl MarkdownEditor {
     pub fn new(cx: &mut Context<Self>) -> Self {
+        // A tab that has no note yet owns its text outright: nothing else in the
+        // window has a handle on it, and `:w` will register it under a name.
+        let blank = Note::blank();
         Self {
             focus_handle: cx.focus_handle(),
-            buffer: Rc::new(RefCell::new(Buffer::default())),
+            buffer: Rc::clone(&blank.buffer),
+            note: Rc::clone(&blank),
             slot: ViewSlot::new(),
             vim: Vim::new(),
             clipboard_mirror: None,
@@ -284,8 +293,41 @@ impl MarkdownEditor {
             pending_edits: Vec::new(),
             collapsed_inline: HashSet::new(),
             embeds: embeds::Cache::new(),
-            dirty: false,
         }
+    }
+
+    /// Point this view at another note's shared state.
+    ///
+    /// Nothing here writes text: what the note holds *is* that note's current
+    /// text, possibly with edits no file has seen yet, and replacing it with what
+    /// the disk remembers would throw them away. Everything *view-shaped* goes
+    /// instead — the wrap points and folds measured against the note this view was
+    /// showing, the checker's underlines, the search's matches — and the wrap
+    /// cache with them, because `change_id` is per buffer and two notes can share
+    /// one id by coincidence.
+    pub(crate) fn set_note(&mut self, note: Rc<Note>, cx: &mut Context<Self>) {
+        self.buffer = Rc::clone(&note.buffer);
+        self.note = note;
+        self.slot.clear();
+        self.wrap_cache = None;
+        self.vim.enter_normal();
+        self.marks.clear();
+        self.hits.clear();
+        self.active_hit = None;
+        cx.notify();
+    }
+
+    /// The disk changed under a note this view is showing: the shared buffer has
+    /// already been updated by whoever noticed, so this view only has to drop what
+    /// it had measured about the old text and repaint.
+    pub(crate) fn note_reloaded(&mut self, cx: &mut Context<Self>) {
+        self.slot.clear();
+        self.wrap_cache = None;
+        self.vim.enter_normal();
+        self.marks.clear();
+        self.hits.clear();
+        self.active_hit = None;
+        cx.notify();
     }
 
     /// Tell the editor which note names exist, so it can style resolved
@@ -384,13 +426,13 @@ impl MarkdownEditor {
 
     pub fn set_text(&mut self, text: String, cx: &mut Context<Self>) {
         self.buffer.borrow_mut().set_text(text);
+        self.note.dirty.set(false);
         // Another note, another layout: the break points were measured against the
         // text that was here, so they are meaningless until the next paint measures
         // this one. (They used to be cleared inside `Buffer::set_text`; the layout
         // is the view's, not the text's, so the view clears its own.)
         self.slot.clear();
         self.vim.enter_normal();
-        self.dirty = false;
         // A different document, so the old note's underlines and matches are
         // meaningless.
         self.marks.clear();
@@ -428,7 +470,9 @@ impl MarkdownEditor {
             return;
         }
         self.view = view;
-        self.buffer.borrow_mut().set_read_only(view == View::Preview);
+        // Preview protects *this view*, not the text: another tab of the same note
+        // can still be live, and one note has one buffer (roadmap P4.17).
+        self.slot.set_read_only(view == View::Preview);
         self.vim.enter_normal();
         self.buffer.borrow_mut().end_undo_group();
         self.style_cache = None;
@@ -574,11 +618,11 @@ impl MarkdownEditor {
     }
 
     pub fn is_dirty(&self) -> bool {
-        self.dirty
+        self.note.dirty.get()
     }
 
     pub fn mark_clean(&mut self) {
-        self.dirty = false;
+        self.note.dirty.set(false);
     }
 
     /// Cursor position in buffer coordinates (row, byte column), 0-based.
@@ -907,7 +951,7 @@ impl MarkdownEditor {
         self.buffer.borrow_mut().begin_undo_group();
         for (start, end, text) in edits.iter().rev() {
             self.buffer.borrow_mut().set_selection(*start, *end);
-            self.buffer.borrow_mut().insert(text);
+            self.buffer.borrow_mut().insert(&self.slot, text);
         }
         self.buffer.borrow_mut().end_undo_group();
         self.mark_dirty(cx);
@@ -927,7 +971,7 @@ impl MarkdownEditor {
     }
 
     fn mark_dirty(&mut self, cx: &mut Context<Self>) {
-        self.dirty = true;
+        self.note.dirty.set(true);
         // gpui queues an emit rather than running the handlers inside this
         // update, so the workspace is free to read the buffer back from its
         // handler.

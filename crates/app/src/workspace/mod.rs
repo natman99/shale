@@ -41,9 +41,9 @@ pub(crate) use keys::keybindings;
 pub(crate) use open::PickerTarget;
 pub(crate) use render::vault_title;
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 use std::sync::{Arc, Mutex};
 
 use gpui::{prelude::*, Context, Entity, SharedString, Subscription, Task, Window};
@@ -96,6 +96,16 @@ pub(crate) struct Workspace {
     /// because everything it previewed on the way was not an answer. `None` when
     /// no preview is in flight.
     theme_backup: Option<Rc<Palette>>,
+    /// One buffer per note this window is showing (roadmap P4.17). A note's text,
+    /// caret and undo history live here once, and every view of it — a tab, or
+    /// from P4.0b an embed inside another note — borrows that one buffer, so two
+    /// views cannot drift into two different versions of one file.
+    ///
+    /// `Weak` on purpose: a note is alive while some view holds it, and when the
+    /// last one lets go the entry is simply stale. No close path has to remember
+    /// to release it, which is the kind of thing this repo has historically gotten
+    /// wrong.
+    notes: HashMap<PathBuf, Weak<crate::note::Note>>,
     /// The spell and grammar checker, when one is configured and was started.
     /// It owns a server process; the window only talks to it.
     spell: Option<Entity<Spell>>,
@@ -348,10 +358,7 @@ impl Workspace {
         Self::from_services(services, cx)
     }
 
-    fn from_services(
-        services: Entity<services::VaultServices>,
-        cx: &mut Context<Self>,
-    ) -> Self {
+    fn from_services(services: Entity<services::VaultServices>, cx: &mut Context<Self>) -> Self {
         let (vault, config, db, live_snapshot) = services.read_with(cx, |s, _| {
             (
                 s.vault.clone(),
@@ -469,6 +476,7 @@ impl Workspace {
             theme_name: theme_name.clone(),
             follow_desktop,
             theme_backup: None,
+            notes: HashMap::new(),
             spell,
             checker_notes: Vec::new(),
             popup: None,
@@ -847,7 +855,17 @@ impl Workspace {
                     // background tab reloading under the user means.
                     match self.vault.read(&path) {
                         Ok(text) => {
-                            editor.update(cx, |editor, cx| editor.set_text(text.clone(), cx));
+                            // What reloads is the *note*, not the tab: the buffer is
+                            // shared, so one update covers every view of it, and each
+                            // view is then told to drop what it measured against the
+                            // text that was there (roadmap P4.17).
+                            if let Some(note) = self.notes.get(&path).and_then(Weak::upgrade) {
+                                note.buffer.borrow_mut().set_text(text.clone());
+                                note.dirty.set(false);
+                                self.reload_views_of(&path, cx);
+                            } else {
+                                editor.update(cx, |editor, cx| editor.set_text(text.clone(), cx));
+                            }
                             if index == self.pane().active {
                                 self.checker_opened(&path, &text, cx);
                             }
@@ -861,6 +879,25 @@ impl Workspace {
             }
         }
         cx.notify();
+    }
+
+    /// Tell every view of `path` that its note's text was replaced under it. The
+    /// shared buffer is already carrying the new text; each view only has to drop
+    /// what it had measured against the old one — wrap points, folds, the
+    /// checker's underlines, the search's matches (roadmap P4.17).
+    pub(super) fn reload_views_of(&mut self, path: &std::path::Path, cx: &mut Context<Self>) {
+        for pane in &self.panes {
+            for tab in &pane.tabs {
+                if let tabs::TabContent::Note {
+                    path: slot, editor, ..
+                } = &tab.content
+                {
+                    if slot.as_deref() == Some(path) {
+                        editor.update(cx, |editor, cx| editor.note_reloaded(cx));
+                    }
+                }
+            }
+        }
     }
 
     /// Re-take the vault's signature. Shale's own edits change the disk, and the

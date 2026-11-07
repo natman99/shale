@@ -482,10 +482,13 @@ Workspace layout:
   command line: `shale [vault] [--note <path>] [--graph] [--split] [--open-after <secs>]`
   — the last three are debug aids, and with no vault named Shale opens the one it opened
   last.
-  **Tabs** (roadmap P3.1): the note the window shows lives in a tab, and the tab
-  owns the editor that holds it, so each tab keeps its own cursor, scroll, folds,
-  view and undo history. A new tab comes from `ctrl-t` / `:tabnew` (a second tab on
-  the note in hand — the same note read twice), and opening a note the bar already
+  **Tabs** (roadmap P3.1): the note the window shows lives in a tab, and each tab
+  keeps its own scroll, folds and view. The text, the caret and the undo history
+  belong to the *note* rather than the tab (roadmap P4.17): the window holds one
+  buffer per note, so two tabs of one file are two views of one text, and the dirty
+  dot lights on every tab showing a note that differs from its file. A new tab comes
+  from `ctrl-t` / `:tabnew` (a second tab on the note in hand — the same note read
+  twice), and opening a note the bar already
   holds goes to that tab instead of putting it on the bar twice — and when a *different
   pane* holds it, the tab is stolen into the pane the user is standing in, whole (its
   editor, cursor, folds and undo history travel with it). `g t`/`g T` walk

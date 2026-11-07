@@ -531,7 +531,12 @@ impl Vim {
     /// `view` is the display state of the view whose caret this keystroke drives:
     /// the motions that move by screen line need its wrap points, and a display
     /// question asked without a view could be answered from another view's layout.
-    pub fn handle_normal_key(&mut self, key: Key, buf: &mut Buffer, view: &mut ViewSlot) -> Outcome {
+    pub fn handle_normal_key(
+        &mut self,
+        key: Key,
+        buf: &mut Buffer,
+        view: &mut ViewSlot,
+    ) -> Outcome {
         // The `space` leader's chords, one key after the motion that started
         // them. Only a plain space motion arms them: `d space` or `f ` never do.
         let after_space = std::mem::take(&mut self.after_space);
@@ -636,7 +641,7 @@ impl Vim {
                 Cmd::Key(key) => {
                     self.handle_motion_key(*key, buf, view);
                 }
-                Cmd::Text(text) => buf.insert(text),
+                Cmd::Text(text) => buf.insert(view, text),
             }
         }
         self.count = None;

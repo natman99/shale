@@ -34,6 +34,14 @@ pub struct ViewSlot {
     /// The regions of the text this slot last measured, with the `change_id`
     /// they were measured against — the same invalidation trick as `segments`.
     pub(super) fold_cache: Option<(u64, Vec<fold::FoldRegion>)>,
+    /// Whether *this view* refuses edits — preview mode. Motions, the selection,
+    /// folding and the undo history keep working; only the text is off limits.
+    ///
+    /// Per view, not per buffer, because the same note can be read one way and
+    /// edited another at the same time: a preview tab of a note and a live tab of
+    /// it share one buffer (P4.17), and a flag on the buffer would let the
+    /// reading view lock the editing one out.
+    read_only: bool,
 }
 
 impl ViewSlot {
@@ -62,6 +70,16 @@ impl ViewSlot {
     }
 
     // ----- folds ---------------------------------------------------------
+
+    /// Whether this view refuses edits (preview mode).
+    pub fn is_read_only(&self) -> bool {
+        self.read_only
+    }
+
+    /// Put this view into or out of preview mode.
+    pub fn set_read_only(&mut self, read_only: bool) {
+        self.read_only = read_only;
+    }
 
     /// The closed sections in this view.
     pub fn folds(&self) -> &fold::FoldState {

@@ -341,7 +341,7 @@ fn shift_i_clears_the_cell_and_enters_insert() {
         b.text()
     );
     vim.enter_insert();
-    b.insert("x");
+    b.insert(&ViewSlot::new(), "x");
     assert!(b.text().contains("| 1 | x | 333 |"));
 }
 
@@ -355,7 +355,7 @@ fn capital_a_appends_at_the_end_of_the_cell() {
         Outcome::EnterInsert
     );
     vim.enter_insert();
-    b.insert("9");
+    b.insert(&ViewSlot::new(), "9");
     assert!(b.text().contains("| 19 | 22 | 333 |"));
 }
 

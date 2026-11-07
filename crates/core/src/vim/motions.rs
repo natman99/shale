@@ -88,7 +88,7 @@ impl Vim {
             } else {
                 (end, start)
             };
-            return self.apply_range(op, lo, hi, buf);
+            return self.apply_range(op, lo, hi, buf, view);
         }
 
         // A text object is waiting for its scope: `diw`, `dap`, `2aw`, `diL`,
@@ -216,7 +216,7 @@ impl Vim {
                 }
                 return Outcome::Stay;
             };
-            return self.apply_range(op, lo, hi, buf);
+            return self.apply_range(op, lo, hi, buf, view);
         }
 
         // A replace is waiting for its character: `rx`, `3rx`.
@@ -241,21 +241,21 @@ impl Vim {
                 // vim answers `5r<CR>` with a *single* line break for the whole run.
                 // Inside a table that would fold the row into the prose below it, so
                 // the keystroke is refused there rather than half-working.
-                if located.is_some() || buf.is_read_only() {
+                if located.is_some() || view.is_read_only() {
                     return Outcome::Stay;
                 }
-                buf.delete_range(start, hi);
-                buf.insert_at(start, "\n");
+                buf.delete_range(view, start, hi);
+                buf.insert_at(view, start, "\n");
                 buf.set_cursor(start);
                 return Outcome::Stay;
             }
             let replaced = buf.text()[start..hi].chars().count();
-            if replaced == 0 || buf.is_read_only() {
+            if replaced == 0 || view.is_read_only() {
                 return Outcome::Stay;
             }
             let text = c.to_string().repeat(replaced);
-            buf.delete_range(start, hi);
-            buf.insert_at(start, &text);
+            buf.delete_range(view, start, hi);
+            buf.insert_at(view, start, &text);
             // The cursor ends on the last replaced character, as it does in vim.
             buf.set_cursor(buf.prev_char_boundary(start + text.len()));
             return Outcome::Stay;
@@ -374,10 +374,10 @@ impl Vim {
             };
             let count = count as isize;
             match c {
-                'h' => table::move_column(buf, table, loc.row, loc.column, -count),
-                'l' => table::move_column(buf, table, loc.row, loc.column, count),
-                'k' => table::move_row(buf, table, loc.row, loc.column, -count),
-                'j' => table::move_row(buf, table, loc.row, loc.column, count),
+                'h' => table::move_column(buf, view, table, loc.row, loc.column, -count),
+                'l' => table::move_column(buf, view, table, loc.row, loc.column, count),
+                'k' => table::move_row(buf, view, table, loc.row, loc.column, -count),
+                'j' => table::move_row(buf, view, table, loc.row, loc.column, count),
                 _ => return Outcome::Unhandled,
             }
             return Outcome::Stay;
@@ -488,7 +488,7 @@ impl Vim {
                 return Outcome::Stay;
             }
             Key::Char('~') => {
-                self.switch_case(count, located, buf);
+                self.switch_case(count, located, buf, view);
                 return Outcome::Stay;
             }
             Key::Char('s') => {
@@ -516,7 +516,7 @@ impl Vim {
             // result spans, so `3J` takes two breaks. `.` replays it the way it
             // replays any recorded key.
             Key::Char('J') => {
-                buf.join_lines(count);
+                buf.join_lines(view, count);
             }
             // Operators
             Key::Char('d') | Key::Char('c') | Key::Char('y') => {
@@ -534,10 +534,10 @@ impl Vim {
                     text: buf.text()[start..end].to_string(),
                     linewise: false,
                 });
-                buf.delete_range(start, end);
+                buf.delete_range(view, start, end);
             }
-            Key::Char('p') => self.paste(true, buf),
-            Key::Char('P') => self.paste(false, buf),
+            Key::Char('p') => self.paste(true, buf, view),
+            Key::Char('P') => self.paste(false, buf, view),
             // Visual mode entry
             Key::Char('v') => {
                 self.enter_visual(false, buf);
@@ -568,15 +568,15 @@ impl Vim {
                 return Outcome::EnterInsert;
             }
             Key::Char('o') => {
-                buf.open_line_below(count);
+                buf.open_line_below(view, count);
                 return Outcome::EnterInsert;
             }
             Key::Char('O') => {
-                buf.open_line_above(count);
+                buf.open_line_above(view, count);
                 return Outcome::EnterInsert;
             }
             // Undo (redo is bound to ctrl-r by the UI).
-            Key::Char('u') => buf.undo(),
+            Key::Char('u') => buf.undo(view),
             Key::Escape => buf.clear_selection(),
             // vim's "look this up", handed to the window: see [`Outcome::Hover`].
             Key::Char('K') => return Outcome::Hover,
@@ -617,8 +617,14 @@ impl Vim {
     /// Case is switched per character, which means a character whose uppercase is
     /// two characters (`ß` to `SS`) makes the line longer — the cursor ends after
     /// whatever was written, not after what was counted.
-    fn switch_case(&self, count: usize, located: Option<Located>, buf: &mut Buffer) {
-        if buf.is_read_only() {
+    fn switch_case(
+        &self,
+        count: usize,
+        located: Option<Located>,
+        buf: &mut Buffer,
+        view: &mut ViewSlot,
+    ) {
+        if view.is_read_only() {
             return;
         }
         let (lo, mut hi) = char_range(buf, buf.cursor(), count);
@@ -639,8 +645,8 @@ impl Vim {
                 }
             })
             .collect();
-        buf.delete_range(lo, hi);
-        buf.insert_at(lo, &swapped);
+        buf.delete_range(view, lo, hi);
+        buf.insert_at(view, lo, &swapped);
         // vim's `~` *moves* the cursor: it ends one past the last character it
         // switched, which is what lets `~` walk a word one keystroke at a time. At
         // the end of a line there is nothing past it to stand on, so the cursor

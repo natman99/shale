@@ -175,7 +175,7 @@ impl EntityInputHandler for MarkdownEditor {
         // the selection is even touched. The buffer would have ignored the insert
         // either way; answering here is what keeps a keystroke that changed
         // nothing from marking the note dirty.
-        if self.buffer.borrow().is_read_only() {
+        if self.slot.is_read_only() {
             return;
         }
         if let Some(range) = range_utf16 {
@@ -183,7 +183,7 @@ impl EntityInputHandler for MarkdownEditor {
             let end = self.offset_from_utf16(range.end);
             self.buffer.borrow_mut().set_selection(start, end);
         }
-        self.buffer.borrow_mut().insert(new_text);
+        self.buffer.borrow_mut().insert(&self.slot, new_text);
         self.insert_edit(new_text, cx);
     }
 

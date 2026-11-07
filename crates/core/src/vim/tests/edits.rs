@@ -215,7 +215,7 @@ fn a_linewise_change_leaves_the_line_behind() {
     type_keys(&mut vim, "cc", &mut b);
     assert_eq!(b.text(), "\ntwo\nthree");
     assert_eq!(b.cursor(), 0, "the cursor is on the emptied line");
-    b.insert("X");
+    b.insert(&ViewSlot::new(), "X");
     assert_eq!(b.text(), "X\ntwo\nthree");
 
     let mut vim = Vim::new();
@@ -223,7 +223,7 @@ fn a_linewise_change_leaves_the_line_behind() {
     b.set_cursor(4); // the last line
     type_keys(&mut vim, "S", &mut b);
     assert_eq!(b.text(), "one\n");
-    b.insert("Y");
+    b.insert(&ViewSlot::new(), "Y");
     assert_eq!(b.text(), "one\nY");
     // The register still holds the line, so `p` can put it back somewhere else.
     // (A final line with no trailing break is yanked without one; that is how
@@ -266,7 +266,7 @@ fn the_new_edits_repeat_with_dot() {
     // The UI is what types; the engine only records what was typed, so the test
     // has to do both, the way the app does.
     vim.note_inserted("X");
-    b.insert_at(b.cursor(), "X");
+    b.insert_at(&ViewSlot::new(), b.cursor(), "X");
     b.move_right();
     vim.enter_normal();
     assert_eq!(b.text(), "X\ndef\n");
@@ -280,13 +280,16 @@ fn the_new_edits_repeat_with_dot() {
 fn a_read_only_note_refuses_the_new_edits() {
     let mut vim = Vim::new();
     let mut b = buf();
-    b.set_read_only(true);
-    type_keys(&mut vim, "rx", &mut b);
-    type_keys(&mut vim, "~", &mut b);
-    type_keys(&mut vim, "s", &mut b);
-    type_keys(&mut vim, "D", &mut b);
+    // Preview is a property of the view, not of the text: the keys are typed
+    // through a slot that refuses edits.
+    let mut screen = ViewSlot::new();
+    screen.set_read_only(true);
+    type_keys_in(&mut vim, "rx", &mut b, &mut screen);
+    type_keys_in(&mut vim, "~", &mut b, &mut screen);
+    type_keys_in(&mut vim, "s", &mut b, &mut screen);
+    type_keys_in(&mut vim, "D", &mut b, &mut screen);
     assert_eq!(b.text(), "hello world\nsecond line\nthird");
     // Yank asks nothing of the buffer, so it still works in a note being read.
-    type_keys(&mut vim, "Y", &mut b);
+    type_keys_in(&mut vim, "Y", &mut b, &mut screen);
     assert_eq!(vim.register_text(), Some("hello world\n"));
 }

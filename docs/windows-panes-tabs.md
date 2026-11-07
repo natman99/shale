@@ -62,13 +62,20 @@ cleared, so a window never quits because a tab closed.
 
 ## Tabs
 
-A tab is the unit that holds a note, and **the tab owns its editor**: cursor,
-scroll, folds, view (raw/live/preview) and undo history all live in the tab, not
-in the window. That is why moving a tab moves the whole reading state with it.
+A tab is the unit that holds a note. What belongs to the tab is the *view*:
+scroll, folds and the raw/live/preview mode travel with it, which is why moving a
+tab moves the reading state with it.
+
+What belongs to the **note** is the text, the caret and the undo history (roadmap
+P4.17). A window keeps one buffer per note, so two tabs of one file are two views
+of one text: an edit made in one is in the other, `u` undoes the same edit
+whichever tab has the keyboard, and the dirty dot lights on every tab showing a
+note that differs from its file. Preview mode is per-tab — reading a note in one
+tab does not lock the other tab out of editing it.
 
 | keys | what |
 | --- | --- |
-| `ctrl-t`, `:tabnew` | a new tab holding the note in hand (the same note read twice) |
+| `ctrl-t`, `:tabnew` | a new tab holding the note in hand — the same note read twice, one text and two views |
 | `gt` / `gT`, `:tabnext` / `:tabprev` | walk the bar, wrapping |
 | `:tabclose`, `:tabonly`, `:tabmove <n>` | close, close the others, reorder |
 | click a tab / its `×` | switch to it / close it |

@@ -106,7 +106,7 @@ fn change_operator_enters_insert() {
     );
     assert_eq!(b.text(), "two three");
     vim.enter_insert();
-    b.insert("X");
+    b.insert(&ViewSlot::new(), "X");
     vim.handle_insert_key(Key::Escape);
     assert_eq!(b.text(), "Xtwo three");
 }
@@ -304,7 +304,7 @@ fn insert_transitions() {
     vim.enter_insert();
     assert_eq!(vim.mode(), Mode::Insert);
 
-    b.insert("typed");
+    b.insert(&ViewSlot::new(), "typed");
     assert!(vim.handle_insert_key(Key::Escape));
     assert_eq!(vim.mode(), Mode::Normal);
     assert_eq!(b.text(), "hello world\ntyped\nsecond line\nthird");
@@ -385,7 +385,7 @@ fn undo_and_count_reset() {
     let mut vim = Vim::new();
     let mut b = buf();
     b.set_cursor(0);
-    b.insert("X");
+    b.insert(&ViewSlot::new(), "X");
     assert_eq!(b.text(), "Xhello world\nsecond line\nthird");
     type_keys(&mut vim, "u", &mut b);
     assert_eq!(b.text(), "hello world\nsecond line\nthird");

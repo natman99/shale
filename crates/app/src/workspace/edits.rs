@@ -5,7 +5,7 @@
 //! checked edits in [`shale_core::Vault`].
 
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 
 use anyhow::{Context as _, Result};
 use gpui::{prelude::*, Context, Entity, Focusable, Window};
@@ -428,7 +428,14 @@ impl Workspace {
             report.written.push(path.clone());
             if is_open {
                 let text = rewrite.text.clone();
-                if let Some(editor) = self.editor().cloned() {
+                // The note's buffer is shared, so the rewrite lands in it once and
+                // every view of the note is told that what it measured against the
+                // old text is stale (roadmap P4.17).
+                if let Some(note) = self.notes.get(&path).and_then(Weak::upgrade) {
+                    note.buffer.borrow_mut().set_text(text.clone());
+                    note.dirty.set(false);
+                    self.reload_views_of(&path, cx);
+                } else if let Some(editor) = self.editor().cloned() {
                     editor.update(cx, |editor, cx| editor.set_text(text.clone(), cx));
                 }
                 // The checker's document moved with the note: its URI is the

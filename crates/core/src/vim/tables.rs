@@ -67,15 +67,15 @@ impl Vim {
                     let Some(loc) = table::locate(&tables, buf.cursor()) else {
                         break;
                     };
-                    table::delete_column(buf, &tables[loc.table], loc.row, loc.column);
+                    table::delete_column(buf, view, &tables[loc.table], loc.row, loc.column);
                 }
             }
-            '|' => table::insert_column_after(buf, table, loc.row, loc.column),
-            '\\' => table::insert_column_before(buf, table, loc.row, loc.column),
+            '|' => table::insert_column_after(buf, view, table, loc.row, loc.column),
+            '\\' => table::insert_column_before(buf, view, table, loc.row, loc.column),
             'I' => {
                 // Shift+I empties the cell and puts the cursor in it; outside a
                 // table `I` keeps its vim meaning of row-first-non-blank.
-                buf.delete_range(loc.cell.start, loc.cell.end);
+                buf.delete_range(view, loc.cell.start, loc.cell.end);
                 buf.set_cursor(loc.cell.start);
                 return Some(Outcome::EnterInsert);
             }
@@ -85,11 +85,11 @@ impl Vim {
                 return Some(Outcome::EnterInsert);
             }
             'o' => {
-                table::insert_row_after(buf, table, loc.row, loc.column);
+                table::insert_row_after(buf, view, table, loc.row, loc.column);
                 return Some(Outcome::EnterInsert);
             }
             'O' => {
-                table::insert_row_before(buf, table, loc.row, loc.column);
+                table::insert_row_before(buf, view, table, loc.row, loc.column);
                 return Some(Outcome::EnterInsert);
             }
             _ => return None,

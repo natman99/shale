@@ -37,12 +37,18 @@ fn row(b: &Buffer, ix: usize) -> String {
 /// a `c`-style command is checked: the engine *reports* that the user should be
 /// typing, and the window is what changes the mode.
 fn type_until_last(vim: &mut Vim, keys: &str, b: &mut Buffer) -> Outcome {
+    type_until_last_in(vim, keys, b, &mut ViewSlot::new())
+}
+
+/// As [`type_until_last`], with the layout — and the preview flag — the keys are
+/// typed against.
+fn type_until_last_in(vim: &mut Vim, keys: &str, b: &mut Buffer, view: &mut ViewSlot) -> Outcome {
     let mut chars = keys.chars();
     let last = chars.next_back().expect("at least one key");
     for c in chars {
-        vim.handle_normal_key(Key::Char(c), b, &mut ViewSlot::new());
+        vim.handle_normal_key(Key::Char(c), b, view);
     }
-    vim.handle_normal_key(Key::Char(last), b, &mut ViewSlot::new())
+    vim.handle_normal_key(Key::Char(last), b, view)
 }
 
 #[test]
@@ -291,15 +297,16 @@ fn no_object_under_the_cursor_cancels_the_operator() {
 }
 
 #[test]
-fn a_read_only_buffer_yanks_but_never_edits() {
+fn a_read_only_view_yanks_but_never_edits() {
     // Preview mode: the note can be read and copied, not changed. The operator
     // refuses at the range, so `d` does not fill the register with text it never
     // removed and `c` does not promise an insert mode the view will not give.
     let mut b = md_buf();
-    b.set_read_only(true);
+    let mut screen = ViewSlot::new();
+    screen.set_read_only(true);
     let mut v = Vim::new();
     b.set_cursor(at(&b, "[[Two]]") + 3);
-    type_keys(&mut v, "daL", &mut b);
+    type_keys_in(&mut v, "daL", &mut b, &mut screen);
     assert_eq!(
         b.text(),
         md_buf().text(),
@@ -310,7 +317,7 @@ fn a_read_only_buffer_yanks_but_never_edits() {
         "and the register is untouched by an edit that did not happen"
     );
     assert_eq!(
-        type_until_last(&mut v, "ciL", &mut b),
+        type_until_last_in(&mut v, "ciL", &mut b, &mut screen),
         Outcome::Stay,
         "and change does not report an insert mode"
     );

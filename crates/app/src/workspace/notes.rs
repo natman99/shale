@@ -7,17 +7,52 @@
 //! state directly and calls its neighbours through the same `pub(super)` doors.
 
 use std::path::{Path, PathBuf};
+use std::rc::{Rc, Weak};
 use std::time::Duration;
 
 use gpui::{Context, Window};
 use shale_core::vault::rel_text;
 
 use crate::acts::Save;
+use crate::note::Note;
 
 use super::tabs::TabContent;
 use super::Workspace;
 
 impl Workspace {
+    /// The window's one buffer for `path`: read from disk the first time it is
+    /// asked for, borrowed from the registry every time after (roadmap P4.17).
+    ///
+    /// Every route that puts a note on screen comes through here, which is what
+    /// makes "the same note in two places" one buffer rather than two copies of
+    /// one file that save over each other. A note that is already being edited
+    /// somewhere else in the window arrives with those edits — re-reading the file
+    /// here would throw them away.
+    pub(crate) fn note_entry(&mut self, path: &Path, cx: &mut Context<Self>) -> Option<Rc<Note>> {
+        if let Some(living) = self.notes.get(path).and_then(Weak::upgrade) {
+            return Some(living);
+        }
+        let text = match self.vault.read(path) {
+            Ok(text) => text,
+            Err(err) => {
+                tracing::warn!(path = %path.display(), "failed to read note: {err:#}");
+                self.say(format!("{err:#}"), cx);
+                return None;
+            }
+        };
+        tracing::debug!(path = %path.display(), bytes = text.len(), "note registered");
+        let note = Note::from_text(text);
+        // Entries for notes no view holds any more are dead weight: a closed tab
+        // cannot upgrade them, and the next open re-reads the file. Sweeping on
+        // insert keeps the map to the notes on screen without any close path
+        // having to remember to unregister.
+        if self.notes.len() > 32 {
+            self.notes.retain(|_, living| living.strong_count() > 0);
+        }
+        self.notes.insert(path.to_path_buf(), Rc::downgrade(&note));
+        Some(note)
+    }
+
     pub(crate) fn open_note(&mut self, path: &PathBuf, cx: &mut Context<Self>) {
         // What makes a note "recent" is having it in hand, whichever door it
         // came through -- picker, tree, `gd`, a tab click, the agent -- and it
@@ -69,39 +104,38 @@ impl Workspace {
         // The note list an embed target resolves against, taken before the tab is
         // borrowed (roadmap P4.0a).
         let notes = self.entries.clone();
-        match self.vault.read(path) {
-            Ok(text) => {
-                tracing::debug!(path = %path.display(), bytes = text.len(), "opened note");
-                if let TabContent::Note {
-                    path: slot, editor, ..
-                } = &mut self.pane_mut().tabs[index].content
-                {
-                    *slot = Some(path.clone());
-                    editor.update(cx, |editor, cx| {
-                        editor.set_text(text.clone(), cx);
-                        // What this note embeds is resolved relative to *it*, and its
-                        // links resolve against the notes on disk now.
-                        editor.set_embed_context(Some(path), notes.clone(), cx);
-                    });
-                }
-                // A note that has just come into the view needs its proposals now, not
-                // on the next tick of the queue beat (roadmap P2.5b).
-                self.sync_overlay(cx);
-                self.checker_opened(path, &text, cx);
-                self.say(rel_text(path), cx);
-                // The tab's note is only *now* the note being read: `note_tab` above
-                // may have activated a tab that still held the previous one, and a
-                // local graph following from inside that activation would re-centre on
-                // the note the user is leaving. Mark again, once the path is set.
-                self.mark_note_mru(cx);
-                true
-            }
-            Err(err) => {
-                tracing::warn!(path = %path.display(), "failed to read note: {err:#}");
-                self.say(format!("{err:#}"), cx);
-                false
-            }
+        // The window's one buffer for this note: read from disk the first time it
+        // is asked for, borrowed from the registry every time after (P4.17). A
+        // note already being edited elsewhere in the window comes with those
+        // edits, and re-reading the file here would throw them away.
+        let Some(note) = self.note_entry(path, cx) else {
+            return false;
+        };
+        let text = note.buffer.borrow().text().to_string();
+        tracing::debug!(path = %path.display(), bytes = text.len(), "opened note");
+        if let TabContent::Note {
+            path: slot, editor, ..
+        } = &mut self.pane_mut().tabs[index].content
+        {
+            *slot = Some(path.clone());
+            editor.update(cx, |editor, cx| {
+                editor.set_note(Rc::clone(&note), cx);
+                // What this note embeds is resolved relative to *it*, and its
+                // links resolve against the notes on disk now.
+                editor.set_embed_context(Some(path), notes.clone(), cx);
+            });
         }
+        // A note that has just come into the view needs its proposals now, not
+        // on the next tick of the queue beat (roadmap P2.5b).
+        self.sync_overlay(cx);
+        self.checker_opened(path, &text, cx);
+        self.say(rel_text(path), cx);
+        // The tab's note is only *now* the note being read: `note_tab` above
+        // may have activated a tab that still held the previous one, and a
+        // local graph following from inside that activation would re-centre on
+        // the note the user is leaving. Mark again, once the path is set.
+        self.mark_note_mru(cx);
+        true
     }
 
     /// Open the note and put the cursor on `line` (1-based, the way a search hit
@@ -167,9 +201,9 @@ impl Workspace {
     /// Put the caret on a heading in the note now on screen, and say when there is no
     /// such heading.
     fn reveal_in_open_note(&mut self, anchor: &str, cx: &mut Context<Self>) {
-        let found =
-            self.editor()
-                .is_some_and(|editor| editor.update(cx, |editor, cx| editor.reveal_heading(anchor, cx)));
+        let found = self.editor().is_some_and(|editor| {
+            editor.update(cx, |editor, cx| editor.reveal_heading(anchor, cx))
+        });
         if !found {
             let where_ = self.note().map(rel_text).unwrap_or_default();
             self.say(format!("no heading “{anchor}” in {where_}"), cx);
@@ -208,7 +242,10 @@ impl Workspace {
                 self.say(format!("created {}", rel_text(&created)), cx);
             }
             Err(err) => {
-                tracing::warn!(target, "could not create the note a link asked for: {err:#}");
+                tracing::warn!(
+                    target,
+                    "could not create the note a link asked for: {err:#}"
+                );
                 self.say(format!("{err:#}"), cx);
                 cx.notify();
             }
@@ -296,7 +333,10 @@ impl Workspace {
         if self.vault.exists(&path) {
             if explicit.is_some() {
                 self.say(
-                    format!("{} already exists: `:w` will not write over it", rel_text(&path)),
+                    format!(
+                        "{} already exists: `:w` will not write over it",
+                        rel_text(&path)
+                    ),
                     cx,
                 );
                 return false;

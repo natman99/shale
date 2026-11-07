@@ -212,7 +212,7 @@ fn find_char_motions() {
 #[test]
 fn dollar_is_last_char() {
     let mut b = Buffer::new("abcd\nxy".to_string());
-    let mut v = ViewSlot::new();
+    let v = ViewSlot::new();
     b.set_cursor(0);
     b.line_last_char_motion(&v);
     assert_eq!(b.cursor(), 3);
@@ -230,7 +230,7 @@ fn dollar_is_last_char() {
 #[test]
 fn vertical_motions_keep_desired_column() {
     let mut b = Buffer::new("aaaaaaaa\nb\ncccccccc".to_string());
-    let mut v = ViewSlot::new();
+    let v = ViewSlot::new();
     b.set_cursor(7); // col 7 of the first line
     b.move_down(&v); // clamped onto the short line
     assert_eq!(b.row_col(b.cursor()), (1, 1));
@@ -313,7 +313,7 @@ fn desired_column_counts_characters_not_bytes() {
     // 'é' is two bytes and one cell, so a byte column and a character column
     // disagree from the second character onwards.
     let mut b = Buffer::new("a\u{e9}\u{e9}\nxy".to_string());
-    let mut v = ViewSlot::new();
+    let v = ViewSlot::new();
     // row 0: a(0) \u{e9}(1..3) \u{e9}(3..5), newline at 5; row 1 starts at 6.
     b.set_cursor(3);
     assert_eq!(
@@ -375,7 +375,7 @@ fn screen_line_motions_respect_soft_wrap() {
 #[test]
 fn line_motions() {
     let mut b = buf();
-    let mut v = ViewSlot::new();
+    let v = ViewSlot::new();
     b.set_cursor(15);
     b.line_start_motion(&v);
     assert_eq!(b.cursor(), 12);
@@ -390,7 +390,7 @@ fn line_motions() {
 #[test]
 fn enter_motion() {
     let mut b = Buffer::new("aaa\n  indented\nzzz".to_string());
-    let mut v = ViewSlot::new();
+    let v = ViewSlot::new();
     b.set_cursor(0);
     b.next_line_first_non_blank(&v);
     assert_eq!(b.cursor(), 6); // 'i' of "indented"
@@ -404,13 +404,13 @@ fn enter_motion() {
 fn insert_and_undo_redo() {
     let mut b = Buffer::new("ab".to_string());
     b.set_cursor(1);
-    b.insert("X");
+    b.insert(&ViewSlot::new(), "X");
     assert_eq!(b.text(), "aXb");
     assert_eq!(b.cursor(), 2);
-    b.undo();
+    b.undo(&ViewSlot::new());
     assert_eq!(b.text(), "ab");
     assert_eq!(b.cursor(), 1);
-    b.redo();
+    b.redo(&ViewSlot::new());
     assert_eq!(b.text(), "aXb");
 }
 
@@ -419,16 +419,16 @@ fn insert_and_undo_redo() {
 fn insert_group_is_one_undo_step() {
     let mut b = Buffer::new("x".to_string());
     b.begin_undo_group();
-    b.insert("a");
-    b.insert("b");
-    b.backspace();
-    b.insert("c");
+    b.insert(&ViewSlot::new(), "a");
+    b.insert(&ViewSlot::new(), "b");
+    b.backspace(&ViewSlot::new());
+    b.insert(&ViewSlot::new(), "c");
     b.end_undo_group();
     assert_eq!(b.text(), "acx");
     assert_eq!(b.undo_depth(), 1, "the whole session is one step");
-    b.undo();
+    b.undo(&ViewSlot::new());
     assert_eq!(b.text(), "x");
-    b.redo();
+    b.redo(&ViewSlot::new());
     assert_eq!(b.text(), "acx");
 }
 
@@ -445,10 +445,10 @@ fn empty_insert_group_is_dropped() {
 #[test]
 fn ungrouped_edits_snapshot_each() {
     let mut b = Buffer::new("x".to_string());
-    b.insert("a");
-    b.insert("b");
+    b.insert(&ViewSlot::new(), "a");
+    b.insert(&ViewSlot::new(), "b");
     assert_eq!(b.undo_depth(), 2);
-    b.undo();
+    b.undo(&ViewSlot::new());
     assert_eq!(b.text(), "ax");
 }
 
@@ -456,12 +456,12 @@ fn ungrouped_edits_snapshot_each() {
 fn delete_line_middle_and_last() {
     let mut b = buf();
     b.set_cursor(13);
-    b.delete_line(1);
+    b.delete_line(&ViewSlot::new(), 1);
     assert_eq!(b.text(), "hello world\nthird");
 
     let mut b2 = buf();
     b2.set_cursor(25);
-    b2.delete_line(1);
+    b2.delete_line(&ViewSlot::new(), 1);
     assert_eq!(b2.text(), "hello world\nsecond line");
 }
 
@@ -469,13 +469,13 @@ fn delete_line_middle_and_last() {
 fn open_lines() {
     let mut b = buf();
     b.set_cursor(5);
-    b.open_line_below(1);
+    b.open_line_below(&ViewSlot::new(), 1);
     assert_eq!(b.text(), "hello world\n\nsecond line\nthird");
     assert_eq!(b.cursor(), 12);
 
     let mut b2 = buf();
     b2.set_cursor(13);
-    b2.open_line_above(1);
+    b2.open_line_above(&ViewSlot::new(), 1);
     assert_eq!(&b2.text()[11..13], "\n\n");
     assert_eq!(b2.cursor(), 12);
 }
@@ -484,12 +484,12 @@ fn open_lines() {
 fn delete_char_and_selection() {
     let mut b = Buffer::new("héllo".to_string());
     b.set_cursor(1); // on the é (2 bytes)
-    b.delete_char(1);
+    b.delete_char(&ViewSlot::new(), 1);
     assert_eq!(b.text(), "hllo");
 
     let mut b2 = Buffer::new("hello".to_string());
     b2.set_selection(0, 3);
-    b2.delete_selected();
+    b2.delete_selected(&ViewSlot::new());
     assert_eq!(b2.text(), "lo");
     assert_eq!(b2.cursor(), 0);
 }
@@ -507,16 +507,16 @@ fn cursor_clamps_to_char_boundaries() {
 fn counted_deletes() {
     let mut b = Buffer::new("abcdef\nsecond\nthird".to_string());
     b.set_cursor(0);
-    b.delete_char(3);
+    b.delete_char(&ViewSlot::new(), 3);
     assert_eq!(b.text(), "def\nsecond\nthird");
 
     b.set_cursor(4); // on 'e' of "second"
-    b.delete_line(2);
+    b.delete_line(&ViewSlot::new(), 2);
     assert_eq!(b.text(), "def");
 
     let mut b2 = Buffer::new("one two three four".to_string());
     b2.set_cursor(3);
-    b2.delete_range(0, 7);
+    b2.delete_range(&ViewSlot::new(), 0, 7);
     assert_eq!(b2.text(), " three four");
     assert_eq!(b2.cursor(), 0);
 }
@@ -528,11 +528,11 @@ fn counted_deletes() {
 fn delete_word_back_takes_the_word_and_the_blanks() {
     let mut b = Buffer::new("one two three".to_string());
     b.set_cursor(13);
-    b.delete_word_back();
+    b.delete_word_back(&ViewSlot::new());
     assert_eq!(b.text(), "one two ");
     assert_eq!(b.cursor(), 8, "the cursor lands where the deletion started");
 
-    b.delete_word_back();
+    b.delete_word_back(&ViewSlot::new());
     assert_eq!(
         b.text(),
         "one ",
@@ -542,7 +542,7 @@ fn delete_word_back_takes_the_word_and_the_blanks() {
     // Mid-word: only the part before the cursor goes.
     let mut b = Buffer::new("hello world".to_string());
     b.set_cursor(8); // inside "world"
-    b.delete_word_back();
+    b.delete_word_back(&ViewSlot::new());
     assert_eq!(b.text(), "hello rld");
     assert_eq!(b.cursor(), 6);
 
@@ -550,12 +550,12 @@ fn delete_word_back_takes_the_word_and_the_blanks() {
     // takes the `c` and the space in front of it.
     let mut b = Buffer::new("a, b). c".to_string());
     b.set_cursor(8);
-    b.delete_word_back();
+    b.delete_word_back(&ViewSlot::new());
     assert_eq!(b.text(), "a, b). ");
 
     // At the start of the text there is nothing to delete, and nothing moves.
     let mut b = Buffer::new("x".to_string());
-    b.delete_word_back();
+    b.delete_word_back(&ViewSlot::new());
     assert_eq!(b.text(), "x");
     assert_eq!(b.cursor(), 0);
 
@@ -564,11 +564,11 @@ fn delete_word_back_takes_the_word_and_the_blanks() {
     let mut b = Buffer::new("naïve café".to_string());
     let end = b.text().len();
     b.set_cursor(end);
-    b.delete_word_back();
+    b.delete_word_back(&ViewSlot::new());
     assert_eq!(b.text(), "naïve ");
 
     // A delete is an edit, so it is undoable and lands in the insert session.
-    b.undo();
+    b.undo(&ViewSlot::new());
     assert_eq!(b.text(), "naïve café");
 }
 
@@ -586,7 +586,7 @@ fn linewise_helpers() {
     assert_eq!(b.cursor(), 3);
     b.goto_line(99);
     assert_eq!(b.cursor(), 5);
-    b.insert_at(3, "d\n");
+    b.insert_at(&ViewSlot::new(), 3, "d\n");
     assert_eq!(b.text(), "aa\nd\nb\nccc");
     assert_eq!(b.cursor(), 5);
 }
@@ -595,13 +595,13 @@ fn linewise_helpers() {
 fn counted_open_lines() {
     let mut b = Buffer::new("a\nb".to_string());
     b.set_cursor(0);
-    b.open_line_below(2);
+    b.open_line_below(&ViewSlot::new(), 2);
     assert_eq!(b.text(), "a\n\n\nb");
     assert_eq!(b.cursor(), 3);
 
     let mut b2 = Buffer::new("a\nb".to_string());
     b2.set_cursor(2);
-    b2.open_line_above(2);
+    b2.open_line_above(&ViewSlot::new(), 2);
     assert_eq!(b2.text(), "a\n\n\nb");
     assert_eq!(b2.cursor(), 2);
 }
@@ -642,7 +642,7 @@ fn a_fold_follows_its_heading_through_an_edit() {
     // A fold is keyed on its heading's text, so an edit anywhere else (here,
     // one that pushes every row down) leaves it closed on the same heading.
     b.set_cursor(0);
-    b.insert("More title.\n");
+    b.insert(&ViewSlot::new(), "More title.\n");
     let view = b.fold_view(&mut v);
     assert_eq!(view.marker[3], Some(2), "`## Sub` moved down a row");
     assert!(view.collapsed[4], "the body row is still hidden");
@@ -722,31 +722,36 @@ fn a_view_forgets_folds_when_its_note_changes() {
     assert!(!b.has_closed_folds(&v));
 }
 
-/// Preview mode protects the text and nothing else. Every route to a change is
-/// refused — including `undo`, which is an edit — while the cursor, the selection
-/// and loading another note all keep working.
+/// A read-only *view* protects the text and nothing else. Every route to a change
+/// is refused — including `undo`, which is an edit — while the cursor, the
+/// selection and loading another note all keep working.
+///
+/// The flag belongs to the view rather than the text because one note's buffer can
+/// be read in one view and edited in another at the same time (roadmap P4.17), and
+/// the test ends by proving the reading view cannot lock the editing one out.
 #[test]
-fn a_read_only_buffer_refuses_every_edit_and_nothing_else() {
+fn a_read_only_view_refuses_every_edit_and_nothing_else() {
     let mut b = buf();
+    let mut v = ViewSlot::new();
     // One real edit first, so the undo refusal below has something to refuse.
-    b.insert_at(0, "typed ");
-    b.set_read_only(true);
-    assert!(b.is_read_only());
+    b.insert_at(&v, 0, "typed ");
+    v.set_read_only(true);
+    assert!(v.is_read_only());
 
-    b.insert("no");
-    b.insert_at(0, "no");
-    b.backspace();
-    b.delete_forward();
-    b.delete_word_back();
-    b.delete_char(3);
-    b.delete_range(0, 5);
-    b.delete_line(1);
-    b.open_line_below(2);
-    b.open_line_above(1);
+    b.insert(&v, "no");
+    b.insert_at(&v, 0, "no");
+    b.backspace(&v);
+    b.delete_forward(&v);
+    b.delete_word_back(&v);
+    b.delete_char(&v, 3);
+    b.delete_range(&v, 0, 5);
+    b.delete_line(&v, 1);
+    b.open_line_below(&v, 2);
+    b.open_line_above(&v, 1);
     b.set_selection(0, 5);
-    b.delete_selected();
-    b.undo();
-    b.redo();
+    b.delete_selected(&v);
+    b.undo(&v);
+    b.redo(&v);
     assert_eq!(
         b.text(),
         "typed hello world\nsecond line\nthird",
@@ -763,5 +768,14 @@ fn a_read_only_buffer_refuses_every_edit_and_nothing_else() {
     // Loading a note is the window opening a file, not the user editing one.
     b.set_text("another note\n".to_string());
     assert_eq!(b.text(), "another note\n", "and that still works");
-    assert!(b.is_read_only(), "with the buffer still protected");
+    assert!(v.is_read_only(), "with the view still protected");
+
+    // And the protection stops at that view: a live view of the same buffer can
+    // still change it, which is what lets a note be previewed in one tab and
+    // edited in another.
+    b.insert_at(&ViewSlot::new(), 0, "live ");
+    assert!(
+        b.text().starts_with("live "),
+        "a preview view cannot lock out a live one"
+    );
 }

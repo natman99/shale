@@ -177,7 +177,7 @@ fn repeat_last_change() {
     let mut v = Vim::new();
     let mut b = Buffer::new("one\ntwo".to_string());
     type_keys(&mut v, "o", &mut b);
-    b.insert("new");
+    b.insert(&ViewSlot::new(), "new");
     v.note_inserted("new");
     v.enter_normal();
     assert_eq!(b.text(), "one\nnew\ntwo");

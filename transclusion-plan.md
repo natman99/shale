@@ -157,7 +157,7 @@ independently.
 
 Two things the milestone text got wrong, learned by doing it:
 
-- **`read_only` waits for M1.** It is per-view in the same way folds are, but the flag only
+- **`read_only` waits for M1.** *(Done with M1, as required — see the M1 note below.)* It is per-view in the same way folds are, but the flag only
   becomes *meaningful* per-view when a buffer is first shared, and that is M1's change.
   Moving it means threading a view through ~180 call sites of the guarded edit methods
   (`insert`, `delete_*`, `undo`, …); doing it in the same commit as the registry keeps the
@@ -170,7 +170,20 @@ Two things the milestone text got wrong, learned by doing it:
   landed on. Worth remembering as the pattern for P4.0b — anywhere a *buffer* quantity is
   used to answer a *display* question is a bug waiting for a narrow pane.
 
-**M1 — the registry.** `MarkdownEditor.buffer: Entity<Buffer>` (132 sites), entries keyed
+**M1 — the registry. ✅ landed 2026-11-06.** Landed as `crates/app/src/note.rs`
+(`Note`: the shared `Rc<RefCell<Buffer>>` plus the entry's `dirty`) and
+`Workspace::note_entry` (the per-window `path → Weak<Note>` map). `Entity<Buffer>`
+became `Rc<RefCell<Buffer>>`: the vim engine takes `&mut Buffer` and `&mut ViewSlot`
+in one call, and inside an `Entity::update` closure the window's other state is
+unreachable — `RefCell` is already house style here. Handles are `Weak`, so the last
+view to let go retires the note with no unregister step. `read_only` moved to
+`ViewSlot` with this milestone, as required: preview is per view, and a flag on the
+shared text let one reading tab lock out another tab editing the same note.
+`apply_disk_changes` and the vault-wide rewrite now update the entry once and notify
+every view of it. What M1 did *not* take: the write paths for entries no tab holds
+(M4), and the caret, which stays with the buffer for now.
+
+The plan's original M1 wording, kept for the parts still owed: `MarkdownEditor.buffer: Entity<Buffer>` (132 sites), entries keyed
 by path per window, `dirty` moves onto the entry, `open_note`'s one-note rule extended to
 embeds, `apply_disk_changes` walks the registry instead of the tab list, and **both write
 paths** (`write_tab` and `autosave`) cover entries with no tab. This is the wide commit and

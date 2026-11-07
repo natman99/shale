@@ -5,10 +5,10 @@
 //! rather than a character.
 //!
 //! Every method here that can change the text starts by asking whether the buffer
-//! is read-only ([`Buffer::set_read_only`], which is preview mode) and does
+//! is read-only (the view's [`ViewSlot::set_read_only`], which is preview mode) and does
 //! nothing if it is. `undo` and `redo` are on that list too: undoing is an edit.
 
-use super::{Buffer, Snapshot};
+use super::{Buffer, Snapshot, ViewSlot};
 
 impl Buffer {
     fn snapshot(&mut self) {
@@ -66,8 +66,8 @@ impl Buffer {
         }
     }
     /// Replace the selection (or insert at the cursor) with `text`.
-    pub fn insert(&mut self, text: &str) {
-        if self.read_only {
+    pub fn insert(&mut self, view: &ViewSlot, text: &str) {
+        if view.is_read_only() {
             return;
         }
         self.snapshot_for_edit();
@@ -77,8 +77,8 @@ impl Buffer {
         self.selection = None;
         self.cursor = new_cursor;
     }
-    pub fn delete_selected(&mut self) {
-        if self.read_only || self.selection.is_none() {
+    pub fn delete_selected(&mut self, view: &ViewSlot) {
+        if view.is_read_only() || self.selection.is_none() {
             return;
         }
         self.snapshot();
@@ -88,12 +88,12 @@ impl Buffer {
         self.cursor = start;
     }
     /// Delete backwards from the cursor (or the selection, if any).
-    pub fn backspace(&mut self) {
-        if self.read_only {
+    pub fn backspace(&mut self, view: &ViewSlot) {
+        if view.is_read_only() {
             return;
         }
         if self.selection.is_some() {
-            self.delete_selected();
+            self.delete_selected(view);
             return;
         }
         if self.cursor == 0 {
@@ -105,12 +105,12 @@ impl Buffer {
         self.cursor = prev;
     }
     /// Delete the character after the cursor (or the selection, if any).
-    pub fn delete_forward(&mut self) {
-        if self.read_only {
+    pub fn delete_forward(&mut self, view: &ViewSlot) {
+        if view.is_read_only() {
             return;
         }
         if self.selection.is_some() {
-            self.delete_selected();
+            self.delete_selected(view);
             return;
         }
         let end = self.next_char_boundary(self.cursor);
@@ -124,12 +124,12 @@ impl Buffer {
     /// same pair normal-mode `db` makes. Any blanks just before the cursor go with
     /// the word, which is what vim's `i_CTRL-W` does, so deleting after typing a
     /// space takes the word too rather than leaving it behind the cursor.
-    pub fn delete_word_back(&mut self) {
-        if self.read_only {
+    pub fn delete_word_back(&mut self, view: &ViewSlot) {
+        if view.is_read_only() {
             return;
         }
         if self.selection.is_some() {
-            self.delete_selected();
+            self.delete_selected(view);
             return;
         }
         if self.cursor == 0 {
@@ -137,11 +137,11 @@ impl Buffer {
         }
         let head = self.cursor;
         let start = super::word_back(&self.text, head);
-        self.delete_range(start, head);
+        self.delete_range(view, start, head);
     }
     /// Delete the `count` characters at the cursor (vim `x`, `2x`).
-    pub fn delete_char(&mut self, count: usize) {
-        if self.read_only {
+    pub fn delete_char(&mut self, view: &ViewSlot, count: usize) {
+        if view.is_read_only() {
             return;
         }
         let count = count.max(1);
@@ -160,8 +160,8 @@ impl Buffer {
     /// Delete the half-open byte range `[start, end)` and park the cursor at
     /// `start` (used by vim operators over a motion range). Joins an open undo
     /// group, which is how a table edit that splices several rows stays one step.
-    pub fn delete_range(&mut self, start: usize, end: usize) {
-        if self.read_only {
+    pub fn delete_range(&mut self, view: &ViewSlot, start: usize, end: usize) {
+        if view.is_read_only() {
             return;
         }
         let (start, end) = (self.clamp(start), self.clamp(end));
@@ -175,8 +175,8 @@ impl Buffer {
     }
     /// Delete `count` whole lines starting at the cursor's row, including their
     /// newlines (vim `dd`, `2dd`).
-    pub fn delete_line(&mut self, count: usize) {
-        if self.read_only {
+    pub fn delete_line(&mut self, view: &ViewSlot, count: usize) {
+        if view.is_read_only() {
             return;
         }
         let (start, end) = self.line_range(self.row_col(self.cursor).0, count.max(1));
@@ -207,8 +207,8 @@ impl Buffer {
     ///
     /// Returns whether anything was joined; on the last line there is nothing to
     /// join and the caller leaves the buffer alone.
-    pub fn join_lines(&mut self, count: usize) -> bool {
-        if self.read_only {
+    pub fn join_lines(&mut self, view: &ViewSlot, count: usize) -> bool {
+        if view.is_read_only() {
             return false;
         }
         let mut joined = false;
@@ -253,7 +253,8 @@ impl Buffer {
             self.snapshot();
             // The break and the next line's leading whitespace both go; what is
             // left of that line follows the current one directly.
-            self.text.replace_range(line_end..(next_start + lead), separator);
+            self.text
+                .replace_range(line_end..(next_start + lead), separator);
             self.selection = None;
             let target = if separator.is_empty() {
                 line_end.max(line_start + 1) - 1
@@ -275,8 +276,8 @@ impl Buffer {
     /// [`Self::delete_line`] takes the line break with the line, which is what a
     /// delete wants and what a change does not: vim's `cc` leaves an empty line and
     /// starts inserting on it, rather than joining the change onto the line below.
-    pub fn change_lines(&mut self, row: usize, count: usize) {
-        if self.read_only {
+    pub fn change_lines(&mut self, view: &ViewSlot, row: usize, count: usize) {
+        if view.is_read_only() {
             return;
         }
         let (start, end) = self.line_range(row, count.max(1));
@@ -299,8 +300,8 @@ impl Buffer {
     /// Insert `text` at `offset` without touching the selection semantics of
     /// [`Self::insert`] (used by linewise paste and by table splices, which run
     /// inside an undo group so one edit stays one undo step).
-    pub fn insert_at(&mut self, offset: usize, text: &str) {
-        if self.read_only {
+    pub fn insert_at(&mut self, view: &ViewSlot, offset: usize, text: &str) {
+        if view.is_read_only() {
             return;
         }
         let offset = self.clamp(offset);
@@ -311,8 +312,8 @@ impl Buffer {
     }
     /// Open `count` new lines below the cursor and place the cursor on the last
     /// of them (vim `o`, `2o`).
-    pub fn open_line_below(&mut self, count: usize) {
-        if self.read_only {
+    pub fn open_line_below(&mut self, view: &ViewSlot, count: usize) {
+        if view.is_read_only() {
             return;
         }
         self.snapshot();
@@ -324,8 +325,8 @@ impl Buffer {
         self.selection = None;
     }
     /// Open `count` new lines above the cursor (vim `O`, `2O`).
-    pub fn open_line_above(&mut self, count: usize) {
-        if self.read_only {
+    pub fn open_line_above(&mut self, view: &ViewSlot, count: usize) {
+        if view.is_read_only() {
             return;
         }
         self.snapshot();
@@ -349,8 +350,8 @@ impl Buffer {
     pub fn redo_depth(&self) -> usize {
         self.redo.len()
     }
-    pub fn undo(&mut self) {
-        if self.read_only {
+    pub fn undo(&mut self, view: &ViewSlot) {
+        if view.is_read_only() {
             return;
         }
         self.group_open = false;
@@ -366,8 +367,8 @@ impl Buffer {
             self.selection = snap.selection;
         }
     }
-    pub fn redo(&mut self) {
-        if self.read_only {
+    pub fn redo(&mut self, view: &ViewSlot) {
+        if view.is_read_only() {
             return;
         }
         self.group_open = false;

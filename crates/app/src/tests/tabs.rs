@@ -76,6 +76,78 @@ fn two_notes(
     (dir, window, cx)
 }
 
+/// One note, one buffer per window (roadmap P4.17). A second tab of a note is a
+/// second *view* of it, not a second copy: an edit made in one is in the other,
+/// the file gets both, and saving clears the dot everywhere the note is shown.
+/// Two copies of one file saving over each other is the bug this rules out — and
+/// it is the same fact P4.0b needs when a note is open in a tab *and* embedded in
+/// the note beside it.
+#[gpui::test]
+fn two_tabs_of_one_note_are_one_buffer(cx: &mut TestAppContext) {
+    let (dir, window, mut cx) = two_notes(cx);
+    window
+        .update(&mut cx, |ws, _window, _cx| ws.set_autosave(false))
+        .unwrap();
+    cx.simulate_keystrokes("A");
+    cx.simulate_input(" first");
+    cx.simulate_keystrokes("ctrl-t");
+    // The tab that did not exist when the first edit was made already has it, and
+    // adds its own on the end of the same text.
+    cx.simulate_keystrokes("A");
+    cx.simulate_input(" second");
+    assert_eq!(
+        tabs(&window, &mut cx),
+        vec![("a.md".into(), true), ("a.md".into(), true)],
+        "both views of the note are dirty, because it is the note that is dirty"
+    );
+    command_line("w", &mut cx);
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("a.md")).unwrap(),
+        "first first second\n",
+        "one file, both edits, in the order they were made"
+    );
+    assert_eq!(
+        tabs(&window, &mut cx),
+        vec![("a.md".into(), false), ("a.md".into(), false)],
+        "and saving the note puts both dots out"
+    );
+}
+
+/// Preview protects its own view and not the note (roadmap P4.17). Two tabs of one
+/// note share one buffer, so a flag on the text would let the reading view lock the
+/// editing view out — which is what a user reading the top of a note in preview
+/// while holding the bottom in another tab would hit.
+#[gpui::test]
+fn preview_one_tab_does_not_lock_the_other_tab_of_the_same_note(cx: &mut TestAppContext) {
+    let (dir, window, mut cx) = two_notes(cx);
+    window
+        .update(&mut cx, |ws, _window, _cx| ws.set_autosave(false))
+        .unwrap();
+    cx.simulate_keystrokes("ctrl-t");
+    command_line("preview", &mut cx);
+    // The reading view refuses the edit...
+    cx.simulate_keystrokes("x");
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("a.md")).unwrap(),
+        "first\n",
+        "the file is untouched, as it was"
+    );
+    // ...and the live view of the same note takes the very same keystroke.
+    cx.simulate_keystrokes("g t");
+    cx.simulate_keystrokes("x");
+    command_line("w", &mut cx);
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("a.md")).unwrap(),
+        "irst\n",
+        "the other tab edited the shared note"
+    );
+    assert_eq!(
+        tabs(&window, &mut cx),
+        vec![("a.md".into(), false), ("a.md".into(), false)],
+        "and both views agree the note is saved"
+    );
+}
+
 /// `ctrl-t` puts the note in hand in a second tab, and the new tab is the one on
 /// screen: two tabs on one note is the "read the top of this while I edit the bottom
 /// of it" case, and it is why a tab's identity is an id rather than its path.
@@ -249,8 +321,11 @@ fn quit_refuses_a_dirty_background_tab(cx: &mut TestAppContext) {
     command_line("q", &mut cx);
     assert_eq!(
         tabs(&window, &mut cx),
-        vec![("a.md".into(), true), ("a.md".into(), false)],
-        "the window is still up, with the bar as it was"
+        // Both views of the note light. `dirty` is a fact about the note's text
+        // compared to its file, not about which view happened to hold the
+        // keyboard when the edit was made (roadmap P4.17).
+        vec![("a.md".into(), true), ("a.md".into(), true)],
+        "the window is still up, with every view of the dirty note lit"
     );
     assert!(
         window

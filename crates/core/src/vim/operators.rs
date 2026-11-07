@@ -74,7 +74,7 @@ impl Vim {
                     // clipboard mirrored that cut is visible to other programs too,
                     // which is why the register has to be right here.
                     let text = buf.yank_lines(row, lines);
-                    buf.delete_line(lines);
+                    buf.delete_line(view, lines);
                     self.register = Some(Register {
                         text,
                         linewise: true,
@@ -97,7 +97,7 @@ impl Vim {
                     // it, which is the one place a linewise change and a linewise
                     // delete part company.
                     let text = buf.yank_lines(row, lines);
-                    buf.change_lines(row, lines);
+                    buf.change_lines(view, row, lines);
                     self.register = Some(Register {
                         text,
                         linewise: true,
@@ -174,7 +174,7 @@ impl Vim {
                 } else {
                     (end, start)
                 };
-                return self.apply_range(op, lo, hi, buf);
+                return self.apply_range(op, lo, hi, buf, view);
             }
             _ => {
                 // Unknown motion: cancel the operator rather than guessing.
@@ -202,7 +202,7 @@ impl Vim {
             end = end.clamp(loc.cell.nav_start(), loc.cell.end);
         }
         let (lo, hi) = (start.min(end), start.max(end));
-        self.apply_range(op, lo, hi, buf)
+        self.apply_range(op, lo, hi, buf, view)
     }
 
     /// The range of the text object with the given scope under `offset`, or
@@ -256,8 +256,9 @@ impl Vim {
         lo: usize,
         hi: usize,
         buf: &mut Buffer,
+        view: &mut ViewSlot,
     ) -> Outcome {
-        if buf.is_read_only() && !matches!(op, Operator::Yank) {
+        if view.is_read_only() && !matches!(op, Operator::Yank) {
             return Outcome::Stay;
         }
         if lo == hi {
@@ -278,7 +279,7 @@ impl Vim {
                     text: buf.text()[lo..hi].to_string(),
                     linewise: false,
                 });
-                buf.delete_range(lo, hi);
+                buf.delete_range(view, lo, hi);
             }
             Operator::Change => {
                 // The same cut as Delete, for the same reason: `cw` then `p` puts
@@ -287,7 +288,7 @@ impl Vim {
                     text: buf.text()[lo..hi].to_string(),
                     linewise: false,
                 });
-                buf.delete_range(lo, hi);
+                buf.delete_range(view, lo, hi);
                 return Outcome::EnterInsert;
             }
         }
@@ -296,7 +297,7 @@ impl Vim {
 
     /// Paste the register after (`p`) or before (`P`) the cursor — the register a
     /// `"` prefix chose if there was one, the unnamed one otherwise.
-    pub(super) fn paste(&mut self, after: bool, buf: &mut Buffer) {
+    pub(super) fn paste(&mut self, after: bool, buf: &mut Buffer, view: &mut ViewSlot) {
         let Some(reg) = self.paste_register() else {
             return;
         };
@@ -313,14 +314,14 @@ impl Vim {
             } else {
                 buf.line_start(row)
             };
-            buf.insert_at(offset, &text);
+            buf.insert_at(view, offset, &text);
         } else {
             let offset = if after {
                 buf.next_char_boundary(buf.cursor()).min(len)
             } else {
                 buf.cursor()
             };
-            buf.insert_at(offset, &reg.text);
+            buf.insert_at(view, offset, &reg.text);
         }
     }
 }

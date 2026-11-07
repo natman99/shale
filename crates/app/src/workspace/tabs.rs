@@ -34,6 +34,7 @@ use shale_core::vault::rel_text;
 
 use crate::acts::{TabClose, TabNew, TabNext, TabOnly, TabPrev};
 use crate::editor::{EditorEvent, MarkdownEditor, View};
+use crate::note::Note;
 
 use super::Workspace;
 
@@ -533,8 +534,7 @@ impl Workspace {
         let tab = self.panes[from].tabs.remove(index);
         // The pane the tab came from keeps a sane index: it is not the one with the
         // keyboard, so nothing else here would notice that its last tab went.
-        self.panes[from].active = self
-            .panes[from]
+        self.panes[from].active = self.panes[from]
             .active
             .min(self.panes[from].tabs.len().saturating_sub(1));
         self.pane_mut().tabs.push(tab);
@@ -587,37 +587,40 @@ impl Workspace {
             TabContent::Graph(_) => return,
         };
         self.pane_mut().tabs[index]._autosave = None;
-        editor.update(cx, |editor, cx| editor.set_text(String::new(), cx));
+        // The tab is given a blank note of its own rather than having its text
+        // erased: the note it was holding belongs to the window, and another view
+        // of it — a second tab, or from P4.0b an embed — would otherwise watch this
+        // tab's `:only` wipe their note too. If nothing else holds it, it goes.
+        editor.update(cx, |editor, cx| editor.set_note(Note::blank(), cx));
     }
 
     /// `ctrl-t` / `:tabnew`: a new tab holding the note in hand. Two tabs on one note
-    /// is the point — the same note read twice, each with its own cursor, scroll,
-    /// folds and undo history.
+    /// is the point — the same note read twice, each with its own scroll, folds and
+    /// view mode. The text and the undo history are the note's, not the tab's (one
+    /// file has one undo stack, and two copies of one file save over each other);
+    /// the caret is the note's too for now, which is the one piece of per-tab state
+    /// this refactor leaves shared — see `note.rs`.
     pub(super) fn tab_new(&mut self, _: &TabNew, window: &mut Window, cx: &mut Context<Self>) {
         let path = self.note();
         let index = self.add_tab(cx);
         if let Some(path) = path.as_ref() {
-            match self.vault.read(path) {
-                Ok(text) => {
-                    if let TabContent::Note {
-                        path: slot, editor, ..
-                    } = &mut self.pane_mut().tabs[index].content
-                    {
-                        *slot = Some(path.clone());
-                        editor.update(cx, |editor, cx| editor.set_text(text, cx));
-                    }
-                    // The view came from the tab it was opened from, and `set_view`
-                    // is what makes a preview tab read-only, so nothing else is owed
-                    // here.
+            // The same buffer, not a second copy of the file: the new tab edits
+            // what the tab it came from is editing (P4.17).
+            if let Some(note) = self.note_entry(path, cx) {
+                if let TabContent::Note {
+                    path: slot, editor, ..
+                } = &mut self.pane_mut().tabs[index].content
+                {
+                    *slot = Some(path.clone());
+                    editor.update(cx, |editor, cx| editor.set_note(note, cx));
                 }
-                Err(err) => {
-                    // The tab exists and is empty rather than the keystroke doing
-                    // nothing: the status bar says why, and the user is one `:e` away
-                    // from a note.
-                    tracing::warn!(path = %path.display(), "failed to read note: {err:#}");
-                    self.say(format!("{err:#}"), cx);
-                }
+                // The view came from the tab it was opened from, and `set_view`
+                // is what makes a preview tab read-only, so nothing else is owed
+                // here.
             }
+            // A tab that could not be read exists and is empty rather than the
+            // keystroke doing nothing: the status bar says why, and the user is
+            // one `:e` away from a note.
         }
         self.say(format!("{} tabs", self.pane().tabs.len()), cx);
         // The keyboard comes here now rather than waiting for the next frame: this is
@@ -806,12 +809,14 @@ impl Pane {
                     TabContent::Note { .. } => None,
                 },
                 orientation: match &tab.content {
-                    TabContent::Graph(view) => view.read(cx).camera3().map(|camera| {
-                        shale_core::session::Orientation {
-                            yaw: camera.yaw,
-                            pitch: camera.pitch,
-                        }
-                    }),
+                    TabContent::Graph(view) => {
+                        view.read(cx)
+                            .camera3()
+                            .map(|camera| shale_core::session::Orientation {
+                                yaw: camera.yaw,
+                                pitch: camera.pitch,
+                            })
+                    }
                     TabContent::Note { .. } => None,
                 },
             })

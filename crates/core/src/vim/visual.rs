@@ -62,7 +62,7 @@ impl Vim {
                 let rows = buf.row_col(hi.saturating_sub(1)).0 + 1 - first_row;
                 self.exit_visual(buf);
                 buf.set_cursor(buf.line_start(first_row));
-                buf.join_lines(rows);
+                buf.join_lines(view, rows);
                 Outcome::Stay
             }
             // `o` jumps to the other end of the selection.
@@ -121,8 +121,8 @@ impl Vim {
                     }
                     Key::Char('p') => {
                         let reg = self.paste_register().map(|r| r.text).unwrap_or_default();
-                        buf.delete_range(lo, hi);
-                        buf.insert_at(lo, &reg);
+                        buf.delete_range(view, lo, hi);
+                        buf.insert_at(view, lo, &reg);
                         // The selection the paste overwrote goes to the unnamed
                         // register, as it does in vim.
                         self.register = Some(Register { text, linewise });
@@ -130,13 +130,13 @@ impl Vim {
                     }
                     Key::Char('c') | Key::Char('s') => {
                         self.register = Some(Register { text, linewise });
-                        buf.delete_range(lo, hi);
+                        buf.delete_range(view, lo, hi);
                         self.commit_register_op(OpKind::Change, before);
                         return Outcome::EnterInsert;
                     }
                     _ => {
                         self.register = Some(Register { text, linewise });
-                        buf.delete_range(lo, hi);
+                        buf.delete_range(view, lo, hi);
                         OpKind::Delete
                     }
                 };
