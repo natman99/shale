@@ -114,12 +114,12 @@ impl MarkdownEditor {
             }
             Outcome::FollowLink => {
                 let cursor = self.buffer.borrow().cursor();
-                self.refresh_links();
+                self.refresh_caret_links();
                 self.follow_link_at(cursor, cx);
             }
             Outcome::CreateLink => {
                 let cursor = self.buffer.borrow().cursor();
-                self.refresh_links();
+                self.refresh_caret_links();
                 self.create_link_at(cursor, cx);
             }
             // The engine decided a chord that asks for something the window owns

@@ -85,7 +85,7 @@ impl MarkdownEditor {
             // it or on the header, in which case clicking its text is correct.
             let offset = hit.offset_for_x(local_x);
             if event.modifiers.control {
-                self.refresh_links();
+                self.refresh_caret_links();
                 if self.link_at(offset).is_some() {
                     self.follow_link_at(offset, cx);
                     return;

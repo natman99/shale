@@ -516,6 +516,18 @@ impl MarkdownEditor {
             notes: &self.notes,
             vault,
         };
+        // The entered block's rows are painted from the embedded note's buffer, so the
+        // links coloured in them are that note's own — cut from that buffer, and only
+        // recut when that buffer moved. The host's list is still refreshed for the
+        // host's rows; the two are not the same offsets.
+        if let Some(embed) = self.entered.as_mut() {
+            let change = embed.note.buffer.borrow().change_id();
+            if embed.links_change != change {
+                embed.links_change = change;
+                embed.links =
+                    shale_core::markdown::extract_wikilinks(embed.note.buffer.borrow().text());
+            }
+        }
         // Re-derived every frame, so the anchor cannot outlive the block it points at.
         self.entered_anchor = None;
         let mut painted_entered = false;
@@ -744,6 +756,21 @@ impl MarkdownEditor {
         let start = buffer.line_start(origin.row);
         let end = buffer.line_end(origin.row);
         let cursor = buffer.cursor();
+        // The embedded note's own wiki-links on this row: coloured like links, and
+        // followed by `gd` or ctrl-click, because a link inside a block you are typing
+        // into that does nothing is a hole in the block, not in the note.
+        let links: Vec<(usize, usize, bool)> = embed
+            .links
+            .iter()
+            .filter(|link| link.start < end && link.end > start)
+            .map(|link| {
+                (
+                    link.start.max(start),
+                    link.end.min(end),
+                    self.is_known(&link.target),
+                )
+            })
+            .collect();
         let selection = match self.vim.mode() {
             Mode::Visual | Mode::VisualLine => self.vim.selection_range(&buffer),
             _ => buffer.selection(),
@@ -779,8 +806,12 @@ impl MarkdownEditor {
             // The embedded note's own links, marks and search matches are not drawn
             // yet: they belong to the other buffer's caches, which this view does not
             // keep. Owed with the rest of the block's parity.
-            links: Vec::new(),
+            links,
             spans: painted.buffer_spans.clone(),
+            // The embedded note's checker marks and this view's search matches are not
+            // drawn yet: the first belongs to a file the checker has not been told
+            // about, the second to a query that has not been asked of this buffer.
+            // Owed with the rest of the block's parity.
             marks: Vec::new(),
             hits: Vec::new(),
             active: None,

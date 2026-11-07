@@ -164,6 +164,14 @@ pub(crate) struct Entered {
     /// `# Tasks`, and the seam stops `j`/`k` at that section's edges.
     first: usize,
     last: usize,
+    /// The embedded note's own wiki-links, and the buffer revision they were cut from.
+    ///
+    /// They live here rather than beside [`MarkdownEditor::links`] because offsets are
+    /// bytes of *this* note: the host's list, asked with the caret's offset inside this
+    /// block, answers with a link from the wrong note. Painted on the block's rows, and
+    /// asked by `gd`, `gD` and ctrl-click while the caret is inside.
+    links: Vec<WikiLink>,
+    links_change: u64,
     /// The host's view state, parked here while the caret is inside.
     ///
     /// The editor has one `slot`, and it belongs to whichever buffer the caret is
@@ -577,6 +585,8 @@ impl MarkdownEditor {
             path: origin.path.clone(),
             first,
             last,
+            links: extract_wikilinks(note.buffer.borrow().text()),
+            links_change: note.buffer.borrow().change_id(),
             host_slot,
         });
         let start = self.buffer.borrow().line_start(row);
@@ -1426,6 +1436,34 @@ impl MarkdownEditor {
         self.links = extract_wikilinks(self.note.buffer.borrow().text());
     }
 
+    /// The wiki-links of whichever buffer the caret is in, refreshed if that buffer
+    /// moved since they were cut.
+    ///
+    /// The tab's list and the entered embed's are not interchangeable: `gd` asks with
+    /// the caret's offset, and that offset is a byte of one buffer or of the other.
+    /// Getting this wrong is the same mistake the `buffer` / `note.buffer` split exists
+    /// to stop — a caret in one note answered out of another note's records.
+    fn refresh_caret_links(&mut self) {
+        match self.entered.as_mut() {
+            Some(embed) => {
+                let change = embed.note.buffer.borrow().change_id();
+                if embed.links_change != change {
+                    embed.links_change = change;
+                    embed.links = extract_wikilinks(embed.note.buffer.borrow().text());
+                }
+            }
+            None => self.refresh_links(),
+        }
+    }
+
+    /// The links of the caret's buffer, as refreshed by [`Self::refresh_caret_links`].
+    fn caret_links(&self) -> &[WikiLink] {
+        match self.entered.as_ref() {
+            Some(embed) => &embed.links,
+            None => &self.links,
+        }
+    }
+
     // ----- markdown styling ---------------------------------------------
 
     /// Recompute the markdown style spans unless the buffer changed since the
@@ -1579,9 +1617,9 @@ impl MarkdownEditor {
         }
     }
 
-    /// The wiki-link containing `offset`, if any.
+    /// The wiki-link containing `offset`, if any — `offset` being in the caret's buffer.
     fn link_at(&self, offset: usize) -> Option<&WikiLink> {
-        self.links
+        self.caret_links()
             .iter()
             .find(|l| l.start <= offset && offset < l.end)
     }

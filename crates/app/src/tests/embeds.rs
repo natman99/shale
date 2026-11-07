@@ -880,6 +880,51 @@ fn a_nested_embed_gets_its_own_dot_rather_than_its_hosts(cx: &mut TestAppContext
     );
 }
 
+/// A wiki-link inside the block being edited is a link, not a picture of one: `gd`
+/// follows it from the caret (roadmap P4.0b parity).
+///
+/// The offset the caret carries is a byte of the *embedded* note, and the host's link
+/// list is cut from the host — so this is the same split the `buffer` / `note.buffer`
+/// separation exists for, one record type later. Asked out of the host's list, the
+/// lookup finds nothing at that byte and the keystroke does nothing at all.
+#[gpui::test]
+fn a_link_inside_the_entered_block_is_followed_from_the_caret(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(
+        cx,
+        &[
+            ("host.md", "before\n![[gift]]\nafter\n"),
+            ("gift.md", "one [[target]]\ntwo\n"),
+            ("target.md", "there\n"),
+        ],
+    );
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show_at(&mut cx, &window, "host.md");
+    cx.simulate_keystrokes("j ctrl-]");
+    assert!(
+        badge(&window, &mut cx).contains("gift"),
+        "the caret is inside the embedded note: {}",
+        badge(&window, &mut cx)
+    );
+    // Onto the link's own text, then vim's follow.
+    cx.simulate_keystrokes("f t");
+    cx.simulate_keystrokes("g d");
+    let bar: Vec<String> = window
+        .update(&mut cx, |ws, _w, cx| {
+            ws.tab_paths(cx)
+                .into_iter()
+                .map(|(path, _)| {
+                    path.map(|p| p.display().to_string())
+                        .unwrap_or_else(|| "-".to_string())
+                })
+                .collect()
+        })
+        .unwrap();
+    assert!(
+        bar.iter().any(|tab| tab.ends_with("target.md")),
+        "the link inside the embed was followed, and its target opened: {bar:?}"
+    );
+}
+
 /// The dot is not only in the frame — it is on the screen. The entered block's rows are
 /// line elements over the embedded note's buffer, and the first of them records the mark
 /// it actually painted, which is the guarantee that a mark reaching the element also
