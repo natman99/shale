@@ -405,6 +405,124 @@ fn a_section_that_stops_existing_under_the_caret_gives_the_caret_back(cx: &mut T
     );
 }
 
+/// Ruling Q4: the command line follows the caret. `:rename` inside an embed renames
+/// the note being edited, the host's `![[…]]` line follows it, and the caret stays
+/// where it was — with the block still showing the edits in hand rather than the copy
+/// the rename carried to disk.
+#[gpui::test]
+fn a_rename_inside_an_embed_renames_the_embedded_note(cx: &mut TestAppContext) {
+    let (dir, window) = vault_with(cx, &[("host.md", "![[gift]]\n"), ("gift.md", "one\ntwo\n")]);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show_at(&mut cx, &window, "host.md");
+    cx.simulate_keystrokes("ctrl-] A");
+    cx.simulate_input(" more");
+    cx.simulate_keystrokes("ctrl-shift-r");
+    // The prompt starts with the current stem, so the old name is erased first.
+    cx.simulate_keystrokes("backspace backspace backspace backspace");
+    cx.simulate_input("Kept");
+    cx.simulate_keystrokes("enter");
+    assert!(
+        dir.path().join("Kept.md").is_file(),
+        "the embedded note is the one that moved"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("host.md")).unwrap(),
+        "![[Kept]]\n",
+        "and the line that embeds it was rewritten to the new name"
+    );
+    assert!(
+        !badge(&window, &mut cx).is_empty(),
+        "the caret is still inside the block it was editing"
+    );
+    let shape = embeds(&window, &mut cx);
+    assert!(
+        shape.iter().any(|line| line.contains("one more")),
+        "the block shows the edits in hand, not the disk copy the rename moved: {shape:?}"
+    );
+}
+
+/// `:w <name>` refuses inside an embed, and names the embed: the rule against
+/// cloning a note by accident applies to whichever of the two the caret is in.
+#[gpui::test]
+fn w_with_a_name_refuses_inside_an_embed(cx: &mut TestAppContext) {
+    let (dir, window) = vault_with(cx, &[("host.md", HOST), ("gift.md", GIFT)]);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show_at(&mut cx, &window, "host.md");
+    cx.simulate_keystrokes("j ctrl-]");
+    type_command("w twin", &mut cx);
+    assert!(
+        status(&window, &mut cx).contains("gift"),
+        "the refusal names the note the caret is in: {}",
+        status(&window, &mut cx)
+    );
+    assert!(
+        !dir.path().join("twin.md").is_file(),
+        "and nothing was cloned"
+    );
+}
+
+/// Ruling Q1: unsaved work always has a visible home. The moment an embed the caret
+/// has typed into goes dirty and no tab holds it, the bar gains one — the dot has
+/// somewhere to light, and a close or a quit owes it the ordinary dirty-tab warning.
+///
+/// The tab arrives without taking the keyboard: the caret is in the middle of a word
+/// in the host, and the tab bar is reporting an edit, not asking the user to go there.
+#[gpui::test]
+fn an_embed_typed_into_gains_a_tab_of_its_own(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("host.md", HOST), ("gift.md", GIFT)]);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show_at(&mut cx, &window, "host.md");
+    assert_eq!(
+        window
+            .update(&mut cx, |ws, _w, cx| ws.tab_paths(cx))
+            .unwrap()
+            .len(),
+        1,
+        "one tab, the host"
+    );
+    cx.simulate_keystrokes("j ctrl-] A");
+    cx.simulate_input(" more");
+    let bar: Vec<String> = window
+        .update(&mut cx, |ws, _w, cx| {
+            ws.tab_paths(cx)
+                .into_iter()
+                .map(|(path, dirty)| {
+                    format!(
+                        "{}{}",
+                        path.map(|p| p.display().to_string())
+                            .unwrap_or_else(|| "-".to_string()),
+                        if dirty { "*" } else { "" }
+                    )
+                })
+                .collect()
+        })
+        .unwrap();
+    assert_eq!(bar.len(), 2, "the embedded note now has a tab: {bar:?}");
+    assert!(
+        bar.iter().any(|tab| tab.ends_with("gift.md*")),
+        "and it is lit, because it is the note with the edits: {bar:?}"
+    );
+    assert_eq!(
+        window
+            .update(&mut cx, |ws, _w, _cx| ws.tab_index())
+            .unwrap(),
+        0,
+        "the host is still the tab on screen"
+    );
+    assert!(
+        !badge(&window, &mut cx).is_empty(),
+        "and the caret is still inside the block"
+    );
+    cx.simulate_keystrokes("escape i");
+    cx.simulate_input("Z");
+    cx.simulate_keystrokes("escape");
+    assert_eq!(
+        state(&window, "gift", &mut cx).0,
+        "one moreZ\ntwo\n",
+        "typing kept landing in the embed, not in the tab that just appeared"
+    );
+}
+
 /// Once the caret is inside, the block stops being a picture: its rows are painted
 /// as line elements over the embedded note's buffer, each answering with a row of
 /// *that* note. Before entering there are none — the same rows are phantom then.

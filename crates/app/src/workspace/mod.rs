@@ -835,7 +835,9 @@ impl Workspace {
             let Some(editor) = self.pane().tabs[index].editor().cloned() else {
                 continue;
             };
-            let dirty = editor.read_with(cx, |editor, _cx| editor.is_dirty());
+            // Own text again: the question is whether this file's buffer is ahead of
+            // this file on disk, which decides whether it is safe to re-read.
+            let dirty = editor.read_with(cx, |editor, _cx| editor.own_text_is_dirty());
             if changes.was_removed(&path) {
                 if dirty {
                     self.say(

@@ -287,7 +287,9 @@ impl Workspace {
                 self.say(format!("created {}/", rel_text(&dir)), cx);
             }
             prompt::PromptKind::Rename => {
-                let from = self.prompt_target()?;
+                // Re-derived here, not only when the prompt opened: the answer is a
+                // different moment, and the caret may have moved between them.
+                let from = self.rename_target(cx)?;
                 let to = sibling_path(&from, answer);
                 // The links have to be found against the vault as it was *before*
                 // the rename: resolving a target is what decides which notes point
@@ -324,6 +326,18 @@ impl Workspace {
                             if path.as_deref() == Some(from.as_path()) {
                                 *path = Some(renamed.clone());
                             }
+                        }
+                    }
+                }
+                // The registry moves with the file, so an embed that now spells the
+                // new name finds the buffer the caret is editing rather than re-reading
+                // the disk copy — which, with unsaved edits in the block, is a version
+                // the author has already edited past.
+                self.notes.rename(&from, &renamed);
+                for pane in self.panes.iter() {
+                    for tab in pane.tabs.iter() {
+                        if let Some(editor) = tab.editor() {
+                            editor.update(cx, |editor, _cx| editor.embed_renamed(&from, &renamed));
                         }
                     }
                 }
@@ -383,6 +397,15 @@ impl Workspace {
 
     /// The row a rename or a delete acts on: the tree's selection if there is
     /// one, otherwise the note that is open.
+    /// What a rename acts on. Ruling Q4: the caret decides — inside an embed, the
+    /// note being edited is the one being renamed, and the propagation that rewrites
+    /// the host's `![[…]]` line is already in place.
+    fn rename_target(&self, cx: &mut Context<Self>) -> Result<PathBuf> {
+        self.caret_note(cx)
+            .or_else(|| self.prompt_target().ok())
+            .context("nothing is selected")
+    }
+
     fn prompt_target(&self) -> Result<PathBuf> {
         self.tree_selection
             .clone()
@@ -405,9 +428,12 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> Result<RewriteReport> {
         let open = self.note();
+        // Own text, not the transitive dot: an embed with unsaved edits says nothing
+        // about whether *this* file is ahead of its copy on disk, and this is the check
+        // that decides whether Shale may rewrite the note it has open.
         let dirty = self
             .editor()
-            .is_some_and(|editor| editor.read_with(cx, |editor, _cx| editor.is_dirty()));
+            .is_some_and(|editor| editor.read_with(cx, |editor, _cx| editor.own_text_is_dirty()));
         let mut report = RewriteReport::default();
         for rewrite in rewrites {
             // The renamed note is the one file that has already moved.
@@ -512,7 +538,10 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let target = match self.prompt_target() {
+        // Ruling Q4: the caret decides. Inside an embed, `:rename` renames the note
+        // being edited, not the note it is embedded in — the same rule `:w` follows,
+        // and the propagation that rewrites the host's `![[…]]` line is already here.
+        let target = match self.rename_target(cx) {
             Ok(target) => target,
             Err(err) => {
                 self.say(format!("{err:#}"), cx);

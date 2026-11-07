@@ -380,6 +380,10 @@ impl Workspace {
             }
             EditorEvent::Changed => {
                 self.queue_autosave(index, cx);
+                // Ruling Q1: an embed the caret has just made dirty, with no tab of its
+                // own, gets one. Before the autosave beat can reach it, and before the
+                // dot on the host's tab is the only sign anything is unwritten.
+                self.materialise_embed_tabs(index, cx);
                 if active {
                     // The checker's copy of the note, and the search's byte offsets,
                     // both belong to the note on screen.

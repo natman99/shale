@@ -111,6 +111,19 @@ impl Registry {
         entries.insert(path.to_path_buf(), Rc::downgrade(note));
     }
 
+    /// Move an entry when its file moves (a rename).
+    ///
+    /// The buffer is the same note: its caret, its unsaved edits and its undo history
+    /// come with it. Re-keying is what lets an embed that now spells the new name find
+    /// *this* buffer instead of re-reading the file and showing a version the author
+    /// has already edited past.
+    pub(crate) fn rename(&self, from: &Path, to: &Path) {
+        let mut entries = self.entries.borrow_mut();
+        if let Some(living) = entries.remove(from) {
+            entries.insert(to.to_path_buf(), living);
+        }
+    }
+
     /// A number that changes whenever the text of *any* open note changes.
     ///
     /// This is how an embed cache stays honest without polling and without a

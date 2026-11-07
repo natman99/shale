@@ -46,6 +46,63 @@ impl Workspace {
         Some(note)
     }
 
+    /// Ruling Q1: unsaved work always has a visible home. A note the caret has typed
+    /// into through an embed, and which no tab of this window shows, gets a tab — so
+    /// the dirty dot has somewhere to light, and a close or a quit owes it the ordinary
+    /// dirty-tab warning instead of a case of its own.
+    ///
+    /// The tab is added and then left unshown, and the note is put into it without
+    /// [`Workspace::load_note`]: the caret is in the middle of a word in the host, and
+    /// a load would move the keyboard, drop the popup and clear the search — three
+    /// things the user did not ask for because they never asked to *go* anywhere.
+    pub(super) fn materialise_embed_tabs(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some(editor) = self.pane().tabs[index].editor().cloned() else {
+            return;
+        };
+        let held: Vec<(PathBuf, Rc<crate::note::Note>)> =
+            editor.read_with(cx, |editor, _cx| editor.dirty_embeds());
+        let owed: Vec<PathBuf> = held
+            .into_iter()
+            .map(|(path, _)| path)
+            .filter(|path| self.tab_for_path_anywhere(path).is_none())
+            .collect();
+        if owed.is_empty() {
+            return;
+        }
+        let active = self.pane().active;
+        let notes = self.entries.clone();
+        for path in owed {
+            let Some(note) = self.note_entry(&path, cx) else {
+                continue;
+            };
+            let slot = self.add_tab(cx);
+            if let TabContent::Note {
+                path: tab_path,
+                editor,
+                ..
+            } = &mut self.pane_mut().tabs[slot].content
+            {
+                *tab_path = Some(path.clone());
+                editor.update(cx, |editor, cx| {
+                    editor.set_note(Rc::clone(&note), cx);
+                    editor.set_embed_context(Some(&path), notes.clone(), cx);
+                });
+            }
+            tracing::debug!(path = %path.display(), "embed given a tab (ruling Q1)");
+        }
+        // ...and the keyboard goes back where the typing is.
+        self.show_tab(active, cx);
+    }
+
+    /// The note the caret is inside, if it is inside one (roadmap P4.0b). The command
+    /// line asks, so that `:rename` follows the caret rather than the tab (ruling Q4).
+    pub(crate) fn caret_note(&self, cx: &mut Context<Self>) -> Option<PathBuf> {
+        self.pane()
+            .active_tab()
+            .editor()
+            .and_then(|editor| editor.read_with(cx, |editor, _cx| editor.entered_path()))
+    }
+
     /// Step a tab's editor into the embed that shows `path` (roadmap P4.0b).
     ///
     /// The request comes here rather than being answered inside the editor because
@@ -313,8 +370,15 @@ impl Workspace {
     /// points at.
     pub(crate) fn write_note_as(&mut self, name: &str, cx: &mut Context<Self>) {
         let index = self.pane().active;
-        if let Some(existing) = self.pane().tabs[index].path() {
-            let existing = existing.to_path_buf();
+        // Ruling Q4: inside an embed the note in hand is the embedded one, and it
+        // already has a name — so the refusal names *it*. `:w <name>` is not a way to
+        // clone a note by accident, whichever of the two the caret is in.
+        let existing = self.caret_note(cx).or_else(|| {
+            self.pane().tabs[index]
+                .path()
+                .map(|path| path.to_path_buf())
+        });
+        if let Some(existing) = existing {
             self.say(
                 format!(
                     "{} already has a name: `:w` writes it, `:rename` moves it",

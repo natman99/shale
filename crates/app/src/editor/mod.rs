@@ -606,6 +606,31 @@ impl MarkdownEditor {
         cx.notify();
     }
 
+    /// The note the caret is inside, if it is inside one. The command line asks,
+    /// because `:rename` follows the caret (ruling Q4).
+    pub(crate) fn entered_path(&self) -> Option<std::path::PathBuf> {
+        self.entered.as_ref().map(|embed| embed.path.clone())
+    }
+
+    /// The note being edited was renamed: the block is still the same note, so the
+    /// path it is reached through changes with it. Without this the next frame would
+    /// not recognise its own block and would throw the caret out of an embed the user
+    /// has just renamed — the opposite of what a rename means.
+    pub(crate) fn embed_renamed(&mut self, from: &std::path::Path, to: &std::path::Path) {
+        if let Some(embed) = &mut self.entered {
+            if embed.path == from {
+                embed.path = to.to_path_buf();
+            }
+        }
+        // And the write owed to it follows the file, rather than being written to a
+        // path that no longer exists.
+        for (path, _) in &mut self.touched {
+            if path == from {
+                *path = to.to_path_buf();
+            }
+        }
+    }
+
     pub(crate) fn is_entered(&self) -> bool {
         self.entered.is_some()
     }
@@ -981,6 +1006,16 @@ impl MarkdownEditor {
         // holds edits nobody has written, because closing that tab would leave them
         // nowhere (ruling 17).
         self.note.dirty.get() || self.touched.iter().any(|(_, n)| n.dirty.get())
+    }
+
+    /// Whether this note's *own* text is ahead of its file, ignoring embeds.
+    ///
+    /// The dot is transitive (ruling 17) and this is not. The question it answers is
+    /// "is the copy on disk for THIS file out of date?", which is what decides whether
+    /// Shale may write that file itself — an embed's unsaved edits say nothing about
+    /// the file they are embedded in.
+    pub(crate) fn own_text_is_dirty(&self) -> bool {
+        self.note.dirty.get()
     }
 
     /// The notes this view owes a write to beyond its own file: embedded notes the
