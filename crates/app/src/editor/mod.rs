@@ -136,13 +136,20 @@ pub struct MarkdownEditor {
     /// The editor's focus handle; the line element needs it to register input
     /// during paint, so it is crate-visible.
     pub(crate) focus_handle: FocusHandle,
-    /// The note's text, caret and undo history — shared, not owned.
+    /// The buffer the caret lives in — shared, not owned.
     ///
     /// From P4.0b the same note can be on screen twice at once: open in a tab
     /// and embedded in the note beside it. Two copies of the text would drift
     /// (and the second one's save would quietly throw away the first's edits),
     /// so a note has exactly one buffer per window and every view of it borrows
     /// this one. The registry that hands them out is `Workspace::notes` (P4.17).
+    ///
+    /// **This is the caret's buffer, not the note this tab is showing.** Those are
+    /// the same handle today and will come apart when an embed is entered (M3):
+    /// the caret moves into the embedded note while the tab keeps showing its own.
+    /// Anything that paints, wraps, folds, styles or saves the tab's note says
+    /// `self.note.buffer` instead — the split was drawn while both sides were the
+    /// same object, so it could be checked by the compiler rather than by memory.
     ///
     /// `RefCell` rather than a gpui `Entity` because the vim engine is handed
     /// `&mut Buffer` and the view's `ViewSlot` in the same call: through an
@@ -469,7 +476,7 @@ impl MarkdownEditor {
     }
 
     pub fn text(&self) -> String {
-        self.buffer.borrow().text().to_string()
+        self.note.buffer.borrow().text().to_string()
     }
 
     /// How many words the buffer holds, by [`shale_core::word_count`]: whitespace
@@ -480,7 +487,7 @@ impl MarkdownEditor {
     /// every frame. The same function backs `:wordcount`, so the badge and the
     /// command cannot disagree about a note that is saved.
     pub fn word_count(&self) -> usize {
-        shale_core::word_count(self.buffer.borrow().text())
+        shale_core::word_count(self.note.buffer.borrow().text())
     }
 
     /// The body text size the editor paints and measures with.
@@ -495,7 +502,7 @@ impl MarkdownEditor {
     }
 
     pub fn set_text(&mut self, text: String, cx: &mut Context<Self>) {
-        self.buffer.borrow_mut().set_text(text);
+        self.note.buffer.borrow_mut().set_text(text);
         self.note.dirty.set(false);
         // Another note, another layout: the break points were measured against the
         // text that was here, so they are meaningless until the next paint measures
@@ -508,7 +515,10 @@ impl MarkdownEditor {
         self.marks.clear();
         self.hits.clear();
         self.active_hit = None;
-        tracing::debug!(lines = self.buffer.borrow().line_count(), "editor set_text");
+        tracing::debug!(
+            lines = self.note.buffer.borrow().line_count(),
+            "editor set_text"
+        );
         cx.notify();
     }
 
@@ -667,7 +677,7 @@ impl MarkdownEditor {
     pub(crate) fn reveal_heading(&mut self, anchor: &str, cx: &mut Context<Self>) -> bool {
         // The scan borrows the text; the jump below moves the caret and repaints,
         // so the scan's answer has to be a plain value before either can happen.
-        let row = shale_core::transclude::heading_row(self.buffer.borrow().text(), anchor);
+        let row = shale_core::transclude::heading_row(self.note.buffer.borrow().text(), anchor);
         match row {
             Some(row) => {
                 self.reveal_line(row, cx);
@@ -706,12 +716,12 @@ impl MarkdownEditor {
     /// Buffer rows and wrapped display lines, for tests and diagnostics.
     #[cfg(test)]
     pub fn line_count(&self) -> usize {
-        self.buffer.borrow().line_count()
+        self.note.buffer.borrow().line_count()
     }
 
     #[cfg(test)]
     pub fn display_line_count(&self) -> usize {
-        self.buffer.borrow().display_line_count(&self.slot)
+        self.note.buffer.borrow().display_line_count(&self.slot)
     }
 
     /// The width soft wrap was computed against: the scroll container's bounds
@@ -790,8 +800,8 @@ impl MarkdownEditor {
     /// The byte ranges of the display lines the buffer currently models.
     #[cfg(test)]
     pub fn display_ranges(&self) -> Vec<(usize, usize)> {
-        (0..self.buffer.borrow().display_line_count(&self.slot))
-            .filter_map(|i| self.buffer.borrow().display_range(&self.slot, i))
+        (0..self.note.buffer.borrow().display_line_count(&self.slot))
+            .filter_map(|i| self.note.buffer.borrow().display_range(&self.slot, i))
             .collect()
     }
 
@@ -1054,7 +1064,7 @@ impl MarkdownEditor {
     /// any link lookup or paint, since the buffer may have changed since the
     /// last call.
     fn refresh_links(&mut self) {
-        self.links = extract_wikilinks(self.buffer.borrow().text());
+        self.links = extract_wikilinks(self.note.buffer.borrow().text());
     }
 
     // ----- markdown styling ---------------------------------------------
@@ -1062,7 +1072,7 @@ impl MarkdownEditor {
     /// Recompute the markdown style spans unless the buffer changed since the
     /// last paint. Called once per frame, before wrapping and painting.
     fn refresh_styles(&mut self) {
-        let change_id = self.buffer.borrow().change_id();
+        let change_id = self.note.buffer.borrow().change_id();
         if self
             .style_cache
             .as_ref()
@@ -1070,7 +1080,7 @@ impl MarkdownEditor {
         {
             return;
         }
-        let spans = style_spans(self.buffer.borrow().text());
+        let spans = style_spans(self.note.buffer.borrow().text());
         self.style_cache = Some((change_id, spans));
     }
 
@@ -1079,7 +1089,7 @@ impl MarkdownEditor {
     /// [`Self::refresh_styles`], because the scan needs the style spans to know
     /// which runs are code and so must not answer for them.
     fn refresh_quotes(&mut self) {
-        let change_id = self.buffer.borrow().change_id();
+        let change_id = self.note.buffer.borrow().change_id();
         if self
             .quote_cache
             .as_ref()
@@ -1092,7 +1102,7 @@ impl MarkdownEditor {
         // straight quotes, only the glyphs change.
         let subs = match (self.view, self.style_cache.as_ref()) {
             (View::Raw, _) | (_, None) => Vec::new(),
-            (_, Some((_, spans))) => quotes::marks(self.buffer.borrow().text(), spans)
+            (_, Some((_, spans))) => quotes::marks(self.note.buffer.borrow().text(), spans)
                 .iter()
                 .map(|mark| (mark.offset, mark.glyph()))
                 .collect(),
@@ -1107,10 +1117,10 @@ impl MarkdownEditor {
         let Some((_, subs)) = self.quote_cache.as_ref() else {
             return Vec::new();
         };
-        let mut out = Vec::with_capacity(self.buffer.borrow().line_count());
+        let mut out = Vec::with_capacity(self.note.buffer.borrow().line_count());
         let mut at = 0usize;
-        for row in 0..self.buffer.borrow().line_count() {
-            let end = self.buffer.borrow().line_end(row);
+        for row in 0..self.note.buffer.borrow().line_count() {
+            let end = self.note.buffer.borrow().line_end(row);
             let stop = at + subs[at..].partition_point(|&(offset, _)| offset < end);
             out.push(subs[at..stop].to_vec());
             at = stop;

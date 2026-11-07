@@ -60,14 +60,14 @@ impl Render for MarkdownEditor {
             Mode::Normal => "vim-normal",
         };
 
-        let line_count = self.buffer.borrow().line_count();
-        let cursor = self.buffer.borrow().cursor();
+        let line_count = self.note.buffer.borrow().line_count();
+        let cursor = self.note.buffer.borrow().cursor();
         // In visual mode the buffer keeps (anchor, head) with the head *on* the
         // last selected character, so the painted range comes from the engine,
         // which knows whether the selection is charwise or linewise.
         let selection = match self.vim.mode() {
-            Mode::Visual | Mode::VisualLine => self.vim.selection_range(&self.buffer.borrow()),
-            _ => self.buffer.borrow().selection(),
+            Mode::Visual | Mode::VisualLine => self.vim.selection_range(&self.note.buffer.borrow()),
+            _ => self.note.buffer.borrow().selection(),
         };
         self.refresh_links();
         self.refresh_styles();
@@ -89,7 +89,7 @@ impl Render for MarkdownEditor {
         let buffer_tables = if self.view == View::Raw {
             Vec::new()
         } else {
-            shale_core::table::tables(self.buffer.borrow().text())
+            shale_core::table::tables(self.note.buffer.borrow().text())
         };
         // Rows live preview leaves out entirely: the fence lines of a code block
         // the cursor is not in, and a table's delimiter row (unless the cursor is
@@ -100,14 +100,14 @@ impl Render for MarkdownEditor {
         // Folding: a closed section's rows take no display line at all, exactly
         // like a hidden fence line, which is what keeps j/k, the ruler and the
         // scroll position in step with what is on screen. The text is untouched.
-        let folds = self.buffer.borrow_mut().fold_view(&mut self.slot);
+        let folds = self.note.buffer.borrow_mut().fold_view(&mut self.slot);
         for (row, hidden) in collapsed.iter_mut().enumerate() {
             if folds.collapsed.get(row).is_some_and(|c| *c) {
                 *hidden = true;
             }
         }
         let plans = table_view::plans_by_row(
-            self.buffer.borrow().text(),
+            self.note.buffer.borrow().text(),
             &buffer_tables,
             line_count,
             &collapsed,
@@ -121,7 +121,7 @@ impl Render for MarkdownEditor {
         let image_plans: Vec<Option<image::ImagePlan>> = match self.vault.as_ref() {
             // Raw mode shows an embed's source and never the picture.
             Some(vault) if self.view != View::Raw => {
-                image::plans_by_row(self.buffer.borrow().text(), vault, &self.attachments)
+                image::plans_by_row(self.note.buffer.borrow().text(), vault, &self.attachments)
             }
             _ => Vec::new(),
         };
@@ -179,13 +179,17 @@ impl Render for MarkdownEditor {
         // frame's text, so a hunk that no longer fits the note is simply not here — the
         // strip still lists it, badged stale.
         let frame = self.frame(&display_lines);
-        let cursor_display = self.buffer.borrow().display_index_for(&self.slot, cursor);
+        let cursor_display = self
+            .note
+            .buffer
+            .borrow()
+            .display_index_for(&self.slot, cursor);
         // Focus mode: one alpha per buffer row, measured from the block (or the
         // heading section) the cursor is in. Raw mode is the file as it sits on
         // disk, so it never fades anything.
         let alphas = if self.focus && self.view != View::Raw {
             dim::row_alphas(
-                self.buffer.borrow().text(),
+                self.note.buffer.borrow().text(),
                 self.all_spans(),
                 cursor,
                 self.focus_scope,
@@ -576,13 +580,17 @@ impl Render for MarkdownEditor {
                             }
                         } else if table.is_some() {
                             LineLayout {
-                                text: self.buffer.borrow().text()[dl.start..dl.end]
+                                text: self.note.buffer.borrow().text()[dl.start..dl.end]
                                     .to_string()
                                     .into(),
                                 map: PieceMap::identity(dl.start, dl.end),
                             }
                         } else {
-                            LineLayout::build(self.buffer.borrow().text(), &line_pieces, &line_subs)
+                            LineLayout::build(
+                                self.note.buffer.borrow().text(),
+                                &line_pieces,
+                                &line_subs,
+                            )
                         };
 
                         // Selection restricted to this display line, as indices
@@ -663,7 +671,7 @@ impl Render for MarkdownEditor {
                             .copied()
                             .unwrap_or_default()
                             .callout_head
-                            && dl.start == self.buffer.borrow().line_start(dl.row);
+                            && dl.start == self.note.buffer.borrow().line_start(dl.row);
                         // How much of this line's colour survives. A row the
                         // dimming system does not mention is drawn in full.
                         let dim = alphas.get(dl.row).copied().unwrap_or(1.0);
@@ -676,7 +684,7 @@ impl Render for MarkdownEditor {
                             .get(dl.row)
                             .copied()
                             .flatten()
-                            .filter(|_| dl.end == self.buffer.borrow().line_end(dl.row));
+                            .filter(|_| dl.end == self.note.buffer.borrow().line_end(dl.row));
                         // An embedded image makes its display line as tall as the
                         // picture; every other line follows its text size.
                         let height = image

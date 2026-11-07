@@ -85,7 +85,7 @@ impl MarkdownEditor {
     /// the syntax of everything else, and the same rule decides whether a
     /// collapsed row (a fence line, a table's delimiter) comes back.
     fn touches(&self, selection: Option<(usize, usize)>, start: usize, end: usize) -> bool {
-        let cursor = self.buffer.borrow().cursor();
+        let cursor = self.note.buffer.borrow().cursor();
         (cursor >= start && cursor <= end)
             || selection
                 .map(|(a, h)| a.max(h) >= start && a.min(h) <= end)
@@ -95,12 +95,12 @@ impl MarkdownEditor {
     /// those exactly as the file holds them — markers, fence lines, image
     /// sources — and every other row as its reader sees it.
     pub(super) fn active_rows(&self, selection: Option<(usize, usize)>) -> Vec<bool> {
-        (0..self.buffer.borrow().line_count())
+        (0..self.note.buffer.borrow().line_count())
             .map(|row| {
                 self.touches(
                     selection,
-                    self.buffer.borrow().line_start(row),
-                    self.buffer.borrow().line_end(row),
+                    self.note.buffer.borrow().line_start(row),
+                    self.note.buffer.borrow().line_end(row),
                 )
             })
             .collect()
@@ -114,7 +114,7 @@ impl MarkdownEditor {
         &self,
         selection: Option<(usize, usize)>,
     ) -> Vec<Vec<(usize, usize)>> {
-        let line_count = self.buffer.borrow().line_count();
+        let line_count = self.note.buffer.borrow().line_count();
         let Some((_, spans)) = self.style_cache.as_ref() else {
             return vec![Vec::new(); line_count];
         };
@@ -132,8 +132,8 @@ impl MarkdownEditor {
         // spans that touch each row.
         let mut first = 0usize;
         for (row, is_active) in active.iter().enumerate() {
-            let row_start = self.buffer.borrow().line_start(row);
-            let row_end = self.buffer.borrow().line_end(row);
+            let row_start = self.note.buffer.borrow().line_start(row);
+            let row_end = self.note.buffer.borrow().line_end(row);
             if *is_active {
                 out.push(Vec::new());
                 continue;
@@ -147,7 +147,7 @@ impl MarkdownEditor {
                 .copied()
                 .collect();
             out.push(mdlayout::hidden_ranges(
-                self.buffer.borrow().text(),
+                self.note.buffer.borrow().text(),
                 &touching,
                 row_start,
                 row_end,
@@ -159,11 +159,11 @@ impl MarkdownEditor {
     /// The visible pieces of every buffer row: the row minus its hidden markers.
     /// A row with nothing hidden is one piece, painted as the buffer holds it.
     pub(super) fn row_pieces(&self, hidden: &[Vec<(usize, usize)>]) -> Vec<Vec<(usize, usize)>> {
-        (0..self.buffer.borrow().line_count())
+        (0..self.note.buffer.borrow().line_count())
             .map(|row| {
                 mdlayout::visible_pieces(
-                    self.buffer.borrow().line_start(row),
-                    self.buffer.borrow().line_end(row),
+                    self.note.buffer.borrow().line_start(row),
+                    self.note.buffer.borrow().line_end(row),
                     hidden.get(row).map(|h| h.as_slice()).unwrap_or(&[]),
                 )
             })
@@ -173,7 +173,7 @@ impl MarkdownEditor {
     /// style spans in one pass (spans and rows are both in offset order, so a
     /// single forward walk is enough).
     pub(super) fn row_styles(&self) -> Vec<RowStyle> {
-        let line_count = self.buffer.borrow().line_count();
+        let line_count = self.note.buffer.borrow().line_count();
         let mut rows = vec![RowStyle::default(); line_count];
         // Raw mode paints every row as ordinary text: no heading sizes, no
         // code-block background, no rule across a thematic break, no callout box.
@@ -188,7 +188,7 @@ impl MarkdownEditor {
         };
         let mut row = 0usize;
         for span in spans {
-            while row < line_count && self.buffer.borrow().line_end(row) <= span.start {
+            while row < line_count && self.note.buffer.borrow().line_end(row) <= span.start {
                 row += 1;
             }
             let style = theme::RunStyle::for_style(span.style, &self.palette);
@@ -209,7 +209,7 @@ impl MarkdownEditor {
             // span is the one row the callout mark belongs to.
             let callout_head = matches!(span.style, Style::CalloutTitle { .. });
             let mut r = row;
-            while r < line_count && self.buffer.borrow().line_start(r) < span.end {
+            while r < line_count && self.note.buffer.borrow().line_start(r) < span.end {
                 let row = &mut rows[r];
                 row.wide |= wide;
                 row.heading = row.heading.max(heading);
@@ -239,7 +239,7 @@ impl MarkdownEditor {
         selection: Option<(usize, usize)>,
         tables: &[Table],
     ) -> Vec<bool> {
-        let line_count = self.buffer.borrow().line_count();
+        let line_count = self.note.buffer.borrow().line_count();
         let mut out = vec![false; line_count];
         for table in tables {
             let row = match table.rows.get(table.delimiter) {
@@ -272,7 +272,7 @@ impl MarkdownEditor {
         let mut row = 0usize;
         let mut open: Option<usize> = None;
         for span in spans {
-            while row < line_count && self.buffer.borrow().line_end(row) <= span.start {
+            while row < line_count && self.note.buffer.borrow().line_end(row) <= span.start {
                 row += 1;
             }
             if span.style != Style::CodeFence {
@@ -283,8 +283,8 @@ impl MarkdownEditor {
                 Some(first) => {
                     if !self.touches(
                         selection,
-                        self.buffer.borrow().line_start(first),
-                        self.buffer.borrow().line_end(row),
+                        self.note.buffer.borrow().line_start(first),
+                        self.note.buffer.borrow().line_end(row),
                     ) {
                         out[first] = true;
                         out[row] = true;
@@ -296,8 +296,8 @@ impl MarkdownEditor {
             let last = line_count - 1;
             if !self.touches(
                 selection,
-                self.buffer.borrow().line_start(first),
-                self.buffer.borrow().line_end(last),
+                self.note.buffer.borrow().line_start(first),
+                self.note.buffer.borrow().line_end(last),
             ) {
                 out[first] = true;
             }
@@ -327,8 +327,8 @@ impl MarkdownEditor {
         paint: &[RowPaint],
         collapsed: &[bool],
     ) -> Vec<DisplayLine> {
-        let line_count = self.buffer.borrow().line_count();
-        let change_id = self.buffer.borrow().change_id();
+        let line_count = self.note.buffer.borrow().line_count();
+        let change_id = self.note.buffer.borrow().change_id();
         let cached = self
             .wrap_cache
             .as_ref()
@@ -338,8 +338,8 @@ impl MarkdownEditor {
         let mut segments: Vec<Vec<usize>> = Vec::with_capacity(line_count);
         let mut measured: Vec<CachedRow> = Vec::with_capacity(line_count);
         for row in 0..line_count {
-            let row_start = self.buffer.borrow().line_start(row);
-            let row_end = self.buffer.borrow().line_end(row);
+            let row_start = self.note.buffer.borrow().line_start(row);
+            let row_end = self.note.buffer.borrow().line_end(row);
             let mut starts = vec![row_start];
             let row_paint = paint.get(row).cloned().unwrap_or_default();
             // Whether this row is painted with its markers hidden or its quotes
@@ -389,7 +389,7 @@ impl MarkdownEditor {
                 // The wrapper sees the painted text, and its break points are
                 // mapped back onto buffer offsets through the same map.
                 let map = PieceMap::with_substitutions(&row_paint.pieces, &row_paint.subs);
-                let visible = map.painted_text(self.buffer.borrow().text());
+                let visible = map.painted_text(self.note.buffer.borrow().text());
                 let row_style = rows.get(row).copied().unwrap_or_default();
                 let wrapper = &mut wrappers[wrapper_index(row_style)];
                 for boundary in wrapper.wrap_line(
@@ -420,7 +420,7 @@ impl MarkdownEditor {
         self.slot.set_segments(segments.clone());
         let mut out = Vec::new();
         for (row, starts) in segments.iter().enumerate() {
-            let row_end = self.buffer.borrow().line_end(row);
+            let row_end = self.note.buffer.borrow().line_end(row);
             let size = theme::font_size(
                 rows.get(row).copied().unwrap_or_default().heading,
                 self.font_size,
