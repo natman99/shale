@@ -1053,8 +1053,10 @@ edges, query nodes, MCP canvas tools) is P6.10.
     then the parity work the caret made necessary: the gutter dirty dot on a new extensible
     `GutterMark` path, links and the checker following the caret, a panel anchored inside a
     block that no longer strands the keyboard (`LineRef`), live preview inside the block, and
-    raw mode stepping out of one. **Owed:** soft-wrap for the block's rows, the fold
-    disclosure glyph on the `GutterMark` path, and click-to-open on a read-only embed.
+    raw mode stepping out of one, and soft-wrap for the block's rows (a wrapped row is
+    several elements over one buffer row, each with a slice of the row's `PieceMap`, so a
+    click on the tail still answers with the byte under it). **Owed:** the fold disclosure
+    glyph on the `GutterMark` path, and click-to-open on a read-only embed.
     **Interaction design pass done 2026-11-06** — rulings,
     a 36-case edge ledger and milestones M0-M4 are in `transclusion-plan.md`; **all eight
     open questions were ruled the same day** (Q1-Q8, §7). Behavior was already ruled (undo buffer-local

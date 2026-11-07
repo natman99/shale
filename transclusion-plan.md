@@ -399,6 +399,16 @@ nothing (a `gd` that does nothing) or a squiggle on the wrong note.
   into a missing one. The trap is general — anything that focuses an entity which may not
   be in the tree kills the whole window, not just that entity.
 
+- **Ruling: a block's rows wrap, and a wrapped row is several elements over one buffer
+  row.** A block has no viewport of its own (ruling 12), so an over-long row used to leave
+  the frame with no way back. `embeds::wrap_body` measures each painted row with the note's
+  own wrappers and hands back painted-index ranges; each range becomes its own element, and
+  for the entered block that element gets `PieceMap::slice` of the row's map so the note
+  offsets stay absolute — a click on the tail answers with the byte under it, and the caret
+  belongs to the piece that holds it (a boundary goes to the later piece, except at the end
+  of the row). The rule for anything attached to a row: it goes on the **first piece**. The
+  gutter dot, the block's rule, a callout mark — a row that wraps is still one row.
+
 - **Ruling: a view that stops drawing a block also stops the caret living in one.** Raw
   mode draws the `![[…]]` line and no body, so `:raw` inside an embed exits it in the same
   keystroke — the alternative is a position with nothing under it, escapable only by a key
