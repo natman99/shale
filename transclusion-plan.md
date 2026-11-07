@@ -224,6 +224,70 @@ entered block's rows real enough to hold a caret.
 need), `ctrl-]` recording a jump, `ctrl-o` leaving, the seam header naming the note, the
 status bar and ruler following the caret's note.
 
+**How M3's rows get built (measured 2026-11-07, before writing any of it).** The entered
+block's rows have to be real enough to hold a caret, and there are two ways to do that.
+
+*(a) the plan's wording — the display list spans buffers.* `ViewSlot.segments` becomes a
+list of `(buffer, row)` pairs and every display-index-shaped thing (motions, wrap, folds,
+`display_index_for`, the ruler, scroll-to-item) learns the tag. One index space, which is
+what makes `ensure_cursor_visible` and typewriter scroll fall out. Cost: the editor holds
+129 `self.buffer` sites (`actions` 38, `mod` 32, `wrap` 26, `render` 14, `input` 13,
+`overlay` 6), and each has to be read once to decide whether it means "the caret's
+buffer" or "the note this tab is showing" — the split is real and it is the whole job.
+
+*(b) the active buffer.* `self.buffer` becomes the caret's buffer and `self.note.buffer`
+stays the tab's note; the host keeps painting its own rows and the entered block is
+painted from the other buffer. Cheaper, and the seam comes free (every motion is
+buffer-scoped, so it already stops at the edge). What it breaks is the index space: the
+scroller's items are the host's line divs, so a caret on an embed row has no item to
+scroll to, and `bounds_for_item`, `reveal_line` and typewriter scroll all ask for one.
+
+**Recommendation: (b) for the caret, and *no change at all* to the scroller's item
+space.** The host's whole display model keeps answering for the host alone: `j`/`k`,
+folds, the ruler and search are ruled to stop at the seam, so a display list that already
+contained the embed's rows would make them *wrong* and every buffer-scoped motion would
+need a new clamp. Under (b) they are right by construction.
+
+The scroller question looks like it needs (a), and does not. Measured against gpui
+(v1.25.3, `elements/div.rs:1990-2000`): `ScrollHandle::child_bounds` is filled from the
+tracked div's **direct children, positionally**, and `scroll_to_item(i)` /
+`bounds_for_item(i)` index that array. The editor's scroller has exactly one direct child
+per display line (`render.rs:759/762`, `div().id(("line", index))`), which is why display
+index and child index coincide today — and why promoting an embed row to a direct child
+would shift every later index and break `j`/`k` centring, `ensure_cursor_visible` and the
+ruler at once. Phantom rows already sit *inside* the wrapper, so they add height to
+`child_bounds[index]` without adding an index. That is the shape to keep: **the scroll
+target of a caret inside an entered embed is the host line the embed hangs off.** Which
+is not a compromise — the ruling is "the host scrolls; the embed never has its own
+viewport", so scrolling to the anchor row is exactly the behaviour.
+
+What (b) does need is a second record beside `HitLine`, because `HitLine` cannot carry
+it: `start`/`end` are host byte offsets, and both `x_for_offset` and `offset_for_x`
+clamp to them (`line/mod.rs:146-186`). The seam's rows get their own hit record — the
+`PhantomHit { bounds, origin }` that landed in M2b is its first form — and the entered
+block's rows extend it with the byte range *in the other buffer* that the record maps
+between. `BlockLine.origin` already carries the address down to the paint; what is
+missing is the painted-text-to-buffer-offset map for those rows, which
+`embeds::paint_body` already builds internally (`PaintedRow`'s spans are rebased through
+a `PieceMap` over the joined body) and simply does not return.
+
+Two ordering facts the map settled, both easy to get wrong:
+- **A click in a phantom band is not currently inert.** The y-scan in `input.rs:26-35`
+  falls through to "the last line whose top is at or above y", so clicking an embed body
+  today moves the host caret to the row above the embed and writes a host byte
+  (`input.rs:74-75`). `origin_at` therefore has to be consulted *before* that scan, not
+  as a fallback after it.
+- **The caret cannot reach a phantom row by accident.** `cursor_col` is set only when
+  `cursor_display == index` (`render.rs:600`), and `cursor_display` comes from the host
+  buffer's display model. So "only the entered block paints a caret" (ruling 14) is not a
+  rule to defend — it is what happens unless the entered block's rows are explicitly
+  handed a `cursor_col`. The work is the affirmative half.
+- **One input handler per frame, claimed by the first `LineElement` that paints**
+  (`line/mod.rs:652-667`), bound to that element's bounds and to the editor entity. The
+  entered block's rows are `LineElement`s too, so they must not claim it a second time —
+  the flag is reset per frame at `render.rs:55`, and the first claimant is already the
+  host's first line.
+
 **M4 — the save story.** Transitive dirty dot, `:w` writing host + embeds, the close
 warning enumerating dirty embeds, autosave covering them, and a partial write failure
 naming which note wrote.
