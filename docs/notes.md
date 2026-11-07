@@ -86,7 +86,7 @@ Wiki-links resolve against the vault:
 [[Another Note]]              # by name
 [[notes/Another Note]]        # by path
 [[another note|Aliased]]      # with an alias
-[[Another Note#A heading]]    # a heading anchor (understood, not jumped to yet)
+[[Another Note#A heading]]    # a heading anchor (`gd` lands on that heading)
 ```
 
 Resolution tries the exact path, then the exact path with `.md` added, then the
@@ -100,9 +100,48 @@ note `gD` creates lands **beside the note you are in** — a link written from a
 folder is meant to live in that folder — unless the link spells a path, which is
 honoured exactly.
 
+An anchor is matched case-insensitively against the heading text. A heading that
+has gone missing opens the note at the top and the status bar says which heading it
+could not find, rather than dropping you somewhere plausible.
+
 Backlinks are computed (the index keeps them, and the graph draws them), and an
 agent can ask for them with the `backlinks` MCP tool. There is no backlinks panel
 in the window yet.
+
+## Embedding another note
+
+A line that is nothing but an embed shows the other note inside this one:
+
+```markdown
+![[Another Note]]              # the whole note
+![[Another Note#A heading]]    # one section of it
+```
+
+The body is live, not a screenshot: it re-renders when either note changes, and it
+is styled by the source note's own markdown. A section that no longer exists shows
+a badge naming what is missing instead of showing nothing. Embeds nest, with a cap;
+past the cap a block shows the name it would have expanded and nothing else.
+
+**The block is editable, one level at a time.** Click inside the body, or put the
+cursor on the `![[…]]` line and press `ctrl-]`. `ctrl-o` comes back out, and so does
+clicking the host's own text; `escape` never does, because `escape` belongs to
+whatever command you were halfway through typing. Only the block the cursor is in
+takes edits — the same note embedded twice shows the second copy as a view. `gd` on
+the `![[…]]` line is a different door: it opens the embedded note in the tab you are
+in, the way it does for any other link, and `ctrl-o` walks back.
+
+**The seam is a buffer boundary, and everything buffer-scoped stops there.** `w`,
+`$`, `0`, `gg` and `G` stop at the edge of the block, and `/` searches the note you
+are in rather than what is embedded in it. There is one scroll bar — the host's; the
+block has no viewport of its own.
+
+Editing an embedded note is editing that note. Its tab's dirty dot lights even when
+the cursor is three rows inside the host, `:w` writes host and embed together, and a
+note you have typed into that has no tab of its own gets one. `:rename` follows the
+cursor, so it renames the note you are actually standing in, and `:w newname` refuses
+inside an embed because it would clone one. Raw mode draws the `![[…]]` line and no
+body, so `:raw` steps you out of the block instead of leaving the cursor on text that
+has stopped being drawn.
 
 ## Finding things
 

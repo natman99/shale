@@ -129,6 +129,14 @@ opens the note anyway and says `no heading "The Fall" in morgoth` in the status 
 the note is almost certainly the right destination, and refusing the jump would leave
 you with nothing for a link one rename away from working.
 
+**Embeds.** `ctrl-]` on a `![[…]]` line steps into the block, which edits the other
+note where it stands; clicking inside the body is the same door. `ctrl-o` steps back
+out, and so does clicking the host's own text — `escape` never does, because it
+belongs to whatever command you were halfway through typing. The seam is a buffer
+boundary: motions stop at it, `/` does not search inside a block, and there is one
+scroll bar, the host's. `gd` on the `![[…]]` line is a different door on purpose: it
+opens the embedded note in this tab, the way it does for any other link.
+
 **Tabs.** `gt` / `gT` walk the tab bar (wrapping). `gf` is quick-open, like
 `space f`.
 

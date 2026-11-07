@@ -49,14 +49,15 @@ and live MCP per vault), per-window session slots, and remembered window frames
 exit path was re-measured clean (PROGRESS.md, 2026-11-04). Still unbuilt from
 the original Goals list: Database tables/Obsidian-bases (P4.3 `.shq`), PDF
 export, Templates, tree-sitter code highlighting.
-**What is being built now (2026-11-06): P4.0a, read-only transclusion** (mostly landed;
-its P4.0b design pass is also done — `transclusion-plan.md` — and if P4.0b is picked up,
-**P4.17, the buffer registry, is its first commit**) — the first
-Phase 4 item, chosen because P4.3, P5 and canvas C3 all wait on that resolver and
-because P2.5b's phantom rows already solved the hard rendering problem it shares
-(content painted inside a note that is not in the note's buffer). P3.2's
-move/exchange/rotate and `:pin` remain open and are the cheap alternative if a
-session wants a small, low-risk win.
+**What is being built now (2026-11-07): P4.0, transclusion — the editable half.** P4.0a
+(read-only embeds) shipped on 2026-11-06, and **P4.0b — editing inside an embed — is
+built through M4**: the buffer registry that made it possible (P4.17), entering with
+`ctrl-]` or a click, the seam, per-note dirty state and the save story, links and the
+checker following the caret, live preview inside the block. What is left there is small
+and known: soft-wrap for the block's rows, the fold glyph on the new gutter path,
+click-to-open on a read-only embed, and the hover card. P3.2's move/exchange/rotate and
+`:pin` remain open and are the cheap alternative if a session wants a small, low-risk
+win.
 
 **Plan audit (2026-11-05).** Every ruled design in `brainstorm.md` was checked against
 the roadmap's items and the code. The finding: **the roadmap had been losing features
@@ -1015,14 +1016,18 @@ edges, query nodes, MCP canvas tools) is P6.10.
     which was the same inconsistency one level down: a hidden `#` at body size still
     reads wrong. The scan runs over the whole body at once and is cut per row, because a
     fence that opens on one row and closes on another is invisible to a per-row scan.
-    An embed's rows always hide their markers: the live-preview rule is "hide unless the
-    cursor is on this row", and until P4.0b nothing can put a cursor on one.
-    **What is left in this item, in the order they bite:**
-    1. **`gd` on an embed** jumps into the embedded note, and `gd` on a wikilink
-       *inside* an embed jumps to that link. Needs a hit-test from a phantom row
-       back to the body row under it.
-    2. Click-to-open and the hover preview card (P6.2's embed case).
-    3. `![[query-name]]` for `.shq` results waits on P4.3; block refs (`^abc`) on P4.9.
+    An embed's rows hid their markers unconditionally, which was the right rule while
+    nothing could put a cursor on one; since P4.0b landed, the block being edited follows
+    the live-preview rule — the cursor's row and any selected row keep theirs, and the rest
+    of the block reads rendered.
+    **Closed since:** a hit-test from a phantom row back to the body row under it exists
+    (`PhantomHit`, `transclude::Origin`), and `gd` on a wiki-link *inside* the block being
+    edited follows that link, because the link list follows the caret. `gd` on the host's
+    `![[…]]` line opens the embedded note in the tab, which is what a link does; `ctrl-]`
+    is the door that edits in place.
+    **What is left in this item:**
+    1. Click-to-open on a read-only embed, and the hover preview card (P6.2's embed case).
+    2. `![[query-name]]` for `.shq` results waits on P4.3; block refs (`^abc`) on P4.9.
     Original framing: `![[note]]` and
     `![[note#heading]]` resolve through the existing link resolver and paint the
     target's lines inside the host; the host's buffer is untouched, the embed is a
@@ -1035,10 +1040,22 @@ edges, query nodes, MCP canvas tools) is P6.10.
     call at paint time, the nesting cap, and the source's markdown styling.
     The nesting cap is **binding**: 1 editable + 2 read-only = 3 levels deep,
     deeper embeds render as a name badge
-    (clickable, no content). `gd` on an embed jumps into the embedded note; `gd` with
-    the cursor on a wikilink *inside* an embed jumps to that link. This half alone
+    (clickable, no content). This half alone
     unblocks `![[query-name]]` in P4.3 and the embed case of P6.2.
-  - **P4.0b editable in place.** **Interaction design pass done 2026-11-06** — rulings,
+  - **P4.0b editable in place — built through M4 (2026-11-07).** What landed: **M0/M0b**
+    (the per-view trio — segments, folds, `read_only` — lifted into `core::buffer::ViewSlot`),
+    **P4.17 steps 1-2** (the per-window note registry, `Rc<RefCell<Buffer>>` shared by tabs and
+    embeds, `dirty` on the registry entry, `read_only` per view), **M2** (`transclude::Origin`,
+    the `Sources` trait, the anchored section cut as row/line pairs, `PhantomHit`), **M3a/M3b**
+    (enter with `ctrl-]` or a click, exit with `ctrl-o`; the caret's buffer split from the tab's;
+    the block's own hit space; host-owned scrolling), **M4** (the save story: `touched`,
+    transitive dirty dot, `:w` writing host and embed, Q1's materialised tab, Q3/Q4/Q5), and
+    then the parity work the caret made necessary: the gutter dirty dot on a new extensible
+    `GutterMark` path, links and the checker following the caret, a panel anchored inside a
+    block that no longer strands the keyboard (`LineRef`), live preview inside the block, and
+    raw mode stepping out of one. **Owed:** soft-wrap for the block's rows, the fold
+    disclosure glyph on the `GutterMark` path, and click-to-open on a read-only embed.
+    **Interaction design pass done 2026-11-06** — rulings,
     a 36-case edge ledger and milestones M0-M4 are in `transclusion-plan.md`; **all eight
     open questions were ruled the same day** (Q1-Q8, §7). Behavior was already ruled (undo buffer-local
     with a seam indicator; per-note dirty state; save/autosave covering host + embeds;

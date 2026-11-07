@@ -714,6 +714,42 @@ fn raw_mode_shows_the_embed_line_and_no_body(cx: &mut TestAppContext) {
     );
 }
 
+/// `gd` on the `![[…]]` line and `ctrl-]` are different doors on purpose: `gd` is
+/// "take me to that note" — the same thing it does to any other link, so the tab
+/// turns into the embedded note and `ctrl-o` walks back — and `ctrl-]` is "let me
+/// write in it here".
+#[gpui::test]
+fn gd_on_the_embed_line_opens_a_tab_instead_of_editing_in_place(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(
+        cx,
+        &[("host.md", "![[gift]]\n"), ("gift.md", "embedded body\n")],
+    );
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show_at(&mut cx, &window, "host.md");
+    cx.simulate_keystrokes("g d");
+    window
+        .update(&mut cx, |ws, _window, cx| {
+            assert_eq!(ws.caret_text(cx), "embedded body\n", "gd went there");
+            assert_eq!(
+                ws.tab_paths(cx)
+                    .iter()
+                    .map(|(p, _)| p.clone())
+                    .collect::<Vec<_>>(),
+                vec![Some(PathBuf::from("gift.md"))],
+                "in the tab that was showing the host, which is what a link does"
+            );
+        })
+        .unwrap();
+    cx.simulate_keystrokes("ctrl-o");
+    assert_eq!(
+        window
+            .update(&mut cx, |ws, _window, cx| ws.caret_text(cx))
+            .unwrap(),
+        "![[gift]]\n",
+        "and the host is one `ctrl-o` away, the same as any other jump"
+    );
+}
+
 /// Raw mode draws the `![[…]]` line and no body, so a caret inside a block has to
 /// come out with the mode. Left in, it sits inside something the frame refuses to
 /// paint: nothing on screen says where it is, and nothing can be done to what it is
