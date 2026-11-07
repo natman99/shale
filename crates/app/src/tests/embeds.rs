@@ -228,6 +228,77 @@ fn typing_in_an_embed_dirties_the_embedded_note(cx: &mut TestAppContext) {
     );
 }
 
+/// Once the caret is inside, the block stops being a picture: its rows are painted
+/// as line elements over the embedded note's buffer, each answering with a row of
+/// *that* note. Before entering there are none — the same rows are phantom then.
+#[gpui::test]
+fn an_entered_block_is_painted_as_rows_of_the_embedded_note(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("host.md", HOST), ("gift.md", GIFT)]);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show_at(&mut cx, &window, "host.md");
+    assert_eq!(
+        window
+            .update(&mut cx, |ws, _w, cx| ws.embed_rows(cx))
+            .unwrap(),
+        Vec::new(),
+        "read-only, the body is a picture"
+    );
+    cx.simulate_keystrokes("j ctrl-]");
+    let bands = window
+        .update(&mut cx, |ws, _w, cx| ws.embed_rows(cx))
+        .unwrap();
+    assert_eq!(
+        bands.iter().map(|(row, ..)| *row).collect::<Vec<_>>(),
+        vec![0, 1],
+        "the two rows of gift.md, addressed in gift.md"
+    );
+    assert_eq!(
+        rows(&window, &mut cx),
+        4,
+        "and the host's display model still counts only its own lines"
+    );
+}
+
+/// A click inside the block being edited is an ordinary click in a note: it lands on
+/// the character under the pointer, in the embedded buffer — not at the row's start,
+/// which is where entering by keyboard puts the caret.
+#[gpui::test]
+fn a_click_inside_the_entered_block_lands_where_it_was_pointed(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("host.md", HOST), ("gift.md", GIFT)]);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show_at(&mut cx, &window, "host.md");
+    cx.simulate_keystrokes("j ctrl-]");
+    assert_eq!(
+        window
+            .update(&mut cx, |ws, _w, cx| ws.cursor_position(cx))
+            .unwrap(),
+        (0, 0),
+        "entering lands at the start of the first shown row"
+    );
+    let band = window
+        .update(&mut cx, |ws, _w, cx| ws.embed_rows(cx))
+        .unwrap()
+        .into_iter()
+        .find(|(row, ..)| *row == 1)
+        .expect("gift.md's second row is painted as a real line");
+    let (_, left, top, bottom) = band;
+    cx.simulate_click(
+        gpui::point(gpui::px(left + 18.0), gpui::px((top + bottom) / 2.0)),
+        gpui::Modifiers::default(),
+    );
+    let (line, col) = window
+        .update(&mut cx, |ws, _w, cx| ws.cursor_position(cx))
+        .unwrap();
+    assert_eq!(
+        line, 1,
+        "the click moved the caret to the row it pointed at"
+    );
+    assert!(
+        col > 0,
+        "and to a character partway along it, not its start"
+    );
+}
+
 /// `![[note#Heading]]` is that section, not the whole note.
 #[gpui::test]
 fn an_anchored_transclusion_paints_only_the_section_it_names(cx: &mut TestAppContext) {

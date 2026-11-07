@@ -244,6 +244,14 @@ impl Workspace {
             .unwrap_or_default()
     }
 
+    /// Where the entered embed's rows were painted this frame: `(row in the embedded
+    /// note, left, top, bottom)`. Empty when no embed is being edited.
+    pub(crate) fn embed_rows<C: gpui::AppContext>(&self, cx: &C) -> Vec<(usize, f32, f32, f32)> {
+        self.editor()
+            .map(|editor| editor.read_with(cx, |editor, _cx| editor.embed_rows()))
+            .unwrap_or_default()
+    }
+
     /// What note and row a point on the screen belongs to, or `None` when the point
     /// is not on an embedded note's row.
     pub(crate) fn origin_at<C: gpui::AppContext>(&self, at: (f32, f32), cx: &C) -> Option<String> {

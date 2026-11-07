@@ -53,6 +53,9 @@ impl Render for MarkdownEditor {
         }
         self.hit_lines.clear();
         self.phantom_hits.borrow_mut().clear();
+        // And the entered embed's rows with it: they answer for the note they were cut
+        // from, and a stale record would put a caret in a row that is no longer drawn.
+        self.embed_hits.clear();
         self.input_registered = false;
         let context = match self.vim.mode() {
             Mode::Insert => "vim-insert",
@@ -184,11 +187,17 @@ impl Render for MarkdownEditor {
         // frame's text, so a hunk that no longer fits the note is simply not here — the
         // strip still lists it, badged stale.
         let frame = self.frame(&display_lines);
-        let cursor_display = self
-            .note
-            .buffer
-            .borrow()
-            .display_index_for(self.host_slot_ref(), cursor);
+        // While the caret is inside an embed, the host paints no caret at all: the
+        // parked position stays in the host's buffer but nothing draws it, so the
+        // screen holds one caret and it is in the block being edited (ruling 14).
+        let cursor_display = match &self.entered {
+            Some(_) => usize::MAX,
+            None => self
+                .note
+                .buffer
+                .borrow()
+                .display_index_for(self.host_slot_ref(), cursor),
+        };
         // Focus mode: one alpha per buffer row, measured from the block (or the
         // heading section) the cursor is in. Raw mode is the file as it sits on
         // disk, so it never fades anything.
@@ -206,7 +215,7 @@ impl Render for MarkdownEditor {
         // Typewriter scroll moves the viewport, so it happens before the frame is
         // built and only when the caret actually moved.
         if self.typewriter {
-            self.typewriter_scroll(cursor, cursor_display);
+            self.typewriter_scroll(cursor, self.caret_scroll_item());
         }
 
         // Ask gpui for each picture it will draw. It decodes on a background
@@ -706,12 +715,12 @@ impl Render for MarkdownEditor {
                         let before = frame
                             .before
                             .get(&index)
-                            .map(|blocks| self.phantom_lines(blocks))
+                            .map(|blocks| self.phantom_lines(blocks, char_width, cx.entity()))
                             .unwrap_or_default();
                         let after = frame
                             .after
                             .get(&index)
-                            .map(|blocks| self.phantom_lines(blocks))
+                            .map(|blocks| self.phantom_lines(blocks, char_width, cx.entity()))
                             .unwrap_or_default();
 
                         let line = div()
@@ -719,6 +728,7 @@ impl Render for MarkdownEditor {
                             .h(px(height))
                             .child(LineElement {
                                 editor: cx.entity(),
+                                embed: false,
                                 row: dl.row,
                                 index,
                                 start: dl.start,

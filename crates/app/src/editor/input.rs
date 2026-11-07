@@ -27,6 +27,14 @@ impl MarkdownEditor {
         // last line whose top is at or above y", so a click in a phantom band would
         // otherwise move the host's caret to the row above the block — a caret in the
         // wrong note, from a click that looked like it landed on the right text.
+        // Inside the block being edited, a click is an ordinary click in a note: it
+        // moves the caret to the character under the pointer, in the embedded buffer.
+        if let Some(offset) = self.embed_offset_at(event.position) {
+            self.buffer.borrow_mut().set_cursor(offset);
+            self.ensure_cursor_visible();
+            cx.notify();
+            return;
+        }
         if let Some(origin) = self.origin_at(event.position) {
             cx.emit(EditorEvent::EnterEmbedAt {
                 path: origin.path,

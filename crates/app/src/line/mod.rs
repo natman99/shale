@@ -36,8 +36,7 @@ use runs::{build_runs, cell_styles, CellShaped, LineStyles};
 use std::rc::Rc;
 
 use gpui::{
-    fill, font, px, relative, rgb, App, Bounds, Corners, Element, ElementId,
-    ElementInputHandler,
+    fill, font, px, relative, rgb, App, Bounds, Corners, Element, ElementId, ElementInputHandler,
     Entity, GlobalElementId, InspectorElementId, IntoElement, LayoutId, Pixels, ShapedLine,
     SharedString, Style as ElementStyle, Window,
 };
@@ -188,6 +187,12 @@ impl HitLine {
 /// One line: text, optional selection and cursor quads.
 pub(crate) struct LineElement {
     pub(crate) editor: Entity<MarkdownEditor>,
+    /// True for a row painted from *another* note's buffer — the body of an entered
+    /// embed (roadmap P4.0b). Its `row`/`index`/`start`/`end` are that note's, so its
+    /// hit record must not join the host's `hit_lines`: the host's click scan reads
+    /// `start..end` as offsets into its own buffer, and a foreign range would answer
+    /// a click with a byte from the wrong note.
+    pub(crate) embed: bool,
     pub(crate) row: usize,
     /// Flat display-line index of this row's segment.
     pub(crate) index: usize,
@@ -912,7 +917,7 @@ impl Element for LineElement {
 
         // Record for hit-testing.
         self.editor.update(cx, |editor, _cx| {
-            editor.hit_lines.push(HitLine {
+            let hit = HitLine {
                 index: self.index,
                 start: self.start,
                 end: self.end,
@@ -924,7 +929,14 @@ impl Element for LineElement {
                 callout_mark: self.callout.is_some() && self.callout_mark,
                 dim: self.dim,
                 fold_marker,
-            });
+            };
+            // A foreign row answers for the note it was cut from, so it is filed
+            // beside the host's records rather than inside them (roadmap P4.0b).
+            if self.embed {
+                editor.embed_hits.push(hit);
+            } else {
+                editor.hit_lines.push(hit);
+            }
         });
     }
 }

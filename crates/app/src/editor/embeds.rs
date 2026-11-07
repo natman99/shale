@@ -35,6 +35,17 @@ pub(crate) struct PaintedRow {
     /// an embedded heading that stayed at body size would be the same inconsistency
     /// the hidden markers used to be, one level down.
     pub(crate) heading: Option<u8>,
+    /// The map this row was painted through, and its markdown spans, in the **note's**
+    /// byte space rather than the joined body's.
+    ///
+    /// An entered embed paints its rows as ordinary line elements, and those answer
+    /// clicks and place the caret by buffer offset — so they need the same map the
+    /// phantom paint used, measured from the note rather than from a string that only
+    /// exists for the frame. The shift is one addition per row, and only the caller
+    /// knows which buffer each row came from: a body's rows can belong to different
+    /// notes, when the embed has embeds of its own.
+    pub(crate) map: PieceMap,
+    pub(crate) buffer_spans: Vec<(usize, usize, Style)>,
 }
 
 /// Dress an embed body the way live preview dresses the note's own rows.
@@ -50,7 +61,12 @@ pub(crate) struct PaintedRow {
 /// fence that opens on one row and closes on another is only visible to a scan that
 /// sees both; styling rows one at a time would paint the second half of a code block
 /// as prose.
-pub(crate) fn paint_body(lines: &[String]) -> Vec<PaintedRow> {
+/// `starts[ix]` is where line `ix` begins in the note it came from, in that note's
+/// byte offsets — the anchor the joined coordinates are shifted onto. Pass an empty
+/// slice when nobody needs the note's coordinates: the joined body is a string that
+/// exists only for this frame, and a row painted as a picture has nothing to be
+/// measured against.
+pub(crate) fn paint_body(lines: &[String], starts: &[usize]) -> Vec<PaintedRow> {
     let joined: String = lines
         .iter()
         .map(|line| {
@@ -74,8 +90,15 @@ pub(crate) fn paint_body(lines: &[String]) -> Vec<PaintedRow> {
 
     let mut out = Vec::with_capacity(lines.len());
     let mut offset = 0usize;
-    for line in lines {
+    for (ix, line) in lines.iter().enumerate() {
         let (start, end) = (offset, offset + line.len());
+        // The same row, measured from its own note. A row with no anchor stays in
+        // joined space, which is where a picture lives.
+        let shift = starts
+            .get(ix)
+            .map(|&note_start| note_start as isize - start as isize)
+            .unwrap_or(0);
+        let at = |x: usize| (x as isize + shift) as usize;
         let hidden = mdlayout::hidden_ranges(&joined, &spans, start, end);
         let pieces = mdlayout::visible_pieces(start, end, &hidden);
         let row_subs: Vec<(usize, char)> = subs
@@ -95,6 +118,24 @@ pub(crate) fn paint_body(lines: &[String]) -> Vec<PaintedRow> {
             text: map.painted_text(&joined),
             spans: map.rebase_spans(&as_tuples),
             heading,
+            map: PieceMap::with_substitutions(
+                &pieces
+                    .iter()
+                    .map(|&(s, e)| (at(s), at(e)))
+                    .collect::<Vec<_>>(),
+                &row_subs
+                    .iter()
+                    .map(|&(offset_at, c)| (at(offset_at), c))
+                    .collect::<Vec<_>>(),
+            ),
+            // The scanner's spans, unhidden and clipped to this row, in the note's
+            // space: the line element rebases them onto the painted text itself, the
+            // way every other note row does.
+            buffer_spans: as_tuples
+                .iter()
+                .filter(|(s, e, _)| *e > start && *s < end)
+                .map(|&(s, e, style)| (at(s.max(start)), at(e.min(end)), style))
+                .collect(),
         });
         offset += line.len() + 1; // the newline the join put back
     }
@@ -254,10 +295,13 @@ mod tests {
     use super::*;
 
     fn painted(lines: &[&str]) -> Vec<(String, Vec<(usize, usize, Style)>)> {
-        paint_body(&lines.iter().map(|l| l.to_string()).collect::<Vec<_>>())
-            .into_iter()
-            .map(|row| (row.text, row.spans))
-            .collect()
+        paint_body(
+            &lines.iter().map(|l| l.to_string()).collect::<Vec<_>>(),
+            &[],
+        )
+        .into_iter()
+        .map(|row| (row.text, row.spans))
+        .collect()
     }
 
     #[test]
@@ -280,6 +324,7 @@ mod tests {
                 .iter()
                 .map(|l| l.to_string())
                 .collect::<Vec<_>>(),
+            &[],
         );
         assert_eq!(rows[0].heading, Some(2));
         assert_eq!(rows[1].heading, None);

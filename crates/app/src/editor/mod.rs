@@ -304,6 +304,16 @@ pub struct MarkdownEditor {
     /// back from a pixel on an embed row to the note that row belongs to (roadmap
     /// P4.0b), and a stale one would answer for a row that is no longer on screen.
     phantom_hits: Rc<RefCell<Vec<crate::line::phantom::PhantomHit>>>,
+    /// Where the *entered* embed's rows were painted this frame, each carrying the
+    /// byte range of the embedded note it covers. Rebuilt every paint like `hit_lines`,
+    /// and kept apart from them for the same reason the rows are `embed` rows: a click
+    /// in the block answers with an offset in the other note (roadmap P4.0b).
+    pub(crate) embed_hits: Vec<crate::line::HitLine>,
+    /// Which row of the *host* the entered block hangs off, recorded by the frame that
+    /// places it. The block's rows live inside that host line's wrapper, so it is the
+    /// only scroll target a caret in the block can have: the ruling is that the host
+    /// scrolls and the embed never gets its own viewport.
+    entered_anchor: Option<usize>,
     /// The window's other open notes. An embed reads a note from here when this
     /// window has it in hand, and from the file when it does not (roadmap P4.0b
     /// ruling 12) — so an embed of a note being edited in another tab shows the
@@ -353,6 +363,8 @@ impl MarkdownEditor {
             embeds: embeds::Cache::new(),
             entered: None,
             phantom_hits: Rc::new(RefCell::new(Vec::new())),
+            embed_hits: Vec::new(),
+            entered_anchor: None,
             notes: Rc::new(crate::note::Registry::default()),
         }
     }
@@ -563,6 +575,38 @@ impl MarkdownEditor {
             .as_ref()
             .and_then(|embed| embed.path.file_stem())
             .map(|stem| stem.to_string_lossy().into_owned())
+    }
+
+    /// The byte of the embedded note under a point inside the entered block, if the
+    /// point is on one of its rows (roadmap P4.0b). The block's rows are line elements
+    /// over the embedded buffer, so they answer with an offset in *that* note — which
+    /// is why their records are kept out of `hit_lines`, whose offsets the host reads
+    /// as its own.
+    pub(crate) fn embed_offset_at(&self, point: gpui::Point<gpui::Pixels>) -> Option<usize> {
+        let hit = self.embed_hits.iter().find(|hit| {
+            hit.bounds.top() <= point.y
+                && point.y < hit.bounds.bottom()
+                && hit.bounds.left() <= point.x
+                && point.x <= hit.bounds.right()
+        })?;
+        Some(hit.offset_for_x(point.x - hit.bounds.left()))
+    }
+
+    /// Where the entered block's rows were painted: `(row of the embedded note, left,
+    /// top, bottom)`. Test-only in effect, and the same shape `phantom_rows` answers
+    /// with so the two reads can be compared.
+    pub(crate) fn embed_rows(&self) -> Vec<(usize, f32, f32, f32)> {
+        self.embed_hits
+            .iter()
+            .map(|hit| {
+                (
+                    hit.index,
+                    hit.bounds.left().as_f32(),
+                    hit.bounds.top().as_f32(),
+                    hit.bounds.bottom().as_f32(),
+                )
+            })
+            .collect()
     }
 
     /// The view state the *host* note is painted through: the editor's slot, or the
@@ -1449,11 +1493,26 @@ impl MarkdownEditor {
     /// gpui applies this in the next frame's prepaint, and only scrolls the
     /// minimum: when typewriter scroll has already put the caret in the middle of
     /// the window there is nothing for it to do, so the two can both run.
+    /// Which scroller item stands in for the caret. Inside an embed that is the host
+    /// line the block hangs off — the block's rows live *inside* that line's wrapper,
+    /// so they are not items the scroller knows, and the ruling is that the host
+    /// scrolls while the block never gets its own viewport.
+    fn caret_scroll_item(&self) -> usize {
+        match self.entered_anchor {
+            Some(row) => {
+                let host = self.note.buffer.borrow();
+                let start = host.line_start(row.min(host.line_count() - 1));
+                host.display_index_for(self.host_slot_ref(), start)
+            }
+            None => {
+                let buffer = self.buffer.borrow();
+                buffer.display_index_for(&self.slot, buffer.cursor())
+            }
+        }
+    }
+
     fn ensure_cursor_visible(&self) {
-        let index = self
-            .buffer
-            .borrow()
-            .display_index_for(&self.slot, self.buffer.borrow().cursor());
+        let index = self.caret_scroll_item();
         self.scroll_handle.scroll_to_item(index);
     }
 }

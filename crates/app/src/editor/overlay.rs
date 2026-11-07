@@ -24,15 +24,17 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use gpui::{Context, SharedString};
+use gpui::{Context, IntoElement, Pixels, SharedString};
 use shale_core::diff::{self, Hunk};
 use shale_core::transclude::{Body, EmbedLine, EmbedRow, Origin};
+use shale_core::vim::Mode;
 
 use crate::line::phantom::{PhantomKind, PhantomLine};
 use crate::line::DisplayLine;
 use crate::theme;
 
 use super::{embeds, MarkdownEditor, View};
+use crate::line::LineElement;
 
 /// One queued proposal, as the editor needs it in order to paint it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -212,6 +214,8 @@ impl MarkdownEditor {
             notes: &self.notes,
             vault,
         };
+        // Re-derived every frame, so it cannot outlive the block it points at.
+        self.entered_anchor = None;
         for (row, body) in self
             .embeds
             .resolve(vault, self.note.buffer.borrow().text(), &sources)
@@ -305,6 +309,10 @@ pub(crate) struct Block {
     /// The hunk the strip's marker is on, which paints a wider bar.
     pub(crate) current: bool,
     pub(crate) kind: BlockKind,
+    /// The block this view is *editing* (roadmap P4.0b): its rows are painted as
+    /// ordinary line elements over the embedded note's buffer, so they carry a caret,
+    /// a selection and a click target. Every other embed block is a picture.
+    pub(crate) entered: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -382,6 +390,7 @@ impl MarkdownEditor {
             let (removed, added) = placed.counts();
             for (anchor, lines) in placed.added {
                 let block = Block {
+                    entered: false,
                     // A collapsed hunk trades its lines for a count, which is what lets
                     // a twelve-line proposal be skimmed without twelve rows of green.
                     badge: placed.collapsed.then(|| format!("−{removed} +{added}")),
@@ -461,9 +470,10 @@ impl MarkdownEditor {
                     badge: Some(name),
                     current: false,
                     kind: BlockKind::Embed,
+                    entered: false,
                 },
-                Body::Lines(rows) => Block {
-                    lines: rows
+                Body::Lines(rows) => {
+                    let lines: Vec<BlockLine> = rows
                         .into_iter()
                         .map(|EmbedLine { depth, origin, row }| match row {
                             EmbedRow::Text(text) => BlockLine {
@@ -479,12 +489,27 @@ impl MarkdownEditor {
                                 origin: None,
                             },
                         })
-                        .collect(),
-                    badge: None,
-                    current: false,
-                    kind: BlockKind::Embed,
-                },
+                        .collect();
+                    Block {
+                        // One level of editing, so at most one block of the frame is
+                        // the one being typed into.
+                        entered: self.entered.as_ref().is_some_and(|embed| {
+                            lines.iter().any(|line| {
+                                line.origin.as_ref().is_some_and(|o| o.path == embed.path)
+                            })
+                        }),
+                        lines,
+                        badge: None,
+                        current: false,
+                        kind: BlockKind::Embed,
+                    }
+                }
             };
+            // The frame is the only place that knows which host row a body hangs off,
+            // and while a block is being edited that row is the caret's scroll target.
+            if block.entered {
+                self.entered_anchor = Some(row);
+            }
             frame.after.entry(host).or_default().push(block);
         }
     }
@@ -494,25 +519,33 @@ impl MarkdownEditor {
     ///
     /// They are shaped at the note's body size rather than the host row's, because the
     /// lines a proposal brings are new text, not a heading the note already had.
-    pub(crate) fn phantom_lines(&self, blocks: &[Block]) -> Vec<PhantomLine> {
+    pub(crate) fn phantom_lines(
+        &self,
+        blocks: &[Block],
+        char_width: Pixels,
+        editor: gpui::Entity<MarkdownEditor>,
+    ) -> Vec<gpui::AnyElement> {
         let mut out = Vec::new();
         for block in blocks {
             if let Some(badge) = block.badge.clone() {
-                out.push(PhantomLine {
-                    text: badge.into(),
-                    family: self.font_family.clone(),
-                    size: self.font_size,
-                    palette: Rc::clone(&self.palette),
-                    kind: match block.kind {
-                        BlockKind::Proposal => PhantomKind::Badge,
-                        BlockKind::Embed => PhantomKind::EmbedBadge,
-                    },
-                    current: block.current,
-                    indent: 0,
-                    spans: Vec::new(),
-                    origin: None,
-                    hits: Rc::clone(&self.phantom_hits),
-                });
+                out.push(
+                    PhantomLine {
+                        text: badge.into(),
+                        family: self.font_family.clone(),
+                        size: self.font_size,
+                        palette: Rc::clone(&self.palette),
+                        kind: match block.kind {
+                            BlockKind::Proposal => PhantomKind::Badge,
+                            BlockKind::Embed => PhantomKind::EmbedBadge,
+                        },
+                        current: block.current,
+                        indent: 0,
+                        spans: Vec::new(),
+                        origin: None,
+                        hits: Rc::clone(&self.phantom_hits),
+                    }
+                    .into_any_element(),
+                );
             }
             // An embed's rows are dressed the way live preview dresses the note's own:
             // scanned over the **whole body at once** (a fence that opens on one row and
@@ -521,8 +554,30 @@ impl MarkdownEditor {
             // not: proposed text is a change being offered, and the syntax it carries is
             // part of what the reader is being asked to accept.
             let texts: Vec<String> = block.lines.iter().map(|l| l.text.clone()).collect();
+            // An entered block is painted from the embedded note's own buffer, so each
+            // row's paint is anchored where that row starts in the note. The rest of
+            // the frame's rows are pictures and need no anchor.
+            let starts: Vec<usize> = if block.entered {
+                let embed = self
+                    .entered
+                    .as_ref()
+                    .expect("an entered block has a caret note");
+                block
+                    .lines
+                    .iter()
+                    .map(|line| {
+                        line.origin
+                            .as_ref()
+                            .filter(|o| o.path == embed.path)
+                            .map(|o| embed.note.buffer.borrow().line_start(o.row))
+                            .unwrap_or(0)
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            };
             let painted = if block.kind == BlockKind::Embed {
-                embeds::paint_body(&texts)
+                embeds::paint_body(&texts, &starts)
             } else {
                 Vec::new()
             };
@@ -535,31 +590,126 @@ impl MarkdownEditor {
                     // colour and nothing else.
                     _ => (line.text.clone(), Vec::new()),
                 };
-                out.push(PhantomLine {
-                    text: text.into(),
-                    family: self.font_family.clone(),
-                    // A heading inside an embedded note is sized like a heading of
-                    // that level anywhere else in the app.
-                    size: match painted.get(ix).and_then(|row| row.heading) {
-                        Some(level) => theme::font_size(level, self.font_size),
-                        None => self.font_size,
-                    },
-                    palette: Rc::clone(&self.palette),
-                    kind: match (block.kind, line.badge) {
-                        (BlockKind::Proposal, _) => PhantomKind::Added,
-                        (BlockKind::Embed, true) => PhantomKind::EmbedBadge,
-                        (BlockKind::Embed, false) => PhantomKind::Embed,
-                    },
-                    current: block.current,
-                    indent: line.depth,
-                    spans,
-                    // The row's address travels with it to the paint, which is where
-                    // the on-screen band gets paired back up with it.
-                    origin: line.origin.clone(),
-                    hits: Rc::clone(&self.phantom_hits),
-                });
+                // The block being edited is not a picture: its rows are line elements
+                // over the embedded buffer, which is what gives them a caret, a
+                // selection and a click that lands on the right byte (roadmap P4.0b).
+                if block.entered && !line.badge {
+                    if let (Some(origin), Some(row)) = (line.origin.as_ref(), painted.get(ix)) {
+                        out.push(
+                            self.embed_line(origin, row, char_width, &editor)
+                                .into_any_element(),
+                        );
+                        continue;
+                    }
+                }
+                out.push(
+                    PhantomLine {
+                        text: text.into(),
+                        family: self.font_family.clone(),
+                        // A heading inside an embedded note is sized like a heading of
+                        // that level anywhere else in the app.
+                        size: match painted.get(ix).and_then(|row| row.heading) {
+                            Some(level) => theme::font_size(level, self.font_size),
+                            None => self.font_size,
+                        },
+                        palette: Rc::clone(&self.palette),
+                        kind: match (block.kind, line.badge) {
+                            (BlockKind::Proposal, _) => PhantomKind::Added,
+                            (BlockKind::Embed, true) => PhantomKind::EmbedBadge,
+                            (BlockKind::Embed, false) => PhantomKind::Embed,
+                        },
+                        current: block.current,
+                        indent: line.depth,
+                        spans,
+                        // The row's address travels with it to the paint, which is where
+                        // the on-screen band gets paired back up with it.
+                        origin: line.origin.clone(),
+                        hits: Rc::clone(&self.phantom_hits),
+                    }
+                    .into_any_element(),
+                );
             }
         }
         out
+    }
+
+    /// One row of the entered embed, as the same element a note paints its own rows
+    /// with — same runs, same caret, same selection, same click-to-offset — measured
+    /// from the embedded note's buffer instead of this tab's (roadmap P4.0b).
+    ///
+    /// It hangs inside the host's wrapper div rather than joining the scroller's
+    /// children, so the display-line index space stays the host's and the scroll
+    /// target of a caret in the block is the host line the block hangs off.
+    fn embed_line(
+        &self,
+        origin: &shale_core::transclude::Origin,
+        painted: &embeds::PaintedRow,
+        char_width: Pixels,
+        editor: &gpui::Entity<MarkdownEditor>,
+    ) -> LineElement {
+        let embed = self
+            .entered
+            .as_ref()
+            .expect("only the entered block reaches here");
+        let buffer = embed.note.buffer.borrow();
+        let start = buffer.line_start(origin.row);
+        let end = buffer.line_end(origin.row);
+        let cursor = buffer.cursor();
+        let selection = match self.vim.mode() {
+            Mode::Visual | Mode::VisualLine => self.vim.selection_range(&buffer),
+            _ => buffer.selection(),
+        };
+        // The caret's display row, in the *embedded* note's display model — which is
+        // the editor's slot while the caret is inside (ruling 19).
+        let cursor_row = buffer.display_index_for(&self.slot, cursor);
+        let line_sel = selection.and_then(|(anchor, head)| {
+            let (lo, hi) = (anchor.min(head), anchor.max(head));
+            if hi <= start || lo >= end {
+                return None;
+            }
+            let s = painted.map.index_for_offset(lo);
+            let e = painted.map.index_for_offset(hi);
+            (e > s).then_some((s, e))
+        });
+        LineElement {
+            editor: editor.clone(),
+            embed: true,
+            row: origin.row,
+            index: origin.row,
+            start,
+            end,
+            text: painted.text.clone().into(),
+            map: painted.map.clone(),
+            hidden: Vec::new(),
+            quotes: Vec::new(),
+            line_sel,
+            cursor_col: (cursor_row == origin.row && self.view != View::Preview)
+                .then(|| painted.map.index_for_offset(cursor)),
+            cursor_dim: self.cursor_dim,
+            insert: self.vim.mode() == Mode::Insert,
+            // The embedded note's own links, marks and search matches are not drawn
+            // yet: they belong to the other buffer's caches, which this view does not
+            // keep. Owed with the rest of the block's parity.
+            links: Vec::new(),
+            spans: painted.buffer_spans.clone(),
+            marks: Vec::new(),
+            hits: Vec::new(),
+            active: None,
+            size: match painted.heading {
+                Some(level) => theme::font_size(level, self.font_size),
+                None => self.font_size,
+            },
+            dim: 1.0,
+            block: false,
+            rule: false,
+            callout: None,
+            callout_mark: false,
+            table: None,
+            image: None,
+            char_width,
+            palette: Rc::clone(&self.palette),
+            fold: None,
+            diff: None,
+        }
     }
 }
