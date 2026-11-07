@@ -80,31 +80,15 @@ impl Workspace {
     }
 
     /// Step back out of the embed the tab's editor is holding.
+    ///
+    /// The editor does the leaving and reports it; the status line comes from the
+    /// event handler, which is also where the click-out and the vanished-section exit
+    /// report. One road, one line, whichever way the caret came out.
     pub(super) fn exit_embed(&mut self, cx: &mut Context<Self>) {
         let Some(editor) = self.pane().active_tab().editor().cloned() else {
             return;
         };
-        // The note being left, taken before the editor lets go of it.
-        let left = editor.read_with(cx, |editor, _cx| editor.entered_note());
-        editor.update(cx, |editor, cx| editor.exit_embed(cx));
-        let Some((path, note)) = left else {
-            return;
-        };
-        if !note.dirty.get() || self.held_embeds.iter().any(|held| Rc::ptr_eq(held, &note)) {
-            return;
-        }
-        // A note the caret has typed into is not a picture any more. If no tab is
-        // showing it, this window is the only thing that can still hold its text,
-        // and letting it go would lose the edit silently — the worst kind of wrong
-        // an editor can do. Ruling 18 says such a note gets a tab; until M4 puts
-        // that on the save path, holding it here keeps the edit alive, and the
-        // status line says so rather than pretending nothing happened.
-        self.held_embeds.push(note);
-        let stem = path
-            .file_stem()
-            .map(|s| s.to_string_lossy().into_owned())
-            .unwrap_or_else(|| path.display().to_string());
-        self.say(format!("{stem} has unsaved edits"), cx);
+        editor.update(cx, |editor, cx| editor.exit_embed(None, cx));
     }
 
     pub(crate) fn open_note(&mut self, path: &PathBuf, cx: &mut Context<Self>) {
@@ -476,6 +460,59 @@ impl Workspace {
                 self.say(format!("{err:#}"), cx);
             }
         }
+        // ...and whatever this tab's caret has typed into *through* an embed, which
+        // is the same `:w` by ruling: `:w` inside an embed writes host and embed
+        // together, and the dot on the tab has been promising exactly that.
+        self.write_embeds_of(&editor, false, cx);
+    }
+
+    /// The writes a tab owes beyond its own file: notes embedded in it that this
+    /// view's caret has typed into and nobody has written.
+    ///
+    /// Each goes to its own path — an embed is a note, not a region of the host, and
+    /// writing the host never writes it. The bookkeeping is the same as any other
+    /// write for the same reason: Shale changed the disk itself, so the watcher, the
+    /// index and the graph all have to be told not to notice.
+    ///
+    /// `quiet` is how the autosave asks: a beat that announced every file it wrote,
+    /// twice every couple of seconds, would be a nag rather than a status line.
+    fn write_embeds_of(
+        &mut self,
+        editor: &gpui::Entity<crate::editor::MarkdownEditor>,
+        quiet: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let embeds = editor.read_with(cx, |editor, _cx| editor.dirty_embeds());
+        if embeds.is_empty() {
+            return;
+        }
+        let mut saved: Vec<String> = Vec::new();
+        for (path, note) in embeds {
+            let text = note.buffer.borrow().text().to_string();
+            match self.vault.write(&path, &text) {
+                Ok(()) => {
+                    note.dirty.set(false);
+                    self.resign();
+                    self.index_saved(&path);
+                    self.graph_note_saved(&path, &text);
+                    if quiet {
+                        tracing::debug!(path = %path.display(), "autosaved embed");
+                    } else {
+                        saved.push(rel_text(&path));
+                    }
+                }
+                Err(err) => {
+                    tracing::error!(path = %path.display(), "embed save failed: {err:#}");
+                    self.say(format!("{err:#}"), cx);
+                }
+            }
+        }
+        if !saved.is_empty() {
+            // Said after the host's own line, so one `:w` that wrote two files says
+            // both rather than leaving the second unmentioned.
+            self.say(format!("saved {}", saved.join(", ")), cx);
+        }
+        self.refresh_graph(cx);
     }
 
     /// Restart the autosave countdown for an edit in one tab.
@@ -569,6 +606,10 @@ impl Workspace {
         match self.vault.write(&path, &text) {
             Ok(()) => {
                 editor.update(cx, |editor, _cx| editor.mark_clean());
+                // The embeds this tab's caret typed into ride the same beat: an
+                // embed left ahead of the disk while its host autosaves would leave
+                // the dot on the tab lit forever, which is a lie by then.
+                self.write_embeds_of(&editor, true, cx);
                 // Our own write must not come back as somebody else's edit.
                 self.resign();
                 self.index_saved(&path);

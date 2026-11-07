@@ -35,6 +35,14 @@ impl MarkdownEditor {
             cx.notify();
             return;
         }
+        // Ruling Q3: clicking the host's own text while inside an embed is an exit.
+        // It happens *before* the scan below, because the scan produces offsets into
+        // the host — while the caret is inside an embed, `self.buffer` is the other
+        // note's, and a caret set from those offsets would land somewhere in the wrong
+        // note entirely.
+        if self.entered.is_some() {
+            self.exit_embed(None, cx);
+        }
         if let Some(origin) = self.origin_at(event.position) {
             cx.emit(EditorEvent::EnterEmbedAt {
                 path: origin.path,

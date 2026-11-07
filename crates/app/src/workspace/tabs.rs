@@ -351,6 +351,24 @@ impl Workspace {
                 }
                 self.enter_embed_at(index, path, *row, cx);
             }
+            EditorEvent::EmbedExited {
+                path,
+                dirty,
+                reason,
+            } => {
+                // The status line is the window's, not the editor's: the editor knows
+                // a caret left, and only the window knows what that means for a note
+                // with no tab of its own (roadmap P4.0b).
+                let stem = path
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| path.display().to_string());
+                match reason {
+                    Some(line) => self.say(line.clone(), cx),
+                    None if *dirty => self.say(format!("{stem} has unsaved edits"), cx),
+                    None => {}
+                }
+            }
             EditorEvent::CreateLink { target } => {
                 // Only the tab on screen can be clicked or `gd`-ed, but a link
                 // followed in a tab that is not on screen would otherwise edit the

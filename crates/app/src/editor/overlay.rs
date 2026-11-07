@@ -214,8 +214,6 @@ impl MarkdownEditor {
             notes: &self.notes,
             vault,
         };
-        // Re-derived every frame, so it cannot outlive the block it points at.
-        self.entered_anchor = None;
         for (row, body) in self
             .embeds
             .resolve(vault, self.note.buffer.borrow().text(), &sources)
@@ -454,6 +452,9 @@ impl MarkdownEditor {
             notes: &self.notes,
             vault,
         };
+        // Re-derived every frame, so the anchor cannot outlive the block it points at.
+        self.entered_anchor = None;
+        let mut painted_entered = false;
         for (row, body) in self
             .embeds
             .resolve(vault, self.note.buffer.borrow().text(), &sources)
@@ -509,8 +510,18 @@ impl MarkdownEditor {
             // and while a block is being edited that row is the caret's scroll target.
             if block.entered {
                 self.entered_anchor = Some(row);
+                self.entered_host_row = Some(row);
+                painted_entered = true;
             }
             frame.after.entry(host).or_default().push(block);
+        }
+        // Ruling Q5: if the block the caret is inside is not on screen any more — the
+        // section was deleted, the note went away, the line that asked for it folded —
+        // then the caret is editing something that no longer exists here, and it leaves
+        // with a line saying so. A *view* block of the same note badges instead,
+        // because there is no caret inside it to rescue: the caret decides.
+        if !painted_entered {
+            self.embed_gone = self.entered.as_ref().map(|embed| embed.path.clone());
         }
     }
 

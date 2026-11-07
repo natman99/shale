@@ -187,6 +187,26 @@ impl Render for MarkdownEditor {
         // frame's text, so a hunk that no longer fits the note is simply not here — the
         // strip still lists it, badged stale.
         let frame = self.frame(&display_lines);
+        // The frame noticed the caret's block is gone (ruling Q5). Leaving it is done
+        // here rather than in the frame because this is where the context is, and the
+        // caret goes back to the host's `![[…]]` row it came from.
+        if let Some(path) = self.embed_gone.take() {
+            let host_row = self.entered_host_row.unwrap_or(0);
+            self.exit_embed(
+                Some(format!(
+                    "{} no longer holds the section being edited",
+                    path.file_stem()
+                        .map(|s| s.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| path.display().to_string())
+                )),
+                cx,
+            );
+            let host = self.note.buffer.borrow();
+            let row = host_row.min(host.line_count() - 1);
+            let offset = host.line_start(row);
+            drop(host);
+            self.buffer.borrow_mut().set_cursor(offset);
+        }
         // While the caret is inside an embed, the host paints no caret at all: the
         // parked position stays in the host's buffer but nothing draws it, so the
         // screen holds one caret and it is in the block being edited (ruling 14).

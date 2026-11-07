@@ -57,6 +57,18 @@ pub enum EditorEvent {
     /// it does not exist (`gD`). The editor does not know the vault: it reports what
     /// is under the cursor and lets the window decide what creating means.
     CreateLink { target: String },
+    /// The caret is no longer inside an embed (roadmap P4.0b). It left because the
+    /// user asked (`ctrl-o`), because they clicked the host's own text (ruling Q3), or
+    /// because the block stopped existing under it (ruling Q5).
+    ///
+    /// `dirty` is whether the note being left is ahead of its file — the window says
+    /// so, because a note with no tab of its own has nowhere else to show that.
+    /// `reason` is set only when the exit was not the user's choice.
+    EmbedExited {
+        path: std::path::PathBuf,
+        dirty: bool,
+        reason: Option<String>,
+    },
     /// The user clicked inside an embed's body (roadmap P4.0b). A click knows more
     /// than a caret: the painted row answers with the note it was cut from and the
     /// row of it, so this names the note outright.
@@ -294,6 +306,16 @@ pub struct MarkdownEditor {
     /// One level only: a read-only embed of a note that is itself being edited stays
     /// read-only, and entering an embed while inside one is refused.
     entered: Option<Entered>,
+    /// The notes this view has typed into *through* an embed: `(path, note)`, in the
+    /// order they were first touched.
+    ///
+    /// Three jobs, all of them the same fact seen from a different side. The tab's dot
+    /// is transitive — a host with an embed holding unsaved edits is a host with
+    /// unsaved edits (ruling 17). The write path needs to know which extra files a
+    /// `:w` here owes (ruling 18). And holding the note is what stops one the caret
+    /// typed into, and which no tab shows, from being dropped the moment the caret
+    /// steps out — the worst kind of wrong an editor can do.
+    pub(crate) touched: Vec<(std::path::PathBuf, Rc<crate::note::Note>)>,
     /// The note this view is showing, shared with every other view of it (and
     /// with the window's registry). The text, the caret and the undo history are
     /// the note's; `dirty` is the note's too, so two views of one file cannot
@@ -314,6 +336,15 @@ pub struct MarkdownEditor {
     /// only scroll target a caret in the block can have: the ruling is that the host
     /// scrolls and the embed never gets its own viewport.
     entered_anchor: Option<usize>,
+    /// Set by the frame when the block the caret is inside was not painted — the
+    /// section it was editing is gone (ruling Q5). Render acts on it, because only
+    /// render has a context to leave the embed through.
+    embed_gone: Option<std::path::PathBuf>,
+    /// The host row the entered block was last seen hanging off. Unlike
+    /// `entered_anchor` this survives a frame in which the block is not painted, which
+    /// is exactly the frame ruling Q5 cares about: the section vanished, and the caret
+    /// goes back to the `![[…]]` row it came from — the last one it had.
+    entered_host_row: Option<usize>,
     /// The window's other open notes. An embed reads a note from here when this
     /// window has it in hand, and from the file when it does not (roadmap P4.0b
     /// ruling 12) — so an embed of a note being edited in another tab shows the
@@ -362,9 +393,12 @@ impl MarkdownEditor {
             collapsed_inline: HashSet::new(),
             embeds: embeds::Cache::new(),
             entered: None,
+            touched: Vec::new(),
             phantom_hits: Rc::new(RefCell::new(Vec::new())),
             embed_hits: Vec::new(),
             entered_anchor: None,
+            embed_gone: None,
+            entered_host_row: None,
             notes: Rc::new(crate::note::Registry::default()),
         }
     }
@@ -384,6 +418,9 @@ impl MarkdownEditor {
         // Changing tab changes the note under the caret, so an embed being edited
         // here is left behind; its buffer outlives the view, held by the registry.
         self.entered = None;
+        // And the writes owed to the note being left do not follow the tab to the
+        // note arriving: they belong to the embeds of the text that was here.
+        self.touched.clear();
         self.slot.clear();
         self.wrap_cache = None;
         self.vim.enter_normal();
@@ -441,11 +478,17 @@ impl MarkdownEditor {
 
     /// Where the last paint put one of the note's own display lines.
     #[cfg(test)]
-    pub(crate) fn line_band(&self, index: usize) -> Option<(f32, f32)> {
+    pub(crate) fn line_band(&self, index: usize) -> Option<(f32, f32, f32)> {
         self.hit_lines
             .iter()
             .find(|hit| hit.index == index)
-            .map(|hit| (hit.bounds.top().as_f32(), hit.bounds.bottom().as_f32()))
+            .map(|hit| {
+                (
+                    hit.bounds.left().as_f32(),
+                    hit.bounds.top().as_f32(),
+                    hit.bounds.bottom().as_f32(),
+                )
+            })
     }
 
     /// The note and row a point on the screen belongs to, when the point is on a
@@ -526,6 +569,9 @@ impl MarkdownEditor {
                 .collect();
             self.slot.set_segments(segments);
         }
+        // The block this caret is now inside has not been painted yet, so nothing is
+        // known about where it hangs in the host.
+        self.entered_host_row = None;
         self.entered = Some(Entered {
             note: Rc::clone(&note),
             path: origin.path.clone(),
@@ -542,29 +588,26 @@ impl MarkdownEditor {
     /// Step back out of the embed. The caret the embed was holding stays in the
     /// embedded buffer — one caret per note per window — and the host's caret is
     /// exactly where it was left.
-    pub(crate) fn exit_embed(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn exit_embed(&mut self, reason: Option<String>, cx: &mut Context<Self>) {
         let Some(embed) = self.entered.take() else {
             return;
         };
+        let (path, dirty) = (embed.path.clone(), embed.note.dirty.get());
         self.buffer = Rc::clone(&self.note.buffer);
         // The host's view state comes back exactly as it was left: the same wrap
         // points, the same open folds. Coming out of an embed should not be a reason
         // to re-measure the note.
         self.slot = embed.host_slot;
+        cx.emit(EditorEvent::EmbedExited {
+            path,
+            dirty,
+            reason,
+        });
         cx.notify();
     }
 
     pub(crate) fn is_entered(&self) -> bool {
         self.entered.is_some()
-    }
-
-    /// The embed being edited, note and all — handed out so the window can keep the
-    /// note alive past the moment this view lets go of it. A note the caret has been
-    /// typing into is not a picture any more, and dropping the last strong reference
-    /// to it would drop the edits with it.
-    pub(crate) fn entered_note(&self) -> Option<(std::path::PathBuf, Rc<Note>)> {
-        let embed = self.entered.as_ref()?;
-        Some((embed.path.clone(), Rc::clone(&embed.note)))
     }
 
     /// What the status bar calls the embed being edited. A segment that names the
@@ -593,8 +636,9 @@ impl MarkdownEditor {
     }
 
     /// Where the entered block's rows were painted: `(row of the embedded note, left,
-    /// top, bottom)`. Test-only in effect, and the same shape `phantom_rows` answers
-    /// with so the two reads can be compared.
+    /// top, bottom)`. Test-only, and the same shape `phantom_rows` answers with so the
+    /// two reads can be compared.
+    #[cfg(test)]
     pub(crate) fn embed_rows(&self) -> Vec<(usize, f32, f32, f32)> {
         self.embed_hits
             .iter()
@@ -933,7 +977,21 @@ impl MarkdownEditor {
     }
 
     pub fn is_dirty(&self) -> bool {
-        self.note.dirty.get()
+        // Transitive on purpose: the host's tab lights when a note embedded in it
+        // holds edits nobody has written, because closing that tab would leave them
+        // nowhere (ruling 17).
+        self.note.dirty.get() || self.touched.iter().any(|(_, n)| n.dirty.get())
+    }
+
+    /// The notes this view owes a write to beyond its own file: embedded notes the
+    /// caret has typed into that are still ahead of the disk. The tab's own note is
+    /// excluded — its caller writes that one and knows its path.
+    pub(crate) fn dirty_embeds(&self) -> Vec<(std::path::PathBuf, Rc<crate::note::Note>)> {
+        self.touched
+            .iter()
+            .filter(|(_, note)| note.dirty.get() && !Rc::ptr_eq(note, &self.note))
+            .cloned()
+            .collect()
     }
 
     pub fn mark_clean(&mut self) {
@@ -1288,9 +1346,18 @@ impl MarkdownEditor {
     fn mark_dirty(&mut self, cx: &mut Context<Self>) {
         // Dirty follows the caret, not the tab: typing inside an embed makes the
         // embedded note dirty, and the host's tab lights through it (ruling 17).
-        match &self.entered {
-            Some(embed) => embed.note.dirty.set(true),
-            None => self.note.dirty.set(true),
+        if let Some(embed) = &self.entered {
+            embed.note.dirty.set(true);
+            let known = self
+                .touched
+                .iter()
+                .any(|(_, note)| Rc::ptr_eq(note, &embed.note));
+            if !known {
+                self.touched
+                    .push((embed.path.clone(), Rc::clone(&embed.note)));
+            }
+        } else {
+            self.note.dirty.set(true);
         }
         // gpui queues an emit rather than running the handlers inside this
         // update, so the workspace is free to read the buffer back from its

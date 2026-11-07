@@ -114,7 +114,7 @@ pub(crate) struct Workspace {
     /// looking at it any more — without a strong reference here, the buffer and the
     /// unsaved edits inside it would be dropped on the way out. P4.0b M4 owns when
     /// these are released: a save writes them and lets go.
-    held_embeds: Vec<Rc<crate::note::Note>>,
+
     /// The spell and grammar checker, when one is configured and was started.
     /// It owns a server process; the window only talks to it.
     spell: Option<Entity<Spell>>,
@@ -486,7 +486,7 @@ impl Workspace {
             follow_desktop,
             theme_backup: None,
             notes: Rc::new(crate::note::Registry::default()),
-            held_embeds: Vec::new(),
+
             spell,
             checker_notes: Vec::new(),
             popup: None,
@@ -684,6 +684,7 @@ impl Workspace {
                 EditorEvent::FollowLink { .. }
                 | EditorEvent::CreateLink { .. }
                 | EditorEvent::EnterEmbedAt { .. }
+                | EditorEvent::EmbedExited { .. }
                 | EditorEvent::Changed => {}
             },
         ));

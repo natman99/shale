@@ -3,7 +3,7 @@
 //! command line. The naming itself (`shale_core::note_name`) is tested in core;
 //! these tests are about what the window does with it.
 
-use super::commands::{status, type_command};
+use super::commands::status;
 use super::*;
 
 /// A vault holding `a.md`, and a window on a blank tab -- nothing open, nothing

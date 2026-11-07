@@ -82,6 +82,22 @@ impl Registry {
         self.entries.borrow().get(path).and_then(Weak::upgrade)
     }
 
+    /// Every note still alive in this window, with the path it is registered under.
+    ///
+    /// Test-only on purpose: production code always has the path it opened the note
+    /// with, and asking by path is exact. A checker that knows only a *name* needs
+    /// this, and needs it to find the note whichever form of the path it was opened
+    /// with — otherwise a check on a note opened by relative path reads back "no such
+    /// note" and passes for the wrong reason.
+    #[cfg(test)]
+    pub(crate) fn held(&self) -> Vec<(PathBuf, Rc<Note>)> {
+        self.entries
+            .borrow()
+            .iter()
+            .filter_map(|(path, weak)| weak.upgrade().map(|note| (path.clone(), note)))
+            .collect()
+    }
+
     /// Register a note. Called once per path by `Workspace::note_entry`.
     pub fn insert(&self, path: &Path, note: &Rc<Note>) {
         // Entries for notes no view holds any more are dead weight: a closed tab

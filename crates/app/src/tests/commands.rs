@@ -20,12 +20,6 @@ fn palette(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> Pale
 
 /// Type a command line and press enter. `:` is a normal-mode key, and a test that
 /// has just been typing is in insert mode, so the line starts by leaving it.
-pub(crate) fn type_command(line: &str, cx: &mut VisualTestContext) {
-    cx.simulate_keystrokes("escape :");
-    cx.simulate_input(line);
-    cx.simulate_keystrokes("enter");
-}
-
 /// A note open in the vault, so a write has something to write.
 fn open_note(cx: &mut TestAppContext, window: &WindowHandle<Workspace>) {
     window

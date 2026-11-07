@@ -232,8 +232,14 @@ impl Workspace {
     /// Independent of which tab is on screen, which is the whole point of an embed —
     /// the note being typed into may not have a tab at all.
     pub(crate) fn note_state(&self, name: &str) -> Option<(String, bool)> {
-        let entry = self.entries.iter().find(|e| e.stem() == name)?;
-        let note = self.notes.get(&entry.path)?;
+        // By stem, across every form of path the window may have opened the note
+        // under: a tab opened from a test's relative path and an embed reached
+        // through the vault's absolute one are the same note to whoever is looking at
+        // the screen.
+        let (_, note) = self.notes.held().into_iter().find(|(path, _)| {
+            path.file_stem()
+                .is_some_and(|stem| stem.to_string_lossy() == name)
+        })?;
         let text = note.buffer.borrow().text().to_string();
         Some((text, note.dirty.get()))
     }
@@ -269,7 +275,7 @@ impl Workspace {
         &self,
         index: usize,
         cx: &C,
-    ) -> Option<(f32, f32)> {
+    ) -> Option<(f32, f32, f32)> {
         self.editor()
             .map(|editor| editor.read_with(cx, |editor, _cx| editor.line_band(index)))
             .unwrap_or_default()

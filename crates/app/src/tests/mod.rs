@@ -10,6 +10,14 @@
 /// move to the tab on screen one frame after the tab does (`Workspace::focus_stale`), so
 /// a test that presses a key straight after a tab change without this is pressing it
 /// against a view that has already left the tree — the keystroke goes nowhere.
+/// Type a `:` command the way a user does: escape out of whatever mode the editor is
+/// in, open the command line, spell it, press enter.
+pub(crate) fn type_command(line: &str, cx: &mut VisualTestContext) {
+    cx.simulate_keystrokes("escape :");
+    cx.simulate_input(line);
+    cx.simulate_keystrokes("enter");
+}
+
 pub(crate) fn repaint(cx: &mut VisualTestContext) {
     for _ in 0..2 {
         cx.update(|window, cx| window.draw(cx).clear(cx));
@@ -23,18 +31,17 @@ use super::*;
 use crate::editor::MarkdownEditor;
 // The slimmed `main.rs` no longer imports what the tests build windows from;
 // they say so themselves now.
-use shale_core::{Config, Vault};
-use std::rc::Rc;
 use crate::workspace::{keybindings, Workspace};
-use gpui::{
-    px, BackgroundExecutor, Focusable, TestAppContext, VisualTestContext, WindowHandle,
-};
+use gpui::{px, BackgroundExecutor, Focusable, TestAppContext, VisualTestContext, WindowHandle};
+use shale_core::{Config, Vault};
 use std::path::Path;
+use std::rc::Rc;
 use std::time::Duration;
 
 mod autosave;
 mod blocks;
 mod commands;
+mod embeds;
 mod exit;
 mod focus;
 mod graph;
@@ -43,13 +50,12 @@ mod jumps;
 mod keys;
 mod live;
 mod motions;
+mod overlay;
 mod paint;
 mod panes;
 mod picker;
 mod popup;
 mod quotes;
-mod embeds;
-mod overlay;
 mod review;
 mod search;
 mod session;

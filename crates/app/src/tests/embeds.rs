@@ -5,6 +5,7 @@
 //! line is, and *nothing about the note changes*. The display model, `j`/`k`, the ruler
 //! and the buffer all still see the note as it is on disk — the body is a view.
 
+use super::commands::status;
 use super::*;
 
 // ---------------------------------------------------------------------------
@@ -225,6 +226,182 @@ fn typing_in_an_embed_dirties_the_embedded_note(cx: &mut TestAppContext) {
     assert!(
         !state(&window, "host", &mut cx).1,
         "the host was not touched, so it is not dirty"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// M4: what a save owes an embed (roadmap P4.0b).
+//
+// The ruling these pin: an embed is a note, so it has its own file and its own
+// dirty flag — but the caret got there *through* the host, so the host's tab is
+// the thing that shows the edit is unwritten, and `:w` there is the write that
+// owes it. Nothing about that makes the host's text contain the embed: the two
+// files stay two files.
+// ---------------------------------------------------------------------------
+
+/// `:w` inside an embed writes the embedded note to its own file. The host is
+/// written too — it is the tab in hand — but its text is unchanged, which is the
+/// point: the edit landed in `gift.md`, not in the line that embeds it.
+#[gpui::test]
+fn w_inside_an_embed_writes_the_embedded_note_to_its_own_file(cx: &mut TestAppContext) {
+    let (dir, window) = vault_with(cx, &[("host.md", HOST), ("gift.md", GIFT)]);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show_at(&mut cx, &window, "host.md");
+    cx.simulate_keystrokes("j ctrl-] A");
+    cx.simulate_input(" more");
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("gift.md")).unwrap(),
+        "one\ntwo\n",
+        "typing alone writes nothing"
+    );
+    type_command("w", &mut cx);
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("gift.md")).unwrap(),
+        "one more\ntwo\n",
+        "the embed was written to the note it belongs to"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("host.md")).unwrap(),
+        HOST,
+        "and the host's text never grew the embed's words"
+    );
+}
+
+/// The dot on the host's tab is transitive, and it survives stepping out: the
+/// edit came from inside that host, so the host is the place that has to be told
+/// it is ahead of the disk — and `:w` there still owes the embed its write.
+#[gpui::test]
+fn an_unsaved_embed_keeps_the_host_tab_lit_after_the_caret_steps_out(cx: &mut TestAppContext) {
+    let (dir, window) = vault_with(cx, &[("host.md", HOST), ("gift.md", GIFT)]);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show_at(&mut cx, &window, "host.md");
+    cx.simulate_keystrokes("j ctrl-] A");
+    cx.simulate_input(" more");
+    cx.simulate_keystrokes("escape ctrl-o");
+    assert!(
+        window
+            .update(&mut cx, |ws, _w, cx| ws.any_tab_is_dirty(cx))
+            .unwrap(),
+        "the tab still says there is something unwritten"
+    );
+    assert!(
+        state(&window, "gift", &mut cx).1,
+        "and the note holding it is still held, not dropped with the caret"
+    );
+    type_command("w", &mut cx);
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("gift.md")).unwrap(),
+        "one more\ntwo\n",
+        "a `:w` from the host writes the embed the caret typed into"
+    );
+    assert!(
+        !window
+            .update(&mut cx, |ws, _w, cx| ws.any_tab_is_dirty(cx))
+            .unwrap(),
+        "and the dot goes out, because nothing is ahead of the disk any more"
+    );
+}
+
+/// Autosave covers the same ground as `:w`: a tab whose embed holds edits is a
+/// tab with edits, and the beat that writes the tab writes the embed too. Fixing
+/// one write path and not the other is how an editor ends up lying about the dot.
+#[gpui::test]
+fn autosave_writes_an_embed_the_caret_typed_into(cx: &mut TestAppContext) {
+    let (dir, window) = vault_with(cx, &[("host.md", HOST), ("gift.md", GIFT)]);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show_at(&mut cx, &window, "host.md");
+    cx.simulate_keystrokes("j ctrl-] A");
+    cx.simulate_input(" more");
+    window
+        .update(&mut cx, |ws, _w, cx| ws.autosave_now(cx))
+        .unwrap();
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("gift.md")).unwrap(),
+        "one more\ntwo\n",
+        "the countdown does not stop at the seam"
+    );
+    assert!(
+        !window
+            .update(&mut cx, |ws, _w, cx| ws.any_tab_is_dirty(cx))
+            .unwrap(),
+        "and the dot goes out with it"
+    );
+}
+
+/// Ruling Q3: the host's own text is an exit. Clicking it puts the caret where it
+/// was clicked, in the note that owns those bytes — which is the whole reason the
+/// exit happens before the click scan: the scan's offsets are host offsets, and while
+/// the caret is inside an embed `self.buffer` is a different note's buffer.
+#[gpui::test]
+fn a_click_on_the_host_around_an_embed_steps_the_caret_out(cx: &mut TestAppContext) {
+    let (dir, window) = vault_with(cx, &[("host.md", HOST), ("gift.md", GIFT)]);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show_at(&mut cx, &window, "host.md");
+    cx.simulate_keystrokes("j ctrl-]");
+    assert!(!badge(&window, &mut cx).is_empty(), "inside the embed");
+    // The row's own left edge, not a fixed x: the tree panel sits to the left of the
+    // text, and a click there opens a note instead of moving a caret.
+    let (left, top, bottom) = window
+        .update(&mut cx, |ws, _w, cx| ws.line_band(0, cx))
+        .unwrap()
+        .expect("the host's first row is painted");
+    cx.simulate_click(
+        gpui::point(gpui::px(left + 20.0), gpui::px((top + bottom) / 2.0)),
+        gpui::Modifiers::default(),
+    );
+    assert_eq!(badge(&window, &mut cx), "", "the click took the caret out");
+    cx.simulate_keystrokes("I");
+    cx.simulate_input("X");
+    cx.simulate_keystrokes("escape");
+    assert_eq!(
+        state(&window, "host", &mut cx).0,
+        "Xbefore\n![[gift]]\nafter\n",
+        "and the keystroke landed in the note that was clicked"
+    );
+    // The embedded note is not held in memory any more — nothing typed into it, and
+    // a clean embed with no tab of its own is not a note this window needs to keep.
+    assert_eq!(state(&window, "gift", &mut cx), (String::new(), false));
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("gift.md")).unwrap(),
+        GIFT,
+        "and the embed's file was not touched"
+    );
+}
+
+/// Ruling Q5: a section that stops existing under the caret gives the caret back,
+/// with a line saying so. Here the author deletes the heading from inside the block —
+/// the common way this happens, since the caret is the one doing the deleting.
+#[gpui::test]
+fn a_section_that_stops_existing_under_the_caret_gives_the_caret_back(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(
+        cx,
+        &[
+            ("host.md", "![[gift#Part]]\n"),
+            ("gift.md", "## Part\nkeep the change\n"),
+        ],
+    );
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show_at(&mut cx, &window, "host.md");
+    cx.simulate_keystrokes("ctrl-]");
+    assert!(!badge(&window, &mut cx).is_empty(), "inside the section");
+    // `d d`, not `dd`: `simulate_keystrokes` splits on spaces into key presses, so
+    // "dd" is one press of a key named "dd", which is no key at all.
+    cx.simulate_keystrokes("d d");
+    repaint(&mut cx);
+    assert_eq!(
+        badge(&window, &mut cx),
+        "",
+        "the block the caret was in is no longer there to be in"
+    );
+    assert!(
+        status(&window, &mut cx).contains("no longer holds the section"),
+        "and the bar says why the caret moved: {}",
+        status(&window, &mut cx)
+    );
+    assert_eq!(
+        state(&window, "gift", &mut cx).0,
+        "keep the change\n",
+        "the deletion still happened — leaving is not undoing"
     );
 }
 
