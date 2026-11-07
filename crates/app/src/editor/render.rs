@@ -52,6 +52,7 @@ impl Render for MarkdownEditor {
             self.font_family = chosen.into();
         }
         self.hit_lines.clear();
+        self.phantom_hits.borrow_mut().clear();
         self.input_registered = false;
         let context = match self.vim.mode() {
             Mode::Insert => "vim-insert",
@@ -105,8 +106,12 @@ impl Render for MarkdownEditor {
                 *hidden = true;
             }
         }
-        let plans =
-            table_view::plans_by_row(self.buffer.borrow().text(), &buffer_tables, line_count, &collapsed);
+        let plans = table_view::plans_by_row(
+            self.buffer.borrow().text(),
+            &buffer_tables,
+            line_count,
+            &collapsed,
+        );
         let table_rows: Vec<bool> = plans.iter().map(|plan| plan.is_some()).collect();
         // Images: a row that is nothing but an embed is painted as the picture
         // while the cursor is elsewhere in the note. Whether a row shows the
@@ -571,7 +576,9 @@ impl Render for MarkdownEditor {
                             }
                         } else if table.is_some() {
                             LineLayout {
-                                text: self.buffer.borrow().text()[dl.start..dl.end].to_string().into(),
+                                text: self.buffer.borrow().text()[dl.start..dl.end]
+                                    .to_string()
+                                    .into(),
                                 map: PieceMap::identity(dl.start, dl.end),
                             }
                         } else {

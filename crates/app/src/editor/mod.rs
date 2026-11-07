@@ -251,6 +251,11 @@ pub struct MarkdownEditor {
     /// the note's; `dirty` is the note's too, so two views of one file cannot
     /// disagree about whether it has unsaved edits. See [`crate::note`].
     note: Rc<Note>,
+    /// Where the phantom rows of the last frame were painted, and what each one is a
+    /// line of. Rebuilt every paint, the same way `hit_lines` is: it is the only way
+    /// back from a pixel on an embed row to the note that row belongs to (roadmap
+    /// P4.0b), and a stale one would answer for a row that is no longer on screen.
+    phantom_hits: Rc<RefCell<Vec<crate::line::phantom::PhantomHit>>>,
     /// The window's other open notes. An embed reads a note from here when this
     /// window has it in hand, and from the file when it does not (roadmap P4.0b
     /// ruling 12) — so an embed of a note being edited in another tab shows the
@@ -298,6 +303,7 @@ impl MarkdownEditor {
             pending_edits: Vec::new(),
             collapsed_inline: HashSet::new(),
             embeds: embeds::Cache::new(),
+            phantom_hits: Rc::new(RefCell::new(Vec::new())),
             notes: Rc::new(crate::note::Registry::default()),
         }
     }
@@ -348,6 +354,57 @@ impl MarkdownEditor {
     /// What the editor cannot discover for itself about transclusion: which note it is
     /// showing (the first link in the chain that stops an embed loop) and what notes the
     /// vault holds (what a link target resolves against).
+    /// Where the last paint put each phantom row: `("gift.md:0", top, bottom)`, in the
+    /// order they were painted.
+    #[cfg(test)]
+    pub(crate) fn phantom_rows(&self) -> Vec<(String, f32, f32, f32)> {
+        self.phantom_hits
+            .borrow()
+            .iter()
+            .map(|hit| {
+                (
+                    hit.origin
+                        .as_ref()
+                        .map(|o| format!("{}:{}", o.path.display(), o.row))
+                        .unwrap_or_default(),
+                    hit.bounds.left().as_f32(),
+                    hit.bounds.top().as_f32(),
+                    hit.bounds.bottom().as_f32(),
+                )
+            })
+            .collect()
+    }
+
+    /// Where the last paint put one of the note's own display lines.
+    #[cfg(test)]
+    pub(crate) fn line_band(&self, index: usize) -> Option<(f32, f32)> {
+        self.hit_lines
+            .iter()
+            .find(|hit| hit.index == index)
+            .map(|hit| (hit.bounds.top().as_f32(), hit.bounds.bottom().as_f32()))
+    }
+
+    /// The note and row a point on the screen belongs to, when the point is on a
+    /// phantom row of an embedded note.
+    ///
+    /// This is the seam's clickable half: the answer is a place in another buffer,
+    /// which is what entering an embed moves the caret to (roadmap P4.0b).
+    ///
+    /// Nothing reads it yet — the click that enters an embed is M3 — but the record
+    /// it answers from is built and pinned now, because a hit test written after the
+    /// feature tends to be shaped by whatever the first caller needed.
+    #[allow(dead_code)]
+    pub(crate) fn origin_at(
+        &self,
+        point: gpui::Point<gpui::Pixels>,
+    ) -> Option<shale_core::transclude::Origin> {
+        self.phantom_hits
+            .borrow()
+            .iter()
+            .find(|hit| hit.bounds.contains(&point))
+            .and_then(|hit| hit.origin.clone())
+    }
+
     /// Hand this view the window's note registry. Without it an embed still works —
     /// it just reads files, which is what it did before embeds could be edited.
     pub(crate) fn set_notes(&mut self, notes: Rc<crate::note::Registry>, cx: &mut Context<Self>) {

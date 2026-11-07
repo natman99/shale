@@ -215,6 +215,37 @@ impl Workspace {
     /// `&mut C` because resolving fills the editor's body cache, which is the point of
     /// the test: the cache is the difference between a view and a disk read per frame.
     #[cfg(test)]
+    /// Where the last paint put the phantom rows of embedded notes, and what each one
+    /// is a line of — the seam's clickable half, for the tests that click on it.
+    pub(crate) fn phantom_rows<C: gpui::AppContext>(&self, cx: &C) -> Vec<(String, f32, f32, f32)> {
+        self.editor()
+            .map(|editor| editor.read_with(cx, |editor, _cx| editor.phantom_rows()))
+            .unwrap_or_default()
+    }
+
+    /// What note and row a point on the screen belongs to, or `None` when the point
+    /// is not on an embedded note's row.
+    pub(crate) fn origin_at<C: gpui::AppContext>(&self, at: (f32, f32), cx: &C) -> Option<String> {
+        self.editor().and_then(|editor| {
+            editor.read_with(cx, |editor, _cx| {
+                editor
+                    .origin_at(gpui::point(gpui::px(at.0), gpui::px(at.1)))
+                    .map(|o| format!("{}:{}", o.path.display(), o.row))
+            })
+        })
+    }
+
+    /// Where the last paint put one of the note's own display lines.
+    pub(crate) fn line_band<C: gpui::AppContext>(
+        &self,
+        index: usize,
+        cx: &C,
+    ) -> Option<(f32, f32)> {
+        self.editor()
+            .map(|editor| editor.read_with(cx, |editor, _cx| editor.line_band(index)))
+            .unwrap_or_default()
+    }
+
     pub(crate) fn embed_shape<C: gpui::AppContext>(&self, cx: &mut C) -> Vec<String> {
         self.editor()
             .map(|editor| editor.update(cx, |editor, _cx| editor.embed_shape()))

@@ -210,6 +210,15 @@ Still owed in M2: the display list itself. `HitLine` is the address record and
 buffer a row belongs to — that tag, and the caret carrying it, is what M2b adds, along
 with motions clamping at the seam.
 
+**M2b, first half landed.** A phantom row now records its own on-screen band as it
+paints (`line::phantom::PhantomHit { bounds, origin }`, collected in a cell the editor
+owns and clears each frame), and `MarkdownEditor::origin_at(point)` answers a point with
+the note and row it was drawn for. The note's own rows answer `None`, and the bands are
+pinned to sit between the asking row and the next one — a hit record that lands in the
+wrong band sends a click to the wrong place in the note. Nothing consumes it yet: the
+click that enters an embed is M3, and so is the display list that has to make the
+entered block's rows real enough to hold a caret.
+
 **M3 — entry and exit.** The hit-test from a phantom row back to the body row under it
 (already P4.0a's leftover #1, and the same machinery click-to-open and the hover card
 need), `ctrl-]` recording a jump, `ctrl-o` leaving, the seam header naming the note, the

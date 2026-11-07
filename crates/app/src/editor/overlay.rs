@@ -506,6 +506,8 @@ impl MarkdownEditor {
                     current: block.current,
                     indent: 0,
                     spans: Vec::new(),
+                    origin: None,
+                    hits: Rc::clone(&self.phantom_hits),
                 });
             }
             // An embed's rows are dressed the way live preview dresses the note's own:
@@ -547,6 +549,10 @@ impl MarkdownEditor {
                     current: block.current,
                     indent: line.depth,
                     spans,
+                    // The row's address travels with it to the paint, which is where
+                    // the on-screen band gets paired back up with it.
+                    origin: line.origin.clone(),
+                    hits: Rc::clone(&self.phantom_hits),
                 });
             }
         }

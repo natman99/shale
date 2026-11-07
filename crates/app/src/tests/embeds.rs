@@ -242,3 +242,65 @@ fn an_embed_follows_a_note_being_edited_in_another_tab(cx: &mut TestAppContext) 
         "and none of this touched the file: the edit is still only in the buffer"
     );
 }
+
+/// A painted embed row is not just a picture: the band it was drawn in answers with
+/// the note and row it is a line of (roadmap P4.0b). This is what a click on an
+/// embed has to find before it can enter one, and what a hover card and
+/// click-to-open need for the same reason.
+#[gpui::test]
+fn a_painted_embed_row_answers_with_where_it_came_from(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("host.md", HOST), ("gift.md", GIFT)]);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show_at(&mut cx, &window, "host.md");
+    let rows = window
+        .update(&mut cx, |ws, _window, cx| ws.phantom_rows(cx))
+        .unwrap();
+    assert_eq!(
+        rows.iter()
+            .map(|(what, ..)| what.clone())
+            .collect::<Vec<_>>(),
+        vec!["gift.md:0", "gift.md:1"],
+        "the two rows the embed paints, in the order they were painted"
+    );
+    // The bands belong between the note's own rows: the embed asks on host row 1, and
+    // host row 2 is `after`. A hit record that landed anywhere else would send a click
+    // to the wrong place in the note.
+    let asking = window
+        .update(&mut cx, |ws, _window, cx| ws.line_band(1, cx))
+        .unwrap()
+        .unwrap();
+    let after = window
+        .update(&mut cx, |ws, _window, cx| ws.line_band(2, cx))
+        .unwrap()
+        .unwrap();
+    for (_, _, top, bottom) in &rows {
+        assert!(
+            *top >= asking.1 && *bottom <= after.1,
+            "the embed's row at {top}..{bottom} must sit between the asking row \
+             ({asking:?}) and the note's next row ({after:?})"
+        );
+    }
+    // And the point-in-band query finds it: the middle of the first body row.
+    let (what, left, top, bottom) = &rows[0];
+    let at = (left + 20., (top + bottom) / 2.);
+    assert_eq!(
+        window
+            .update(&mut cx, |ws, _window, cx| ws.origin_at(at, cx))
+            .unwrap(),
+        Some(what.clone()),
+        "a point inside the band names the row it was painted for"
+    );
+    // A point on the note's own text is not an embed row.
+    let own = window
+        .update(&mut cx, |ws, _window, cx| ws.line_band(0, cx))
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        window
+            .update(&mut cx, |ws, _window, cx| ws
+                .origin_at((at.0, (own.0 + own.1) / 2.), cx))
+            .unwrap(),
+        None,
+        "the note's own first row belongs to the note"
+    );
+}

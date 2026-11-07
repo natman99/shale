@@ -15,14 +15,16 @@
 //! the note rather than as a panel pasted over it. An embed's rows also carry the source
 //! note's markdown styling, because a heading inside an embedded note is still a heading.
 
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use gpui::{
     fill, font, px, relative, rgb, App, Bounds, Element, ElementId, GlobalElementId,
-    InspectorElementId, IntoElement, LayoutId, Pixels, ShapedLine, SharedString, Style as ElementStyle,
-    Window,
+    InspectorElementId, IntoElement, LayoutId, Pixels, ShapedLine, SharedString,
+    Style as ElementStyle, Window,
 };
 use shale_core::theme::Palette;
+use shale_core::transclude::Origin;
 
 use crate::line::marks;
 use crate::theme::{self, RunStyle};
@@ -30,6 +32,23 @@ use crate::theme::{self, RunStyle};
 /// How far right each level of embed steps. Deliberately smaller than a list
 /// indent: this is a seam between notes, not a nesting structure inside one.
 const INDENT_STEP: f32 = 14.0;
+
+/// Where a phantom row was painted, and what it is a line *of*.
+///
+/// A phantom row is content the buffer does not hold, so nothing in the display model
+/// can answer for it — but it is still on screen, and a reader who clicks it means
+/// something by that. This record is the only way back from the pixel to the note: the
+/// row's address is an `Origin`, a place in another buffer, which is what entering an
+/// embed starts from (roadmap P4.0b).
+#[derive(Debug, Clone)]
+pub(crate) struct PhantomHit {
+    /// The band the row was painted in, gutter to window edge.
+    #[allow(dead_code)]
+    pub(crate) bounds: Bounds<Pixels>,
+    /// Where in the vault this row is a line of.
+    #[allow(dead_code)]
+    pub(crate) origin: Option<Origin>,
+}
 
 /// What kind of phantom row this is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -71,6 +90,15 @@ pub(crate) struct PhantomLine {
     /// scan that sees both. An empty list means "plain", which is what a proposal's rows
     /// are: proposed text is not styled, it is a change being offered.
     pub(crate) spans: Vec<(usize, usize, shale_core::mdstyle::Style)>,
+    /// Which note this row is a line of, and which row. `None` for a proposal's rows.
+    pub(crate) origin: Option<Origin>,
+    /// The editor's list of painted phantom rows, which this element adds itself to
+    /// while painting.
+    ///
+    /// Not an `Entity<MarkdownEditor>` updated from `paint`, the way `LineElement`
+    /// records its hit line: the phantom rows are built while the editor is already
+    /// borrowed, and a shared cell keeps that borrow from having to be handed around.
+    pub(crate) hits: Rc<RefCell<Vec<PhantomHit>>>,
 }
 
 impl PhantomLine {
@@ -177,7 +205,8 @@ impl Element for PhantomLine {
             };
             vec![style.text_run(self.text.len(), &base_font)]
         };
-        window.text_system()
+        window
+            .text_system()
             .shape_line(self.text.clone(), px(self.size), &runs, None)
     }
 
@@ -219,6 +248,17 @@ impl Element for PhantomLine {
             cx,
         ) {
             tracing::warn!("failed to paint a proposed line: {err:#}");
+        }
+
+        // Record where it landed. The bounds are the row's own band, so a click
+        // anywhere in it — including the gutter bar and the empty space past the
+        // text — belongs to this row and not to the note row it happens to sit
+        // beside.
+        if self.origin.is_some() {
+            self.hits.borrow_mut().push(PhantomHit {
+                bounds,
+                origin: self.origin.clone(),
+            });
         }
     }
 }
