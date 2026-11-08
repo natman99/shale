@@ -172,6 +172,12 @@ impl View {
 /// line.
 type LineHits = (Vec<(usize, usize)>, Option<(usize, usize)>);
 
+/// What a closed fold inside a block puts on screen: the row it marks, that row's left
+/// edge, the click ranges measured from that edge, and the words the fold says about how
+/// much it is hiding.
+#[cfg(test)]
+pub(crate) type FoldMark = (usize, f32, Vec<(f32, f32)>, String);
+
 /// The embed this view is editing. See `MarkdownEditor::entered`.
 pub(crate) struct Entered {
     /// The embedded note, borrowed from the window's registry — the same buffer a
@@ -1222,7 +1228,7 @@ impl MarkdownEditor {
     /// the click ranges measured from that edge)` — the same space the click path asks
     /// the host's own lines in.
     #[cfg(test)]
-    pub(crate) fn embed_fold_marks(&self) -> Vec<(usize, f32, Vec<(f32, f32)>)> {
+    pub(crate) fn embed_fold_marks(&self) -> Vec<FoldMark> {
         self.embed_hits
             .iter()
             .filter_map(|hit| {
@@ -1235,6 +1241,7 @@ impl MarkdownEditor {
                         .iter()
                         .map(|(a, b)| (a.as_f32(), b.as_f32()))
                         .collect(),
+                    marker.line.text.to_string(),
                 ))
             })
             .collect()

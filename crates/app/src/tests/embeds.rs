@@ -1314,7 +1314,7 @@ fn bands(
 fn fold_marks(
     window: &WindowHandle<Workspace>,
     cx: &mut VisualTestContext,
-) -> Vec<(usize, f32, Vec<(f32, f32)>)> {
+) -> Vec<crate::editor::FoldMark> {
     window
         .update(cx, |ws, _window, cx| {
             ws.editor()
@@ -1410,7 +1410,12 @@ fn clicking_the_disclosure_inside_a_block_reopens_the_section(cx: &mut TestAppCo
         "folded shut: the section's two rows are gone"
     );
     let marks = fold_marks(&window, &mut cx);
-    let (row, left, ranges) = marks.first().expect("a closed fold paints a disclosure");
+    let (row, left, ranges, label) = marks.first().expect("a closed fold paints a disclosure");
+    assert_eq!(
+        label.trim(),
+        "2 more lines",
+        "the block says how much it is hiding, the same words the note's own heading uses"
+    );
     let (_, _, top, bottom) = *bands(&window, &mut cx)
         .iter()
         .find(|band| band.0 == *row)
