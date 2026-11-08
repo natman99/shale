@@ -5,7 +5,7 @@
 use std::ops::Range;
 
 use gpui::{
-    px, Bounds, Context, EntityInputHandler, MouseDownEvent, Pixels, UTF16Selection, Window,
+    Bounds, Context, EntityInputHandler, MouseDownEvent, Pixels, UTF16Selection, Window, px,
 };
 use shale_core::vim::{Key, Mode};
 
@@ -67,6 +67,17 @@ impl MarkdownEditor {
             cx.emit(EditorEvent::EnterEmbedAt {
                 path: origin.path,
                 row: origin.row,
+            });
+            return;
+        }
+        // A badge row names a note it did not paint — an embed past the depth cap, one
+        // already on the chain, or a section that stopped resolving. Clicking it opens
+        // that note in the tab, the same door `gd` on the `![[…]]` row opens, because a
+        // caption the reader can only read is a dead end (roadmap P4.0a, leftover #1).
+        if let Some(embed) = self.door_at(event.position) {
+            cx.emit(EditorEvent::FollowLink {
+                target: embed.target,
+                anchor: embed.anchor,
             });
             return;
         }

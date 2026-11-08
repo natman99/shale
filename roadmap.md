@@ -56,7 +56,7 @@ export, Templates, tree-sitter code highlighting.
 built through M4**: the buffer registry that made it possible (P4.17), entering with
 `ctrl-]` or a click, the seam, per-note dirty state and the save story, links and the
 checker following the caret, live preview inside the block. What is left there is small
-and known: click-to-open on a read-only embed, and the hover card. Soft-wrap for the
+and known: the hover card (click-to-open on a badge landed 2026-11-08). Soft-wrap for the
 block's rows and folding inside a block are done (2026-11-08): a block being edited folds
 with `za`, its disclosure is clickable, and the rows behind a closed fold leave both the
 paint and the display model the caret's motions read. P3.2's move/exchange/rotate and
@@ -1037,7 +1037,12 @@ edges, query nodes, MCP canvas tools) is P6.10.
     `![[…]]` line opens the embedded note in the tab, which is what a link does; `ctrl-]`
     is the door that edits in place.
     **What is left in this item:**
-    1. Click-to-open on a read-only embed, and the hover preview card (P6.2's embed case).
+    1. **Click-to-open on a read-only embed — done 2026-11-08.** A badge (depth cap, a
+       note already on the chain, or a section that stopped resolving) carries the link it
+       stands for, records a clickable band, and a click on it emits the same
+       `FollowLink` that `gd` on the `![[…]]` row does — one route, so a click and a
+       keystroke cannot disagree about which note a written link means. What remains here
+       is the hover preview card (P6.2's embed case).
     2. `![[query-name]]` for `.shq` results waits on P4.3; block refs (`^abc`) on P4.9.
     Original framing: `![[note]]` and
     `![[note#heading]]` resolve through the existing link resolver and paint the
@@ -1067,7 +1072,8 @@ edges, query nodes, MCP canvas tools) is P6.10.
     raw mode stepping out of one, and soft-wrap for the block's rows (a wrapped row is
     several elements over one buffer row, each with a slice of the row's `PieceMap`, so a
     click on the tail still answers with the byte under it). **Owed:** the fold disclosure
-    glyph on the `GutterMark` path, and click-to-open on a read-only embed.
+    glyph on the `GutterMark` path, and the hover preview card (click-to-open landed
+    2026-11-08: a badge now carries its link and opens the note it names).
     **Interaction design pass done 2026-11-06** — rulings,
     a 36-case edge ledger and milestones M0-M4 are in `transclusion-plan.md`; **all eight
     open questions were ruled the same day** (Q1-Q8, §7). Behavior was already ruled (undo buffer-local

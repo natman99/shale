@@ -516,6 +516,9 @@ impl MarkdownEditor {
                     hit.origin
                         .as_ref()
                         .map(|o| format!("{}:{}", o.path.display(), o.row))
+                        // A badge has no note-row address, but it does name a link, and a
+                        // test needs to be able to point at it.
+                        .or_else(|| hit.door.as_ref().map(|d| format!("badge:{}", d.target)))
                         .unwrap_or_default(),
                     hit.bounds.left().as_f32(),
                     hit.bounds.top().as_f32(),
@@ -559,6 +562,23 @@ impl MarkdownEditor {
             .iter()
             .find(|hit| hit.bounds.contains(&point))
             .and_then(|hit| hit.origin.clone())
+    }
+
+    /// The link a badge row stands for, if the point landed on one.
+    ///
+    /// A badge names a note the block did not paint, so the reader who clicks it is
+    /// asking for that note. The door is the same one `gd` on the `![[…]]` row opens —
+    /// one route, so a click and a keystroke cannot disagree about which note a written
+    /// link means (roadmap P4.0a, leftover #1).
+    pub(crate) fn door_at(
+        &self,
+        point: gpui::Point<gpui::Pixels>,
+    ) -> Option<shale_core::transclude::EmbedRef> {
+        self.phantom_hits
+            .borrow()
+            .iter()
+            .find(|hit| hit.bounds.contains(&point))
+            .and_then(|hit| hit.door.clone())
     }
 
     /// Hand this view the window's note registry. Without it an embed still works —

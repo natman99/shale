@@ -103,8 +103,25 @@ pub struct EmbedLine {
 pub enum EmbedRow {
     /// Source text, styled by the app the way the note's own lines are.
     Text(String),
-    /// An embed that stopped expanding: its name, and nothing else.
-    Badge(String),
+    /// An embed that stopped expanding: its name, and the door a click opens.
+    Badge(Badge),
+}
+
+/// An embed that stopped expanding: what it says, and the door a click opens.
+///
+/// The label alone used to be the whole payload, which made a badge a caption: it named
+/// a note the reader was standing next to and could not reach from where they were. The
+/// link the badge stands for rides along so the app can answer a click on it the way it
+/// answers `gd` on the `![[…]]` row itself (roadmap P4.0a, leftover #1).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Badge {
+    /// Why there is no content, in the words a followed link uses for the same problem,
+    /// so the two surfaces cannot disagree about what went wrong.
+    pub label: String,
+    /// The embed as the note wrote it — target, anchor, alias. A door is written in the
+    /// same terms the link resolver takes, so a badge still opens the right note after a
+    /// rename, and lands on the section the embed asked for.
+    pub embed: EmbedRef,
 }
 
 /// What one embed contributes to the view.
@@ -115,8 +132,8 @@ pub enum Body {
     /// a target that resolves to no note. A *broken* embed deserves a badge of
     /// its own; that is P6.9's broken-embed pass, not this one.
     Nothing,
-    /// The embed stopped expanding: name only.
-    Badge(String),
+    /// The embed stopped expanding: its name, and the door a click opens.
+    Badge(Badge),
     Lines(Vec<EmbedLine>),
 }
 
@@ -183,7 +200,10 @@ fn expand(
     };
     let path = entry.path.clone();
     if chain.contains(&path) {
-        return Body::Badge(label(embed, entry.stem()));
+        return Body::Badge(Badge {
+            label: label(embed, entry.stem()),
+            embed: embed.clone(),
+        });
     }
     let Some(text) = sources.text(&path) else {
         return Body::Nothing;
@@ -200,7 +220,10 @@ fn expand(
             // so the two surfaces cannot disagree about what went wrong (ruled
             // 2026-11-06, and P4.6a's wording).
             None => {
-                return Body::Badge(format!("no section \"{anchor}\" in {}", entry.stem()));
+                return Body::Badge(Badge {
+                    label: format!("no section \"{anchor}\" in {}", entry.stem()),
+                    embed: embed.clone(),
+                });
             }
         },
     };
@@ -241,10 +264,10 @@ fn rows_of(
             Some(inner) if depth < MAX_DEPTH => {
                 match expand(vault, entries, &inner, depth + 1, chain, sources) {
                     Body::Lines(inner_rows) => rows.extend(inner_rows),
-                    Body::Badge(name) => rows.push(EmbedLine {
+                    Body::Badge(badge) => rows.push(EmbedLine {
                         depth: depth + 1,
                         origin: None,
-                        row: EmbedRow::Badge(name),
+                        row: EmbedRow::Badge(badge),
                     }),
                     Body::Nothing => rows.push(EmbedLine {
                         depth,
@@ -257,7 +280,10 @@ fn rows_of(
             Some(inner) => rows.push(EmbedLine {
                 depth,
                 origin: None,
-                row: EmbedRow::Badge(label(&inner, inner.target.as_str())),
+                row: EmbedRow::Badge(Badge {
+                    label: label(&inner, inner.target.as_str()),
+                    embed: inner.clone(),
+                }),
             }),
             None => rows.push(EmbedLine {
                 depth,
@@ -588,7 +614,10 @@ mod tests {
             vec![EmbedLine {
                 depth: 3,
                 origin: None,
-                row: EmbedRow::Badge("d".into())
+                row: EmbedRow::Badge(Badge {
+                    label: "d".into(),
+                    embed: line_embed("![[d]]").unwrap(),
+                })
             }],
             "over budget: the name, not the content"
         );
@@ -614,7 +643,10 @@ mod tests {
                 EmbedLine {
                     depth: 2,
                     origin: None,
-                    row: EmbedRow::Badge("host".into())
+                    row: EmbedRow::Badge(Badge {
+                        label: "host".into(),
+                        embed: line_embed("![[host]]").unwrap(),
+                    })
                 },
             ]
         );
@@ -626,7 +658,10 @@ mod tests {
         let e = line_embed("![[host]]").unwrap();
         assert_eq!(
             resolve(&v, &entries, Path::new("host.md"), &e),
-            Body::Badge("host".into())
+            Body::Badge(Badge {
+                label: "host".into(),
+                embed: e.clone(),
+            })
         );
     }
 
@@ -670,7 +705,10 @@ mod tests {
             ),
             // Not `Nothing`, which is for a target that is no note at all: the note
             // is there, and the reader is owed the reason the block is empty.
-            Body::Badge("no section \"Nope\" in gift".into())
+            Body::Badge(Badge {
+                label: "no section \"Nope\" in gift".into(),
+                embed: line_embed("![[gift#Nope]]").unwrap(),
+            })
         );
     }
 
@@ -697,7 +735,10 @@ mod tests {
             vec![EmbedLine {
                 depth: 3,
                 origin: None,
-                row: EmbedRow::Badge("the last".into())
+                row: EmbedRow::Badge(Badge {
+                    label: "the last".into(),
+                    embed: line_embed("![[d|the last]]").unwrap(),
+                })
             }],
             "the author's name survives the depth cap"
         );

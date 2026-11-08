@@ -19,8 +19,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use gpui::{
-    font, px, relative, App, Bounds, Element, ElementId, GlobalElementId, InspectorElementId,
-    IntoElement, LayoutId, Pixels, ShapedLine, SharedString, Style as ElementStyle, Window,
+    App, Bounds, Element, ElementId, GlobalElementId, InspectorElementId, IntoElement, LayoutId,
+    Pixels, ShapedLine, SharedString, Style as ElementStyle, Window, font, px, relative,
 };
 use shale_core::theme::Palette;
 use shale_core::transclude::Origin;
@@ -47,6 +47,11 @@ pub(crate) struct PhantomHit {
     /// Where in the vault this row is a line of.
     #[allow(dead_code)]
     pub(crate) origin: Option<Origin>,
+    /// The link this row stands for, when it is an embed's badge. A badge row belongs to
+    /// no note, so this is the only way back from its pixels to something the reader can
+    /// act on.
+    #[allow(dead_code)]
+    pub(crate) door: Option<shale_core::transclude::EmbedRef>,
 }
 
 /// What kind of phantom row this is.
@@ -96,6 +101,10 @@ pub(crate) struct PhantomLine {
     pub(crate) gutter: Vec<marks::GutterMark>,
     /// Which note this row is a line of, and which row. `None` for a proposal's rows.
     pub(crate) origin: Option<Origin>,
+    /// The link an embed's badge row stands for, so a click on the badge opens the note
+    /// it names instead of stopping at the caption. `None` for every other row, which is
+    /// addressed by `origin` (roadmap P4.0a, leftover #1).
+    pub(crate) door: Option<shale_core::transclude::EmbedRef>,
     /// The editor's list of painted phantom rows, which this element adds itself to
     /// while painting.
     ///
@@ -273,10 +282,14 @@ impl Element for PhantomLine {
         // anywhere in it — including the gutter bar and the empty space past the
         // text — belongs to this row and not to the note row it happens to sit
         // beside.
-        if self.origin.is_some() {
+        // A row is addressable if it is a line of another note *or* a door into one:
+        // both are things a reader can click, and a badge that records nothing is a
+        // caption the reader can only read.
+        if self.origin.is_some() || self.door.is_some() {
             self.hits.borrow_mut().push(PhantomHit {
                 bounds,
                 origin: self.origin.clone(),
+                door: self.door.clone(),
             });
         }
     }

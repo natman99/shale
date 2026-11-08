@@ -222,7 +222,7 @@ impl MarkdownEditor {
         {
             match body {
                 Body::Nothing => {}
-                Body::Badge(name) => out.push(format!("embed row {row}: badge {name}")),
+                Body::Badge(badge) => out.push(format!("embed row {row}: badge {}", badge.label)),
                 Body::Lines(lines) => {
                     out.push(format!("embed row {row}"));
                     // The gutter is part of the shape a test can pin. A dot that is not
@@ -240,7 +240,7 @@ impl MarkdownEditor {
                         let text = match row {
                             EmbedRow::Text(text) => text,
                             // Brackets because a stopped embed is a name, not a line.
-                            EmbedRow::Badge(text) => format!("[{text}]"),
+                            EmbedRow::Badge(badge) => format!("[{}]", badge.label),
                         };
                         // The address is part of the shape a test can pin: a painted
                         // row that does not know which note and row it came from
@@ -330,6 +330,11 @@ pub(crate) struct Block {
     pub(crate) lines: Vec<BlockLine>,
     /// Set when collapsed: the `−N +M` that stands in for the lines.
     pub(crate) badge: Option<String>,
+    /// The link a badge row stands for, when the badge is an embed's. This is what turns
+    /// the caption into a door: a click on the badge does what `gd` on the `![[…]]` row
+    /// does (roadmap P4.0a, leftover #1). A proposal's collapsed `−N +M` badge names no
+    /// link, so it has none.
+    pub(crate) door: Option<shale_core::transclude::EmbedRef>,
     /// The hunk the strip's marker is on, which paints a wider bar.
     pub(crate) current: bool,
     pub(crate) kind: BlockKind,
@@ -365,6 +370,9 @@ pub(crate) struct BlockLine {
     /// depth cap, or one already on the chain. It wears the link colour, because the
     /// name is the thing the reader can act on.
     pub(crate) badge: bool,
+    /// The link a badge row stands for, so the row can be clicked open. `None` for every
+    /// other row, which is addressed by `origin` instead.
+    pub(crate) door: Option<shale_core::transclude::EmbedRef>,
     /// Which note this row is a line *of*, and which row of it. `None` for a
     /// proposal's rows (they belong to no note until they are accepted) and for a
     /// badge. This is what makes the painted row addressable: a click on it, a
@@ -430,6 +438,8 @@ impl MarkdownEditor {
                     // A collapsed hunk trades its lines for a count, which is what lets
                     // a twelve-line proposal be skimmed without twelve rows of green.
                     badge: placed.collapsed.then(|| format!("−{removed} +{added}")),
+                    // A count names no link: there is nothing to open from it.
+                    door: None,
                     lines: if placed.collapsed {
                         Vec::new()
                     } else {
@@ -439,6 +449,7 @@ impl MarkdownEditor {
                                 text,
                                 depth: 0,
                                 badge: false,
+                                door: None,
                                 // A proposed row belongs to no note until the
                                 // proposal is accepted, so it has no address.
                                 origin: None,
@@ -595,9 +606,10 @@ impl MarkdownEditor {
             };
             let block = match body {
                 Body::Nothing => continue,
-                Body::Badge(name) => Block {
+                Body::Badge(badge) => Block {
                     lines: Vec::new(),
-                    badge: Some(name),
+                    badge: Some(badge.label),
+                    door: Some(badge.embed),
                     current: false,
                     kind: BlockKind::Embed,
                     entered: false,
@@ -622,13 +634,15 @@ impl MarkdownEditor {
                                 text,
                                 depth,
                                 badge: false,
+                                door: None,
                                 origin,
                                 gutter: Vec::new(),
                             },
-                            EmbedRow::Badge(text) => BlockLine {
-                                text,
+                            EmbedRow::Badge(badge) => BlockLine {
+                                text: badge.label,
                                 depth,
                                 badge: true,
+                                door: Some(badge.embed),
                                 origin: None,
                                 gutter: Vec::new(),
                             },
@@ -668,6 +682,9 @@ impl MarkdownEditor {
                         fold,
                         lines,
                         badge: None,
+                        // A block with content is entered by clicking its rows, which
+                        // carry their own `origin`; only a badge needs a door.
+                        door: None,
                         current: false,
                         kind: BlockKind::Embed,
                     }
@@ -816,6 +833,7 @@ impl MarkdownEditor {
                             BlockKind::Proposal => PhantomKind::Badge,
                             BlockKind::Embed => PhantomKind::EmbedBadge,
                         },
+                        door: block.door.clone(),
                         current: block.current,
                         indent: 0,
                         spans: Vec::new(),
@@ -955,6 +973,7 @@ impl MarkdownEditor {
                             // The row's address travels with it to the paint, which is where
                             // the on-screen band gets paired back up with it.
                             origin: line.origin.clone(),
+                            door: line.door.clone(),
                             gutter: if first {
                                 line.gutter.clone()
                             } else {

@@ -237,6 +237,70 @@ fn clicking_an_embeds_body_steps_into_it(cx: &mut TestAppContext) {
     );
 }
 
+/// A badge names a note the block refused to paint — an embed past the depth cap, one
+/// already on the chain, or a section that stopped resolving. Until the badge carried
+/// its link it was a caption: the reader could read the name and nothing else. Clicking
+/// it opens that note in the tab, the same door `gd` on the `![[…]]` row opens.
+#[gpui::test]
+fn clicking_a_badge_opens_the_note_it_names(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(
+        cx,
+        &[("host.md", "![[gift#Nope]]\n"), ("gift.md", "# Top\n")],
+    );
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show_at(&mut cx, &window, "host.md");
+    let band = window
+        .update(&mut cx, |ws, _w, cx| ws.phantom_rows(cx))
+        .unwrap()
+        .into_iter()
+        .find(|(what, ..)| what == "badge:gift")
+        .expect("the missing-section badge is painted and addressable");
+    let (_, left, top, bottom) = band;
+    cx.simulate_click(
+        gpui::point(gpui::px(left + 4.0), gpui::px((top + bottom) / 2.0)),
+        gpui::Modifiers::default(),
+    );
+    assert_eq!(
+        caret_text(&window, &mut cx),
+        "# Top\n",
+        "the click opened the note the badge names"
+    );
+}
+
+/// The same door on a badge *inside* a block: an embed that ran out of budget shows its
+/// name one level down, and clicking that name opens the note it stopped expanding.
+#[gpui::test]
+fn clicking_a_badge_inside_a_block_opens_the_note_it_names(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(
+        cx,
+        &[
+            ("host.md", "![[a]]\n"),
+            ("a.md", "![[b]]\n"),
+            ("b.md", "![[c]]\n"),
+            ("c.md", "![[d|the last]]\n"),
+            ("d.md", "deep\n"),
+        ],
+    );
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show_at(&mut cx, &window, "host.md");
+    let band = window
+        .update(&mut cx, |ws, _w, cx| ws.phantom_rows(cx))
+        .unwrap()
+        .into_iter()
+        .find(|(what, ..)| what == "badge:d")
+        .expect("the depth-capped badge is painted and addressable");
+    let (_, left, top, bottom) = band;
+    cx.simulate_click(
+        gpui::point(gpui::px(left + 4.0), gpui::px((top + bottom) / 2.0)),
+        gpui::Modifiers::default(),
+    );
+    assert_eq!(
+        caret_text(&window, &mut cx),
+        "deep\n",
+        "the click opened the note the badge names, alias and all"
+    );
+}
+
 /// Dirty follows the caret. The embedded note is the one with unsaved edits, even
 /// though no tab is showing it (ruling 17).
 #[gpui::test]

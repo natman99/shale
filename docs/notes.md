@@ -122,6 +122,10 @@ is styled by the source note's own markdown. A section that no longer exists sho
 a badge naming what is missing instead of showing nothing. Embeds nest, with a cap;
 past the cap a block shows the name it would have expanded and nothing else.
 
+**A badge is a door, not a caption.** Clicking one opens the note it names — the same
+door `gd` on the `![[…]]` line opens — so a block that refused to expand still gets you
+where you were going.
+
 **The block is editable, one level at a time.** Click inside the body, or put the
 cursor on the `![[…]]` line and press `ctrl-]`. `ctrl-o` comes back out, and so does
 clicking the host's own text; `escape` never does, because `escape` belongs to

@@ -456,8 +456,13 @@ nothing (a `gd` that does nothing) or a squiggle on the wrong note.
   block of a note this view has edited stays shut. A note this view has never edited has
   no fold state, because nothing here ever asked for one.
 
-**Still owed before P4.0b closes:** click-to-open on a read-only embed, and the hover
-card.
+**Still owed before P4.0b closes:** the hover card. Click-to-open landed 2026-11-08: a
+badge — depth cap, a note already on the chain, or a section that stopped resolving —
+carries the `EmbedRef` it stopped expanding, records a clickable band like every other
+phantom row, and a click emits the same `FollowLink` that `gd` on the `![[…]]` row does.
+One route, not two: a click and a keystroke cannot disagree about which note a written
+link means, and a rename can't strand the badge because the door is written in the link's
+own terms rather than as a resolved path.
 
 M1 before M3 is not a preference, it is the ordering rule.
 
