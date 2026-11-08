@@ -132,9 +132,11 @@ link means: `[[note#Heading]]` previews that section, not the top of the note. I
 note is open in a tab, the card shows it as you have it, not as the disk has it. It
 says how many lines it left out, it hangs under the link rather than under the line it is
 written on, and it never takes the keyboard: your next keystroke is still meant for the
-note. It closes when the pointer leaves the link, when you scroll and the pointer turns
-out to be over something else, and on `escape` — which is there for the case where you
-start typing without touching the mouse and need to see the text under the card.
+note. It closes when the pointer leaves the link and on `escape` — which is there for the
+case where you start typing without touching the mouse and need to see the text under the
+card. Scrolling moves the card with its link and then asks the pointer again what it is
+on: still on the card or the link, it stays; somewhere else in the note, it goes. The same
+rule runs for the spelling popup, which follows its word the same way.
 
 **The block is editable, one level at a time.** Click inside the body, or put the
 cursor on the `![[…]]` line and press `ctrl-]`. `ctrl-o` comes back out, and so does
@@ -191,7 +193,9 @@ A language server (`harper-ls --stdio` by default, named by `[spellcheck]` in
 counted in the status bar. `K` — or resting the pointer on a marked word — opens
 a popup over the note with the complaint and the fixes it offers; one popup at a
 time, anchored to its line, ended by `escape`, by choosing a row, or by the
-pointer walking off either edge. `:harper off` / `:harper on` switch it without a
+pointer walking away from it — off its top or bottom, or out past its side. The
+way down from the marked word stays inside that area even when the popup is
+clamped to the text column and the word is beside it. `:harper off` / `:harper on` switch it without a
 restart. A server that is not installed simply means nothing gets underlined.
 
 ## Reading with less noise

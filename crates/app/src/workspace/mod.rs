@@ -157,13 +157,14 @@ pub(crate) struct Workspace {
     /// Where in the link's row the card hangs: the byte the link starts at, so the card
     /// sits under the link rather than at the beginning of the line it is written on.
     card_link_start: Option<usize>,
-    /// How far the note was scrolled when the card was last asked about. Scrolling moves
-    /// text under a pointer that never moved, and gpui reports no mouse move for it, so
-    /// the pointer's question has to be asked again against the new paint.
-    card_scroll: f32,
+    /// How far the note was scrolled when the floating surface last asked the pointer's
+    /// question. Scrolling moves text under a pointer that never moved, and gpui reports
+    /// no mouse move for it, so the pointer's question has to be asked again against the
+    /// new paint.
+    surface_scroll: f32,
     /// A scroll noticed during a frame, re-asked at the start of the next one — when the
     /// frame that drew the scrolled text has actually recorded where its rows went.
-    card_reask: bool,
+    surface_reask: bool,
     /// A focus to hand the keyboard to at the start of the next frame, for the one
     /// path that has to close a popup without a window to do it with (the file
     /// watcher). Setting this is what keeps "closing always returns focus" true.
@@ -520,8 +521,8 @@ impl Workspace {
             card: None,
             card_anchor: None,
             card_link_start: None,
-            card_scroll: 0.0,
-            card_reask: false,
+            surface_scroll: 0.0,
+            surface_reask: false,
             pending_focus: None,
             _popup_events: None,
             _spell_events: spell_events,
@@ -705,7 +706,7 @@ impl Workspace {
             |ws, _editor, event, window, cx| match event {
                 EditorEvent::DismissPreview => ws.close_card(cx),
                 EditorEvent::Hovered { offset, line, at } => {
-                    ws.pointer_hovered(*offset, *line, *at, false, window, cx)
+                    ws.pointer_hovered(*offset, *line, *at, window, cx)
                 }
                 // Everything else the editor reports is handled by the subscription
                 // the tab itself makes, which needs no window.

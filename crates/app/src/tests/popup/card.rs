@@ -126,15 +126,47 @@ fn escape_closes_the_card(cx: &mut TestAppContext) {
     assert_eq!(card(&window, &mut cx), None, "escape took it away");
 }
 
-/// Scrolling moves text under a pointer that never moved, and gpui reports no mouse move
-/// for it — so the pointer's question is asked again against the new paint, and a card
-/// about a link that is no longer under the pointer goes away.
+/// How far one display row is, measured from two painted ones.
+fn row_step(cx: &mut VisualTestContext, window: &WindowHandle<Workspace>) -> gpui::Pixels {
+    let (_, top0, _) = line_box(cx, window, 0);
+    let (_, top4, _) = line_box(cx, window, 4);
+    (top4 - top0) / 4.
+}
+
+/// Scroll the note by `rows` display rows, and run the frames that follow: the re-ask is
+/// queued for the next frame, which is when the scrolled paint has recorded where its rows
+/// went.
+fn scroll_rows(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext, rows: f32) {
+    let step = row_step(cx, window);
+    window
+        .update(cx, |ws, _w, cx| {
+            ws.editor()
+                .unwrap()
+                .update(cx, |e, _cx| e.scroll_by(step * rows))
+        })
+        .unwrap();
+    repaint(cx);
+    paint(cx);
+}
+
+/// Where the card is on screen.
+fn card_box(
+    window: &WindowHandle<Workspace>,
+    cx: &mut VisualTestContext,
+) -> gpui::Bounds<gpui::Pixels> {
+    window
+        .update(cx, |ws, window, cx| {
+            ws.card_place(window, cx).expect("the card has a place")
+        })
+        .unwrap()
+        .bounds
+}
+
+/// Scrolling moves the text under a pointer that never moved, and gpui reports no mouse
+/// move for it. The card follows its link — its place is worked out from the line every
+/// frame — and then the pointer is asked again what it is on.
 #[gpui::test]
-fn scrolling_asks_the_pointer_again(cx: &mut TestAppContext) {
-    // The link is five lines down and the note goes on for eighty more, so a three-line
-    // scroll puts different text under the pointer while the link's own line is still on
-    // screen. That is the case the old rule misses: it drops a card whose line left the
-    // viewport, and this one did not.
+fn the_card_follows_its_link_when_the_note_scrolls(cx: &mut TestAppContext) {
     let tall = format!(
         "{}see [[gift]] here\n{}",
         "filler line\n".repeat(5),
@@ -144,30 +176,74 @@ fn scrolling_asks_the_pointer_again(cx: &mut TestAppContext) {
     let mut cx = VisualTestContext::from_window(window.into(), cx);
     show_at(&mut cx, &window, "host.md");
     paint(&mut cx);
-    // Byte 68 is inside the `[[gift]]` that starts at byte 64 of the sixth line (five
-    // twelve-byte filler lines come first).
+    // Byte 68 is inside the `[[gift]]` that starts at byte 64 of the sixth line.
     hover_at(&mut cx, &window, 5, 68);
-    assert!(card(&window, &mut cx).is_some(), "up on the link");
-    // Three lines' worth of scroll, measured from where two rows were painted.
-    let (_, top0, _) = line_box(&mut cx, &window, 0);
-    let (_, top3, _) = line_box(&mut cx, &window, 3);
-    let step = (top3 - top0) / 3.;
-    window
-        .update(&mut cx, |ws, _w, cx| {
-            ws.editor()
-                .unwrap()
-                .update(cx, |e, _cx| e.scroll_by(step * 3.))
-        })
-        .unwrap();
-    // The re-ask is queued for the next frame, which is when the scrolled paint has
-    // recorded where its rows went.
-    repaint(&mut cx);
+    let before = card_box(&window, &mut cx).top();
+    scroll_rows(&window, &mut cx, 3.);
+    let after = card_box(&window, &mut cx).top();
+    assert!(
+        card(&window, &mut cx).is_some(),
+        "the pointer is still on the card, which is a valid place for it to be"
+    );
+    let step = row_step(&mut cx, &window);
+    let moved = before - after;
+    assert!(
+        (moved - step * 3.).abs() < step,
+        "the card moved with its link: {moved:?} for three rows of {step:?}"
+    );
+}
+
+/// A pointer that ends up on neither the link nor the card ends it. The card follows its
+/// link, so a pointer that was on the link ends up *inside* the card after a short scroll
+/// and below it after a scroll past the card's own height. The link is twelve rows down, so
+/// its row is still on screen afterwards: the rule that drops a surface whose anchor left
+/// the viewport cannot be what closed this one.
+#[gpui::test]
+fn scrolling_off_the_link_closes_the_card(cx: &mut TestAppContext) {
+    let tall = format!(
+        "{}see [[gift]] here\n{}",
+        "filler line\n".repeat(12),
+        "filler line\n".repeat(70)
+    );
+    let (_dir, window) = vault_with(cx, &[("host.md", tall.as_str()), ("gift.md", GIFT)]);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show_at(&mut cx, &window, "host.md");
     paint(&mut cx);
+    // Byte 150 is inside the link on the thirteenth line (twelve twelve-byte rows first).
+    hover_at(&mut cx, &window, 12, 12 * 12 + 6);
+    assert!(card(&window, &mut cx).is_some(), "up on the link");
+    // Past the card's own height, so the pointer ends up under it rather than in it.
+    let placed = card_box(&window, &mut cx);
+    let step = row_step(&mut cx, &window);
+    let rows = (placed.bottom() - placed.top()) / step + 2.;
+    scroll_rows(&window, &mut cx, rows);
+    assert!(
+        line_box(&mut cx, &window, 4).2 > gpui::px(0.),
+        "the link's row is still on screen"
+    );
     assert_eq!(
         card(&window, &mut cx),
         None,
-        "the pointer is over filler now, and the card knows it"
+        "the pointer is below the card now, and the card knows it"
     );
+}
+
+/// The band that keeps a card alive while the pointer travels to it is the card's own
+/// width, not the window's. A pointer at the card's height on the far side of the note is
+/// on the way to nothing.
+#[gpui::test]
+fn the_card_band_is_the_cards_own_width(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("host.md", HOST), ("gift.md", GIFT)]);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show_at(&mut cx, &window, "host.md");
+    paint(&mut cx);
+    hover_at(&mut cx, &window, 0, 8);
+    let placed = card_box(&window, &mut cx);
+    hover_point(
+        &mut cx,
+        gpui::point(placed.right() + gpui::px(80.), placed.top() + gpui::px(10.)),
+    );
+    assert_eq!(card(&window, &mut cx), None, "beside the card is not on it");
 }
 
 /// The card never takes the keyboard. It is opened by a pointer crossing a link, and
@@ -283,7 +359,6 @@ fn the_card_shows_the_note_as_it_is_being_edited(cx: &mut TestAppContext) {
     // The host takes the second tab, and the pointer goes to the link.
     show_at(&mut cx, &window, "host.md");
     paint(&mut cx);
-    eprintln!("NOTE: {:?}", note_text(&window, &mut cx));
     hover_at(&mut cx, &window, 0, 8);
     let shown = card(&window, &mut cx).expect("a card");
     assert_eq!(

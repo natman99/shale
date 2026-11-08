@@ -449,3 +449,168 @@ fn a_flipped_panel_is_walked_away_from_upwards(cx: &mut TestAppContext) {
         "walking away above a flipped panel ends it"
     );
 }
+
+/// A note of `rows` filler rows with a marked word embedded in each row listed in
+/// `marks`. The word sits at column 7 of its row, so the same column of a neighbouring
+/// row is the same place in its word.
+fn tall_marked(
+    cx: &mut TestAppContext,
+    rows: usize,
+    marks: &[(usize, &str)],
+) -> (tempfile::TempDir, WindowHandle<Workspace>) {
+    let mut text = String::new();
+    let mut notes: Vec<(String, usize, usize)> = Vec::new();
+    for row in 0..rows {
+        let start = text.len();
+        match marks.iter().find(|(at, _)| *at == row) {
+            Some((_, word)) => {
+                text.push_str(&format!("filler {word} filler\n"));
+                notes.push((
+                    format!("Did you mean to spell `{word}` this way?"),
+                    start + 7,
+                    start + 7 + word.len(),
+                ));
+            }
+            None => text.push_str("filler line filler\n"),
+        }
+    }
+    let notes: Vec<(&str, usize, usize)> = notes
+        .iter()
+        .map(|(message, start, end)| (message.as_str(), *start, *end))
+        .collect();
+    let (dir, window) = vault_with(cx, &[("a.md", text.as_str())]);
+    window
+        .update(cx, |ws, _window, cx| {
+            ws.open_note(&PathBuf::from("a.md"), cx);
+            ws.set_checker_notes(notes_from(&notes), cx);
+        })
+        .unwrap();
+    (dir, window)
+}
+
+/// How far one display row is, measured from two painted ones.
+fn row_step(cx: &mut VisualTestContext, window: &WindowHandle<Workspace>) -> gpui::Pixels {
+    let (_, top0, _) = line_box(cx, window, 0);
+    let (_, top4, _) = line_box(cx, window, 4);
+    (top4 - top0) / 4.
+}
+
+/// Scroll the note by `rows` display rows, and run the frames that follow: the re-ask is
+/// queued for the next frame, which is when the scrolled paint has recorded where its rows
+/// went.
+fn scroll_rows(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext, rows: f32) {
+    let step = row_step(cx, window);
+    window
+        .update(cx, |ws, _w, cx| {
+            ws.editor()
+                .unwrap()
+                .update(cx, |e, _cx| e.scroll_by(step * rows))
+        })
+        .unwrap();
+    repaint(cx);
+    paint(cx);
+}
+
+/// Scrolling moves the text under a pointer that never moved, and gpui reports no mouse
+/// move for it. The panel follows its word — its place is worked out from the line every
+/// frame — and then the pointer is asked again what it is on.
+#[gpui::test]
+fn the_panel_follows_its_word_when_the_note_scrolls(cx: &mut TestAppContext) {
+    let (_dir, window) = tall_marked(cx, 90, &[(5, "thier")]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    paint(cx);
+    hover_at(cx, &window, 5, 5 * 19 + 9);
+    assert!(shown(cx, &window), "up on the word");
+    let (_, before, _) = place(cx, &window);
+    // One row: enough to move the panel, short enough that the pointer is still on it.
+    scroll_rows(&window, cx, 1.);
+    let (_, after, _) = place(cx, &window);
+    assert!(
+        shown(cx, &window),
+        "the pointer is still on the panel, which is a valid place for it to be"
+    );
+    let step = row_step(cx, &window);
+    let moved = before - after;
+    assert!(
+        (moved - step).abs() < step,
+        "the panel moved with its word: {moved:?} for one row of {step:?}"
+    );
+}
+
+/// The second half of the rule: once the panel has moved, the pointer is asked again. Four
+/// rows of scroll put a *different* marked word under a pointer that never moved, and the
+/// panel goes with the answer.
+#[gpui::test]
+fn scrolling_onto_another_marked_word_moves_the_panel(cx: &mut TestAppContext) {
+    let (_dir, window) = tall_marked(cx, 90, &[(5, "thier"), (9, "anotehr")]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    paint(cx);
+    hover_at(cx, &window, 5, 5 * 19 + 9);
+    assert_eq!(
+        saying(cx, &window).as_deref(),
+        Some("Did you mean to spell `thier` this way?")
+    );
+    scroll_rows(&window, cx, 4.);
+    assert_eq!(
+        saying(cx, &window).as_deref(),
+        Some("Did you mean to spell `anotehr` this way?"),
+        "the pointer is over the other word now, and the panel followed the pointer"
+    );
+}
+
+/// A pointer that ends up on neither the word nor the panel ends it. The scroll is chosen
+/// from the panel's own height so the pointer lands below it, and the word's row is still
+/// on screen afterwards: the rule that drops a surface whose anchor left the viewport
+/// cannot be what closed this one.
+#[gpui::test]
+fn scrolling_off_the_word_closes_the_panel(cx: &mut TestAppContext) {
+    let (_dir, window) = tall_marked(cx, 90, &[(30, "thier")]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    paint(cx);
+    hover_at(cx, &window, 30, 30 * 19 + 9);
+    assert!(shown(cx, &window), "up on the word");
+    let step = row_step(cx, &window);
+    let bottom = panel_bottom(cx, &window);
+    let (_, word_top, _) = line_box(cx, &window, 30);
+    let rows = (bottom - word_top) / step + 2.;
+    assert!(
+        rows < 28.,
+        "the scroll has to leave the word's row on screen; the panel is {rows:?} rows tall"
+    );
+    scroll_rows(&window, cx, rows);
+    assert!(
+        line_box(cx, &window, 2).2 > gpui::px(0.),
+        "the word's row is still on screen"
+    );
+    assert!(!shown(cx, &window), "the pointer is below the panel now");
+}
+
+/// The band that keeps a panel alive while the pointer travels to it is the panel's own
+/// width plus the column of the word it is about — not the whole window. A pointer at the
+/// panel's height on the far side of the note is on the way to nothing.
+#[gpui::test]
+fn the_panel_band_is_not_the_whole_window(cx: &mut TestAppContext) {
+    let (_dir, window) = marked_note(
+        cx,
+        "Thier spelling is wrogn.\nfiller line\nfiller line\n",
+        &[("Did you mean to spell `thier` this way?", 0, 5)],
+    );
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    paint(cx);
+    hover_at(cx, &window, 0, 2);
+    assert!(shown(cx, &window), "up on the word");
+    let bounds = window
+        .update(cx, |ws, window, cx| {
+            ws.popup_place(window, cx).expect("a place").bounds
+        })
+        .unwrap();
+    let (_, top2, bottom2) = line_box(cx, &window, 2);
+    hover_point(
+        cx,
+        gpui::point(bounds.right() + gpui::px(80.), (top2 + bottom2) / 2.),
+    );
+    assert!(
+        !shown(cx, &window),
+        "beside the panel, over text that is not marked, is not on the way to a row"
+    );
+}

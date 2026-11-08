@@ -463,23 +463,25 @@ impl Render for Workspace {
         }
         let card = self.card.clone().zip(card_placed);
         // Scrolling moves text under a pointer that never moved, and gpui reports no
-        // mouse move for it — so a card parked there is describing a link the pointer is
-        // no longer on. Notice the scroll here, and ask the pointer's question again at
-        // the start of the next frame: that is when the frame which drew the scrolled
-        // text has recorded where its rows went, which is what the question has to be
-        // asked against.
-        if self.card.is_some() {
+        // mouse move for it — so a surface parked there is describing a word the pointer
+        // is no longer on. The surface itself follows its word, because its place is
+        // worked out from the line every frame; what the scroll has to redo is the
+        // collision. Notice it here, and ask the pointer's question again at the start of
+        // the next frame: that is when the frame which drew the scrolled text has recorded
+        // where its rows went, which is what the question has to be asked against. A panel
+        // asked for with `K` is the user asking, not the pointer, so it is not re-asked.
+        if self.card.is_some() || (self.popup.is_some() && self.popup_from_pointer) {
             let scrolled = self.editor().is_some_and(|editor| {
-                editor.read_with(cx, |editor, _cx| editor.scroll_y()) != self.card_scroll
+                editor.read_with(cx, |editor, _cx| editor.scroll_y()) != self.surface_scroll
             });
             if scrolled {
                 if let Some(editor) = self.editor() {
-                    self.card_scroll = editor.read_with(cx, |editor, _cx| editor.scroll_y());
+                    self.surface_scroll = editor.read_with(cx, |editor, _cx| editor.scroll_y());
                 }
-                self.card_reask = true;
+                self.surface_reask = true;
             }
-            if self.card_reask {
-                self.card_reask = false;
+            if self.surface_reask {
+                self.surface_reask = false;
                 cx.on_next_frame(window, |ws, window, cx| ws.reask_pointer(window, cx));
             }
         }

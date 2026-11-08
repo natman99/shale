@@ -101,16 +101,11 @@ impl Workspace {
     /// the mouse is not their answer to it. And a popup the pointer opened keeps
     /// the height it occupies to itself, so the walk from its word down to one of
     /// its rows survives passing over other marked words on the way.
-    /// `from_scroll` is the same question asked because the *text* moved rather than the
-    /// pointer. The band around a floating surface is an excuse to keep it while the
-    /// pointer travels to it; a scroll is not a travel, and a card that slid under a
-    /// stationary pointer is not something the reader reached for.
     pub(super) fn pointer_hovered(
         &mut self,
         offset: usize,
         line: crate::editor::LineRef,
         at: Point<Pixels>,
-        from_scroll: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -143,7 +138,7 @@ impl Workspace {
         // the panel uses, for the same reason. The card hangs below its link, so the way
         // down into it crosses the line underneath, and a reader who settles there to read
         // is not asking a new question.
-        let on_card = !from_scroll && self.card.is_some() && self.pointer_on_card(at, window, cx);
+        let on_card = self.card.is_some() && self.pointer_on_card(at, window, cx);
         // A link is a bigger construct than a marked word written inside it, so the card
         // gets first offer at the pointer: `[[Thier Note]]` is one thing to ask about, not
         // a spelling complaint about half of it.
@@ -194,7 +189,7 @@ impl Workspace {
         // user is reaching for, which is the bug this guards: inside the band the
         // panel occupies, the pointer is still travelling to a row rather than
         // asking a new question.
-        if !from_scroll && self.popup_from_pointer && self.pointer_on_panel(at, window, cx) {
+        if self.popup_from_pointer && self.pointer_on_panel(at, window, cx) {
             return;
         }
         self.open_popup_for(offset, line, true, window, cx);
@@ -246,7 +241,7 @@ impl Workspace {
         self.card = Some(card);
         self.card_anchor = Some(line);
         self.card_link_start = link_start;
-        self.card_scroll = scroll;
+        self.surface_scroll = scroll;
         // One floating thing at a time.
         if self.popup.is_some() {
             self.close_popup(window, cx);
@@ -261,7 +256,7 @@ impl Workspace {
         }
         self.card_anchor = None;
         self.card_link_start = None;
-        self.card_reask = false;
+        self.surface_reask = false;
         cx.notify();
     }
 
@@ -311,18 +306,36 @@ impl Workspace {
 
     /// Ask the pointer's question again against the current paint.
     ///
-    /// Scrolling is the case: the pointer did not move, so gpui reports no move, and the
-    /// card is left describing a link that is no longer under it — a picture of another
-    /// note parked over the text the user is working on. Whatever is under the pointer now
-    /// decides: a link opens or moves the card, anything else closes it.
+    /// Scrolling is the case: the pointer did not move, so gpui reports no move, and a
+    /// surface is left describing a word the note has slid out from under it. The frame
+    /// that scrolled has already placed the surface at its word's new position, so this is
+    /// the second half of the rule: the pointer, which did not move, is asked what it is on
+    /// now. A pointer that ends up on the surface, or on the word it is about, keeps it;
+    /// one that lands on other text ends it; one that lands on a different marked word or
+    /// link moves the surface to that.
     pub(super) fn reask_pointer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let at = window.mouse_position();
         let Some(editor) = self.editor() else {
             return;
         };
+        // The question is answered from the painted rows of the note itself, which cannot
+        // speak for a surface anchored inside an entered block.
+        let anchored_in_block = matches!(
+            (self.card_anchor, self.popup_anchor),
+            (Some(crate::editor::LineRef::Embed(_)), _)
+                | (_, Some(crate::editor::LineRef::Embed(_)))
+        );
+        if anchored_in_block {
+            return;
+        }
+        let at = window.mouse_position();
         match editor.read_with(cx, |editor, _cx| editor.hover_under(at)) {
-            Some((offset, line)) => self.pointer_hovered(offset, line, at, true, window, cx),
-            None => self.close_card(cx),
+            Some((offset, line)) => self.pointer_hovered(offset, line, at, window, cx),
+            None => {
+                self.close_card(cx);
+                if self.popup_from_pointer {
+                    self.close_popup(window, cx);
+                }
+            }
         }
     }
 
@@ -341,7 +354,10 @@ impl Workspace {
             return false;
         };
         let slack = GAP + px(3.);
-        at.y >= placed.bounds.origin.y - (GAP + slack) && at.y <= placed.bounds.bottom() + slack
+        at.y >= placed.bounds.origin.y - (GAP + slack)
+            && at.y <= placed.bounds.bottom() + slack
+            && at.x >= placed.bounds.left() - slack
+            && at.x <= placed.bounds.right() + slack
     }
 
     /// Whether the pointer is at the height the panel occupies.
@@ -363,7 +379,31 @@ impl Workspace {
             return false;
         };
         let slack = GAP + px(3.);
-        at.y >= placed.bounds.origin.y - (GAP + slack) && at.y <= placed.bounds.bottom() + slack
+        if at.y < placed.bounds.origin.y - (GAP + slack) || at.y > placed.bounds.bottom() + slack {
+            return false;
+        }
+        // The column counts too. A band across the whole window meant the panel survived
+        // a pointer anywhere at its height — the far side of the note included, which is
+        // not on the way to anything. What is on the way: the panel's own span, and the
+        // word's column, which is where the pointer came from. A word near the right end
+        // of a long line sits beside the panel rather than above it, and walking straight
+        // down from it is still the way to a row.
+        let in_panel =
+            at.x >= placed.bounds.left() - slack && at.x <= placed.bounds.right() + slack;
+        let in_word = self
+            .word_span(cx)
+            .is_some_and(|(left, right)| at.x >= left - slack && at.x <= right + slack);
+        in_panel || in_word
+    }
+
+    /// The window x range the popup's marked word was painted across.
+    fn word_span(&self, cx: &gpui::App) -> Option<(Pixels, Pixels)> {
+        let anchor = self.popup_anchor?;
+        let (start, end) = self.popup_note?;
+        let editor = self.editor()?;
+        let left = editor.read_with(cx, |editor, _cx| editor.hit_line_x_at(anchor, start))?;
+        let right = editor.read_with(cx, |editor, _cx| editor.hit_line_x_at(anchor, end))?;
+        Some((left.min(right), left.max(right)))
     }
 
     /// The pointer moved anywhere in the note column, including the empty space
@@ -461,6 +501,9 @@ impl Workspace {
         self.popup_anchor = Some(line);
         self.popup_note = Some((note.start, note.end));
         self.popup_from_pointer = from_pointer;
+        if let Some(active) = self.editor() {
+            self.surface_scroll = active.read_with(cx, |editor, _cx| editor.scroll_y());
+        }
         window.focus(&popup.read(cx).focus_handle(cx), cx);
         cx.notify();
     }
