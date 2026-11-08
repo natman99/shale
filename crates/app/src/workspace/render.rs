@@ -462,6 +462,27 @@ impl Render for Workspace {
             self.close_card(cx);
         }
         let card = self.card.clone().zip(card_placed);
+        // Scrolling moves text under a pointer that never moved, and gpui reports no
+        // mouse move for it — so a card parked there is describing a link the pointer is
+        // no longer on. Notice the scroll here, and ask the pointer's question again at
+        // the start of the next frame: that is when the frame which drew the scrolled
+        // text has recorded where its rows went, which is what the question has to be
+        // asked against.
+        if self.card.is_some() {
+            let scrolled = self.editor().is_some_and(|editor| {
+                editor.read_with(cx, |editor, _cx| editor.scroll_y()) != self.card_scroll
+            });
+            if scrolled {
+                if let Some(editor) = self.editor() {
+                    self.card_scroll = editor.read_with(cx, |editor, _cx| editor.scroll_y());
+                }
+                self.card_reask = true;
+            }
+            if self.card_reask {
+                self.card_reask = false;
+                cx.on_next_frame(window, |ws, window, cx| ws.reask_pointer(window, cx));
+            }
+        }
         // The one path that had to close a popup without a window to hand the
         // keyboard back with (the file watcher) left the refocus for here, which
         // is the first place there is a window. `defer` keeps the change out of

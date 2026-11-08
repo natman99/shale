@@ -403,6 +403,9 @@ impl Workspace {
             }
             // Hover is answered by the subscription `attach_window` keeps on the tab
             // that is on screen, which is the one that has a window to act on.
+            // The pointer's subscription answers this one, because it is the one that
+            // holds a window to close a floating surface with.
+            EditorEvent::DismissPreview => {}
             EditorEvent::Hovered { .. } => {}
         }
         cx.notify();

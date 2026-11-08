@@ -85,6 +85,91 @@ fn the_card_goes_when_the_pointer_leaves_the_link(cx: &mut TestAppContext) {
     assert_eq!(card(&window, &mut cx), None, "gone off the link");
 }
 
+/// The card hangs under the link, not at the beginning of the line the link is written
+/// on: a card in the middle of a sentence should point at the link, not at the sentence's
+/// first word.
+#[gpui::test]
+fn the_card_hangs_under_the_link(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("host.md", HOST), ("gift.md", GIFT)]);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show_at(&mut cx, &window, "host.md");
+    paint(&mut cx);
+    hover_at(&mut cx, &window, 0, 8);
+    let placed = window
+        .update(&mut cx, |ws, window, cx| {
+            ws.card_place(window, cx).expect("the card has a place")
+        })
+        .unwrap()
+        .bounds;
+    // `[[gift]]` starts at byte 4 of the first line.
+    let link_x = x_over(&mut cx, &window, 0, 4);
+    let (line_left, _, _) = line_box(&mut cx, &window, 0);
+    assert_eq!(placed.origin.x, link_x, "under the link's first glyph");
+    assert!(
+        placed.origin.x > line_left,
+        "and not at the line's left edge, which is where \"see\" starts"
+    );
+}
+
+/// `escape` closes the card. The card belongs to the pointer and has no keyboard of its
+/// own, so a reader who starts typing without moving the mouse would otherwise be working
+/// under a picture of another note.
+#[gpui::test]
+fn escape_closes_the_card(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("host.md", HOST), ("gift.md", GIFT)]);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show_at(&mut cx, &window, "host.md");
+    paint(&mut cx);
+    hover_at(&mut cx, &window, 0, 8);
+    assert!(card(&window, &mut cx).is_some(), "up on the link");
+    cx.simulate_keystrokes("escape");
+    assert_eq!(card(&window, &mut cx), None, "escape took it away");
+}
+
+/// Scrolling moves text under a pointer that never moved, and gpui reports no mouse move
+/// for it — so the pointer's question is asked again against the new paint, and a card
+/// about a link that is no longer under the pointer goes away.
+#[gpui::test]
+fn scrolling_asks_the_pointer_again(cx: &mut TestAppContext) {
+    // The link is five lines down and the note goes on for eighty more, so a three-line
+    // scroll puts different text under the pointer while the link's own line is still on
+    // screen. That is the case the old rule misses: it drops a card whose line left the
+    // viewport, and this one did not.
+    let tall = format!(
+        "{}see [[gift]] here\n{}",
+        "filler line\n".repeat(5),
+        "filler line\n".repeat(80)
+    );
+    let (_dir, window) = vault_with(cx, &[("host.md", tall.as_str()), ("gift.md", GIFT)]);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show_at(&mut cx, &window, "host.md");
+    paint(&mut cx);
+    // Byte 68 is inside the `[[gift]]` that starts at byte 64 of the sixth line (five
+    // twelve-byte filler lines come first).
+    hover_at(&mut cx, &window, 5, 68);
+    assert!(card(&window, &mut cx).is_some(), "up on the link");
+    // Three lines' worth of scroll, measured from where two rows were painted.
+    let (_, top0, _) = line_box(&mut cx, &window, 0);
+    let (_, top3, _) = line_box(&mut cx, &window, 3);
+    let step = (top3 - top0) / 3.;
+    window
+        .update(&mut cx, |ws, _w, cx| {
+            ws.editor()
+                .unwrap()
+                .update(cx, |e, _cx| e.scroll_by(step * 3.))
+        })
+        .unwrap();
+    // The re-ask is queued for the next frame, which is when the scrolled paint has
+    // recorded where its rows went.
+    repaint(&mut cx);
+    paint(&mut cx);
+    assert_eq!(
+        card(&window, &mut cx),
+        None,
+        "the pointer is over filler now, and the card knows it"
+    );
+}
+
 /// The card never takes the keyboard. It is opened by a pointer crossing a link, and
 /// a surface that ate the keys at that moment would be worse than no card: the reader
 /// is reading, and their next keystroke is meant for the note.

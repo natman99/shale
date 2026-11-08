@@ -101,11 +101,16 @@ impl Workspace {
     /// the mouse is not their answer to it. And a popup the pointer opened keeps
     /// the height it occupies to itself, so the walk from its word down to one of
     /// its rows survives passing over other marked words on the way.
+    /// `from_scroll` is the same question asked because the *text* moved rather than the
+    /// pointer. The band around a floating surface is an excuse to keep it while the
+    /// pointer travels to it; a scroll is not a travel, and a card that slid under a
+    /// stationary pointer is not something the reader reached for.
     pub(super) fn pointer_hovered(
         &mut self,
         offset: usize,
         line: crate::editor::LineRef,
         at: Point<Pixels>,
+        from_scroll: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -138,7 +143,7 @@ impl Workspace {
         // the panel uses, for the same reason. The card hangs below its link, so the way
         // down into it crosses the line underneath, and a reader who settles there to read
         // is not asking a new question.
-        let on_card = self.card.is_some() && self.pointer_on_card(at, window, cx);
+        let on_card = !from_scroll && self.card.is_some() && self.pointer_on_card(at, window, cx);
         // A link is a bigger construct than a marked word written inside it, so the card
         // gets first offer at the pointer: `[[Thier Note]]` is one thing to ask about, not
         // a spelling complaint about half of it.
@@ -189,7 +194,7 @@ impl Workspace {
         // user is reaching for, which is the bug this guards: inside the band the
         // panel occupies, the pointer is still travelling to a row rather than
         // asking a new question.
-        if self.popup_from_pointer && self.pointer_on_panel(at, window, cx) {
+        if !from_scroll && self.popup_from_pointer && self.pointer_on_panel(at, window, cx) {
             return;
         }
         self.open_popup_for(offset, line, true, window, cx);
@@ -219,6 +224,11 @@ impl Workspace {
                 .link_at(offset)
                 .and_then(|link| editor.preview_for(link))
         });
+        // Where the link begins, so the card hangs under the link and not under the first
+        // word of the line the link happens to be written on.
+        let link_start = editor.read_with(cx, |editor, _cx| {
+            editor.link_at(offset).map(|link| link.start)
+        });
         let Some(text) = text else {
             // A link to a note the vault does not have has nothing to preview. Showing a
             // card for it would promise a note that is not there; the unresolved link's
@@ -227,11 +237,16 @@ impl Workspace {
             return;
         };
         let (palette, family, size) = self.picker_style(cx);
+        // Read the scroll position before the card is stored: `editor` is a handle into
+        // the window's state, and assigning the card is a write to that same state.
+        let scroll = editor.read_with(cx, |editor, _cx| editor.scroll_y());
         let card = cx.new(|_cx| {
             crate::card::Preview::new(text.title, text.lines, text.hidden, palette, family, size)
         });
         self.card = Some(card);
         self.card_anchor = Some(line);
+        self.card_link_start = link_start;
+        self.card_scroll = scroll;
         // One floating thing at a time.
         if self.popup.is_some() {
             self.close_popup(window, cx);
@@ -245,6 +260,8 @@ impl Workspace {
             return;
         }
         self.card_anchor = None;
+        self.card_link_start = None;
+        self.card_reask = false;
         cx.notify();
     }
 
@@ -266,7 +283,14 @@ impl Workspace {
         }
         let card = self.card.as_ref()?;
         let size = card.read_with(cx, |card, _cx| card.panel_size());
-        let mut x = line.left();
+        // Under the link, not under the line: a card at the line's left edge names a
+        // note in the middle of a sentence and points at the sentence's first word.
+        let mut x = self
+            .card_link_start
+            .and_then(|start| {
+                editor.read_with(cx, |editor, _cx| editor.hit_line_x_at(anchor, start))
+            })
+            .unwrap_or_else(|| line.left());
         if x + size.width > line.right().max(x) {
             x = (line.right() - size.width).max(line.left());
         }
@@ -283,6 +307,23 @@ impl Workspace {
             },
             below,
         })
+    }
+
+    /// Ask the pointer's question again against the current paint.
+    ///
+    /// Scrolling is the case: the pointer did not move, so gpui reports no move, and the
+    /// card is left describing a link that is no longer under it — a picture of another
+    /// note parked over the text the user is working on. Whatever is under the pointer now
+    /// decides: a link opens or moves the card, anything else closes it.
+    pub(super) fn reask_pointer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let at = window.mouse_position();
+        let Some(editor) = self.editor() else {
+            return;
+        };
+        match editor.read_with(cx, |editor, _cx| editor.hover_under(at)) {
+            Some((offset, line)) => self.pointer_hovered(offset, line, at, true, window, cx),
+            None => self.close_card(cx),
+        }
     }
 
     /// What the card says, for the tests: the title, the lines, and what it left out.

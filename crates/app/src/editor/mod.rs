@@ -62,6 +62,10 @@ pub enum LineRef {
 /// Events the editor emits for the workspace to handle.
 #[derive(Debug, Clone)]
 pub enum EditorEvent {
+    /// `escape` was pressed in the note. The window decides what that dismisses: a
+    /// preview card the pointer left behind, which has no keyboard of its own to receive
+    /// the key (roadmap P6.2).
+    DismissPreview,
     /// The user asked to follow the wiki-link to `target`.
     FollowLink {
         target: String,
@@ -1343,6 +1347,35 @@ impl MarkdownEditor {
             .map(|hit| hit.x_for_offset(offset))
     }
 
+    /// The window x of `offset` on the painted line `line` names: the same address
+    /// [`Self::hit_line_bounds`] answers with, asked for one byte rather than the whole
+    /// row. A surface that hangs off a word rather than a line needs this — the line's
+    /// left edge is where the *text* starts, not where the link does.
+    pub(crate) fn hit_line_x_at(&self, line: LineRef, offset: usize) -> Option<Pixels> {
+        self.hit(line)
+            .map(|hit| hit.bounds.left() + hit.x_for_offset(offset))
+    }
+
+    /// What the pointer would be asking about if it were resting at `at` right now: the
+    /// buffer offset under it and the line that holds it.
+    ///
+    /// This exists because scrolling moves text under a pointer that never moved, and
+    /// gpui reports no mouse move for that — so the question the pointer asked has to be
+    /// asked again against the new paint. Unlike the click path there is no "nearest line
+    /// above" fallback: a point in a gap is not resting on anything, and the honest answer
+    /// is none. Rows of an embedded block are not answered here either — their hit records
+    /// carry no byte ranges — so a block's own links keep following the mouse.
+    pub(crate) fn hover_under(&self, at: gpui::Point<Pixels>) -> Option<(usize, LineRef)> {
+        let hit = self
+            .hit_lines
+            .iter()
+            .find(|hit| hit.bounds.top() <= at.y && at.y < hit.bounds.bottom())?;
+        Some((
+            hit.offset_for_x(at.x - hit.bounds.left()),
+            LineRef::Display(hit.index),
+        ))
+    }
+
     /// The buffer offset a pointer at `x` on display line `index` lands on, using
     /// the text that was painted there.
     #[cfg(test)]
@@ -1558,6 +1591,16 @@ impl MarkdownEditor {
     /// Where the cursor is, as a buffer byte offset.
     pub fn cursor_offset(&self) -> usize {
         self.buffer.borrow().cursor()
+    }
+
+    /// Scroll the note by `dy` pixels without moving the caret, so a test can put
+    /// different text under a pointer that has not moved.
+    #[cfg(test)]
+    pub(crate) fn scroll_by(&mut self, dy: Pixels) {
+        let off = self.scroll_handle.offset();
+        let max = self.scroll_handle.max_offset();
+        let y = (off.y - dy).min(gpui::px(0.)).max(-max.y);
+        self.scroll_handle.set_offset(gpui::point(off.x, y));
     }
 
     /// How far the note is scrolled, in gpui's own units and sign (the scroll

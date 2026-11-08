@@ -236,6 +236,11 @@ impl MarkdownEditor {
         self.vim.enter_normal();
         self.buffer.borrow_mut().clear_selection();
         self.buffer.borrow_mut().end_undo_group();
+        // The card is the pointer's, so it has no keyboard to hear `escape` with — and a
+        // reader who starts typing without moving the mouse is stuck looking at a picture
+        // of another note over the one they are working on. The window owns the card, so
+        // the window decides what escape dismisses.
+        cx.emit(crate::editor::EditorEvent::DismissPreview);
         cx.notify();
     }
 

@@ -130,8 +130,11 @@ where you were going.
 link with the note's first lines — rendered the way the note renders, and the way the
 link means: `[[note#Heading]]` previews that section, not the top of the note. If the
 note is open in a tab, the card shows it as you have it, not as the disk has it. It
-says how many lines it left out, it closes when the pointer leaves, and it never takes
-the keyboard: your next keystroke is still meant for the note.
+says how many lines it left out, it hangs under the link rather than under the line it is
+written on, and it never takes the keyboard: your next keystroke is still meant for the
+note. It closes when the pointer leaves the link, when you scroll and the pointer turns
+out to be over something else, and on `escape` — which is there for the case where you
+start typing without touching the mouse and need to see the text under the card.
 
 **The block is editable, one level at a time.** Click inside the body, or put the
 cursor on the `![[…]]` line and press `ctrl-]`. `ctrl-o` comes back out, and so does
