@@ -54,8 +54,10 @@ export, Templates, tree-sitter code highlighting.
 built through M4**: the buffer registry that made it possible (P4.17), entering with
 `ctrl-]` or a click, the seam, per-note dirty state and the save story, links and the
 checker following the caret, live preview inside the block. What is left there is small
-and known: soft-wrap for the block's rows, the fold glyph on the new gutter path,
-click-to-open on a read-only embed, and the hover card. P3.2's move/exchange/rotate and
+and known: click-to-open on a read-only embed, and the hover card. Soft-wrap for the
+block's rows and folding inside a block are done (2026-11-08): a block being edited folds
+with `za`, its disclosure is clickable, and the rows behind a closed fold leave both the
+paint and the display model the caret's motions read. P3.2's move/exchange/rotate and
 `:pin` remain open and are the cheap alternative if a session wants a small, low-risk
 win.
 

@@ -432,10 +432,22 @@ nothing (a `gd` that does nothing) or a squiggle on the wrong note.
   handler per block, resolving the row from the bands this frame painted rather than from
   where the pointer is guessed to be.
 
-**Still owed before P4.0b closes:** the entered block's rows do not soft-wrap, and a
-folded heading's disclosure glyph is the one gutter tenant not yet on `GutterMark` — it is
-a shaped glyph rather than a path and it records a click range, so it is painted where that
-range is recorded.
+- **A fold inside the block is a fact about the block (2026-11-08, ruling 16).** `za`
+  already reached the embedded buffer and the embed's slot — what was missing was that
+  nothing honoured the answer. Two halves, and they must land in the same frame: the block
+  drops the rows behind a closed fold and paints the heading's disclosure (on the row's
+  last display piece, as the host does), **and** the block's view is handed the break
+  points the frame just measured — the wrap pieces from the soft-wrap pass, and *no
+  segment at all* for a folded row, which is what makes `j` step over it. Drop the second
+  half and the caret moves by buffer row while the paint moves by display line: `j` lands
+  on a row that is not on screen. The fold state is read from the slot the caret is using
+  while inside and from the state kept aside once out (`embed_slots`, keyed by path on the
+  host's editor), so a fold made inside does not pop open on `ctrl-o`, and a read-only
+  block of a note this view has edited stays shut. A note this view has never edited has
+  no fold state, because nothing here ever asked for one.
+
+**Still owed before P4.0b closes:** click-to-open on a read-only embed, and the hover
+card.
 
 M1 before M3 is not a preference, it is the ordering rule.
 
