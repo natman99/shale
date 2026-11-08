@@ -1033,8 +1033,24 @@ impl MarkdownEditor {
         // segment came from. `start..end` is the buffer span the segment stands for,
         // hidden markers inside it included, which is what the host's display lines
         // hand their elements too.
-        let start = painted.map.offset_for_index(segment.0);
-        let end = painted.map.offset_for_index(segment.1);
+        // A row that paints nothing — an empty line, or one whose every byte is a hidden
+        // marker — has no piece in its map, and a map with no pieces answers an index
+        // question with byte 0 of the buffer: a byte belonging to some other row. So the
+        // blank row was tested against `0..0`, the caret never matched it and drew nothing,
+        // and a click on it landed at the top of the note (user report, 2026-11-08). The
+        // row's own line span is the answer, which is what the note's own rows are handed
+        // for a blank line by `PieceMap::identity`.
+        let blank = painted.map.first_offset().is_none();
+        let start = if blank {
+            buffer.line_start(origin.row)
+        } else {
+            painted.map.offset_for_index(segment.0)
+        };
+        let end = if blank {
+            buffer.line_end(origin.row)
+        } else {
+            painted.map.offset_for_index(segment.1)
+        };
         let map = painted.map.slice(segment.0, segment.1);
         let text = map.painted_text(buffer.text());
         let cursor = buffer.cursor();

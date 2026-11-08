@@ -1401,6 +1401,20 @@ impl MarkdownEditor {
         (marked(&self.hit_lines), marked(&self.embed_hits))
     }
 
+    /// Which row of the entered block drew a caret, as its row in the embedded note's
+    /// buffer — `None` when the block drew none.
+    ///
+    /// A row number rather than a paint position because a wrapped row is several painted
+    /// lines over one buffer row, and the question being asked is "is the caret visible
+    /// on *this line* of the block".
+    #[cfg(test)]
+    pub fn painted_embed_caret(&self) -> Option<usize> {
+        self.embed_hits
+            .iter()
+            .find(|hit| hit.caret)
+            .map(|hit| hit.index)
+    }
+
     #[cfg(test)]
     pub fn painted_gutter_dots(&self) -> (Vec<usize>, Vec<usize>) {
         let dots = |hits: &[crate::line::HitLine]| {

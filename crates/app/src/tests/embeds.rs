@@ -1396,6 +1396,92 @@ fn a_fold_stays_shut_when_the_caret_steps_out(cx: &mut TestAppContext) {
     );
 }
 
+/// Which row of the block being edited drew a caret, as a row of the embedded note.
+fn painted_embed_caret(
+    window: &WindowHandle<Workspace>,
+    cx: &mut VisualTestContext,
+) -> Option<usize> {
+    window
+        .update(cx, |ws, _window, cx| {
+            ws.editor()
+                .unwrap()
+                .read_with(cx, |editor, _cx| editor.painted_embed_caret())
+        })
+        .unwrap()
+}
+
+/// The caret has to be visible on an empty line of a block, not just on a line with
+/// characters in it. An empty row paints no glyphs and owns no visible byte, so the
+/// row's painted map had no piece at all — and a map with no pieces answers "what byte
+/// is this?" with byte 0 of the buffer, so the caret test that compares buffer offsets
+/// never matched the row and the row drew nothing (user report, 2026-11-08).
+#[gpui::test]
+fn the_caret_is_visible_on_an_empty_line_inside_a_block(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(
+        cx,
+        &[("host.md", "![[gift]]\n"), ("gift.md", "one\n\nthree\n")],
+    );
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show_at(&mut cx, &window, "host.md");
+    cx.simulate_keystrokes("ctrl-]");
+    assert_eq!(
+        painted_embed_caret(&window, &mut cx),
+        Some(0),
+        "the row the caret starts on draws it"
+    );
+    cx.simulate_keystrokes("j");
+    assert_eq!(caret_row(&window, &mut cx), 1, "`j` reached the empty row");
+    assert_eq!(
+        painted_embed_caret(&window, &mut cx),
+        Some(1),
+        "and the empty row drew the caret"
+    );
+    cx.simulate_keystrokes("j");
+    assert_eq!(
+        painted_embed_caret(&window, &mut cx),
+        Some(2),
+        "and so does the row after it"
+    );
+}
+
+/// A click on an empty line of a block belongs to that line. The same missing piece
+/// made the row's hit record span `0..0`, so clicking the blank line put the caret at
+/// the top of the embedded note instead.
+#[gpui::test]
+fn clicking_an_empty_line_inside_a_block_lands_on_that_line(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(
+        cx,
+        &[("host.md", "![[gift]]\n"), ("gift.md", "one\n\nthree\n")],
+    );
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show_at(&mut cx, &window, "host.md");
+    cx.simulate_keystrokes("ctrl-]");
+    let band = window
+        .update(&mut cx, |ws, _w, cx| ws.embed_rows(cx))
+        .unwrap()
+        .into_iter()
+        .find(|(row, ..)| *row == 1)
+        .expect("the empty row is painted");
+    let (_, left, top, bottom) = band;
+    cx.simulate_click(
+        gpui::point(gpui::px(left + 4.0), gpui::px((top + bottom) / 2.0)),
+        gpui::Modifiers::default(),
+    );
+    assert_eq!(
+        caret_row(&window, &mut cx),
+        1,
+        "the click chose the blank line"
+    );
+    cx.simulate_keystrokes("i");
+    cx.simulate_input("X");
+    cx.simulate_keystrokes("escape");
+    assert_eq!(
+        state(&window, "gift", &mut cx).0,
+        "one\nX\nthree\n",
+        "and typed there, not at the top of the note"
+    );
+}
+
 /// `za` inside a block folds the embedded note: the section's rows leave the block,
 /// and `j` from the heading steps over them onto the row after the section.
 #[gpui::test]

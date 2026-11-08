@@ -36,9 +36,9 @@ use runs::{build_runs, cell_styles, CellShaped, LineStyles};
 use std::rc::Rc;
 
 use gpui::{
-    fill, font, px, relative, rgb, App, Bounds, Corners, Element, ElementId, ElementInputHandler,
-    Entity, GlobalElementId, InspectorElementId, IntoElement, LayoutId, Pixels, ShapedLine,
-    SharedString, Style as ElementStyle, Window,
+    App, Bounds, Corners, Element, ElementId, ElementInputHandler, Entity, GlobalElementId,
+    InspectorElementId, IntoElement, LayoutId, Pixels, ShapedLine, SharedString,
+    Style as ElementStyle, Window, fill, font, px, relative, rgb,
 };
 use shale_core::mdstyle::{CalloutKind, Style};
 use shale_core::theme::Palette;
@@ -122,6 +122,13 @@ pub(crate) struct HitLine {
     /// claims once two buffers' marks can reach one screen.
     #[allow(dead_code)]
     pub(crate) marked: bool,
+    /// Whether this line drew the caret. Recorded from the element that painted, because
+    /// "the caret is on this row" is a claim about the screen: a row can be the caret's
+    /// row in the model and still show nothing, which is exactly how an empty row inside
+    /// an embedded block lost its caret (the row owned no byte, so the caret test that
+    /// compares buffer offsets never matched it).
+    #[allow(dead_code)]
+    pub(crate) caret: bool,
     /// How much of the line's colour survived the dimming system: 1.0 is the
     /// palette's own. Recorded so the focus-mode tests can see what the frame
     /// actually drew rather than what the model was asked for.
@@ -975,6 +982,7 @@ impl Element for LineElement {
                 }),
                 dim: self.dim,
                 fold_marker,
+                caret: self.cursor_col.is_some(),
             };
             // A foreign row answers for the note it was cut from, so it is filed
             // beside the host's records rather than inside them (roadmap P4.0b).
