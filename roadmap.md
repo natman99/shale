@@ -1371,14 +1371,18 @@ token-pushing, no range/LOS math.
   read (`config/profile.rs` already scopes by path; this scopes by block), and the
   graph/search surfaces must respect it, not leak the text through a preview.
 - **P7.7 Agent GM assistant** (brainstorm 🔭) — mostly already built as MCP tools; what
-  is missing is the shaping, not the machinery. **Confirmed 2026-11-08:** the recap is a
-  prompt over that machinery, not a surface — no session-capture mode, and nothing pings
-  the agent from the app.
+  is missing is the shaping, not the machinery. **Ruled 2026-11-08: the recap stays out.**
+  It is a prompt over that machinery, not a surface — no session-capture mode, nothing
+  pings the agent from the app, and **no recap sub-item is scheduled**; the broadsheet
+  (P6.5) reads the GM's own session note instead.
 - **P7.8 Combat log as a table** (brainstorm ✅, ruled 2026-11-08) — the session note's
   fight log is a markdown table (`Who | What | Amount | Session`), not prose: the table
   model is already built, so the feature is the convention plus the saved queries. Prose
   damage logs are refused because a parsed rollup answers *wrong forever*; a table can
   simply answer nothing until it is filled.
+  **No mode** (one-special-table rule, brainstorm): shared table editing only — no keymap
+  context, no active row, no renderer that knows what the rows mean. The initiative
+  tracker is the toolkit's only table with a mode.
 - **P7.9 Dice probability** (brainstorm ✅, ruled 2026-11-08) — `!p 2d8+4 vs AC16` renders
   hit %, average damage and crit range by exact convolution over the `!r` grammar
   (P7.2), pure Rust in core. Writes **nothing** back: a probability is a property of the

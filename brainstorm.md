@@ -851,7 +851,7 @@ build; the rest is configuration of things that already exist.
   the mode resolves the link to open/inspect the statblock or player sheet
   (`:inspect` on the active row), and the agent can follow the same edges.
   Hover preview works like everywhere else.
-- **`:inspect` ruled 2026-11-08**: it writes **one `![[morgoth#statblock]]` line
+- **`:inspect` ruled and ratified 2026-11-08**: it writes **one `![[morgoth#statblock]]` line
   directly under the table** — a read-only embed on P4.0's already-built machinery, so
   the statblock is plain text *below* the table (never inside a cell, never a hidden
   panel), undoable, and visible to `:raw`. Re-inspecting another combatant **rewrites
@@ -882,8 +882,11 @@ build; the rest is configuration of things that already exist.
 - **Prose is the failure mode, and it is why this is a ruling and not a convention**: a
   rollup parsed out of free text either lies quietly or refuses on the phrasing it did
   not expect. A table can answer nothing until it is filled; prose answers wrong forever.
-- Same posture as the initiative tracker: the table *is* the state, no hidden store, no
-  second source of truth, undoable text edits, provenance-logged like any other edit.
+- Same posture as the initiative tracker on the data (the table *is* the state, no
+  hidden store, no second source of truth, undoable text edits, provenance-logged like
+  any other edit) — and **explicitly not on the interaction**: under the one-special-table
+  rule this is a plain table with shared table editing. No keymap context, no active row,
+  no renderer that knows it is a combat log.
 - Cost: no new subsystem at all — the table model is built, the queries wait on P4.3 /
   P4.3a like the rest of the cluster.
 
@@ -984,12 +987,13 @@ build; the rest is configuration of things that already exist.
 - Exports are provenance-logged (what was printed, when, which preset) —
   "what did the GM hand out" stays a query.
 
-### Broadsheet ✅ (rides print surfaces + recap generator)
+### Broadsheet ✅ (rides print surfaces; the recap dependency removed 2026-11-08)
 - `broadsheet` note type: the print-surface layout profile typesets it as
   an in-world newspaper (columns, drop caps, rules, date masthead).
-- Content source: the session-recap idea (template + `.shq` aggregates +
-  rolls table) rewritten in tavern-gossip voice — the agent drafts, the GM
-  edits, provenance marks the draft.
+- Content source: **the GM's own session note**, optionally drafted by the agent through
+  the MCP tools it already has (P7.7) — the "recap generator" this used to cite is not a
+  feature and is not scheduled, so the broadsheet must not be priced as depending on one.
+  What Shale owes is the layout profile and the aggregates a `.shq` already answers.
 - The most shareable artifact of the toolkit: print it or export PDF and
   post it after every session.
 
@@ -1053,6 +1057,21 @@ build; the rest is configuration of things that already exist.
   update the table itself*. That is this rule's case, and it is refused here rather
   than at review.
 
+### One special table: the initiative view — PARENT RULE ✅ (binding, ruled 2026-11-08)
+- **The initiative tracker is the only table in the toolkit that gets a mode** — a
+  keymap context, an active row, renderer paint for whose turn it is. Every other GM
+  table (the combat log, the session tables, a schedule, a party ledger) is a **plain
+  markdown table plus queries over it**: shared table editing, no context, no commands
+  aimed at a row, no rendering that knows what the table means.
+- Why the initiative earns it and nothing else does: it is the only table with a *cursor
+  that matters during a fight* — the app has to know whose turn it is because the GM is
+  acting in order, under time. A damage log has no "current row"; reading it happens
+  after the session, at query speed, which is exactly what `.shq` is for.
+- The guard against the slippery slope, stated now: when a table feature asks for a key
+  chord, an active-row concept, or a renderer that special-cases its rows, this rule is
+  the answer. Two tables with modes is a mode system; a mode system is where a markdown
+  editor turns into an app-with-screens.
+
 ### Consumed-line tracking ❌ (rejected, user call 2026-11-08)
 - `used:` written back onto a quote/name/clothes line at pick time, so `:pick` never
   repeats a line at the table. Rejected as **too niche** to spend a subsystem and a
@@ -1089,7 +1108,7 @@ build; the rest is configuration of things that already exist.
   in a real vault — is a saved `.shq` over the session notes, and the party ledger is
   the same query read from the other end. Nothing writes into the PC notes.
 
-### Party ledger as a query ✅ (ruled 2026-11-08 — the write-back version refused)
+### Party ledger as a query ✅ (ruled and ratified 2026-11-08 — the write-back version refused)
 - Per-PC campaign bookkeeping (`Deaths`, `Damage Taken`, `First Downs`) exists in real
   vaults as a folder of near-empty notes, because maintaining those fields by hand is
   misery and nothing ever fills them. The ruling is **not** a `:session-end` command
