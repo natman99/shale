@@ -784,6 +784,49 @@ fn a_fold_is_clickable_in_the_gutter(cx: &mut TestAppContext) {
     assert_eq!(lines, 4, "clicking the gutter glyph opened the section");
 }
 
+/// The disclosure has to fit the column it is drawn in, at the largest row it appears on.
+///
+/// gpui crops anything wider than the gutter **in silence** — no panic, no warning, just
+/// a chevron with its point bitten off, which is an affordance that stopped working
+/// without saying so. So the size of the shaped glyph is pinned here against the column,
+/// at a level-one heading (22 px), where the temptation to scale the mark with the row is
+/// strongest.
+#[gpui::test]
+fn the_disclosure_glyph_fits_the_gutter_at_the_largest_heading(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.bind_keys(keybindings()));
+
+    let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+    let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+    editor
+        .update(cx, |editor, window, cx| {
+            editor.set_text("# Top\none\ntwo\n# Other".to_string(), cx);
+            let focus = editor.focus_handle(cx);
+            window.focus(&focus, cx);
+        })
+        .unwrap();
+    for _ in 0..2 {
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+    }
+    cx.simulate_keystrokes("z a");
+
+    let (index, x0, x1) = editor
+        .read_with(cx, |editor, _cx| editor.fold_marker_bounds())
+        .unwrap()
+        .remove(0);
+    assert_eq!(index, 0, "the folded heading is the first line");
+    let width = (x1 - x0).as_f32();
+    let air = crate::style::GUTTER.as_f32() - crate::style::MARK_GUT.as_f32() - width;
+    assert!(
+        width > 9.5,
+        "the chevron is big enough to see next to a heading: {width} px wide"
+    );
+    assert!(
+        air >= 1.0,
+        "…and still fits the 16 px column with air at its left edge: {width} px wide, \
+         {air} px of air left"
+    );
+}
+
 /// Live markdown styling must not disturb the wrap model. Rows painted with
 /// a wide face (headings, strong, quotes) have to be *measured* with that
 /// face too, or a painted segment can overflow the wrap width and the break

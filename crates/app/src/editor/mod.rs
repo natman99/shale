@@ -1224,6 +1224,18 @@ impl MarkdownEditor {
             .collect()
     }
 
+    /// The embedded rows this frame painted as *pictures* (the read-only blocks): the
+    /// row of the embedded note behind each phantom row. Proposal additions carry no
+    /// origin and are not counted.
+    #[cfg(test)]
+    pub(crate) fn painted_block_rows(&self) -> Vec<usize> {
+        self.phantom_hits
+            .borrow()
+            .iter()
+            .filter_map(|hit| hit.origin.as_ref().map(|origin| origin.row))
+            .collect()
+    }
+
     /// Where a block's folded headings put their disclosure: `(row, the row's left edge,
     /// the click ranges measured from that edge)` — the same space the click path asks
     /// the host's own lines in.

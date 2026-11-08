@@ -169,6 +169,16 @@ Two things the milestone text got wrong, learned by doing it:
   aim is latched by the first vertical motion, from the display column the caret actually
   landed on. Worth remembering as the pattern for P4.0b — anywhere a *buffer* quantity is
   used to answer a *display* question is a bug waiting for a narrow pane.
+- **A block's slot must be *fed*, never re-derived.** M0's promise pays off exactly here:
+  an entered block's `ViewSlot` is what `j`/`k`, `G`, the status bar's row readout and
+  scrolling answer to, so it has to describe the rows the block actually paints — one
+  segment per soft-wrap piece, and **no segment at all** for a row the fold hides. The
+  first version handed it every buffer row's start, which is a display model that lies:
+  the motions moved the caret to rows that were not on screen, and the status bar stopped
+  updating because the caret's row was no longer in the display index space. The frame
+  that measured the wrap and the fold is the only thing that knows the truth, so the frame
+  hands the segments over (`overlay.rs::set_block_segments`), and
+  `a_fold_stays_shut_when_the_caret_steps_out` pins the hidden half.
 
 **M1 — the registry. ✅ landed 2026-11-06.** Landed as `crates/app/src/note.rs`
 (`Note`: the shared `Rc<RefCell<Buffer>>` plus the entry's `dirty`) and

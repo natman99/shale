@@ -27,12 +27,12 @@ use std::rc::Rc;
 use gpui::{px, Context, IntoElement, LineWrapperHandle, Pixels, SharedString, Styled};
 use gpui::{InteractiveElement, ParentElement};
 use shale_core::diff::{self, Hunk};
-use shale_core::transclude::{Body, EmbedLine, EmbedRow, Origin};
+use shale_core::transclude::{Body, EmbedLine, EmbedRow, Origin, Sources};
 use shale_core::vim::Mode;
 
+use crate::line::DisplayLine;
 use crate::line::marks::{self, GutterMark};
 use crate::line::phantom::{PhantomKind, PhantomLine, INDENT_STEP};
-use crate::line::DisplayLine;
 use crate::theme;
 
 use super::{embeds, MarkdownEditor, View};
@@ -519,10 +519,28 @@ impl MarkdownEditor {
             let mut buffer = note.buffer.borrow_mut();
             return Some(buffer.fold_view(&mut self.slot));
         }
-        let slot = self.embed_slots.get_mut(target?)?;
-        let note = self.notes.get(target?)?;
-        let mut buffer = note.buffer.borrow_mut();
-        Some(buffer.fold_view(slot))
+        let target = target?;
+        let slot = self.embed_slots.get_mut(target)?;
+        // A read-only block's note is usually not open anywhere: no tab shows it and the
+        // caret is not inside it, so the registry let it go the moment the caret stepped
+        // out. Ask the same source the resolver reads — the open buffer if there is one,
+        // the file otherwise — and key the region cache on a hash of that text rather
+        // than a buffer's change id: unchanged text keeps its cached regions, changed
+        // text loses them, which is exactly what a change id means.
+        let vault = Rc::clone(self.vault.as_ref()?);
+        let notes = Rc::clone(&self.notes);
+        let sources = embeds::OpenFirst {
+            notes: &notes,
+            vault: &vault,
+        };
+        let text = sources.text(target)?;
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        std::hash::Hash::hash(&text, &mut hasher);
+        let change_id = std::hash::Hasher::finish(&hasher);
+        // The same count `Buffer::line_count` gives, so the collapsed vector is the
+        // length the block indexes it with.
+        let line_count = text.matches('\n').count() + 1;
+        Some(slot.fold_view(&text, change_id, line_count))
     }
 
     /// The host row stays on screen — it is the author's own text, editable, and the
@@ -586,11 +604,15 @@ impl MarkdownEditor {
                     fold: None,
                 },
                 Body::Lines(rows) => {
-                    // The note this block borrows: the depth-0 rows are the ones it took
-                    // from it, and the fold question below is asked of that note.
+                    // The note this block borrows: the shallowest rows in it, because a
+                    // nested embed's lines are deeper and belong to another note. (The
+                    // first level is depth 1 — `transclude::expand` starts counting at
+                    // one — so "the shallowest present" is the test, not "== 0".) The
+                    // fold question below is asked of that note.
+                    let shallowest = rows.iter().map(|line| line.depth).min().unwrap_or(0);
                     let target = rows
                         .iter()
-                        .find(|line| line.depth == 0)
+                        .find(|line| line.depth == shallowest)
                         .and_then(|line| line.origin.as_ref())
                         .map(|origin| origin.path.clone());
                     let mut lines: Vec<BlockLine> = rows
@@ -722,12 +744,34 @@ impl MarkdownEditor {
             let Some(slot) = segments.get_mut(row) else {
                 continue;
             };
+            // A segment start is a *buffer* offset: the byte where that display line
+            // begins. The first is the row's own start — not the first visible character,
+            // which for a heading is two bytes in, because its `# ` is hidden. Getting
+            // that wrong does not merely misplace the caret: a blank row's painted map is
+            // empty, `offset_for_index(0)` answers 0, and every `j` in the note lands back
+            // on row 0. Later breaks come from the painted map, clamped to stay inside the
+            // row and in order.
+            let line_start = buffer.line_start(row);
+            let line_end = buffer.line_end(row);
             *slot = match painted.get(ix) {
                 Some(painted) => ranges[ix]
                     .iter()
-                    .map(|(lo, _)| painted.map.offset_for_index(*lo))
+                    .enumerate()
+                    .scan(line_start, |last, (part, (lo, _))| {
+                        let start = if part == 0 {
+                            line_start
+                        } else {
+                            painted
+                                .map
+                                .offset_for_index(*lo)
+                                .clamp(line_start, line_end)
+                        };
+                        let start = start.max(*last);
+                        *last = start;
+                        Some(start)
+                    })
                     .collect(),
-                None => vec![buffer.line_start(row)],
+                None => vec![line_start],
             };
         }
         if let Some(fold) = &block.fold {
@@ -1037,7 +1081,13 @@ impl MarkdownEditor {
         // A wrapped row belongs to one segment for caret purposes: the boundary between
         // two segments goes to the later one, except at the end of the row, where there
         // is no later one and the caret sits after the last character.
-        let holds_caret = cursor >= start && (cursor < end || end == buffer.line_end(origin.row));
+        // ...but only on the row the caret is actually on, compared in *buffer rows*:
+        // the second half of the test is true for every row above the caret (their last
+        // piece ends at its line end, and the cursor is past them), so without it a `G`
+        // paints a caret down the whole block.
+        let holds_caret = buffer.row_col(cursor).0 == origin.row
+            && cursor >= start
+            && (cursor < end || end == buffer.line_end(origin.row));
         let cursor_col =
             (self.view != View::Preview && holds_caret).then(|| map.index_for_offset(cursor));
         LineElement {

@@ -1329,6 +1329,73 @@ fn fold_marks(
 /// row the caret actually reached: only that row keeps its markers.
 const SECTIONS: &str = "# Section\nfirst\nsecond\n# Other\n**last**\n";
 
+/// The rows of the read-only blocks on screen, in the embedded note's numbering.
+fn read_only_embed_rows(
+    window: &WindowHandle<Workspace>,
+    cx: &mut VisualTestContext,
+) -> Vec<usize> {
+    window
+        .update(cx, |ws, _window, cx| {
+            ws.editor()
+                .unwrap()
+                .read_with(cx, |editor, _cx| editor.painted_block_rows())
+        })
+        .unwrap()
+}
+
+/// The caret's row in whichever buffer the caret is in.
+fn caret_row(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> usize {
+    window
+        .update(cx, |ws, _window, cx| ws.cursor_position(cx))
+        .unwrap()
+        .0
+}
+
+/// A note shaped like a note: a heading, blank rows between paragraphs.
+const PROSE: &str = "# Heading\n\nA paragraph.\n\nAnother one.\n";
+
+/// `j`, `k` and `G` inside a block move through the embedded note the way they move
+/// through a note: the block's display model must be the one the paint drew.
+#[gpui::test]
+fn the_vertical_motions_move_through_a_block(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("host.md", "![[gift]]\n"), ("gift.md", PROSE)]);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show_at(&mut cx, &window, "host.md");
+    cx.simulate_keystrokes("ctrl-]");
+    assert_eq!(
+        caret_row(&window, &mut cx),
+        0,
+        "entered on the block's first row"
+    );
+    cx.simulate_keystrokes("j");
+    assert_eq!(caret_row(&window, &mut cx), 1, "`j` steps to the blank row");
+    cx.simulate_keystrokes("j");
+    assert_eq!(caret_row(&window, &mut cx), 2, "and on to the paragraph");
+    cx.simulate_keystrokes("k");
+    assert_eq!(caret_row(&window, &mut cx), 1, "`k` comes back");
+    cx.simulate_keystrokes("G");
+    assert_eq!(
+        caret_row(&window, &mut cx),
+        4,
+        "`G` goes to the note's last row, which is inside the seam"
+    );
+}
+
+/// A fold made inside a block stays made when the caret steps out: the read-only block
+/// of a note this view has edited shows the section shut, not open.
+#[gpui::test]
+fn a_fold_stays_shut_when_the_caret_steps_out(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("host.md", "![[gift]]\n"), ("gift.md", SECTIONS)]);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show_at(&mut cx, &window, "host.md");
+    cx.simulate_keystrokes("ctrl-] z a ctrl-o");
+    assert_eq!(
+        read_only_embed_rows(&window, &mut cx),
+        vec![0, 3, 4],
+        "the block on screen still hides the folded section's rows"
+    );
+}
+
 /// `za` inside a block folds the embedded note: the section's rows leave the block,
 /// and `j` from the heading steps over them onto the row after the section.
 #[gpui::test]

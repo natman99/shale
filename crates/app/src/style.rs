@@ -88,11 +88,18 @@ pub(crate) const MARK_GUT: gpui::Pixels = gpui::px(4.);
 /// A path mark is handed its size ([`MARK_SIZE`]); a glyph mark has to be shaped at a
 /// font size, and that size cannot be the row's. A level-one heading is 22 px, and its
 /// `▸` shapes 13.2 px wide — wider than [`GUTTER`] minus [`MARK_GUT`], so gpui crops it
-/// at the column's left edge in silence. Every mark in the column is drawn at the body
-/// size instead — or at the row's size if the row is smaller, which
-/// `LineElement::gutter_glyph_size` decides — which is also what makes the gutter read as
-/// one column rather than as a ragged edge echoing the note's headings.
-pub(crate) const GUTTER_GLYPH_SIZE: f32 = crate::theme::DEFAULT_FONT_SIZE;
+/// at the column's left edge in silence. Every mark in the column is drawn at one size
+/// — or at the row's size if the row is smaller, which `LineElement::gutter_glyph_size`
+/// decides — which is also what makes the gutter read as one column rather than as a
+/// ragged edge echoing the note's headings.
+///
+/// The size is measured, not guessed: `▸` in the note's monospace shapes at 0.6 em, so
+/// at 14 px it is 8.4 px wide and reads as a speck beside a heading (user report,
+/// 2026-11-08). At 17 px it is 10.2 px, which leaves 1.8 px of air at the column's left
+/// edge — the largest step that still fits, and the reason the cap is 17 rather than the
+/// heading's own 22. `line::tests::the_disclosure_glyph_fits_the_gutter` holds that
+/// boundary; raising this constant past 18 breaks it.
+pub(crate) const GUTTER_GLYPH_SIZE: f32 = 17.0;
 
 /// How heavy a chip's rule is.
 ///
