@@ -851,6 +851,13 @@ build; the rest is configuration of things that already exist.
   the mode resolves the link to open/inspect the statblock or player sheet
   (`:inspect` on the active row), and the agent can follow the same edges.
   Hover preview works like everywhere else.
+- **`:inspect` ruled 2026-11-08**: it writes **one `![[morgoth#statblock]]` line
+  directly under the table** — a read-only embed on P4.0's already-built machinery, so
+  the statblock is plain text *below* the table (never inside a cell, never a hidden
+  panel), undoable, and visible to `:raw`. Re-inspecting another combatant **rewrites
+  that one line** instead of stacking, so a fight never accumulates five statblocks;
+  `]t`/`[t` never touch it. It is the pre-P6.2 answer and retires when hover cards
+  reach embeds.
 - Renderer: active row highlighted + round counter in the table header,
   dead/dying rows dimmed. All render-only; source stays a normal table.
 - **MCP**: the table's state (rows, active row, round) is readable via the
@@ -864,6 +871,36 @@ build; the rest is configuration of things that already exist.
 - Synergy: initiative entries can be inline dice → every init roll lands in
   the `rolls` table; after combat the table is just text, so `.shq` answers
   "which combats lost someone", "average rounds per fight".
+
+### Combat log as a table ✅ (ruled 2026-11-08; free on the built table model)
+- What real GM notes do today is prose with separators — `Thane deals 22 damage` under
+  a `---` rule — which no query can read honestly. The ruling: **the log is a markdown
+  table** (`| Who | What | Amount | Session |`), edited at table speed on the table
+  model that already ships, and every "how did the fight go" question is a `.shq` over
+  it: damage/heals/kills per PC per session, average damage by round, which combats
+  someone went down in.
+- **Prose is the failure mode, and it is why this is a ruling and not a convention**: a
+  rollup parsed out of free text either lies quietly or refuses on the phrasing it did
+  not expect. A table can answer nothing until it is filled; prose answers wrong forever.
+- Same posture as the initiative tracker: the table *is* the state, no hidden store, no
+  second source of truth, undoable text edits, provenance-logged like any other edit.
+- Cost: no new subsystem at all — the table model is built, the queries wait on P4.3 /
+  P4.3a like the rest of the cluster.
+
+### Dice probability ✅ (ruled 2026-11-08; the other half of inline dice)
+- `!p 2d8+4 vs AC16` renders **hit %, average damage, and crit range** next to the
+  expression — the math GMs currently derive by hand in prose (a real vault contains
+  `Chance of rolling above k where d is #dice = 1 - ((k - 1) / 20)^d` and a table of
+  expected DPR written out longhand).
+- Exact distribution by **convolution over the dice grammar already specced for `!r`**
+  (`NdN[+/-m][khN|klN]`), pure Rust in `shale-core`, no crate. Keep-highest/lowest needs
+  order statistics rather than a naive convolution, and advantage is the common case, so
+  it is the part the tests must pin.
+- Unlike `!r` this **writes nothing back**: a probability is a property of the
+  expression, not an event, so there is no result to annotate and no rolls-table row.
+  It is a computed surface (P4.15's policy: app-offered, region-anchored), not a state.
+- Scope guard: it informs encounter building; it does not build the encounter. The
+  budget check (Hard vs Deadly) stays deferred — see below.
 
 ### Random generators ✅ (the vault structure IS the table)
 - Generalize `:random` to filters: `:random tag:hook`,
@@ -901,13 +938,23 @@ build; the rest is configuration of things that already exist.
   note + `.shq` aggregates + rolls table → draft recap the GM edits. A
   prompt template + a template note, not a feature. Revisit once the
   pieces above ship.
+- **Confirmed as not-a-feature 2026-11-08**: "the GM types shorthand, the agent expands
+  it into prose" is **not** a Shale mode and involves **no pinging the agent from the
+  app** — the agent is already inside Shale through the MCP server, and its writes
+  already carry `agent:` provenance through the review strip. What Shale owes is only
+  the *material* (template note + `.shq` aggregates + rolls table). Do not open a
+  session-capture surface; there is nothing for it to be.
 
-### Image pins ❄️ (tabled, user call 2026-10-29)
-- Pins as data on an image note (normalized x/y + link + label in a
-  `shale:pins` block); renderer draws numbered markers, click opens the
-  note, drag reuses graph drag-pin machinery. Dungeon/city map as a hub.
-- Scope line if it ever un-parks: reference/annotation only — no tokens,
-  no grid, no movement (same VTT guard as the initiative tracker).
+### Image pins ❌ (retracted 2026-11-08 — superseded by Canvas, not rejected on merit)
+- The 2026-10-29 tabled design (pins as normalized x/y + link + label on an image note,
+  markers drawn by the renderer, drag reusing graph drag-pin) is **cut**: the Canvas
+  ruling (`canvas-plan.md`) hosts a dungeon or city map better, because a canvas node is
+  a **live view of the real note** rather than a coordinate pointing at one, and
+  `:canvas from-query` already gives the GM a board with no agent involved.
+- Do not re-pitch pins as "the lightweight version": the coordinate layer is exactly
+  what Canvas decided not to have (agents never emit coordinates; geometry is the
+  layout's job). The VTT guard still stands either way — reference and annotation only,
+  no tokens, no grid, no movement.
 
 ### Spotlight ledger ✅
 - The DB knows session-note text; PC notes are wikilinked there. Count
@@ -991,11 +1038,66 @@ build; the rest is configuration of things that already exist.
   track travel time; the graph stays a *relationship* graph, not a
   distance graph.
 
+### Manual tables and lookups — PARENT RULE ✅ (binding, ruled 2026-11-08)
+- **A table or a lookup stays something the GM maintains and reads; nothing advances,
+  infers, or auto-populates it.** Query surfaces may *compute from* what is written
+  (`.shq`, the spotlight rollup, the kind census) — they must not *write into* it, and
+  no feature may keep its own clock.
+- This sinks, permanently: the **NPC schedule grid** as anything but a hand-kept table
+  plus one lookup (ruled 2026-11-08: `Morning/Afternoon/Evening/Night` stays manual —
+  the app may query it, never advance it); **write-back ledgers** that push session
+  numbers into a PC note's props (the party ledger is a saved query over the session
+  tables instead — see "Party ledger as a query" below); and anything that re-pitches
+  the world clock as "just a reminder".
+- The tell to watch for in a pitch: a feature whose value comes from *not having to
+  update the table itself*. That is this rule's case, and it is refused here rather
+  than at review.
+
+### Consumed-line tracking ❌ (rejected, user call 2026-11-08)
+- `used:` written back onto a quote/name/clothes line at pick time, so `:pick` never
+  repeats a line at the table. Rejected as **too niche** to spend a subsystem and a
+  write-back rule on, even though it rides the dice write-back precedent and answers a
+  "things to track" item in a real vault. Do not re-pitch it as a free ride; if it ever
+  returns it is a convention over block refs (P4.9), not a feature.
+
+### `:pick` over a list in the note ❄️ (parked, user call 2026-11-08)
+- Picking from a list *inside* one note (a numbered name list, a clothes-by-district
+  list) rather than from a tagged collection of notes. Parked, not rejected — the
+  argument that parked "random tables" (note-collections beat hand-written tables) does
+  **not** fully hold, because real vaults keep these lists inside notes; the door stays
+  open on the `!r` syntax and the `rolls` table. Needs P7.2 inline dice first.
+
+### Encounter budget check ❄️ (deferred, user call 2026-11-08)
+- "Is this fight Hard or Deadly" from monster CR × count against party level × count.
+  The arithmetic is trivial; the cost is that the thresholds are **edition data**, so the
+  ruling owed before it can be built is whether the table is vault data (matching the
+  zero-built-in-vocabulary principle) or a built-in. Deferred with that question attached
+  — do not build it on an assumed edition.
+
 ### Free rides (no new subsystems — note the conventions, don't build)
 - Statblocks: `type: monster` + `cr/hp/ac` frontmatter → props index + `.shq`
   queries; a `statblock` callout type for pretty two-column rendering later.
+  **Ruled 2026-11-08 ✅**: the `statblock` callout kind renders on screen as soon as
+  callout kinds are wired (built today); the two-column **print card** waits on P6.5's
+  render-profile registry, and screen and print use the same profile — what you see is
+  what exports. The query half is gated on P4.3a, not free today.
 - Quests = tasks table (checkboxes + `due:`); campaign/session notes =
   daily-notes pattern with a `campaign:` property (`:session 12`).
+- **Session spine ruled 2026-11-08 ✅** (a vocabulary ruling, not a build): one note per
+  session carrying `campaign:` and `session:` props, `:session 12` opening it on the
+  daily-notes pattern. Then "the story so far" — today a hand-maintained prose section
+  in a real vault — is a saved `.shq` over the session notes, and the party ledger is
+  the same query read from the other end. Nothing writes into the PC notes.
+
+### Party ledger as a query ✅ (ruled 2026-11-08 — the write-back version refused)
+- Per-PC campaign bookkeeping (`Deaths`, `Damage Taken`, `First Downs`) exists in real
+  vaults as a folder of near-empty notes, because maintaining those fields by hand is
+  misery and nothing ever fills them. The ruling is **not** a `:session-end` command
+  that populates props: that duplicates state, invents a sync story, and turns the vault
+  into a spreadsheet database.
+- The numbers are already decided once, in the session note's combat table. The ledger is
+  a **saved `.shq` over those tables**, read per PC — no fields to leave empty, no
+  second source of truth, and it obeys the manual-tables rule above.
 - Block refs (`^id`) for exact NPC quotes in session notes; relationship
   graph (NPC↔faction↔location) is just the existing graph + tag coloring.
 

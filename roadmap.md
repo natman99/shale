@@ -1371,10 +1371,28 @@ token-pushing, no range/LOS math.
   read (`config/profile.rs` already scopes by path; this scopes by block), and the
   graph/search surfaces must respect it, not leak the text through a preview.
 - **P7.7 Agent GM assistant** (brainstorm 🔭) — mostly already built as MCP tools; what
-  is missing is the shaping, not the machinery.
+  is missing is the shaping, not the machinery. **Confirmed 2026-11-08:** the recap is a
+  prompt over that machinery, not a surface — no session-capture mode, and nothing pings
+  the agent from the app.
+- **P7.8 Combat log as a table** (brainstorm ✅, ruled 2026-11-08) — the session note's
+  fight log is a markdown table (`Who | What | Amount | Session`), not prose: the table
+  model is already built, so the feature is the convention plus the saved queries. Prose
+  damage logs are refused because a parsed rollup answers *wrong forever*; a table can
+  simply answer nothing until it is filled.
+- **P7.9 Dice probability** (brainstorm ✅, ruled 2026-11-08) — `!p 2d8+4 vs AC16` renders
+  hit %, average damage and crit range by exact convolution over the `!r` grammar
+  (P7.2), pure Rust in core. Writes **nothing** back: a probability is a property of the
+  expression, not an event. Order statistics for `khN`/`klN` are the part the tests pin.
+- **Pointers on existing items:** P7.1 gains the ruled `:inspect` (one `![[…#statblock]]`
+  line under the table, rewritten rather than stacked — see brainstorm "Initiative
+  tracker"); P7.4 gains the **session spine** vocabulary (`campaign:`/`session:` props,
+  `:session 12`) and the **party ledger as a saved query** — the write-back ledger is
+  refused under the manual-tables parent rule.
 
 **Dependency order:** P4.3 `.shq` → P4.9 block refs → P4.15 computed surfaces → P7.1 /
-P7.3 / P7.4. P7.6 gates on the same provenance/filter work as P4.8.
+P7.3 / P7.4. P7.6 gates on the same provenance/filter work as P4.8. **P7.8 is the one GM
+item buildable today** (table model + command registry are shipped); its *queries* wait
+on P4.3/P4.3a. P7.9 waits on P7.2's dice grammar and nothing else.
 
 ---
 
