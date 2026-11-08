@@ -12,8 +12,9 @@
 //! itself and get out of the way of the next word.
 
 use super::*;
-use crate::lsp::{Diagnostic, Fix};
+use crate::lsp::Fix;
 
+mod card;
 mod embed;
 mod keyboard;
 mod pointer;

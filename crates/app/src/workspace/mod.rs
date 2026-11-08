@@ -143,6 +143,17 @@ pub(crate) struct Workspace {
     /// What the checker offered about that range, in the order it offered it: the
     /// popup shows these titles, and a chosen row number indexes back into them.
     popup_fixes: Vec<Fix>,
+    /// The hover preview card: what the note the pointer is resting on a link of
+    /// points at. Its own slot rather than a second kind of `popup`, because it is a
+    /// different kind of surface — the popup answers a question and takes the keyboard,
+    /// the card answers nothing and must not. Still one floating thing at a time:
+    /// opening either closes the other.
+    card: Option<Entity<crate::card::Preview>>,
+    /// The line the card hangs below, in the same tagged line space the popup's anchor
+    /// uses, so a card about a link inside the block being edited hangs off a row of
+    /// the other note. Re-placed every frame: it follows the note as it scrolls, and
+    /// goes away when the line does.
+    card_anchor: Option<crate::editor::LineRef>,
     /// A focus to hand the keyboard to at the start of the next frame, for the one
     /// path that has to close a popup without a window to do it with (the file
     /// watcher). Setting this is what keeps "closing always returns focus" true.
@@ -496,6 +507,8 @@ impl Workspace {
             popup_from_pointer: false,
             popup_note: None,
             popup_fixes: Vec::new(),
+            card: None,
+            card_anchor: None,
             pending_focus: None,
             _popup_events: None,
             _spell_events: spell_events,

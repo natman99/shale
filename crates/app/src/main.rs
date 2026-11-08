@@ -4,6 +4,7 @@
 //! the entry point.
 
 mod acts;
+mod card;
 mod command;
 mod desktop;
 mod dim;

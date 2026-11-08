@@ -456,7 +456,14 @@ nothing (a `gd` that does nothing) or a squiggle on the wrong note.
   block of a note this view has edited stays shut. A note this view has never edited has
   no fold state, because nothing here ever asked for one.
 
-**Still owed before P4.0b closes:** the hover card. Click-to-open landed 2026-11-08: a
+**P4.0b is closed as of 2026-11-08.** The hover card was the last item: a pointer
+resting on a wiki-link opens a card with the target's first lines, resolved through the
+same resolver an embed uses — open buffer before file, section anchor honoured — so a
+card, a block and `gd` cannot mean three different notes by the same written link. It is
+drawn by the window and answered by the editor, because the editor is what knows which
+note the caret is in and the window is what knows where the screen is.
+
+Click-to-open landed the same day: a
 badge — depth cap, a note already on the chain, or a section that stopped resolving —
 carries the `EmbedRef` it stopped expanding, records a clickable band like every other
 phantom row, and a click emits the same `FollowLink` that `gd` on the `![[…]]` row does.

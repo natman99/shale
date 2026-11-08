@@ -215,8 +215,11 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         // A picker owns the keyboard, so a popup cannot stay up beside it: one
-        // panel, one focus, no argument about which `escape` answers to.
+        // panel, one focus, no argument about which `escape` answers to. The card
+        // floats over the note too, and a picker is asking for a note by name — a
+        // preview of the one the pointer last touched is noise by then.
         self.close_popup(window, cx);
+        self.close_card(cx);
         self._picker_events = Some(cx.subscribe_in(
             &picker,
             window,
@@ -348,6 +351,9 @@ impl Workspace {
         if self.popup.is_some() {
             self.close_popup(window, cx);
         }
+        // The card goes with it: a click somewhere else in the window is the pointer
+        // saying it is done with the note it was resting on.
+        self.close_card(cx);
     }
 }
 

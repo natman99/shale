@@ -60,6 +60,7 @@ impl Workspace {
     pub(super) fn show_view(&mut self, view: View, window: &mut Window, cx: &mut Context<Self>) {
         if view == View::Preview {
             self.close_popup(window, cx);
+            self.close_card(cx);
         }
         let Some(editor) = self.note_editor(cx) else {
             return;

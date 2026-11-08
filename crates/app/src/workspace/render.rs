@@ -454,6 +454,14 @@ impl Render for Workspace {
             self.drop_popup(cx);
         }
         let popup = self.popup_entity().zip(placed);
+        // The card follows the same rule one step at a time: asked each frame, dropped
+        // when its line is off screen. It has no keyboard to hand back, so dropping it is
+        // only about the picture.
+        let card_placed = self.card_place(window, cx).map(|placed| placed.bounds);
+        if self.card.is_some() && card_placed.is_none() {
+            self.close_card(cx);
+        }
+        let card = self.card.clone().zip(card_placed);
         // The one path that had to close a popup without a window to hand the
         // keyboard back with (the file watcher) left the refocus for here, which
         // is the first place there is a window. `defer` keeps the change out of
@@ -886,6 +894,15 @@ impl Render for Workspace {
                     })
                     .child(format!("{}:{}", line + 1, col + 1)),
             )
+            .when_some(card, |d, (card, bounds)| {
+                d.child(
+                    anchored()
+                        .position(bounds.origin)
+                        .position_mode(AnchoredPositionMode::Window)
+                        .snap_to_window()
+                        .child(card),
+                )
+            })
             .when_some(popup, |d, (popup, bounds)| {
                 // `anchored` paints at a window coordinate rather than in the
                 // layout, which is what lets the panel sit over the note without

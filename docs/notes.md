@@ -126,6 +126,13 @@ past the cap a block shows the name it would have expanded and nothing else.
 door `gd` on the `![[…]]` line opens — so a block that refused to expand still gets you
 where you were going.
 
+**Resting the pointer on a link previews what it points at.** A card opens below the
+link with the note's first lines — rendered the way the note renders, and the way the
+link means: `[[note#Heading]]` previews that section, not the top of the note. If the
+note is open in a tab, the card shows it as you have it, not as the disk has it. It
+says how many lines it left out, it closes when the pointer leaves, and it never takes
+the keyboard: your next keystroke is still meant for the note.
+
 **The block is editable, one level at a time.** Click inside the body, or put the
 cursor on the `![[…]]` line and press `ctrl-]`. `ctrl-o` comes back out, and so does
 clicking the host's own text; `escape` never does, because `escape` belongs to

@@ -292,6 +292,23 @@ impl Cache {
         (first, last)
     }
 
+    /// Which note the cache last resolved its bodies from.
+    ///
+    /// A hover card resolves one link outside the frame, and a link's meaning depends on
+    /// the note it is written in — that is the note the frame resolved these bodies from.
+    pub(crate) fn host(&self) -> Option<PathBuf> {
+        (!self.host.as_os_str().is_empty()).then(|| self.host.clone())
+    }
+
+    /// The vault's note list the cache resolves against.
+    ///
+    /// A hover card resolves one link outside the frame's body cache, and it has to use
+    /// the same list the frame used: two different lists would let the card and a block
+    /// of the same link name mean different notes.
+    pub(crate) fn entries(&self) -> &[VaultEntry] {
+        &self.entries
+    }
+
     pub(crate) fn new() -> Self {
         Self {
             entries: Vec::new(),

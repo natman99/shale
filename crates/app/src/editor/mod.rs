@@ -178,6 +178,17 @@ type LineHits = (Vec<(usize, usize)>, Option<(usize, usize)>);
 #[cfg(test)]
 pub(crate) type FoldMark = (usize, f32, Vec<(f32, f32)>, String);
 
+/// What a hover card knows about a link, before any of it is drawn.
+///
+/// The editor answers this and the window turns it into a widget: the editor knows which
+/// note the caret is in and how a link resolves from there, and the window knows the
+/// palette, the font and where on the screen the card goes.
+pub(crate) struct PreviewText {
+    pub(crate) title: String,
+    pub(crate) lines: Vec<String>,
+    pub(crate) hidden: usize,
+}
+
 /// The embed this view is editing. See `MarkdownEditor::entered`.
 pub(crate) struct Entered {
     /// The embedded note, borrowed from the window's registry — the same buffer a
@@ -1845,10 +1856,85 @@ impl MarkdownEditor {
     }
 
     /// The wiki-link containing `offset`, if any — `offset` being in the caret's buffer.
-    fn link_at(&self, offset: usize) -> Option<&WikiLink> {
+    pub(crate) fn link_at(&self, offset: usize) -> Option<&WikiLink> {
         self.caret_links()
             .iter()
             .find(|l| l.start <= offset && offset < l.end)
+    }
+
+    /// What a hover card can say about a link: the note's name, the first lines of what
+    /// the link points at, and how many lines the card left out.
+    ///
+    /// Resolved exactly the way an embed resolves — the same vault list, an open buffer
+    /// before the file, the same section anchor — so a card, a block and `gd` cannot
+    /// disagree about what a written link means. `None` when the link points at no note:
+    /// an unresolved link has nothing to preview, and a card that invented one would be a
+    /// lie about the vault.
+    pub(crate) fn preview_for(&self, link: &WikiLink) -> Option<PreviewText> {
+        let vault = self.vault.as_ref()?;
+        // The host is the note the *link* is written in, which when the caret is inside a
+        // block is that block's note, not the tab's: a link inside an embed resolves
+        // relative to the note holding it.
+        let host = self
+            .entered_path()
+            .or_else(|| self.embeds.host())
+            .unwrap_or_default();
+        let embed = shale_core::transclude::EmbedRef {
+            target: link.target.clone(),
+            anchor: link.anchor.clone(),
+            alias: link.alias.clone(),
+        };
+        let sources = embeds::OpenFirst {
+            notes: &self.notes,
+            vault,
+        };
+        let body = shale_core::transclude::resolve_from(
+            vault,
+            self.embeds.entries(),
+            &host,
+            &embed,
+            &sources,
+        );
+        let shale_core::transclude::Body::Lines(rows) = body else {
+            return None;
+        };
+        let written: Vec<String> = rows
+            .iter()
+            .map(|row| match &row.row {
+                shale_core::transclude::EmbedRow::Text(text) => text.clone(),
+                shale_core::transclude::EmbedRow::Badge(badge) => badge.label.clone(),
+            })
+            .collect();
+        if written.is_empty() {
+            return None;
+        }
+        // The note as it reads rather than as it is written: the same pass an embed's rows
+        // go through, so a heading in the card is a heading and not a `#`.
+        let painted = embeds::paint_body(&written, &[], embeds::Reveal::default());
+        let shown = crate::card::VISIBLE_LINES;
+        let title = match rows.iter().find_map(|row| row.origin.as_ref()) {
+            Some(origin) => {
+                let name = origin
+                    .path
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().to_string())
+                    .unwrap_or_else(|| link.target.clone());
+                match link.anchor.as_deref().filter(|a| !a.trim().is_empty()) {
+                    Some(anchor) => format!("{name} › {anchor}"),
+                    None => name,
+                }
+            }
+            None => link.target.clone(),
+        };
+        Some(PreviewText {
+            title,
+            lines: painted
+                .into_iter()
+                .map(|row| row.text)
+                .take(shown)
+                .collect(),
+            hidden: written.len().saturating_sub(shown),
+        })
     }
 
     fn follow_link_at(&mut self, offset: usize, cx: &mut Context<Self>) {

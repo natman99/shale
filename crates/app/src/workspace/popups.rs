@@ -14,6 +14,11 @@
 //!   pointer walking off the bottom of the panel, an edit under the cursor,
 //!   opening a note, opening a prompt or a picker, and coming into the preview
 //!   view: each drops the popup and refocuses what had the keyboard before it.
+//!
+//! The hover preview card lives here too, because it is the other thing the pointer
+//! opens and the same placement and dismissal rules decide it — with one difference
+//! worth naming: the popup takes the keyboard and gives it back, and the card never
+//! takes it, so closing a card has nothing to undo.
 
 use gpui::{px, AppContext, Bounds, Context, Entity, Focusable, Pixels, Point, Window};
 
@@ -121,7 +126,36 @@ impl Workspace {
                 editor.is_normal_mode() && editor.view() != View::Preview
             })
         }) {
+            // A card that was up when insert mode started is now describing a view that
+            // did not ask for it, and one over a preview is a panel over the word the
+            // pointer happens to cross with nothing to offer.
+            self.close_card(cx);
             return;
+        }
+        // The card does not swallow the pointer: a click on the text it covers should
+        // still put the caret in that text. So the window keeps hearing about moves over
+        // it, and this is where the card's own band is accounted for — the same band rule
+        // the panel uses, for the same reason. The card hangs below its link, so the way
+        // down into it crosses the line underneath, and a reader who settles there to read
+        // is not asking a new question.
+        let on_card = self.card.is_some() && self.pointer_on_card(at, window, cx);
+        // A link is a bigger construct than a marked word written inside it, so the card
+        // gets first offer at the pointer: `[[Thier Note]]` is one thing to ask about, not
+        // a spelling complaint about half of it.
+        let on_link = self.editor().is_some_and(|editor| {
+            editor.read_with(cx, |editor, _cx| editor.link_at(offset).is_some())
+        });
+        if on_link && !on_card {
+            self.open_card_for(offset, line, window, cx);
+            return;
+        }
+        if on_card {
+            return;
+        }
+        // Off the link and off the card: the card goes. It has no rows to reach for, so
+        // unlike the panel it does not have to survive the trip to anything.
+        if self.card.is_some() {
+            self.close_card(cx);
         }
         let note = self.note_at(offset);
         let Some(note) = note else {
@@ -159,6 +193,114 @@ impl Workspace {
             return;
         }
         self.open_popup_for(offset, line, true, window, cx);
+    }
+
+    /// Show the card for the link under the pointer, replacing any card already up.
+    ///
+    /// The content is asked for once, when the pointer arrives on a new link, rather than
+    /// every frame: a card rebuilt on each mouse-move event would re-read the target note
+    /// dozens of times a second, and the reader would watch it flicker.
+    fn open_card_for(
+        &mut self,
+        offset: usize,
+        line: crate::editor::LineRef,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        // Already showing this link: leave it alone.
+        if self.card_anchor == Some(line) {
+            return;
+        }
+        let Some(editor) = self.editor() else {
+            return;
+        };
+        let text = editor.read_with(cx, |editor, _cx| {
+            editor
+                .link_at(offset)
+                .and_then(|link| editor.preview_for(link))
+        });
+        let Some(text) = text else {
+            // A link to a note the vault does not have has nothing to preview. Showing a
+            // card for it would promise a note that is not there; the unresolved link's
+            // own story is P6.9's, not this card's.
+            self.close_card(cx);
+            return;
+        };
+        let (palette, family, size) = self.picker_style(cx);
+        let card = cx.new(|_cx| {
+            crate::card::Preview::new(text.title, text.lines, text.hidden, palette, family, size)
+        });
+        self.card = Some(card);
+        self.card_anchor = Some(line);
+        // One floating thing at a time.
+        if self.popup.is_some() {
+            self.close_popup(window, cx);
+        }
+        window.refresh();
+    }
+
+    /// Take the card away. It never had the keyboard, so there is nothing to hand back.
+    pub(super) fn close_card(&mut self, cx: &mut Context<Self>) {
+        if self.card.take().is_none() {
+            return;
+        }
+        self.card_anchor = None;
+        cx.notify();
+    }
+
+    /// Where the card goes: the same placement as the checker's panel — below the line it
+    /// is about, flipped above it near the bottom of the window, kept inside the text
+    /// column near the right edge — worked out from the card's own height each frame.
+    pub(crate) fn card_place(&self, window: &Window, cx: &gpui::App) -> Option<PlacedPopup> {
+        let anchor = self.card_anchor?;
+        let editor = self.editor()?;
+        let (line, visible) = editor.read_with(cx, |editor, _cx| {
+            (
+                editor.hit_line_bounds(anchor),
+                editor.line_is_visible(anchor),
+            )
+        });
+        let line = line?;
+        if !visible {
+            return None;
+        }
+        let card = self.card.as_ref()?;
+        let size = card.read_with(cx, |card, _cx| card.panel_size());
+        let mut x = line.left();
+        if x + size.width > line.right().max(x) {
+            x = (line.right() - size.width).max(line.left());
+        }
+        let below = line.bottom() + GAP + size.height <= window.bounds().bottom() - EDGE_MARGIN;
+        let y = if below {
+            line.bottom() + GAP
+        } else {
+            (line.top() - GAP - size.height).max(window.bounds().top() + EDGE_MARGIN)
+        };
+        Some(PlacedPopup {
+            bounds: gpui::Bounds {
+                origin: gpui::point(x, y),
+                size,
+            },
+            below,
+        })
+    }
+
+    /// What the card says, for the tests: the title, the lines, and what it left out.
+    #[cfg(test)]
+    pub(crate) fn card_shape(&self, cx: &gpui::App) -> Option<(String, Vec<String>, usize)> {
+        let card = self.card.as_ref()?;
+        Some(card.read_with(cx, |card, _cx| card.shape()))
+    }
+
+    /// Whether the pointer is at the height the card occupies — the same band rule the
+    /// panel uses, for the same reason: the card swallows the moves over itself, and what
+    /// the window hears about is the strip between the link and the card.
+    fn pointer_on_card(&self, at: Point<Pixels>, window: &Window, cx: &gpui::App) -> bool {
+        let Some(placed) = self.card_place(window, cx) else {
+            return false;
+        };
+        let slack = GAP + px(3.);
+        at.y >= placed.bounds.origin.y - (GAP + slack) && at.y <= placed.bounds.bottom() + slack
     }
 
     /// Whether the pointer is at the height the panel occupies.

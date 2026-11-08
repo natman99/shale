@@ -196,8 +196,10 @@ impl Workspace {
     /// whether another tab already holds the note. Whether it worked, which is what
     /// the jump path needs to know before it moves the cursor.
     pub(super) fn load_note(&mut self, path: &PathBuf, cx: &mut Context<Self>) -> bool {
-        // A popup belongs to the note it was opened over, so a new note ends it.
+        // A popup belongs to the note it was opened over, so a new note ends it — and
+        // so does a card, which is about a link in that note's text.
         self.drop_popup(cx);
+        self.close_card(cx);
         // The same for a search: its matches are offsets into the note that is
         // closing.
         self.clear_search(cx);

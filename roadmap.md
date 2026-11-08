@@ -1041,8 +1041,9 @@ edges, query nodes, MCP canvas tools) is P6.10.
        note already on the chain, or a section that stopped resolving) carries the link it
        stands for, records a clickable band, and a click on it emits the same
        `FollowLink` that `gd` on the `![[…]]` row does — one route, so a click and a
-       keystroke cannot disagree about which note a written link means. What remains here
-       is the hover preview card (P6.2's embed case).
+       keystroke cannot disagree about which note a written link means.
+    1b. **Hover preview card — done 2026-11-08** (`crates/app/src/card.rs`). The last
+       thing P4.0 owed. A link's first lines, through the same resolver an embed uses.
     2. `![[query-name]]` for `.shq` results waits on P4.3; block refs (`^abc`) on P4.9.
     Original framing: `![[note]]` and
     `![[note#heading]]` resolve through the existing link resolver and paint the
@@ -1276,6 +1277,13 @@ note comes back from the trash with its links intact.
   (`gd`, expand-to-note).
 - **P6.2 Hover link preview** — first lines + mini graph neighborhood (reuses
   the minimap machinery and the existing popup placement).
+  **Half done 2026-11-08:** the card is built — resting the pointer on a wiki-link
+  shows the target's first lines, markers hidden, resolved through the embed resolver
+  so a section link previews its section and an open buffer wins over the file; it
+  hangs off the link's row with the popup's placement rules and never takes the
+  keyboard. The **mini graph neighborhood waits on the minimap (M5j)**, which has
+  never been built: the card is text-only rather than a second graph renderer
+  invented under it.
 - **P6.3 TOML macros** (brainstorm 🔭) — `macros.toml`, `keys=` and
   `commands=` forms, record-from-palette, MCP-writable (`macro.create/list/
   delete`), documented from the registry.
