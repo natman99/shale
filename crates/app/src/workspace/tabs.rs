@@ -407,6 +407,9 @@ impl Workspace {
             // holds a window to close a floating surface with.
             EditorEvent::DismissPreview => {}
             EditorEvent::Hovered { .. } => {}
+            // The scroll belongs to the window's business: it is the window that places a
+            // card or a panel over the note, and it hears about the wheel on its own.
+            EditorEvent::Scrolled => {}
         }
         cx.notify();
     }

@@ -304,6 +304,24 @@ impl Workspace {
         })
     }
 
+    /// The note scrolled under a pointer that did not move.
+    ///
+    /// gpui's wheel handler dirties the view that owns the scroller and no view above it,
+    /// so a frame after a wheel tick can draw the note at its new offset without the
+    /// window ever rendering — and the window is what places a card or a panel and what
+    /// re-runs the pointer's collision. This makes the window take part in the frame the
+    /// scroll asked for; the render notices the offset moved and queues the re-ask.
+    pub(super) fn note_scrolled(&mut self, cx: &mut Context<Self>) {
+        #[cfg(test)]
+        {
+            self.scroll_reports += 1;
+        }
+        if self.card.is_none() && !(self.popup.is_some() && self.popup_from_pointer) {
+            return;
+        }
+        cx.notify();
+    }
+
     /// Ask the pointer's question again against the current paint.
     ///
     /// Scrolling is the case: the pointer did not move, so gpui reports no move, and a
@@ -337,6 +355,20 @@ impl Workspace {
                 }
             }
         }
+    }
+
+    /// How many wheel scrolls the note has reported, for the tests.
+    #[cfg(test)]
+    pub(crate) fn scroll_reports(&self) -> usize {
+        self.scroll_reports
+    }
+
+    /// How far the note had scrolled the last time a floating surface asked about the
+    /// pointer, for the tests: it only moves inside `render`, so it also says whether the
+    /// window took part in a frame at all.
+    #[cfg(test)]
+    pub(crate) fn surface_scroll(&self) -> f32 {
+        self.surface_scroll
     }
 
     /// What the card says, for the tests: the title, the lines, and what it left out.

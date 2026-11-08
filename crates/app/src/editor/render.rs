@@ -573,6 +573,11 @@ impl Render for MarkdownEditor {
                     // what makes the gutter paintable at all. See `style::GUTTER`.
                     .pl(crate::style::GUTTER)
                     .track_scroll(&self.scroll_handle)
+                    // gpui's wheel handler dirties the view that owns the scroller — this
+                    // one — and nothing above it. The window has to hear about the scroll
+                    // even though it is not the view being scrolled, because a card or a
+                    // panel is placed by the window and anchored to a line in here.
+                    .on_scroll_wheel(cx.listener(Self::on_scroll_wheel))
                     .font_family(self.font_family.clone())
                     .text_size(px(self.font_size))
                     .line_height(px(theme::line_height(self.font_size)))

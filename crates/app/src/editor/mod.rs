@@ -66,6 +66,12 @@ pub enum EditorEvent {
     /// preview card the pointer left behind, which has no keyboard of its own to receive
     /// the key (roadmap P6.2).
     DismissPreview,
+    /// The note scrolled under the pointer's wheel. gpui's scroll wheel notifies the view
+    /// that owns the scroller and nobody above it, so without this the window never hears
+    /// that the text moved: a card or a panel parked over the note keeps the position it
+    /// was placed at and never re-checks what the pointer is on. The note reports the
+    /// wheel; the window decides what a scroll costs.
+    Scrolled,
     /// The user asked to follow the wiki-link to `target`.
     FollowLink {
         target: String,

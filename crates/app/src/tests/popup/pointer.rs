@@ -614,3 +614,39 @@ fn the_panel_band_is_not_the_whole_window(cx: &mut TestAppContext) {
         "beside the panel, over text that is not marked, is not on the way to a row"
     );
 }
+
+/// The wheel scrolls the note, and gpui dirties only the view that owns the scroller. The
+/// note has to report the scroll, because the window is what places a card or a panel over
+/// the note and re-runs the pointer's collision — and in the live frame loop a frame that
+/// only dirties the note never renders the window at all. (The test harness re-renders
+/// every view regardless, so the consequence is not visible headlessly; what is visible is
+/// that the wheel reaches the window.)
+#[gpui::test]
+fn the_note_reports_a_wheel_scroll_to_the_window(cx: &mut TestAppContext) {
+    let (_dir, window) = tall_marked(cx, 90, &[(30, "thier")]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    paint(cx);
+    let at = pointer_over(cx, &window, 30, 30 * 19 + 9);
+    hover_point(cx, at);
+    assert!(shown(cx, &window), "up on the word");
+    let before = window
+        .update(cx, |ws, _w, _cx| ws.scroll_reports())
+        .unwrap();
+    cx.simulate_event(gpui::ScrollWheelEvent {
+        position: at,
+        delta: gpui::ScrollDelta::Pixels(gpui::point(gpui::px(0.), gpui::px(-60.))),
+        ..Default::default()
+    });
+    paint(cx);
+    let after = window
+        .update(cx, |ws, _w, _cx| ws.scroll_reports())
+        .unwrap();
+    assert!(after > before, "the wheel never reached the window");
+    assert!(
+        window
+            .update(cx, |ws, _w, _cx| ws.surface_scroll())
+            .unwrap()
+            < 0.0,
+        "and the note really did scroll"
+    );
+}

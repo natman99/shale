@@ -165,6 +165,11 @@ pub(crate) struct Workspace {
     /// A scroll noticed during a frame, re-asked at the start of the next one — when the
     /// frame that drew the scrolled text has actually recorded where its rows went.
     surface_reask: bool,
+    /// How many times the note reported a wheel scroll to the window. Tests only: the
+    /// live frame loop decides which views re-render, and the test harness does not model
+    /// that, so the event path is the part a headless test can actually see.
+    #[cfg(test)]
+    scroll_reports: usize,
     /// A focus to hand the keyboard to at the start of the next frame, for the one
     /// path that has to close a popup without a window to do it with (the file
     /// watcher). Setting this is what keeps "closing always returns focus" true.
@@ -523,6 +528,8 @@ impl Workspace {
             card_link_start: None,
             surface_scroll: 0.0,
             surface_reask: false,
+            #[cfg(test)]
+            scroll_reports: 0,
             pending_focus: None,
             _popup_events: None,
             _spell_events: spell_events,
@@ -705,6 +712,7 @@ impl Workspace {
             window,
             |ws, _editor, event, window, cx| match event {
                 EditorEvent::DismissPreview => ws.close_card(cx),
+                EditorEvent::Scrolled => ws.note_scrolled(cx),
                 EditorEvent::Hovered { offset, line, at } => {
                     ws.pointer_hovered(*offset, *line, *at, window, cx)
                 }

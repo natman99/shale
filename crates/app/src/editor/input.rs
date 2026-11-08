@@ -5,7 +5,7 @@
 use std::ops::Range;
 
 use gpui::{
-    Bounds, Context, EntityInputHandler, MouseDownEvent, Pixels, UTF16Selection, Window, px,
+    px, Bounds, Context, EntityInputHandler, MouseDownEvent, Pixels, UTF16Selection, Window,
 };
 use shale_core::vim::{Key, Mode};
 
@@ -14,6 +14,17 @@ use crate::line::HitLine;
 use super::{EditorEvent, MarkdownEditor};
 
 impl MarkdownEditor {
+    /// The wheel turned over the note. The offset is gpui's business; what the editor
+    /// reports is only that the text moved under a pointer that did not.
+    pub(super) fn on_scroll_wheel(
+        &mut self,
+        _event: &gpui::ScrollWheelEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        cx.emit(EditorEvent::Scrolled);
+    }
+
     pub(super) fn on_click(
         &mut self,
         event: &MouseDownEvent,
