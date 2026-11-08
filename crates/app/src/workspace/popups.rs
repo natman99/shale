@@ -20,7 +20,7 @@
 //! worth naming: the popup takes the keyboard and gives it back, and the card never
 //! takes it, so closing a card has nothing to undo.
 
-use gpui::{px, AppContext, Bounds, Context, Entity, Focusable, Pixels, Point, Window};
+use gpui::{AppContext, Bounds, Context, Entity, Focusable, Pixels, Point, Window, px};
 
 use crate::acts::ShowNote;
 use crate::editor::View;
@@ -331,6 +331,24 @@ impl Workspace {
     /// now. A pointer that ends up on the surface, or on the word it is about, keeps it;
     /// one that lands on other text ends it; one that lands on a different marked word or
     /// link moves the surface to that.
+    /// The frame after the note scrolled: ask the pointer where the surface's word
+    /// went, and mark the window dirty so this frame also *places* the surface again.
+    ///
+    /// The placement half is not a formality. A surface is placed from the note's
+    /// last painted line positions, and within a frame the window renders before the
+    /// note paints — so the frame that noticed the scroll placed the surface where
+    /// its line *used to be*, and a surface that survives the collision keeps that
+    /// stale place until something else redraws the window. This callback runs at the
+    /// start of the frame after that paint, so its records are the scrolled ones.
+    pub(super) fn surface_scroll_frame(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.reask_pointer(window, cx);
+        #[cfg(test)]
+        {
+            self.surface_replace += 1;
+        }
+        cx.notify();
+    }
+
     pub(super) fn reask_pointer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(editor) = self.editor() else {
             return;
@@ -361,6 +379,11 @@ impl Workspace {
     #[cfg(test)]
     pub(crate) fn scroll_reports(&self) -> usize {
         self.scroll_reports
+    }
+
+    #[cfg(test)]
+    pub(crate) fn surface_replace(&self) -> usize {
+        self.surface_replace
     }
 
     /// How far the note had scrolled the last time a floating surface asked about the

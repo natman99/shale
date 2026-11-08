@@ -650,3 +650,36 @@ fn the_note_reports_a_wheel_scroll_to_the_window(cx: &mut TestAppContext) {
         "and the note really did scroll"
     );
 }
+
+/// The frame after a scroll re-*places* the surface, not only re-asks the pointer.
+/// A surface is placed from the note's last painted rows, and within a frame the window
+/// renders before the note paints — so the frame that noticed the scroll placed the
+/// surface where its word used to be, and a surface the pointer is still on kept that
+/// stale place. (Whether the window re-renders is the live frame loop's decision, which
+/// the harness does not model; what is pinned here is that the scroll's frame contains
+/// the re-place step at all.)
+#[gpui::test]
+fn a_scroll_frame_replaces_the_surface(cx: &mut TestAppContext) {
+    let (_dir, window) = tall_marked(cx, 90, &[(30, "thier")]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    paint(cx);
+    let at = pointer_over(cx, &window, 30, 30 * 19 + 9);
+    hover_point(cx, at);
+    assert!(shown(cx, &window), "up on the word");
+    let before = window
+        .update(cx, |ws, _w, _cx| ws.surface_replace())
+        .unwrap();
+    cx.simulate_event(gpui::ScrollWheelEvent {
+        position: at,
+        delta: gpui::ScrollDelta::Pixels(gpui::point(gpui::px(0.), gpui::px(-60.))),
+        ..Default::default()
+    });
+    repaint(cx);
+    assert!(
+        window
+            .update(cx, |ws, _w, _cx| ws.surface_replace())
+            .unwrap()
+            > before,
+        "the scroll re-asked the pointer but never placed the surface again"
+    );
+}

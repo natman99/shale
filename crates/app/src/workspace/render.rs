@@ -464,12 +464,12 @@ impl Render for Workspace {
         let card = self.card.clone().zip(card_placed);
         // Scrolling moves text under a pointer that never moved, and gpui reports no
         // mouse move for it — so a surface parked there is describing a word the pointer
-        // is no longer on. The surface itself follows its word, because its place is
-        // worked out from the line every frame; what the scroll has to redo is the
-        // collision. Notice it here, and ask the pointer's question again at the start of
-        // the next frame: that is when the frame which drew the scrolled text has recorded
-        // where its rows went, which is what the question has to be asked against. A panel
-        // asked for with `K` is the user asking, not the pointer, so it is not re-asked.
+        // is no longer on. Notice it here and act at the start of the next frame — the
+        // frame that drew the scrolled text, which is the frame whose records are the
+        // scrolled ones. Both halves need those records: the collision, and the surface's
+        // place, which is read from the note's *last painted* rows and so is one scroll
+        // behind in this frame. A panel asked for with `K` is the user asking, not the
+        // pointer, so it is not re-asked.
         if self.card.is_some() || (self.popup.is_some() && self.popup_from_pointer) {
             let scrolled = self.editor().is_some_and(|editor| {
                 editor.read_with(cx, |editor, _cx| editor.scroll_y()) != self.surface_scroll
@@ -482,7 +482,7 @@ impl Render for Workspace {
             }
             if self.surface_reask {
                 self.surface_reask = false;
-                cx.on_next_frame(window, |ws, window, cx| ws.reask_pointer(window, cx));
+                cx.on_next_frame(window, |ws, window, cx| ws.surface_scroll_frame(window, cx));
             }
         }
         // The one path that had to close a popup without a window to hand the

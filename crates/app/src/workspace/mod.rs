@@ -165,6 +165,11 @@ pub(crate) struct Workspace {
     /// A scroll noticed during a frame, re-asked at the start of the next one — when the
     /// frame that drew the scrolled text has actually recorded where its rows went.
     surface_reask: bool,
+    /// How many scroll frames re-*placed* the surface rather than only re-asking the
+    /// pointer. Tests only, for the same reason as `scroll_reports`: whether the window
+    /// re-renders is the live frame loop's decision, and the harness always renders.
+    #[cfg(test)]
+    surface_replace: usize,
     /// How many times the note reported a wheel scroll to the window. Tests only: the
     /// live frame loop decides which views re-render, and the test harness does not model
     /// that, so the event path is the part a headless test can actually see.
@@ -530,6 +535,8 @@ impl Workspace {
             surface_reask: false,
             #[cfg(test)]
             scroll_reports: 0,
+            #[cfg(test)]
+            surface_replace: 0,
             pending_focus: None,
             _popup_events: None,
             _spell_events: spell_events,
