@@ -1283,3 +1283,151 @@ fn the_row_being_typed_in_shows_its_markers(cx: &mut TestAppContext) {
         "and the reveal follows the caret down"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Folding inside a block (ruling 16): `za` inside an embed folds the embedded
+// note, in this view's fold state.
+//
+// A fold is the one thing in a block that changes what the *block* looks like
+// rather than what the note says, so it has two halves. The rows behind a closed
+// fold have to leave the block, and the display model the caret's motions read has
+// to lose them in the same frame — otherwise `j` steps onto a row that is not on
+// screen, which is the failure this repo has always treated as the worst one.
+// ---------------------------------------------------------------------------
+
+/// The bands the block being edited painted: `(row, left, top, bottom)`.
+fn bands(
+    window: &WindowHandle<Workspace>,
+    cx: &mut VisualTestContext,
+) -> Vec<(usize, f32, f32, f32)> {
+    window
+        .update(cx, |ws, _window, cx| {
+            ws.editor()
+                .unwrap()
+                .read_with(cx, |editor, _cx| editor.embed_rows())
+        })
+        .unwrap()
+}
+
+/// Where the block's closed folds put their disclosure: `(row, left edge, the click
+/// ranges measured from that edge)`.
+fn fold_marks(
+    window: &WindowHandle<Workspace>,
+    cx: &mut VisualTestContext,
+) -> Vec<(usize, f32, Vec<(f32, f32)>)> {
+    window
+        .update(cx, |ws, _window, cx| {
+            ws.editor()
+                .unwrap()
+                .read_with(cx, |editor, _cx| editor.embed_fold_marks())
+        })
+        .unwrap()
+}
+
+/// A note with a section to fold and a section outside it. The second heading is what
+/// gives the first section an end, and a heading's `#` is what lets the paint say which
+/// row the caret actually reached: only that row keeps its markers.
+const SECTIONS: &str = "# Section\nfirst\nsecond\n# Other\n**last**\n";
+
+/// `za` inside a block folds the embedded note: the section's rows leave the block,
+/// and `j` from the heading steps over them onto the row after the section.
+#[gpui::test]
+fn za_inside_a_block_folds_the_embedded_note(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("host.md", "![[gift]]\n"), ("gift.md", SECTIONS)]);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show_at(&mut cx, &window, "host.md");
+    cx.simulate_keystrokes("ctrl-]");
+    assert_eq!(
+        painted_embed(&window, &mut cx),
+        vec![
+            (0, "# Section".to_string()),
+            (1, "first".to_string()),
+            (2, "second".to_string()),
+            (3, "Other".to_string()),
+            (4, "last".to_string()),
+        ],
+        "the whole note is on screen before anything is folded, and only the caret's row shows its markers"
+    );
+    cx.simulate_keystrokes("z a");
+    assert_eq!(
+        painted_embed(&window, &mut cx),
+        vec![
+            (0, "# Section".to_string()),
+            (3, "Other".to_string()),
+            (4, "last".to_string()),
+        ],
+        "the closed fold takes the section's rows out of the block, and the next section stays"
+    );
+    cx.simulate_keystrokes("j");
+    assert_eq!(
+        painted_embed(&window, &mut cx),
+        vec![
+            (0, "Section".to_string()),
+            (3, "# Other".to_string()),
+            (4, "last".to_string()),
+        ],
+        "`j` steps over the folded rows onto the next section: the caret is on that heading now, which is why it shows its `#` and the first heading stopped showing its own"
+    );
+}
+
+/// The fold belongs to this view of that note, not to the visit: leaving with
+/// `ctrl-o` and coming back finds the section still shut.
+#[gpui::test]
+fn a_fold_made_inside_a_block_survives_the_visit(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("host.md", "![[gift]]\n"), ("gift.md", SECTIONS)]);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show_at(&mut cx, &window, "host.md");
+    cx.simulate_keystrokes("ctrl-] z a ctrl-o");
+    assert_eq!(
+        painted_embed(&window, &mut cx),
+        Vec::<(usize, String)>::new(),
+        "outside the block there is no block being edited, so nothing is painted as one"
+    );
+    cx.simulate_keystrokes("ctrl-]");
+    assert_eq!(
+        painted_embed(&window, &mut cx),
+        vec![
+            (0, "# Section".to_string()),
+            (3, "Other".to_string()),
+            (4, "last".to_string()),
+        ],
+        "the section is still shut: the fold was this view's, not the caret's"
+    );
+}
+
+/// The disclosure glyph a closed fold paints inside a block is clickable, like the
+/// host's own: the block is a note the caret is inside, and a fold you can only undo
+/// with a keystroke is half a feature.
+#[gpui::test]
+fn clicking_the_disclosure_inside_a_block_reopens_the_section(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("host.md", "![[gift]]\n"), ("gift.md", SECTIONS)]);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show_at(&mut cx, &window, "host.md");
+    cx.simulate_keystrokes("ctrl-] z a");
+    assert_eq!(
+        painted_embed(&window, &mut cx).len(),
+        3,
+        "folded shut: the section's two rows are gone"
+    );
+    let marks = fold_marks(&window, &mut cx);
+    let (row, left, ranges) = marks.first().expect("a closed fold paints a disclosure");
+    let (_, _, top, bottom) = *bands(&window, &mut cx)
+        .iter()
+        .find(|band| band.0 == *row)
+        .expect("the folded heading is a band the block painted");
+    let (x0, x1) = *ranges
+        .first()
+        .expect("the disclosure records where it can be clicked");
+    cx.simulate_click(
+        gpui::point(
+            gpui::px(left + (x0 + x1) / 2.0),
+            gpui::px((top + bottom) / 2.0),
+        ),
+        gpui::Modifiers::default(),
+    );
+    assert_eq!(
+        painted_embed(&window, &mut cx).len(),
+        5,
+        "the click on the glyph opened the section again"
+    );
+}

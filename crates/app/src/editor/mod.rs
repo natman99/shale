@@ -19,7 +19,8 @@ mod render;
 mod wrap;
 
 use std::cell::RefCell;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::rc::Rc;
 
 use crate::note::Note;
@@ -341,6 +342,12 @@ pub struct MarkdownEditor {
     /// One level only: a read-only embed of a note that is itself being edited stays
     /// read-only, and entering an embed while inside one is refused.
     entered: Option<Entered>,
+    /// The fold state this view holds for each embed it has edited (ruling 16). A
+    /// block's view exists only while the caret is inside it, but the folds made there
+    /// belong to *this view of that note*, and dropping them on `ctrl-o` would make `za`
+    /// feel like a keystroke that wears off. Keyed here, on the host's editor, because
+    /// that is whose view it is: the same note open in another tab folds separately.
+    embed_slots: HashMap<PathBuf, ViewSlot>,
     /// The notes this view has typed into *through* an embed: `(path, note)`, in the
     /// order they were first touched.
     ///
@@ -428,6 +435,7 @@ impl MarkdownEditor {
             collapsed_inline: HashSet::new(),
             embeds: embeds::Cache::new(),
             entered: None,
+            embed_slots: HashMap::new(),
             touched: Vec::new(),
             phantom_hits: Rc::new(RefCell::new(Vec::new())),
             embed_hits: Vec::new(),
@@ -592,11 +600,16 @@ impl MarkdownEditor {
         // author was standing.
         let row = origin.row.clamp(first, last);
         self.buffer = Rc::clone(&note.buffer);
-        // The caret's slot becomes the embedded note's, laid out the way the block is
-        // painted: one display line per row, no soft wrap. That is what `j`/`k` and
+        // The caret's slot becomes the embedded note's — the same one this view gave it
+        // last time it was inside, folds and all (ruling 16) — laid out the way the block
+        // is painted: one display line per row to start with. That is what `j`/`k` and
         // the ruler step over, and it has to agree with the paint or the two fall out
         // of step — the same rule the note's own wrap model obeys.
-        let host_slot = std::mem::replace(&mut self.slot, ViewSlot::new());
+        let embed_slot = self
+            .embed_slots
+            .remove(&origin.path)
+            .unwrap_or_else(ViewSlot::new);
+        let host_slot = std::mem::replace(&mut self.slot, embed_slot);
         {
             let buf = self.buffer.borrow();
             let segments: Vec<Vec<usize>> = (0..buf.line_count())
@@ -636,8 +649,12 @@ impl MarkdownEditor {
         self.buffer = Rc::clone(&self.note.buffer);
         // The host's view state comes back exactly as it was left: the same wrap
         // points, the same open folds. Coming out of an embed should not be a reason
-        // to re-measure the note.
-        self.slot = embed.host_slot;
+        // to re-measure the note. The embed's own view state — including any fold made
+        // inside it — is kept aside, so the next visit finds it where it left it.
+        self.embed_slots.insert(
+            path.clone(),
+            std::mem::replace(&mut self.slot, embed.host_slot),
+        );
         cx.emit(EditorEvent::EmbedExited {
             path,
             dirty,
@@ -1198,6 +1215,28 @@ impl MarkdownEditor {
         self.painted_pieces()
             .into_iter()
             .map(|pieces| pieces.concat())
+            .collect()
+    }
+
+    /// Where a block's folded headings put their disclosure: `(row, the row's left edge,
+    /// the click ranges measured from that edge)` — the same space the click path asks
+    /// the host's own lines in.
+    #[cfg(test)]
+    pub(crate) fn embed_fold_marks(&self) -> Vec<(usize, f32, Vec<(f32, f32)>)> {
+        self.embed_hits
+            .iter()
+            .filter_map(|hit| {
+                let marker = hit.fold_marker.as_ref()?;
+                Some((
+                    hit.index,
+                    hit.bounds.left().as_f32(),
+                    marker
+                        .ranges
+                        .iter()
+                        .map(|(a, b)| (a.as_f32(), b.as_f32()))
+                        .collect(),
+                ))
+            })
             .collect()
     }
 

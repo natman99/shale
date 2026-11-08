@@ -337,6 +337,12 @@ pub(crate) struct Block {
     /// ordinary line elements over the embedded note's buffer, so they carry a caret,
     /// a selection and a click target. Every other embed block is a picture.
     pub(crate) entered: bool,
+    /// The embedded note's closed folds, as this view holds them — only for the block
+    /// being edited, because that is the only block with a view state of its own
+    /// (ruling 16: `za` inside a block folds the embedded note, in that view). The
+    /// rows it lists are dropped from the block, and the counts are what the open
+    /// heading paints as its marker.
+    pub(crate) fold: Option<shale_core::fold::FoldView>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -420,6 +426,7 @@ impl MarkdownEditor {
             for (anchor, lines) in placed.added {
                 let block = Block {
                     entered: false,
+                    fold: None,
                     // A collapsed hunk trades its lines for a count, which is what lets
                     // a twelve-line proposal be skimmed without twelve rows of green.
                     badge: placed.collapsed.then(|| format!("−{removed} +{added}")),
@@ -495,6 +502,29 @@ impl MarkdownEditor {
             .collect()
     }
 
+    /// The fold state this view holds for an embedded note, if it holds one.
+    ///
+    /// The block being edited answers from the slot the caret is using — that is where
+    /// `za` writes while the caret is inside. A read-only block answers from the state
+    /// kept aside when the caret last left it, so a fold made inside does not pop open
+    /// again the moment the caret steps out. A note this view has never edited has no
+    /// such state, because nothing in this view ever asked for a fold.
+    fn embed_fold(
+        &mut self,
+        target: Option<&std::path::PathBuf>,
+        entered: bool,
+    ) -> Option<shale_core::fold::FoldView> {
+        if entered {
+            let note = self.entered.as_ref().map(|embed| embed.note.clone())?;
+            let mut buffer = note.buffer.borrow_mut();
+            return Some(buffer.fold_view(&mut self.slot));
+        }
+        let slot = self.embed_slots.get_mut(target?)?;
+        let note = self.notes.get(target?)?;
+        let mut buffer = note.buffer.borrow_mut();
+        Some(buffer.fold_view(slot))
+    }
+
     /// The host row stays on screen — it is the author's own text, editable, and the
     /// thing that says where the borrowed lines come from. The body hangs after it, which
     /// is the same anchor a proposal's additions use, so one insertion pass draws both.
@@ -507,16 +537,12 @@ impl MarkdownEditor {
         frame: &mut Frame,
         last_of: &HashMap<usize, usize>,
     ) {
-        let Some(vault) = self.vault.as_ref() else {
+        let Some(vault) = self.vault.clone() else {
             return;
         };
         if self.view == View::Raw {
             return;
         }
-        let sources = embeds::OpenFirst {
-            notes: &self.notes,
-            vault,
-        };
         // The entered block's rows are painted from the embedded note's buffer, so the
         // links coloured in them are that note's own — cut from that buffer, and only
         // recut when that buffer moved. The host's list is still refreshed for the
@@ -531,11 +557,19 @@ impl MarkdownEditor {
         }
         // Re-derived every frame, so the anchor cannot outlive the block it points at.
         self.entered_anchor = None;
+        // Resolved before the loop rather than in its header: the resolver reads the
+        // host's buffer and the registry, and a borrow held across the body would lock
+        // the body out of asking this view about its own folds.
+        let bodies = {
+            let sources = embeds::OpenFirst {
+                notes: &self.notes,
+                vault: &vault,
+            };
+            self.embeds
+                .resolve(&vault, self.note.buffer.borrow().text(), &sources)
+        };
         let mut painted_entered = false;
-        for (row, body) in self
-            .embeds
-            .resolve(vault, self.note.buffer.borrow().text(), &sources)
-        {
+        for (row, body) in bodies {
             // A row folded away has no display line to hang a body under, and painting
             // one anyway would show content from behind a closed fold.
             let Some(&host) = last_of.get(&row) else {
@@ -549,8 +583,16 @@ impl MarkdownEditor {
                     current: false,
                     kind: BlockKind::Embed,
                     entered: false,
+                    fold: None,
                 },
                 Body::Lines(rows) => {
+                    // The note this block borrows: the depth-0 rows are the ones it took
+                    // from it, and the fold question below is asked of that note.
+                    let target = rows
+                        .iter()
+                        .find(|line| line.depth == 0)
+                        .and_then(|line| line.origin.as_ref())
+                        .map(|origin| origin.path.clone());
                     let mut lines: Vec<BlockLine> = rows
                         .into_iter()
                         .map(|EmbedLine { depth, origin, row }| match row {
@@ -570,6 +612,26 @@ impl MarkdownEditor {
                             },
                         })
                         .collect();
+                    // One level of editing, so at most one block of the frame is the one
+                    // being typed into.
+                    let entered = self.entered.as_ref().is_some_and(|embed| {
+                        lines
+                            .iter()
+                            .any(|line| line.origin.as_ref().is_some_and(|o| o.path == embed.path))
+                    });
+                    // Ruling 16: `za` inside a block folds the embedded note, in this
+                    // view's fold state — so the block has to honour that state, or the
+                    // fold is a fact the screen never shows.
+                    let fold = self.embed_fold(target.as_ref(), entered);
+                    if let Some(fold) = &fold {
+                        lines.retain(|line| {
+                            !line
+                                .origin
+                                .as_ref()
+                                .map(|o| fold.collapsed.get(o.row).copied().unwrap_or(false))
+                                .unwrap_or(false)
+                        });
+                    }
                     let gutter = self.embed_gutter(
                         &lines
                             .iter()
@@ -580,13 +642,8 @@ impl MarkdownEditor {
                         line.gutter = gutter;
                     }
                     Block {
-                        // One level of editing, so at most one block of the frame is
-                        // the one being typed into.
-                        entered: self.entered.as_ref().is_some_and(|embed| {
-                            lines.iter().any(|line| {
-                                line.origin.as_ref().is_some_and(|o| o.path == embed.path)
-                            })
-                        }),
+                        entered,
+                        fold,
                         lines,
                         badge: None,
                         current: false,
@@ -633,6 +690,58 @@ impl MarkdownEditor {
         }
     }
 
+    /// The block being edited's rows *are* the embedded note's display lines, so the
+    /// note's view has to hold the break points this frame just measured. `j`/`k`, the
+    /// ruler and the caret's scroll all ask the view where a row's display lines are;
+    /// if it was told something other than what was painted, the caret is drawn on one
+    /// line and moved from another. A row behind a closed fold gets no segment at all,
+    /// which is how the host models a folded row and what makes the vertical motions
+    /// step over it.
+    fn set_block_segments(
+        &mut self,
+        block: &Block,
+        painted: &[embeds::PaintedRow],
+        ranges: &[Vec<(usize, usize)>],
+    ) {
+        let Some((note, path)) = self
+            .entered
+            .as_ref()
+            .map(|embed| (embed.note.clone(), embed.path.clone()))
+        else {
+            return;
+        };
+        let buffer = note.buffer.borrow();
+        let mut segments: Vec<Vec<usize>> = (0..buffer.line_count())
+            .map(|row| vec![buffer.line_start(row)])
+            .collect();
+        for (ix, line) in block.lines.iter().enumerate() {
+            if line.origin.as_ref().filter(|o| o.path == path).is_none() {
+                continue;
+            }
+            let row = line.origin.as_ref().expect("checked above").row;
+            let Some(slot) = segments.get_mut(row) else {
+                continue;
+            };
+            *slot = match painted.get(ix) {
+                Some(painted) => ranges[ix]
+                    .iter()
+                    .map(|(lo, _)| painted.map.offset_for_index(*lo))
+                    .collect(),
+                None => vec![buffer.line_start(row)],
+            };
+        }
+        if let Some(fold) = &block.fold {
+            for (row, hidden) in fold.collapsed.iter().enumerate() {
+                if *hidden {
+                    if let Some(slot) = segments.get_mut(row) {
+                        slot.clear();
+                    }
+                }
+            }
+        }
+        self.slot.set_segments(segments);
+    }
+
     /// The phantom rows for a run of blocks, in order: a collapsed block's count first
     /// (there is only one line of it), then the lines it would add.
     ///
@@ -643,7 +752,7 @@ impl MarkdownEditor {
     /// a block's rows are measured with the same faces and sizes, or a break point lands
     /// in the middle of a word the paint is still drawing whole.
     pub(crate) fn phantom_lines(
-        &self,
+        &mut self,
         blocks: &[Block],
         char_width: Pixels,
         editor: gpui::Entity<MarkdownEditor>,
@@ -744,6 +853,7 @@ impl MarkdownEditor {
                     // it. A markdown span that straddles a break becomes two, each
                     // measured from the piece it now lives on.
                     let first = part == 0;
+                    let last = part + 1 == ranges[ix].len();
                     let spans: Vec<(usize, usize, shale_core::mdstyle::Style)> = full_spans
                         .iter()
                         .filter(|(s, e, _)| *s < hi && *e > lo)
@@ -754,11 +864,22 @@ impl MarkdownEditor {
                     // selection and a click that lands on the right byte (roadmap P4.0b).
                     if block.entered && !line.badge {
                         if let (Some(origin), Some(row)) = (line.origin.as_ref(), painted.get(ix)) {
+                            // A closed fold's marker belongs to the row, and like the host's
+                            // it rides the row's last display line rather than every piece.
+                            let fold = last
+                                .then(|| {
+                                    block
+                                        .fold
+                                        .as_ref()
+                                        .and_then(|fold| *fold.marker.get(origin.row)?)
+                                })
+                                .flatten();
                             rows.push(
                                 self.embed_line(
                                     origin,
                                     row,
                                     (lo, hi),
+                                    fold,
                                     char_width,
                                     &editor,
                                     if first { &line.gutter } else { &[] },
@@ -800,6 +921,12 @@ impl MarkdownEditor {
                         .into_any_element(),
                     );
                 }
+            }
+            if block.entered {
+                // The block's rows are the embedded note's display lines: hand its view
+                // the break points and the folds this frame painted, so the caret's
+                // motions, the ruler and the paint all agree about what is on screen.
+                self.set_block_segments(block, &painted, &ranges);
             }
             if !rows.is_empty() {
                 // A word inside the block being edited is a word the checker is
@@ -847,6 +974,7 @@ impl MarkdownEditor {
         origin: &shale_core::transclude::Origin,
         painted: &embeds::PaintedRow,
         segment: (usize, usize),
+        fold: Option<usize>,
         char_width: Pixels,
         editor: &gpui::Entity<MarkdownEditor>,
         gutter: &[GutterMark],
@@ -893,9 +1021,10 @@ impl MarkdownEditor {
             Mode::Visual | Mode::VisualLine => self.vim.selection_range(&buffer),
             _ => buffer.selection(),
         };
-        // The caret's display row, in the *embedded* note's display model — which is
-        // the editor's slot while the caret is inside (ruling 19).
-        let cursor_row = buffer.display_index_for(&self.slot, cursor);
+        // Which piece holds the caret is a buffer question, not a row-number one: once
+        // the row wraps or folds, the note's display index and the block's row have
+        // stopped being the same number. `holds_caret` below already says which piece
+        // owns the byte, in buffer offsets, which is the only space both agree on.
         let line_sel = selection.and_then(|(anchor, head)| {
             let (lo, hi) = (anchor.min(head), anchor.max(head));
             if hi <= start || lo >= end {
@@ -909,8 +1038,8 @@ impl MarkdownEditor {
         // two segments goes to the later one, except at the end of the row, where there
         // is no later one and the caret sits after the last character.
         let holds_caret = cursor >= start && (cursor < end || end == buffer.line_end(origin.row));
-        let cursor_col = (cursor_row == origin.row && self.view != View::Preview && holds_caret)
-            .then(|| map.index_for_offset(cursor));
+        let cursor_col =
+            (self.view != View::Preview && holds_caret).then(|| map.index_for_offset(cursor));
         LineElement {
             editor: editor.clone(),
             embed: true,
@@ -950,7 +1079,7 @@ impl MarkdownEditor {
             image: None,
             char_width,
             palette: Rc::clone(&self.palette),
-            fold: None,
+            fold,
             diff: None,
             gutter: gutter.to_vec(),
         }

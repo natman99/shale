@@ -27,6 +27,26 @@ impl MarkdownEditor {
         // last line whose top is at or above y", so a click in a phantom band would
         // otherwise move the host's caret to the row above the block — a caret in the
         // wrong note, from a click that looked like it landed on the right text.
+        // A click on a folded heading's marker *inside the block being edited* opens or
+        // closes that section of the embedded note (ruling 16) — the same gesture the
+        // host answers, and it has to be asked before the click becomes a caret move.
+        if let Some(hit) = self.embed_hits.iter().find(|hit| {
+            hit.fold_marker.as_ref().is_some_and(|marker| {
+                let local_x = event.position.x - hit.bounds.left();
+                hit.bounds.top() <= event.position.y
+                    && event.position.y < hit.bounds.bottom()
+                    && marker
+                        .ranges
+                        .iter()
+                        .any(|(x0, x1)| *x0 <= local_x && local_x <= *x1)
+            })
+        }) {
+            let row = hit.index;
+            self.buffer.borrow_mut().fold_toggle_at(&mut self.slot, row);
+            self.ensure_cursor_visible();
+            cx.notify();
+            return;
+        }
         // Inside the block being edited, a click is an ordinary click in a note: it
         // moves the caret to the character under the pointer, in the embedded buffer.
         if let Some(offset) = self.embed_offset_at(event.position) {
