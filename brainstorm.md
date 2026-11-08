@@ -506,9 +506,12 @@ the edge kind. Same links-as-data trick as props-as-data and tasks-as-data.
 - **Layout springs ❄️:** typed edges influencing sim forces (allies attract,
   rivals repel) is deferred — it makes edge kinds load-bearing for layout.
   v1 typed edges are render/filter only.
-- Cost: one table, one registry, one filter dimension — the parser already
-  reads frontmatter, the indexer already runs on save, the graph already
-  batches edge paths.
+- Cost: one table, one registry, one filter dimension — the indexer already
+  runs on save and the graph already batches edge paths. **Corrected 2026-11-08:**
+  this line used to claim "the parser already reads frontmatter". It does not — there
+  was no frontmatter parser anywhere in `crates/`, and the `edges` table had no writer.
+  The pass that reads frontmatter is **P4.3a** (`properties-plan.md`), and it is what
+  finally fills `edges`.
 
 ## Graph open questions (resolved)
 
@@ -608,19 +611,50 @@ recovery→time machine, Bases/Dataview→`.shq`) or a deliberate out (sync,
 mobile, ~~Canvas~~ **reopened 2026-11-03 — see the Canvas section below and
 `canvas-plan.md`**, slide mode, themes). The gaps, with rulings:
 
-### Properties: frontmatter as data ✅ (P1 schema decision — do it in the DB spine)
-- The DB indexes YAML frontmatter: `note_props(note, key, value)` updated on
+### Properties: frontmatter as data ✅ (owner **P4.3a** — the indexing is `.shq`'s first commit; full design in `properties-plan.md`)
+- The DB indexes YAML frontmatter: `props(note, key, ordinal, value, kind)` updated on
   save/index. Without this, `.shq` can't answer "all notes with
   `status: draft`" — the query-note feature is crippled without it.
-- Editor: a Properties strip at the top of the note (editable key/value table,
-  rendered from the raw YAML block — buffer stays plain text, same principle as
-  the outliner). Key autocomplete from the DB's distinct-key set.
-- Light type inference (date, number, list) for sorting/queries; no schema
-  enforcement — frontmatter stays free-form.
+- **Ruled 2026-11-08** (the schema decision this section always asked for, and the
+  orphan the 2026-11-05 audit left behind): one KV table with `kind` recorded **at index
+  time**, because SQL's `CAST('low' AS REAL)` is `0` and a prose value then sorts first
+  without complaining; `ordinal` NULL = scalar, 0-based = one item of a list. Not typed
+  columns, not per-key generated views, not a JSON blob — all three priced against the
+  same query in `properties-plan.md` §2.
+- **`kind` is per key, vault-wide**: inferred by majority across the vault's values for
+  that key, overridden by `<vault>/.shale/props.toml`. Obsidian's own rule, and the same
+  inferred-first/override-second shape as the edge-type registry. A key whose values
+  disagree in kind is a typo worth *showing* in `:props`, never a value worth casting.
+- **`tags` / `aliases` / `edges` are projections**; props holds every key as authored.
+  **Body `#tags` keep working exactly as before** — the frontmatter feed is additive, and
+  that is a regression test, not a comment.
+- **Hand-rolled YAML-subset parser in core** (no `serde_yaml` — unmaintained; no
+  `unsafe-libyaml` — conformance we do not want). Nested/unsupported YAML is indexed
+  inert and **never rewritten**: that is the Obsidian-plugin compatibility and
+  no-data-loss rule. JSON frontmatter is read, never rewritten (Obsidian reads JSON and
+  saves YAML; it is a Hugo/static-site thing, absent from every note vault checked).
+  TOML `+++` deferred behind one fence-detection chokepoint.
+- **Editing surface:** in-place live preview of the block now; a vault-wide properties
+  pane later for the kind census and key rename; a separate focus-island strip is
+  **refused** — it is a second caret holder and a borrowed-surface interaction pass.
+- Editor: **ruled 2026-11-08 — in-place live preview of the block**, not a strip above
+  the text: each frontmatter line rendered as a key chip + typed value widget where it
+  is, buffer stays plain text (same principle as the outliner), `:raw` still shows the
+  YAML exactly as written. A separate focus-island strip is refused (a second caret
+  holder, and a borrowed-surface interaction pass it would not earn). Key autocomplete
+  from the DB's distinct-key set.
+- Type inference is **per key, vault-wide** (§ above), and it is sugar for sorting and
+  queries — **no schema enforcement**: frontmatter stays free-form, and a key that
+  disagrees with its declared kind is reported, never refused.
 - Rename a property key vault-wide → link-health machinery applies.
 - Search + tag tree + graph filters can all consult props once indexed.
 
 ### Tasks as data ✅ (cheap DB win)
+- **Still unowned (checked 2026-11-08).** The props table lands with P4.3a; this one
+  needs a ruling on whether it rides that same commit or waits for P4.14's `todo:` /
+  `done:` operators. It must not become an orphan twice. The state vocabulary question
+  is live either way: real vaults use `- [/]` for in-progress, so `done` as a boolean is
+  already known to be the wrong shape.
 - DB table `tasks(note, line, text, done, due, status)` updated incrementally
   on save (the markdown parser already sees checkboxes).
 - Enables: task dashboard `.shq`s for free; toggle-done from query results

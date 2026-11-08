@@ -47,7 +47,9 @@ and live MCP per vault), per-window session slots, and remembered window frames
 (`784e56f`). **There is no open process-lifetime issue** — the reported
 "process lingers after the last window closes" was a `pgrep -f` artifact; every
 exit path was re-measured clean (PROGRESS.md, 2026-11-04). Still unbuilt from
-the original Goals list: Database tables/Obsidian-bases (P4.3 `.shq`), PDF
+the original Goals list: Database tables/Obsidian-bases (P4.3 `.shq`, whose first
+commit is **P4.3a frontmatter indexing** — the props table the whole query story was
+priced against and which no phase owned until 2026-11-08), PDF
 export, Templates, tree-sitter code highlighting.
 **What is being built now (2026-11-07): P4.0, transclusion — the editable half.** P4.0a
 (read-only embeds) shipped on 2026-11-06, and **P4.0b — editing inside an embed — is
@@ -123,6 +125,8 @@ renderer alpha (exists) ──► focus mode, search illumination      ← cheap
 link resolver + renderer (exist) ──► P4.0 transclusion ──┬─► ![[query]] embeds (P4.3)
                                                         ├─► hover preview (P6.2)
                                                         └─► P4.9 block refs ──► canvas C3
+props index (P4.3a) ──► .shq columns, `prop:` operator (P4.14), typed edges (fills
+                        `edges`), tag tree + graph hues from frontmatter, GM toolkit
 ```
 
 The last edge was missing until the 2026-11-05 plan audit: three phases depend on a
@@ -441,6 +445,11 @@ and `workspace/{mod,testhooks}.rs`. The largest file in the tree is
     the note's own `open_count` / `edit_count`, which need P1.8 to say what an open
     is. Line spans for `events` are not captured yet either — they want the save
     diff.
+    **Then vs now (2026-11-08):** that deferral pointed at P3.3, which shipped as *Graph
+    M1a* and never parsed frontmatter — so the pointer dangled and `edges` stayed empty
+    (no writer anywhere in `crates/`). Frontmatter indexing is now owned by **P4.3a**,
+    and it is the pass that fills `edges`. Recorded here so the next implementing agent
+    does not read "until P3.3" as still true.
 - **P1.4 Provenance stamped on every write path** — **half done 2026-10-31, and the
   half that is left does not exist yet.** `Provenance` is a closed enum (`User`,
   `Mcp`, `Rename`, `Template`, `External`) and every write path the app has stamps
@@ -1100,6 +1109,15 @@ edges, query nodes, MCP canvas tools) is P6.10.
 - **P4.3 Query notes `.shq`** (brainstorm ✅): `queries/` folder, TOML
   frontmatter + SQL body, read-only connection, results cached by query-hash +
   vault mtime, `![[query-name]]` embedding. This is the "Obsidian bases" goal.
+  - **P4.3a Frontmatter (properties) indexing — the FIRST commit of this item, not a
+    sibling** (ruled 2026-11-08; design, edge-case ledger and milestones in
+    `properties-plan.md`). Schema v3 adds `props(note, key, ordinal, value, kind)`; the
+    hand-rolled YAML-subset parser lives in `shale-core`; `tags` / `aliases` / `edges`
+    become projections (body `#tags` unchanged — regression test), which is also the pass
+    that finally fills `edges`. A `.shq` written before this lands can only ask about
+    paths, tags and links, so the columns arrive **with** the feature, not after it.
+    M1–M3 of that plan are this item's scope; M4 (in-place preview of the block) and M5
+    (the properties pane) are separate surfaces and may be scheduled apart.
 - **P4.4 Tag tree panel** (brainstorm ✅): rollup counts, fuzzy filter, Enter =
   search, `g` = filter graph, `r` = rename tag vault-wide, color assignment →
   graph groups. Plus `#` autocomplete from the DB.
@@ -1456,3 +1474,15 @@ P7.3 / P7.4. P7.6 gates on the same provenance/filter work as P4.8.
     block badges — *the caret decides*; agent proposals inside embeds are **deferred to
     P4.2**; `:q` closes the host's tab; and the entered embed does **not** ride the session
     file.
+12. **GM key vocabulary** (P4.3a, and every GM-toolkit query after it) — the vault in
+    hand mixes cases and spaces (`Type`, `AC`, `Max HP`, `First Downs`), and keys are
+    case-significant with spaces legal. **Recommendation:** lowercase single-word keys as
+    the convention (`type`, `cr`, `hp`, `ac`, `weight`, `region`, `campaign`, `session`),
+    declared in `<vault>/.shale/props.toml`; existing mixed-case keys keep working and a
+    key rename is the migration path, never a forced rewrite. Search quoting, not
+    escaping: `prop:"Max HP"<=5`.
+13. **`cr: 1/4` and declared-number normalization** (P4.3a) — YAML reads `1/4` as text,
+    so a numeric `cr <= 5` query silently drops CR ¼ monsters, which is guaranteed to bite
+    a D&D vault. **Recommendation:** for keys declared `number`, normalize a bare `n/m`
+    at index time (`kind='number'`, decimal in `value`, the authored text kept for
+    display) rather than asking authors to write `cr: 0.25`.
