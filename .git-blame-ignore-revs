@@ -1,0 +1,8 @@
+# Commits to skip when blaming, so a whitespace-only reformat does not
+# masquerade as authorship. Enable per clone with:
+#
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+#
+# 2026-11-08: the workspace normalized to rustfmt defaults (48 files, no
+# behavior change — build, clippy and 1258 tests verified before and after).
+6295c6493e79d56a58a17c014af63d56cde31bc0
