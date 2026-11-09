@@ -19,9 +19,13 @@ codegen-units = 1
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-# No license is declared yet — the choice is deliberately open (2026-11-05).
-# Until one is made, nothing here may be assumed licensed for reuse, and
-# `cargo publish` would refuse: a useful reminder rather than a problem.
+license = "MIT OR Apache-2.0"
+# Dual MIT OR Apache-2.0, the same pairing Rust itself uses, so anything that can
+# consume Rust code can consume this. It also stays compatible with everything the
+# binary carries: gpui (Apache-2.0), rusqlite (MIT/Unlicense), petgraph, pulldown-cmark
+# and similar (MIT). The texts are the canonical ones — LICENSE-APACHE is byte-identical
+# to rust-lang/rust's, and LICENSE-MIT is the SPDX MIT text with the holder line set to
+# "The Shale Contributors", the collective form Rust uses for its own.
 
 [workspace.dependencies]
 anyhow = "1"

@@ -57,7 +57,16 @@ assert on what the window says and does, rather than on internals. Benchmarks ar
 
 ## License
 
-Undecided — no license is declared yet, so assume nothing here may be reused. The
-third-party palettes Shale ships are upstream's own values, and every upstream it
-borrows from is MIT; the license that eventually goes here has to stay compatible
-with that.
+Shale is dual-licensed under **MIT OR Apache-2.0** — the same pairing Rust itself
+uses, so anything that can consume Rust code can consume this. The texts are the
+canonical ones: `LICENSE-APACHE` is byte-identical to `rust-lang/rust`'s, and
+`LICENSE-MIT` is the SPDX MIT text with the holder line set to "The Shale
+Contributors".
+
+Two boundaries, stated rather than assumed:
+
+- The palettes Shale ships are upstream's own hex values, reused under their own
+  permissive terms (Catppuccin and the rest are MIT).
+- The vendored reference material in `refs/` — vim's docs, the Obsidian help pages,
+  Catppuccin's style guide — is **not tracked and not distributed**. It was read as
+  specification; no prose, icons or code from it is in this codebase.

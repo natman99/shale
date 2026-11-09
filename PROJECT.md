@@ -405,7 +405,8 @@ Workspace layout:
   the rest from each family's palette file — Atom's One is defined in HSL rather
   than hex, so `one.rs` evaluates those definitions instead of trusting a port.
   Every one of those upstreams is **MIT**, so the hexes may live in this crate
-  whatever license it settles on (none is declared yet — ruled open 2026-11-05).
+  under either of its licenses (MIT OR Apache-2.0, ruled 2026-11-08 after being
+  left open on 2026-11-05).
   Pure Rust, fully unit tested.
 - `crates/app` (`shale` binary): GPUI app (Zed's gpui, tag `v1.25.3`) — file
   tree sidebar, custom line-based editor view with **soft wrap** and vim
@@ -1645,7 +1646,8 @@ keymap_matches_the_linux_keystroke_shape` now dispatches the platform's real
     callout bar all followed, and the headings scaled with the base size.
   - **Catppuccin added (2026-10-27).** The four flavours are built in, their
     hexes verbatim from `palette.json` v1.8.0 of `catppuccin/palette` (**MIT**,
-    hence copyable into this crate whatever license it settles on), and every role is filled from
+    hence copyable into this crate under either of its licenses), and every role is
+    filled from
     Catppuccin's own style guide (`docs/style-guide.md` in `catppuccin/catppuccin`):
     Base/Mantle/Crust for the panes, Text for body and headings, Rosewater for the
     cursor, Blue for links and tags, Overlay 1 for the dim markers, Subtext 0 for
