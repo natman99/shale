@@ -2,9 +2,9 @@
 
 ## Inside the vault: `.shale/`
 
-Shale puts all of its own state in one dot directory at the vault root, and never
-treats a dot directory as vault content — the file tree ignores it, and
-create/rename/delete refuse to touch anything under one.
+Shale keeps its own state in one dot directory at the vault root, and never treats a
+dot directory as vault content: the file tree ignores it, and create/rename/delete
+refuse to touch anything under one.
 
 | path | what it is | safe to delete? |
 | --- | --- | --- |
@@ -18,14 +18,13 @@ create/rename/delete refuse to touch anything under one.
 | `lock` | the `flock` claim: which process owns this vault | only while nothing is running |
 | `mcp.lock` | the loopback port a live window answers on, and its token | only while nothing is running |
 
-**The notes are the source of truth.** Everything above is either a cache, an
-arrangement, or a queue, and deleting any of it costs convenience rather than
-writing.
+**The notes are the source of truth.** Everything above is a cache, a saved
+arrangement, or a queue, so deleting any of it costs convenience and not writing.
 
-The one thing worth saying plainly: **`backups/` is not a backup of your notes.**
-It is a daily copy of the index cache, which exists so a corrupt `shale.db` is not
-an event. Your notes are as safe as whatever you run over the folder yourself —
-git, Nextcloud, rsync, whatever you already use.
+**`backups/` is not a backup of your notes.** It is a daily copy of the index cache,
+kept so that a corrupt `shale.db` is not an event. Your notes are only as safe as
+whatever you run over the folder yourself: git, Nextcloud, rsync, whatever you already
+use.
 
 ## Outside the vault: the app's own memory
 
@@ -36,21 +35,21 @@ nothing else.
 
 ## How a file gets written
 
-Every file Shale owns — a note, the config, the session, a queue entry — goes
-through **one** write discipline: write a dot-prefixed temporary file beside the
-target (`.name.shale-tmp`), then rename it over the target. A crash mid-write can
-leave a stray temp file; it cannot leave a half-written note.
+Every file Shale owns (a note, the config, the session, a queue entry) goes through
+one write path: a dot-prefixed temp file beside the target, `.name.shale-tmp`, renamed
+over the target. A crash mid-write can leave a stray temp file; it cannot leave a
+half-written note.
 
-On `SIGTERM` (and the window manager's close), Shale finishes the work it has in
-flight before exiting: the notes are written, the index is flushed and its WAL
-checkpointed, the live MCP port and lock are released. A `SIGKILL` is out of
-scope — the atomic writes are what make even that leave the notes intact.
+On `SIGTERM`, and when the window manager closes the window, Shale finishes the work
+it has in flight before exiting: the notes are written, the index is flushed and its WAL
+checkpointed, the live MCP port and lock are released. A `SIGKILL` is out of scope: the
+atomic writes are what keep the notes intact even then.
 
 ## What the running app holds
 
-- **One process per vault claim.** The `flock` on `.shale/lock` is held for the
-  process's whole life, and that process owns the live MCP port. Windows on the
-  same vault share one index, watcher, backup loop and queue beat.
-- **One child process, optional.** `harper-ls` is started for the spellchecker and
-  is the largest memory item in the whole app; a vault with `[spellcheck]
-  enabled = false` never starts it.
+- The `flock` on `.shale/lock` is held for the whole life of the process, and that
+  process owns the live MCP port. Windows opened on the same vault share one index,
+  watcher, backup loop and queue beat.
+- The language server (`harper-ls` unless the config names another) is the only child
+  process Shale starts, and it is the largest memory item in the app. A vault with
+  `[spellcheck] enabled = false` never starts it.

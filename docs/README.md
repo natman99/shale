@@ -24,13 +24,12 @@ reached through keys gpui hands to the engine, so it lives in `keys.md` instead.
 
 These are described where they are used, but do not have a page of their own yet:
 
-- **Tables** — the model, and the editing keys (`DD`, `|`, `\`, `alt+hjkl`).
-- **Folding, focus mode, typewriter scroll** — the reading-comfort surfaces.
-- **The checker popup** — the `K` panel, its offered fixes, and what a code action
-  does to the note.
-- **The review strip** as a surface — `mcp.md` covers the queue and its semantics;
-  the strip's own layout rules (six rows, the sliding window, the clash and stale
-  badges) are in `PROJECT.md`.
-- **Query notes (`.shq`)**, the time machine, and the canvas — specced in
-  `brainstorm.md` and `roadmap.md`, not built or partly built; do not document
-  them as if they were.
+- **Tables**: the model, and the editing keys (`DD`, `|`, `\`, `alt+hjkl`).
+- **Folding, focus mode, typewriter scroll**: the reading-comfort surfaces.
+- **The checker popup**: the `K` panel, its offered fixes, and what a code action does to
+  the note.
+- **The review strip** as a surface: `mcp.md` covers the queue and its semantics, and the
+  strip's own layout rules (six rows, the sliding window, the clash and stale badges) are
+  in `PROJECT.md`.
+- **Query notes (`.shq`)**, the time machine, and the canvas: specced in `brainstorm.md`
+  and `roadmap.md`, not built or partly built. Do not document them as if they were.

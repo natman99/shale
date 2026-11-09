@@ -13,12 +13,12 @@ Three prefixes are worth knowing before the tables:
 - **`ctrl-w` is the window alphabet** (panes and panels). A lone `ctrl-w` is
   pending input, and is replayed if the next key does not finish a chord.
 
-This page is the explanation. The exhaustive list is generated from the keymap
-itself: [keymap.md](keymap.md) is built from the bindings in
-`crates/app/src/workspace/keys.rs`, grouped by the same contexts, and a test fails
-when the two disagree — so if a key is bound, it is in that table. What that table
-cannot say is *why* a key is where it is, or what the vim engine does with a key
-that gpui never sees; that is this page's job.
+This page is the explanation. The exhaustive list is generated from the keymap itself:
+[keymap.md](keymap.md) is built from the bindings in
+`crates/app/src/workspace/keys.rs`, grouped by the same contexts, and a test fails when
+the two disagree, so if a key is bound, it is in that table. What that table cannot say is
+*why* a key sits where it does, or what the vim engine does with a key gpui never sees.
+That is this page's job.
 
 A key that only works in the file tree says so here, and says so in
 [commands.md](commands.md), which is generated from the command table and is the
@@ -55,8 +55,8 @@ authority on ids and `:` spellings.
 | `ctrl-w o` | close every pane but this one |
 
 `>` and `<` are not tied to an axis: the pane grows along whatever axis the split
-it sits in divides. Moving a *tab* between panes is done by opening the note in
-the pane you are standing in — the tab is stolen whole
+it sits in divides. Moving a *tab* between panes is done by opening the note in the pane
+you are standing in; the tab is stolen whole
 ([windows-panes-tabs.md](windows-panes-tabs.md)).
 
 ## The note — normal mode
@@ -70,9 +70,9 @@ named register also fills the unnamed one, so `"ayw` then a plain `p` still past
 **Motions.** `h` `j` `k` `l` (screen-line aware across soft wraps), `w` `b` `e`,
 `W` `B` `E` (a WORD is delimited only by blanks, so `**bold**`, `[[a link]]` and
 `code.rs` are one step rather than three), `0` `^` `$`, `gg` / `G`, `f` `t` `F` `T`
-(and their shifted forms), `;` and `,` to repeat the last find forwards or backwards
-— with it, including the way `t` stops short — `enter` to the next line's first
-non-blank. Counts work on motions and operators: `3w`, `2dd`, `5j`.
+(and their shifted forms), `;` and `,` to repeat the last find forwards or backwards,
+with the same semantics including the way `t` stops short, and `enter` to the next line's
+first non-blank. Counts work on motions and operators: `3w`, `2dd`, `5j`.
 
 **Operators.** `d` (delete), `c` (change), `y` (yank), each with a motion or a
 text object; `dd`, `cc`, `yy` for the whole line; `x` to delete the character
@@ -92,14 +92,14 @@ line that already ends in whitespace does not get a second one, and after `.`, `
 or `!` vim's default puts two spaces. `3J` spans three lines.
 
 **Text objects.** `iw` / `aw` (word), `iW` / `aW` (WORD), `ip` / `ap` (paragraph),
-`i"` / `a"` and `i'` / `a'` (a quoted string), and the bracket pairs — `i(` `i)` `ib`
-for parentheses, `i[` `i]`, `i{` `i}` `iB`, `i<` `i>`. Either character of a pair
-names it, so `di(` and `di)` are the same object, and the object works from the
-bracket itself or from anything between the two. So: `diw`, `ci(`, `da"`, `diW`.
+`i"` / `a"` and `i'` / `a'` (a quoted string), and the bracket pairs: `i(` `i)` `ib` for
+parentheses, `i[` `i]`, `i{` `i}` `iB`, `i<` `i>`. Either character of a pair names it, so
+`di(` and `di)` are the same object, and the object works from the bracket itself or from
+anything between the two. Examples: `diw`, `ci(`, `da"`, `diW`.
 In visual mode the same keys widen the selection instead.
 
-A count before the object reaches further, and vim counts *units* — object, gap,
-object — rather than objects: `d2iw` takes the word and the space after it but not
+A count before the object reaches further, and vim counts *units* (object, gap, object)
+rather than objects: `d2iw` takes the word and the space after it but not
 the next word, while `d2aw` takes both words and the space between them. Brackets
 inside a code span or a fenced block are text, not brackets, so `di(` in prose will
 not reach into a code block. Repeating a text object in visual mode to extend it is
@@ -107,8 +107,8 @@ not there yet.
 
 **Insert.** `i` `a` `I` `A` `o` `O`, `v` / `V` for visual (charwise / linewise;
 blockwise `ctrl-v` is not implemented), `gv` to bring back the selection that was
-last active — in the mode it was in, cursor where it was — `u` for undo, `.` to
-repeat the last change.
+last active, in the mode it was in and with the cursor where it was, `u` for undo, and `.`
+to repeat the last change.
 
 **Folding** (a heading owns the rows below it): `za` toggle, `zc` close, `zo`
 open, `zd` remove the fold, `zM` close all, `zR` / `zE` open all. A folded heading
@@ -121,18 +121,18 @@ The query outlives the strip, so `n` keeps working after `enter` closed it.
 the older spelling); `gD` makes the note first when the link resolves to nothing,
 then follows it. `ctrl`+click is the mouse door to the same thing.
 
-A link that names a section — `[[morgoth#The Fall]]` — lands the caret **on that
-heading**, not at the top of the note. The heading is matched on its text, ignoring
-case and any `#`, and a `#` inside a code block never counts; `[[#The Fall]]` with no
-target does the same search in the note you are already in. A heading that isn't there
-opens the note anyway and says `no heading "The Fall" in morgoth` in the status line —
-the note is almost certainly the right destination, and refusing the jump would leave
-you with nothing for a link one rename away from working.
+A link that names a section, `[[morgoth#The Fall]]`, lands the caret **on that heading**
+rather than at the top of the note. The heading is matched on its text, ignoring case and
+any `#`, and a `#` inside a code block never counts; `[[#The Fall]]` with no target does
+the same search in the note you are already in. A heading that is not there opens the note
+anyway and says `no heading "The Fall" in morgoth` in the status line: the note is almost
+certainly the right destination, and refusing the jump would leave you with nothing for a
+link one rename away from working.
 
 **Embeds.** `ctrl-]` on a `![[…]]` line steps into the block, which edits the other
 note where it stands; clicking inside the body is the same door. `ctrl-o` steps back
-out, and so does clicking the host's own text — `escape` never does, because it
-belongs to whatever command you were halfway through typing. The seam is a buffer
+out, and so does clicking the host's own text. `escape` never does, because it belongs to
+whatever command you were halfway through typing. The seam is a buffer
 boundary: motions stop at it, `/` does not search inside a block, and there is one
 scroll bar, the host's. `gd` on the `![[…]]` line is a different door on purpose: it
 opens the embedded note in this tab, the way it does for any other link.
@@ -155,8 +155,8 @@ palette's red, and the lines it would bring sit between the note's own lines in
 green. Over *those* lines three keys belong to the proposal rather than to vim:
 `y` accepts that hunk, `x` rejects it, and `za` folds its additions to a
 `−N +M` count. Over every other line they are still yank, delete-char and fold,
-and a count or a pending operator means you are spelling a vim command — `2y` and
-`dy` are vim's even over a struck line. The additions are not in the buffer: `j`
+and a count or a pending operator means you are spelling a vim command: `2y` and `dy`
+stay vim's even over a struck line. The additions are not in the buffer: `j`
 and `k` step past them, search cannot match them, and the ruler never counts them.
 `]a` and `[a` hop the review marker to the next / previous pending hunk from
 anywhere in the note, and the note's `y` names the hunk under its own cursor
@@ -176,8 +176,8 @@ rather than the marked one.
 
 ## The note — insert mode
 
-`escape` out. `enter` is a newline (and continues a list, task or quote — the
-marker is copied). `ctrl-backspace` deletes the word before the cursor; vim's own
+`escape` out. `enter` is a newline, and it continues a list, task or quote by copying the
+marker. `ctrl-backspace` deletes the word before the cursor; vim's own
 key for that, `ctrl-w`, is left to the window commands. Arrows move the caret;
 `delete` deletes forward.
 
@@ -205,8 +205,8 @@ of the theme picker previews that palette; `escape` puts the old one back.
 
 ## The command line
 
-`:` in normal mode (and from the graph tab). One word, matched exactly — a word
-Shale does not know runs nothing. `enter` runs it, `escape` closes it. Every
+`:` in normal mode (and from the graph tab). One word, matched exactly: a word Shale does
+not know runs nothing. `enter` runs it, `escape` closes it. Every
 spelling, with its argument, is in [commands.md](commands.md).
 
 ## The review strip
@@ -245,9 +245,8 @@ is a vim motion in the note.
 | `space f/s/e/d/g`, `gt`/`gT` | the same chords the note has |
 
 The filter strip takes the keyboard for itself: `escape` or `enter` closes it,
-`alt-o` / `alt-x` / `alt-t` toggle the `orphans` / `missing` / `tags` chips, and
-typing narrows the picture — a filtered node leaves the simulation as well as the
-paint.
+`alt-o` / `alt-x` / `alt-t` toggle the `orphans` / `missing` / `tags` chips, and typing
+narrows the picture, with a filtered node leaving the simulation as well as the paint.
 
 ## The pointer
 
