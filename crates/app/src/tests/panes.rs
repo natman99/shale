@@ -335,7 +335,11 @@ fn a_stolen_tab_keeps_its_editor(cx: &mut TestAppContext) {
     let (_dir, window, mut cx) = two_notes(cx);
     cx.simulate_keystrokes("ctrl-w v");
     show(&mut cx, &window, "a.md");
-    assert_eq!(buffer(&window, &mut cx), "first\n", "the stolen tab is on screen");
+    assert_eq!(
+        buffer(&window, &mut cx),
+        "first\n",
+        "the stolen tab is on screen"
+    );
     // The keyboard follows the tab one frame later, as it does after any tab change.
     repaint(&mut cx);
 
@@ -683,7 +687,11 @@ fn a_split_window_remembers_every_pane(cx: &mut TestAppContext) {
     assert_eq!(seats.len(), 2, "both panes are in the file");
     assert_eq!(seat_paths(&seats[0]), vec!["a.md".to_string()]);
     assert_eq!(seat_paths(&seats[1]), vec!["b.md".to_string()]);
-    assert_eq!(session.active_pane, Some(1), "the new pane had the keyboard");
+    assert_eq!(
+        session.active_pane,
+        Some(1),
+        "the new pane had the keyboard"
+    );
 
     match session
         .layout
@@ -826,7 +834,11 @@ fn a_session_with_two_panes_comes_back_split(cx: &mut TestAppContext) {
         vec!["b.md".to_string(), "a.md".to_string()],
         "and the bottom pane has both of its tabs, in order"
     );
-    assert_eq!(active(&window, &mut cx), 1, "the keyboard went back to its pane");
+    assert_eq!(
+        active(&window, &mut cx),
+        1,
+        "the keyboard went back to its pane"
+    );
     assert_eq!(
         window
             .update(&mut cx, |ws, _window, _cx| ws.status())
@@ -857,7 +869,11 @@ fn a_pane_tree_that_does_not_fit_its_panes_is_dropped(cx: &mut TestAppContext) {
         session::vault_with_session(cx, &[("a.md", "first\n"), ("b.md", "second\n")], &session);
     let mut cx = VisualTestContext::from_window(window.into(), cx);
 
-    assert_eq!(panes(&window, &mut cx), 1, "the tree that did not fit was dropped");
+    assert_eq!(
+        panes(&window, &mut cx),
+        1,
+        "the tree that did not fit was dropped"
+    );
     assert_eq!(shape(&window, &mut cx), "leaf");
     assert_eq!(active(&window, &mut cx), 0, "and the pane index with it");
     assert_eq!(

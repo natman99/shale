@@ -18,7 +18,9 @@ use shale_core::graph::proj::{DOLLY_NEAR, FIT_DIST};
 
 /// Which space the window's graph is running in.
 fn mode(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> Dim {
-    window.update(cx, |ws, _window, _cx| ws.graph_mode()).unwrap()
+    window
+        .update(cx, |ws, _window, _cx| ws.graph_mode())
+        .unwrap()
 }
 
 /// The projected camera as `(yaw, pitch, pan, zoom)`.
@@ -100,7 +102,9 @@ fn three_turns_the_graph_and_two_turns_it_back(cx: &mut TestAppContext) {
 
     turn_to_3d(&window, &mut cx);
     assert_eq!(mode(&window, &mut cx), Dim::Three, "`3` turned it");
-    let depths = window.update(&mut cx, |ws, _w, _cx| ws.graph_depths()).unwrap();
+    let depths = window
+        .update(&mut cx, |ws, _w, _cx| ws.graph_depths())
+        .unwrap();
     assert!(
         depths.iter().any(|depth| depth.abs() > 1.0),
         "the third axis opened up rather than stayed flat: {depths:?}"
@@ -133,7 +137,9 @@ fn turning_the_graph_carries_the_arrangement(cx: &mut TestAppContext) {
     // Hold one node where it is, then take the beat down so the layout is read at rest
     // rather than mid-tick.
     window
-        .update(&mut cx, |ws, _window, cx| ws.graph_drag_node(0, [0.0, 0.0, 0.0], cx))
+        .update(&mut cx, |ws, _window, cx| {
+            ws.graph_drag_node(0, [0.0, 0.0, 0.0], cx)
+        })
         .unwrap();
     window
         .update(&mut cx, |ws, _window, _cx| ws.stop_graph_beat())
@@ -150,7 +156,9 @@ fn turning_the_graph_carries_the_arrangement(cx: &mut TestAppContext) {
     let after = window
         .update(&mut cx, |ws, _window, _cx| ws.graph_sim_positions())
         .unwrap();
-    let depths = window.update(&mut cx, |ws, _window, _cx| ws.graph_depths()).unwrap();
+    let depths = window
+        .update(&mut cx, |ws, _window, _cx| ws.graph_depths())
+        .unwrap();
 
     assert_eq!(after.len(), before.len(), "the same nodes, not a new graph");
     for (was, now) in before.iter().zip(&after) {
@@ -161,7 +169,9 @@ fn turning_the_graph_carries_the_arrangement(cx: &mut TestAppContext) {
         "and the axis that was missing arrived: {depths:?}"
     );
     assert!(
-        window.update(&mut cx, |ws, _window, _cx| ws.graph_pinned()).unwrap()[0],
+        window
+            .update(&mut cx, |ws, _window, _cx| ws.graph_pinned())
+            .unwrap()[0],
         "the pinned node is still pinned"
     );
 }
@@ -178,9 +188,7 @@ fn turning_the_graph_carries_the_arrangement(cx: &mut TestAppContext) {
 fn turning_the_graph_opens_the_third_axis(cx: &mut TestAppContext) {
     // A hub and forty notes around it: in the flat view a disc, which is exactly the
     // shape a sheet keeps.
-    let hub = (1..=40)
-        .map(|i| format!("[[n{i}]] "))
-        .collect::<String>();
+    let hub = (1..=40).map(|i| format!("[[n{i}]] ")).collect::<String>();
     let owned: Vec<(String, String)> = std::iter::once(("hub.md".to_string(), hub))
         .chain((1..=40).map(|i| (format!("n{i}.md"), "back to [[hub]]".to_string())))
         .collect();
@@ -247,7 +255,9 @@ fn the_projected_view_hits_test_what_it_drew(cx: &mut TestAppContext) {
             gpui::Modifiers::default(),
         );
         assert_eq!(
-            window.update(&mut cx, |ws, _window, cx| ws.graph_hover(cx)).unwrap(),
+            window
+                .update(&mut cx, |ws, _window, cx| ws.graph_hover(cx))
+                .unwrap(),
             Some(slot),
             "the pointer is on the dot it is looking at ({path:?})"
         );
@@ -296,7 +306,11 @@ fn a_left_drag_over_empty_canvas_turns_the_world(cx: &mut TestAppContext) {
         gpui::Modifiers::default(),
     );
     let panned = angle(&window, &mut cx);
-    assert_eq!((panned.0, panned.1), (turned.0, turned.1), "the middle button did not turn the world");
+    assert_eq!(
+        (panned.0, panned.1),
+        (turned.0, turned.1),
+        "the middle button did not turn the world"
+    );
     assert_ne!(panned.2, turned.2, "and it moved the view");
 }
 
@@ -353,7 +367,11 @@ fn the_session_writes_the_angle_and_not_the_framing(cx: &mut TestAppContext) {
     let seat = window
         .update(&mut cx, |ws, _window, cx| ws.session_snapshot(cx))
         .unwrap();
-    let tab = seat.tabs.iter().find(|tab| tab.graph).expect("the graph tab");
+    let tab = seat
+        .tabs
+        .iter()
+        .find(|tab| tab.graph)
+        .expect("the graph tab");
     assert_eq!(
         tab.mode.as_deref(),
         Some("3d"),
@@ -361,7 +379,11 @@ fn the_session_writes_the_angle_and_not_the_framing(cx: &mut TestAppContext) {
     );
     let seat_angle = tab.orientation.expect("the angle is remembered");
     let (yaw, pitch, _, _) = angle(&window, &mut cx);
-    assert_eq!((seat_angle.yaw, seat_angle.pitch), (yaw, pitch), "as the angle it was at");
+    assert_eq!(
+        (seat_angle.yaw, seat_angle.pitch),
+        (yaw, pitch),
+        "as the angle it was at"
+    );
     assert_ne!(seat_angle.yaw, 0.0, "which was the one the drag made");
 }
 

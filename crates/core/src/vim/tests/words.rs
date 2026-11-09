@@ -45,9 +45,17 @@ fn capital_e_lands_on_the_last_character_of_the_word() {
     type_keys(&mut vim, "E", &mut b);
     assert_eq!(b.cursor(), 2, "the `b` of `a,b`");
     type_keys(&mut vim, "E", &mut b);
-    assert_eq!(b.cursor(), 4, "then the `c`, the last character in the buffer");
+    assert_eq!(
+        b.cursor(),
+        4,
+        "then the `c`, the last character in the buffer"
+    );
     type_keys(&mut vim, "E", &mut b);
-    assert_eq!(b.cursor(), 4, "and no further: `E` cannot step past the end");
+    assert_eq!(
+        b.cursor(),
+        4,
+        "and no further: `E` cannot step past the end"
+    );
 }
 
 #[test]
@@ -56,7 +64,11 @@ fn capital_b_walks_back_to_the_start_of_the_word() {
     let mut b = Buffer::new("a,b c\n".to_string());
     b.set_cursor(4);
     type_keys(&mut vim, "B", &mut b);
-    assert_eq!(b.cursor(), 0, "from the start of a WORD, back over the previous one");
+    assert_eq!(
+        b.cursor(),
+        0,
+        "from the start of a WORD, back over the previous one"
+    );
 
     let mut b = Buffer::new("**bold** text".to_string());
     b.set_cursor(11); // the `x` of `text`
@@ -74,7 +86,11 @@ fn capital_b_at_the_start_of_the_buffer_goes_nowhere() {
     type_keys(&mut vim, "yy", &mut b);
     type_keys(&mut vim, "4dB", &mut b);
     assert_eq!(b.text(), "a,b c\n", "nothing was swept");
-    assert_eq!(vim.register_text(), Some("a,b c\n"), "so the register is untouched");
+    assert_eq!(
+        vim.register_text(),
+        Some("a,b c\n"),
+        "so the register is untouched"
+    );
 }
 
 #[test]
@@ -162,7 +178,10 @@ fn capital_w_inside_a_table_cell_stays_in_the_table() {
     type_keys(&mut vim, "dW", &mut b);
     // The cell's content goes; its padding and the pipes stay, so the row is
     // still a row.
-    assert_eq!(b.text(), "| a |  | ccc |\n| --- | --- | --- |\n| 1 | 22 | 333 |\n| 4 | 55 | 666 |\n");
+    assert_eq!(
+        b.text(),
+        "| a |  | ccc |\n| --- | --- | --- |\n| 1 | 22 | 333 |\n| 4 | 55 | 666 |\n"
+    );
 
     // A WORD wider than the cell still steps cell to cell: the motion lands on
     // the next cell's content, never on the pipe between them.

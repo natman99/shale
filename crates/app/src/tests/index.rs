@@ -22,9 +22,7 @@ fn type_command(line: &str, cx: &mut VisualTestContext) {
 /// Open one note in the window, so a command that reads the caret's note has one.
 fn open_note(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext, name: &str) {
     window
-        .update(cx, |ws, _window, cx| {
-            ws.open_note(&PathBuf::from(name), cx)
-        })
+        .update(cx, |ws, _window, cx| ws.open_note(&PathBuf::from(name), cx))
         .unwrap();
 }
 

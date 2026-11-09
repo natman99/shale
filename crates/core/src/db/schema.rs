@@ -258,13 +258,7 @@ CREATE INDEX IF NOT EXISTS props_note ON props (note);
 /// The tables each superseded version created, so an index at an older version can
 /// be dropped rather than migrated. Every name here is this crate's own constant.
 const SUPERSEDED_TABLES: [&str; 7] = [
-    "notes",
-    "tags",
-    "links",
-    "events",
-    "marks",
-    "edges",
-    "props",
+    "notes", "tags", "links", "events", "marks", "edges", "props",
 ];
 
 /// Bring `conn` to [`SCHEMA_VERSION`].

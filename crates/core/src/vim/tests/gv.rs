@@ -60,7 +60,11 @@ fn the_cursor_is_back_on_the_end_it_was_on() {
     type_keys(&mut vim, "0vljy", &mut b);
     let before = b.cursor();
     type_keys(&mut vim, "gv", &mut b);
-    assert_eq!(b.cursor(), before, "the head of the selection, not its start");
+    assert_eq!(
+        b.cursor(),
+        before,
+        "the head of the selection, not its start"
+    );
     let (anchor, head) = b.selection().unwrap();
     assert_eq!(
         (anchor, head),
@@ -73,7 +77,10 @@ fn the_cursor_is_back_on_the_end_it_was_on() {
 fn gv_without_a_previous_selection_does_nothing() {
     let (text, selection) = run("one\ntwo\n", "0gv");
     assert_eq!(text, "one\ntwo\n");
-    assert!(selection.is_none(), "and no selection appears out of nowhere");
+    assert!(
+        selection.is_none(),
+        "and no selection appears out of nowhere"
+    );
 }
 
 #[test]

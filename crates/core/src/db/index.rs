@@ -225,10 +225,9 @@ fn record(
     let block = frontmatter::block(&text);
     let (props, frontmatter_error) = match block {
         None => (Vec::new(), None),
-        Some(block) if block.malformed.is_some() => (
-            Vec::new(),
-            Some(block.malformed.unwrap_or_default()),
-        ),
+        Some(block) if block.malformed.is_some() => {
+            (Vec::new(), Some(block.malformed.unwrap_or_default()))
+        }
         Some(block) => {
             let mut props = block.props;
             for prop in props.iter_mut() {
@@ -413,7 +412,10 @@ fn drop_note(conn: &Connection, path: &str) -> Result<()> {
     // still contain the text, so their links come back as ghosts the next time each
     // of those notes is indexed.
     conn.execute("DELETE FROM links WHERE target = ?1", params![path])?;
-    conn.execute("DELETE FROM edges WHERE src = ?1 OR dst = ?1", params![path])?;
+    conn.execute(
+        "DELETE FROM edges WHERE src = ?1 OR dst = ?1",
+        params![path],
+    )?;
     conn.execute("DELETE FROM props WHERE note = ?1", params![path])?;
     Ok(())
 }
@@ -603,11 +605,12 @@ impl Db {
         let conn = self.read()?;
         let mut out = BTreeMap::new();
         for key in keys {
-            let mut stmt = conn.prepare_cached(
-                "SELECT DISTINCT kind FROM props WHERE key = ?1 ORDER BY kind",
-            )?;
+            let mut stmt = conn
+                .prepare_cached("SELECT DISTINCT kind FROM props WHERE key = ?1 ORDER BY kind")?;
             let kinds: Vec<Kind> = stmt
-                .query_map(params![key], |row| Ok(Kind::parse(&row.get::<_, String>(0)?)))?
+                .query_map(params![key], |row| {
+                    Ok(Kind::parse(&row.get::<_, String>(0)?))
+                })?
                 .flatten()
                 .flatten()
                 .collect();
@@ -1209,12 +1212,9 @@ mod tests {
         db.reconcile(&vault).unwrap();
         assert_eq!(
             column(&db, "SELECT note || ' ' || value || ':' || kind FROM props"),
-            [
-                "Loose.md tonight:text",
-                "Session-15.md 15:number",
-            ]
-            .map(String::from)
-            .to_vec()
+            ["Loose.md tonight:text", "Session-15.md 15:number",]
+                .map(String::from)
+                .to_vec()
         );
         // The census (`GROUP BY key, kind`) is what makes the disagreement a thing the
         // user can see rather than a wrong answer, and it only works because both kinds
@@ -1317,7 +1317,8 @@ mod tests {
     /// frontmatter indexes exactly as it did before props existed.
     #[test]
     fn a_note_without_frontmatter_indexes_as_it_always_did() {
-        let (_dir, vault, db) = vault_with(&[("plain.md", "# Plain\n\nA [[Goblin]] and #alpha.\n")]);
+        let (_dir, vault, db) =
+            vault_with(&[("plain.md", "# Plain\n\nA [[Goblin]] and #alpha.\n")]);
         let report = db.reconcile(&vault).unwrap();
         assert!(report.failed.is_empty());
         assert_eq!(column(&db, "SELECT tag FROM tags"), vec!["alpha"]);
@@ -1332,7 +1333,8 @@ mod tests {
     /// The read side `:props` uses: the note's own rows, in order, kinds decoded.
     #[test]
     fn the_index_answers_for_one_notes_props() {
-        let (_dir, vault, db) = vault_with(&[("one.md", "---\nname: Goblin\ndead: 2024-01-31\n---\n")]);
+        let (_dir, vault, db) =
+            vault_with(&[("one.md", "---\nname: Goblin\ndead: 2024-01-31\n---\n")]);
         db.reconcile(&vault).unwrap();
         let rows = db.note_props(Path::new("one.md")).unwrap();
         assert_eq!(rows.len(), 2);
@@ -1360,7 +1362,10 @@ mod tests {
         // The leading `#` on a frontmatter tag is optional and means the same thing
         // either way; the body tag and both frontmatter tags are rows.
         assert_eq!(
-            column(&db, "SELECT note || ' ' || tag FROM tags WHERE note = 'notes/both.md'"),
+            column(
+                &db,
+                "SELECT note || ' ' || tag FROM tags WHERE note = 'notes/both.md'"
+            ),
             [
                 "notes/both.md bodytag",
                 "notes/both.md party",
@@ -1388,7 +1393,10 @@ mod tests {
             ("notes/waterdeep.md", "The city.\n"),
         ]);
         db.reconcile(&vault).unwrap();
-        let rows = column(&db, "SELECT kind || '=' || dst FROM edges WHERE src = 'notes/lares.md'");
+        let rows = column(
+            &db,
+            "SELECT kind || '=' || dst FROM edges WHERE src = 'notes/lares.md'",
+        );
         // A wikilink that names a note is stored resolved; the two allies are rows of
         // their own; and the ghost is stored as authored, because an ally that is not a
         // note is a plot hole worth seeing rather than a row to drop.
@@ -1425,7 +1433,10 @@ mod tests {
         db.reconcile(&vault).unwrap();
         assert_eq!(edges(&db), vec!["a.md ally=B".to_string()]);
         vault
-            .write("a.md", "---\nally: \"[[B]]\"\nally: \"[[C]]\"\n---\n\nBody\n")
+            .write(
+                "a.md",
+                "---\nally: \"[[B]]\"\nally: \"[[C]]\"\n---\n\nBody\n",
+            )
             .unwrap();
         db.note_saved(&vault, Path::new("a.md"), Provenance::User)
             .unwrap();
@@ -1435,7 +1446,8 @@ mod tests {
             "re-indexing replaces the note's edges rather than adding to them"
         );
         vault.delete("a.md").unwrap();
-        db.note_deleted(Path::new("a.md"), Provenance::External).unwrap();
+        db.note_deleted(Path::new("a.md"), Provenance::External)
+            .unwrap();
         assert!(edges(&db).is_empty());
     }
 }

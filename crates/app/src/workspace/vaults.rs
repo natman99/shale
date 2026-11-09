@@ -19,8 +19,8 @@ use std::sync::Arc;
 
 use anyhow::{Context as _, Result};
 use gpui::{
-    App, AppContext as _, BorrowAppContext, Bounds, Entity, TitlebarOptions, WindowBounds,
-    WindowHandle, WindowOptions, px, size,
+    px, size, App, AppContext as _, BorrowAppContext, Bounds, Entity, TitlebarOptions,
+    WindowBounds, WindowHandle, WindowOptions,
 };
 use shale_core::{Config, RecentVaults, Vault};
 
@@ -31,8 +31,8 @@ use crate::identity;
 use crate::picker::PickerItem;
 
 use super::services::{start_watcher, VaultServices};
-use super::{vault_title, Workspace};
 use super::PickerTarget;
+use super::{vault_title, Workspace};
 
 /// What the first window does beyond simply existing: `--note`, `--graph`,
 /// `--split`, `--open-after`. Later windows just open the vault.
@@ -191,10 +191,7 @@ pub(crate) fn open_vault_window(
     // before the GUI exists, so a vault owned by *another* process is refused
     // with a clean exit rather than a window that opens and closes. Only a
     // vault this run has not claimed yet needs claiming here.
-    let held = cx
-        .global::<VaultWindows>()
-        ._claims
-        .contains_key(&root);
+    let held = cx.global::<VaultWindows>()._claims.contains_key(&root);
     let vault = Rc::new(Vault::open(&root).context("opening vault")?);
     let claim = if held { None } else { claim_vault(&root)? };
     let (config, source) = Config::load_or_create(vault.root()).context("loading config")?;
@@ -236,10 +233,7 @@ pub(crate) fn open_vault_window(
 /// The services are reused as-is: no second watcher, no second index pass,
 /// no second MCP port — which is the whole reason this is allowed where a
 /// second *process* is refused.
-pub(crate) fn open_extra_window(
-    root: &Path,
-    cx: &mut App,
-) -> Result<WindowHandle<Workspace>> {
+pub(crate) fn open_extra_window(root: &Path, cx: &mut App) -> Result<WindowHandle<Workspace>> {
     let root = root
         .canonicalize()
         .with_context(|| format!("{} is not a vault", root.display()))?;
@@ -351,7 +345,10 @@ fn build_window(
         cx.update_global::<VaultWindows, _>(|g, _cx| g.first = false);
         if let Some(secs) = options.open_after {
             let ws = workspace.clone();
-            let note = options.note.clone().unwrap_or_else(|| PathBuf::from("Welcome.md"));
+            let note = options
+                .note
+                .clone()
+                .unwrap_or_else(|| PathBuf::from("Welcome.md"));
             cx.spawn(async move |cx| {
                 cx.background_executor()
                     .timer(std::time::Duration::from_secs(secs))
@@ -400,10 +397,7 @@ fn restored_bounds(geom: &shale_core::session::WindowGeom, cx: &App) -> Option<W
         origin: gpui::point(px(geom.x), px(geom.y)),
         size: size(px(geom.w), px(geom.h)),
     };
-    let on_screen = cx
-        .displays()
-        .iter()
-        .any(|d| d.bounds().intersects(&bounds));
+    let on_screen = cx.displays().iter().any(|d| d.bounds().intersects(&bounds));
     if !on_screen {
         return None;
     }
@@ -424,7 +418,9 @@ pub(crate) fn forget_window(
     window: Option<WindowHandle<Workspace>>,
     cx: &mut App,
 ) {
-    let root = vault_root.canonicalize().unwrap_or_else(|_| vault_root.to_path_buf());
+    let root = vault_root
+        .canonicalize()
+        .unwrap_or_else(|_| vault_root.to_path_buf());
     cx.update_global::<VaultWindows, _>(|g, _cx| {
         if let Some(windows) = g.windows.get_mut(&root) {
             if let Some(window) = window {
@@ -457,7 +453,11 @@ pub(crate) fn recent_vaults(cx: &App) -> Vec<PathBuf> {
 /// switcher marks the current vault from the window's own root instead.
 #[cfg(test)]
 pub(crate) fn open_vaults(cx: &App) -> Vec<PathBuf> {
-    cx.global::<VaultWindows>().windows.keys().cloned().collect()
+    cx.global::<VaultWindows>()
+        .windows
+        .keys()
+        .cloned()
+        .collect()
 }
 
 /// The window's half: the switcher's picker, and the two ways an answer is
@@ -542,9 +542,7 @@ impl Workspace {
             };
             // The asking window stays: the new vault opens beside it, and
             // closing the old one is the user's call, not this flow's.
-            if let Err(e) =
-                cx.update(|cx| open_vault_window(&path, OpenOptions::default(), cx))
-            {
+            if let Err(e) = cx.update(|cx| open_vault_window(&path, OpenOptions::default(), cx)) {
                 let _ = ws.update(cx, |ws, cx| ws.say(format!("{e:#}"), cx));
             }
         })

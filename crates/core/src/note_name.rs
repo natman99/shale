@@ -26,7 +26,9 @@ const FORBIDDEN: &[char] = &['\\', ':', '*', '?', '"', '<', '>', '|'];
 /// sentence is emphasis, and a `-` in the middle of a word is a hyphen.
 // Longest first: `###` must be tried before `#`, or the short marker matches
 // the line, refuses to strip it (no space follows it), and stops the loop.
-const BLOCK_MARKERS: &[&str] = &["######", "#####", "####", "###", "##", "#", ">", "-", "*", "+"];
+const BLOCK_MARKERS: &[&str] = &[
+    "######", "#####", "####", "###", "##", "#", ">", "-", "*", "+",
+];
 
 /// Make `raw` into a vault-relative markdown name, or `None` when nothing
 /// usable is left of it.
@@ -44,7 +46,11 @@ pub fn sanitize(raw: &str, folders: bool) -> Option<String> {
     // another character the filesystem would refuse.
     // When `/` is not legal it is just another character the filesystem would
     // refuse, so it becomes a space before the name is taken apart.
-    let text = if folders { text } else { text.replace('/', " ") };
+    let text = if folders {
+        text
+    } else {
+        text.replace('/', " ")
+    };
     let segments: Vec<Option<String>> = if folders {
         text.split('/').map(clean_segment).collect()
     } else {
@@ -156,9 +162,18 @@ mod tests {
 
     #[test]
     fn a_heading_names_the_note_and_not_the_syntax() {
-        assert_eq!(sanitize("# Ideas for the garden", false).as_deref(), Some("Ideas for the garden.md"));
-        assert_eq!(sanitize("### - Buy milk", false).as_deref(), Some("Buy milk.md"));
-        assert_eq!(sanitize("1. First thought", false).as_deref(), Some("First thought.md"));
+        assert_eq!(
+            sanitize("# Ideas for the garden", false).as_deref(),
+            Some("Ideas for the garden.md")
+        );
+        assert_eq!(
+            sanitize("### - Buy milk", false).as_deref(),
+            Some("Buy milk.md")
+        );
+        assert_eq!(
+            sanitize("1. First thought", false).as_deref(),
+            Some("First thought.md")
+        );
     }
 
     #[test]
@@ -171,20 +186,32 @@ mod tests {
 
     #[test]
     fn characters_the_filesystem_refuses_become_spaces() {
-        assert_eq!(sanitize("My Note: v2 <draft>", false).as_deref(), Some("My Note v2 draft.md"));
+        assert_eq!(
+            sanitize("My Note: v2 <draft>", false).as_deref(),
+            Some("My Note v2 draft.md")
+        );
         assert_eq!(sanitize("a/b/c", false).as_deref(), Some("a b c.md"));
     }
 
     #[test]
     fn a_name_typed_at_the_command_line_may_place_the_note() {
-        assert_eq!(sanitize("areas/idea", true).as_deref(), Some("areas/idea.md"));
+        assert_eq!(
+            sanitize("areas/idea", true).as_deref(),
+            Some("areas/idea.md")
+        );
         // A heading never may: the slash is a character there, not a request.
-        assert_eq!(sanitize("areas/idea", false).as_deref(), Some("areas idea.md"));
+        assert_eq!(
+            sanitize("areas/idea", false).as_deref(),
+            Some("areas idea.md")
+        );
     }
 
     #[test]
     fn a_name_cannot_leave_the_vault() {
-        assert_eq!(sanitize("../../etc/passwd", true).as_deref(), Some("etc/passwd.md"));
+        assert_eq!(
+            sanitize("../../etc/passwd", true).as_deref(),
+            Some("etc/passwd.md")
+        );
         assert_eq!(sanitize("..", true), None);
         assert_eq!(sanitize("./.", true), None);
     }
@@ -211,13 +238,22 @@ mod tests {
     fn a_long_line_is_cut_at_a_word_not_a_character() {
         let long = "word ".repeat(40);
         let name = sanitize(&long, false).expect("a name");
-        assert!(name.chars().count() <= MAX_NAME + 3, "the name is bounded: {name}");
-        assert!(!name.ends_with(' '), "the cut does not leave a dangling space");
+        assert!(
+            name.chars().count() <= MAX_NAME + 3,
+            "the name is bounded: {name}"
+        );
+        assert!(
+            !name.ends_with(' '),
+            "the cut does not leave a dangling space"
+        );
     }
 
     #[test]
     fn the_first_line_with_something_in_it_is_the_name() {
-        assert_eq!(from_line("\n\n# Shopping\nmilk\n").as_deref(), Some("Shopping.md"));
+        assert_eq!(
+            from_line("\n\n# Shopping\nmilk\n").as_deref(),
+            Some("Shopping.md")
+        );
         assert_eq!(from_line(""), None);
     }
 }

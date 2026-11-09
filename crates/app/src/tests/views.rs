@@ -188,7 +188,11 @@ fn preview_takes_no_edits(cx: &mut TestAppContext) {
     let (note, dirty) = editor
         .read_with(cx, |editor, _cx| (editor.text(), editor.is_dirty()))
         .unwrap();
-    assert_eq!(note, "line\n".repeat(100).as_str(), "nothing typed, deleted or undone landed");
+    assert_eq!(
+        note,
+        "line\n".repeat(100).as_str(),
+        "nothing typed, deleted or undone landed"
+    );
     assert!(
         !dirty,
         "and a keystroke that changed nothing did not mark the note dirty"
@@ -205,7 +209,10 @@ fn preview_takes_no_edits(cx: &mut TestAppContext) {
     let scrolled = editor
         .read_with(cx, |editor, _cx| editor.scroll_probe())
         .unwrap();
-    assert!(scrolled.0 < 0., "and the motion scrolled the view instead ({scrolled:?})");
+    assert!(
+        scrolled.0 < 0.,
+        "and the motion scrolled the view instead ({scrolled:?})"
+    );
 }
 
 /// Raw mode still edits, because it is a view of the source rather than a lock
@@ -389,5 +396,9 @@ fn preview_answers_only_the_reader_keys(cx: &mut TestAppContext) {
 
     // The leader chord still reaches the engine from inside preview.
     cx.simulate_keystrokes("space r");
-    assert_eq!(view(&window, cx), View::Raw, "`space r` still leaves preview");
+    assert_eq!(
+        view(&window, cx),
+        View::Raw,
+        "`space r` still leaves preview"
+    );
 }

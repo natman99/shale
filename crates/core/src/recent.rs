@@ -88,10 +88,7 @@ impl RecentVaults {
     /// directory on disk. A vault on a disconnected drive does not block
     /// startup; the next entry is not consulted — the picker is.
     pub fn startup_vault(&self) -> Option<PathBuf> {
-        self.last
-            .as_ref()
-            .filter(|p| p.is_dir())
-            .cloned()
+        self.last.as_ref().filter(|p| p.is_dir()).cloned()
     }
 }
 
@@ -100,11 +97,8 @@ mod tests {
     use super::*;
 
     fn dir(name: &str) -> PathBuf {
-        let base = std::env::temp_dir().join(format!(
-            "shale-recent-{}-{}",
-            name,
-            std::process::id()
-        ));
+        let base =
+            std::env::temp_dir().join(format!("shale-recent-{}-{}", name, std::process::id()));
         fs::create_dir_all(&base).unwrap();
         base
     }
@@ -160,7 +154,10 @@ mod tests {
     #[test]
     fn a_missing_or_broken_file_is_an_empty_memory() {
         let base = dir("missing");
-        assert_eq!(RecentVaults::load_from(&base.join("nope.json")), RecentVaults::default());
+        assert_eq!(
+            RecentVaults::load_from(&base.join("nope.json")),
+            RecentVaults::default()
+        );
         let broken = base.join("broken.json");
         fs::write(&broken, "not = = toml").unwrap();
         assert_eq!(RecentVaults::load_from(&broken), RecentVaults::default());
@@ -169,7 +166,10 @@ mod tests {
     #[test]
     fn startup_skips_a_vault_that_is_gone() {
         let gone = PathBuf::from("/definitely/not/a/vault/anywhere");
-        let r = RecentVaults { last: Some(gone), recent: vec![] };
+        let r = RecentVaults {
+            last: Some(gone),
+            recent: vec![],
+        };
         assert_eq!(r.startup_vault(), None);
     }
 }

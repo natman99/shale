@@ -626,7 +626,10 @@ mod tests {
         )?;
         let sessions = Sessions::load(dir.path())?;
         assert_eq!(sessions.slots.len(), 1);
-        assert_eq!(sessions.slots[0].open_note.as_deref(), Some(Path::new("old.md")));
+        assert_eq!(
+            sessions.slots[0].open_note.as_deref(),
+            Some(Path::new("old.md"))
+        );
         assert_eq!(sessions.slots[0].cursor, Some(9));
         Ok(())
     }

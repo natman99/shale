@@ -741,14 +741,13 @@ fn a_projection_only_ever_answers_about_the_picture_it_made(cx: &mut TestAppCont
         .update(&mut cx, |ws, _window, cx| ws.graph_canvas(cx))
         .unwrap()
         .expect("the canvas has been measured by now");
-    let at = [
-        box_px[0] + box_px[2] / 2.0,
-        box_px[1] + box_px[3] / 2.0,
-    ];
+    let at = [box_px[0] + box_px[2] / 2.0, box_px[1] + box_px[3] / 2.0];
     // Before the fix this panicked inside the projection: it walked the frame's nodes and
     // indexed its own.
     let hit = window
-        .update(&mut cx, |ws, _window, cx| ws.graph_projection_hit(&wide, at, cx))
+        .update(&mut cx, |ws, _window, cx| {
+            ws.graph_projection_hit(&wide, at, cx)
+        })
         .unwrap();
     // Whatever it answers, it can only answer about nodes it actually projected.
     if let Some(slot) = hit {

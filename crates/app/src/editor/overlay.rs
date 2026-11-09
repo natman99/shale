@@ -30,9 +30,9 @@ use shale_core::diff::{self, Hunk};
 use shale_core::transclude::{Body, EmbedLine, EmbedRow, Origin, Sources};
 use shale_core::vim::Mode;
 
-use crate::line::DisplayLine;
 use crate::line::marks::{self, GutterMark};
 use crate::line::phantom::{PhantomKind, PhantomLine, INDENT_STEP};
+use crate::line::DisplayLine;
 use crate::theme;
 
 use super::{embeds, MarkdownEditor, View};

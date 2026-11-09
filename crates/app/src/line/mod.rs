@@ -36,9 +36,9 @@ use runs::{build_runs, cell_styles, CellShaped, LineStyles};
 use std::rc::Rc;
 
 use gpui::{
-    App, Bounds, Corners, Element, ElementId, ElementInputHandler, Entity, GlobalElementId,
-    InspectorElementId, IntoElement, LayoutId, Pixels, ShapedLine, SharedString,
-    Style as ElementStyle, Window, fill, font, px, relative, rgb,
+    fill, font, px, relative, rgb, App, Bounds, Corners, Element, ElementId, ElementInputHandler,
+    Entity, GlobalElementId, InspectorElementId, IntoElement, LayoutId, Pixels, ShapedLine,
+    SharedString, Style as ElementStyle, Window,
 };
 use shale_core::mdstyle::{CalloutKind, Style};
 use shale_core::theme::Palette;

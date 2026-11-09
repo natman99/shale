@@ -44,7 +44,10 @@ fn the_next_line_leading_whitespace_goes_with_the_break() {
 fn a_blank_next_line_adds_no_space() {
     let (text, cursor) = join("one\n\ntwo\n", "J");
     assert_eq!(text, "one\ntwo\n", "the blank line is what got joined");
-    assert_eq!(cursor, 2, "nothing was inserted, so the cursor stays on the line");
+    assert_eq!(
+        cursor, 2,
+        "nothing was inserted, so the cursor stays on the line"
+    );
 
     // Whitespace-only counts as blank, and its whitespace goes too.
     let (text, _) = join("one\n   \ntwo\n", "J");

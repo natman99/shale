@@ -36,7 +36,11 @@ fn da_paren_takes_the_pair_with_it() {
     let mut b = pair_buf();
     b.set_cursor(2);
     type_keys(&mut vim, "da(", &mut b);
-    assert_eq!(b.text(), "a  e\n", "the brackets and what was between them, and no more");
+    assert_eq!(
+        b.text(),
+        "a  e\n",
+        "the brackets and what was between them, and no more"
+    );
 
     let mut vim = Vim::new();
     let mut b = pair_buf();
@@ -89,7 +93,11 @@ fn a_backslash_hides_the_bracket_after_it() {
     let mut b = Buffer::new("x (a\\)b) y\n".to_string());
     b.set_cursor(5);
     type_keys(&mut vim, "di(", &mut b);
-    assert_eq!(b.text(), "x ()b) y\n", "the escaped `)` is content, not the close");
+    assert_eq!(
+        b.text(),
+        "x ()b) y\n",
+        "the escaped `)` is content, not the close"
+    );
 }
 
 #[test]
@@ -115,7 +123,11 @@ fn brackets_inside_code_are_not_brackets() {
     let mut b = Buffer::new("```\nlet x = f(1);\n```\n".to_string());
     b.set_cursor(12);
     type_keys(&mut vim, "di(", &mut b);
-    assert_eq!(b.text(), "```\nlet x = f(1);\n```\n", "and so are a block's");
+    assert_eq!(
+        b.text(),
+        "```\nlet x = f(1);\n```\n",
+        "and so are a block's"
+    );
 }
 
 #[test]
@@ -154,7 +166,11 @@ fn the_word_object_takes_the_whole_markup_word() {
     let mut vim = Vim::new();
     let mut b = Buffer::new("a,b c d\n".to_string());
     type_keys(&mut vim, "daW", &mut b);
-    assert_eq!(b.text(), "c d\n", "and `aW` takes its trailing space, as `aw` does");
+    assert_eq!(
+        b.text(),
+        "c d\n",
+        "and `aW` takes its trailing space, as `aw` does"
+    );
 
     let mut vim = Vim::new();
     let mut b = Buffer::new("**bold** text\n".to_string());
@@ -189,7 +205,11 @@ fn a_count_counts_units_not_objects() {
 
     // The same from the second word, so the rule cannot be an artifact of being
     // at the start of the line.
-    for (keys, expect) in [("diw", "hello  foo bar\n"), ("d2iw", "hello foo bar\n"), ("d3iw", "hello  bar\n")] {
+    for (keys, expect) in [
+        ("diw", "hello  foo bar\n"),
+        ("d2iw", "hello foo bar\n"),
+        ("d3iw", "hello  bar\n"),
+    ] {
         let mut vim = Vim::new();
         let mut b = Buffer::new("hello world foo bar\n".to_string());
         b.set_cursor(6);

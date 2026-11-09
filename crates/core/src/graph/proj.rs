@@ -456,7 +456,10 @@ mod tests {
             let mut proj = Vec::new();
             cam.project_all(&pos, &mut proj);
             let scales: Vec<f32> = proj.iter().map(|p| p.scale).collect();
-            let (lo, hi) = (scales.iter().copied().fold(f32::MAX, f32::min), scales.iter().copied().fold(0.0, f32::max));
+            let (lo, hi) = (
+                scales.iter().copied().fold(f32::MAX, f32::min),
+                scales.iter().copied().fold(0.0, f32::max),
+            );
             assert!(
                 hi < 2.5,
                 "radius {radius}: the nearest node magnifies {hi}× — the eye is inside the cloud"
@@ -494,9 +497,15 @@ mod tests {
         };
 
         let (dx, _) = at(0.0, 0.0, 120.0, 0.0);
-        assert!(dx > 0.0, "dragging right moved the front node {dx} px — against the pointer");
+        assert!(
+            dx > 0.0,
+            "dragging right moved the front node {dx} px — against the pointer"
+        );
         let (_, dy) = at(0.0, 0.0, 0.0, 120.0);
-        assert!(dy > 0.0, "dragging down moved the front node {dy} px — against the pointer");
+        assert!(
+            dy > 0.0,
+            "dragging down moved the front node {dy} px — against the pointer"
+        );
         // And the other way round, so the test is about the direction rather than
         // one lucky sign.
         let (dx, _) = at(0.0, 0.0, -120.0, 0.0);

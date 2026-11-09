@@ -53,11 +53,7 @@ pub(crate) struct Key {
 
 impl Key {
     /// The key for the picture this paint is about to draw.
-    pub(crate) fn new(
-        frame: &Rc<GraphFrame>,
-        geometry: Geometry,
-        bounds: Bounds<Pixels>,
-    ) -> Self {
+    pub(crate) fn new(frame: &Rc<GraphFrame>, geometry: Geometry, bounds: Bounds<Pixels>) -> Self {
         Self {
             frame: frame.clone(),
             geometry,
@@ -88,7 +84,11 @@ fn same_geometry(a: &Geometry, b: &Geometry) -> bool {
     match (a, b) {
         (Geometry::Flat(a), Geometry::Flat(b)) => a == b,
         (Geometry::Deep(a), Geometry::Deep(b)) => {
-            a.yaw == b.yaw && a.pitch == b.pitch && a.pan == b.pan && a.zoom == b.zoom && a.dist == b.dist
+            a.yaw == b.yaw
+                && a.pitch == b.pitch
+                && a.pan == b.pan
+                && a.zoom == b.zoom
+                && a.dist == b.dist
         }
         // A mode switch is a new picture even when the pan and zoom match.
         _ => false,

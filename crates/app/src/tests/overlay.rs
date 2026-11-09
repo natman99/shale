@@ -6,10 +6,8 @@
 //! queue fixtures are shared from there: a proposal is queued the way `shale-mcp`
 //! queues one, through [`shale_core::pending`], rather than through a test-only door.
 
+use super::review::{buffer, one_proposal, queue, rows, say, scan, show, strip_up, EDITED, NOTE};
 use super::*;
-use super::review::{
-    buffer, one_proposal, queue, rows, say, scan, show, strip_up, EDITED, NOTE,
-};
 use shale_core::pending;
 
 // ---------------------------------------------------------------------------
@@ -46,7 +44,11 @@ const FAR_EDITED: &str = "alpha\nBRAVO\ncharlie\ndelta\necho\nfoxtrot\ngolf\nhot
 /// and the caret parked on the line the proposal would take away.
 fn proposal_under_the_caret(
     cx: &mut TestAppContext,
-) -> (tempfile::TempDir, WindowHandle<Workspace>, VisualTestContext) {
+) -> (
+    tempfile::TempDir,
+    WindowHandle<Workspace>,
+    VisualTestContext,
+) {
     let (dir, window, mut cx) = one_proposal(cx);
     cx.simulate_keystrokes("3 G");
     (dir, window, cx)
@@ -250,7 +252,10 @@ fn the_notes_y_names_the_hunk_under_the_caret(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("y");
     let text = buffer(&window, &mut cx);
     assert!(text.contains("NOVEMBER"), "the hunk under the caret landed");
-    assert!(!text.contains("BRAVO"), "and the one under the marker did not");
+    assert!(
+        !text.contains("BRAVO"),
+        "and the one under the marker did not"
+    );
     assert_eq!(
         rows(&window, &mut cx),
         vec!["a.md hunk 0"],

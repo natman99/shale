@@ -226,11 +226,7 @@ impl Workspace {
 /// key that is clean *in this note* but not across the vault gets said anyway: the
 /// author looking at `cr=5 (number)` cannot see that another note writes `cr: low`, and
 /// a `cr <= 5` query is about to be wrong about that note in a way nobody chose.
-fn describe_props(
-    note: &Path,
-    rows: &[Prop],
-    census: &BTreeMap<String, Vec<Kind>>,
-) -> String {
+fn describe_props(note: &Path, rows: &[Prop], census: &BTreeMap<String, Vec<Kind>>) -> String {
     // First-appearance order, so the line reads in the order the block was written.
     let mut order: Vec<&str> = Vec::new();
     let mut groups: BTreeMap<&str, Vec<&Prop>> = BTreeMap::new();

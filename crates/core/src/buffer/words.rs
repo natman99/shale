@@ -83,7 +83,9 @@ impl Buffer {
         // End of line: the blanks before the word instead.
         let mut ws_start = start;
         while ws_start > 0
-            && self.prev_char(ws_start).is_some_and(|c| c.is_whitespace() && c != '\n')
+            && self
+                .prev_char(ws_start)
+                .is_some_and(|c| c.is_whitespace() && c != '\n')
         {
             ws_start = self.prev_char_boundary(ws_start);
         }

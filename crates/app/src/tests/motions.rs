@@ -650,14 +650,19 @@ fn the_one_keystroke_edits_through_the_keymap(cx: &mut TestAppContext) {
             })
             .unwrap();
     };
-    let text = |cx: &mut VisualTestContext| editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
+    let text =
+        |cx: &mut VisualTestContext| editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
 
     // `~` switches the character under the cursor and steps right.
     reset(cx, "hello world");
     cx.simulate_keystrokes("~");
     assert_eq!(text(cx), "Hello world", "`~` switches case");
     cx.simulate_keystrokes("~");
-    assert_eq!(text(cx), "HEllo world", "and the cursor moved right, so it walks");
+    assert_eq!(
+        text(cx),
+        "HEllo world",
+        "and the cursor moved right, so it walks"
+    );
 
     // `r` takes its character as a literal, the way `f` takes its target.
     reset(cx, "hello world");
@@ -757,7 +762,11 @@ fn text_objects_through_the_keymap(cx: &mut TestAppContext) {
     // In visual mode the same keys extend the selection instead.
     reset(cx, "a (b c) d");
     cx.simulate_keystrokes("0 f b v i ( d");
-    assert_eq!(text(cx), "a () d", "`i(` in visual selects the inside, `d` takes it");
+    assert_eq!(
+        text(cx),
+        "a () d",
+        "`i(` in visual selects the inside, `d` takes it"
+    );
 }
 
 /// `;` and `,` repeat the last find, and they are new bindings: the point of this
@@ -792,7 +801,11 @@ fn registers_through_the_keymap(cx: &mut TestAppContext) {
         })
         .unwrap();
     cx.simulate_keystrokes(r#"0 y w " _ d w p"#);
-    assert_eq!(text(cx), "tone wo three", "the black hole left the yank alone");
+    assert_eq!(
+        text(cx),
+        "tone wo three",
+        "the black hole left the yank alone"
+    );
 }
 
 #[gpui::test]
@@ -815,7 +828,11 @@ fn find_repeats_through_the_keymap(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("0 f w ; r x");
     assert_eq!(text(cx), "a w b x c w d", "`;` found the second `w`");
     cx.simulate_keystrokes(", r y");
-    assert_eq!(text(cx), "a y b x c w d", "`,` went back to the one before it");
+    assert_eq!(
+        text(cx),
+        "a y b x c w d",
+        "`,` went back to the one before it"
+    );
 
     // As an operator motion, with the original find's inclusivity.
     editor
@@ -826,5 +843,9 @@ fn find_repeats_through_the_keymap(cx: &mut TestAppContext) {
         })
         .unwrap();
     cx.simulate_keystrokes("0 f w d ;");
-    assert_eq!(text(cx), "a  c w d", "`d;` takes through the `w` it lands on");
+    assert_eq!(
+        text(cx),
+        "a  c w d",
+        "`d;` takes through the `w` it lands on"
+    );
 }

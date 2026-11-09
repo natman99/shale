@@ -89,7 +89,9 @@ fn the_answer_follows_what_the_window_draws(cx: &mut TestAppContext) {
     let clock = Clock(cx.executor());
     let cx = &mut VisualTestContext::from_window(window.into(), cx);
 
-    let before = window.update(cx, |ws, _window, _cx| ws.live_publishes()).unwrap();
+    let before = window
+        .update(cx, |ws, _window, _cx| ws.live_publishes())
+        .unwrap();
     cx.simulate_keystrokes("i");
     cx.simulate_input("hello");
     // The frame that draws the edit is the publish. No timer, no beat.

@@ -173,7 +173,9 @@ impl VaultServices {
     /// other session beat: a shrug tomorrow, not a failed exit today.
     pub(crate) fn put_session(&mut self, ix: usize, session: shale_core::Session) {
         if self.sessions.slots.len() <= ix {
-            self.sessions.slots.resize(ix + 1, shale_core::Session::default());
+            self.sessions
+                .slots
+                .resize(ix + 1, shale_core::Session::default());
         }
         self.sessions.slots[ix] = session;
         if let Err(err) = self.sessions.save(self.vault.root()) {

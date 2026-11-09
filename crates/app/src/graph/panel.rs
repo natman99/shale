@@ -134,8 +134,9 @@ impl GraphView {
         } else {
             Some(DEFAULT_LOCAL_DEPTH)
         };
-        let Ok(Some((summary, frame))) =
-            self.workspace.update(cx, move |ws, cx| ws.graph_local(depth, cx))
+        let Ok(Some((summary, frame))) = self
+            .workspace
+            .update(cx, move |ws, cx| ws.graph_local(depth, cx))
         else {
             return;
         };

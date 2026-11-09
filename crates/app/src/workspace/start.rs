@@ -16,7 +16,7 @@
 
 use std::path::PathBuf;
 
-use gpui::{prelude::*, AnyElement, App, Context, div};
+use gpui::{div, prelude::*, AnyElement, App, Context};
 use shale_core::vault::rel_text;
 use shale_core::vim::Mode;
 
@@ -112,14 +112,18 @@ impl Workspace {
             .child(div().child(vault_line));
 
         if notes > 0 {
-            let list = div().flex().flex_col().gap(SPACE_1).when(!recent.is_empty(), |d| {
-                d.child(
-                    div()
-                        .text_color(gpui::rgb(palette.ui_dim))
-                        .text_size(TEXT_SM)
-                        .child("recent"),
-                )
-            });
+            let list = div()
+                .flex()
+                .flex_col()
+                .gap(SPACE_1)
+                .when(!recent.is_empty(), |d| {
+                    d.child(
+                        div()
+                            .text_color(gpui::rgb(palette.ui_dim))
+                            .text_size(TEXT_SM)
+                            .child("recent"),
+                    )
+                });
             let has_recent = !recent.is_empty();
             let list = recent.into_iter().enumerate().fold(list, |d, (ix, path)| {
                 d.child(

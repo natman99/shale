@@ -74,9 +74,7 @@ impl GraphFrame {
         self.nodes
             .iter()
             .map(|n| {
-                n.position[0] * n.position[0]
-                    + n.position[1] * n.position[1]
-                    + n.depth * n.depth
+                n.position[0] * n.position[0] + n.position[1] * n.position[1] + n.depth * n.depth
             })
             .fold(0.0_f32, f32::max)
             .sqrt()

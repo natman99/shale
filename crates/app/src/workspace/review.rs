@@ -29,10 +29,10 @@ use shale_core::diff::{self, Hunk};
 use shale_core::pending::{self, PendingEdit};
 use shale_core::vault::rel_text;
 
+use super::tabs::TabContent;
 use crate::acts::*;
 use crate::editor::overlay::InlineEdit;
 use crate::editor::View;
-use super::tabs::TabContent;
 
 use super::Workspace;
 
@@ -55,11 +55,7 @@ impl Workspace {
     /// Judge a queue that has already been read and put it in front of the user. The
     /// judgement is per window: a hunk is stale against *this* window's buffers, which
     /// may be holding a note another window has already written to disk.
-    pub(crate) fn apply_pending_queue(
-        &mut self,
-        queue: pending::Queue,
-        cx: &mut Context<Self>,
-    ) {
+    pub(crate) fn apply_pending_queue(&mut self, queue: pending::Queue, cx: &mut Context<Self>) {
         // A file that does not parse is said once, not once a second: it is a real
         // problem (a proposal the user cannot see) and a log line a person will act on.
         if queue.unreadable != self.pending_unreadable {
@@ -195,7 +191,8 @@ impl Workspace {
         let Some(row) = self.review.read(cx).row_for(&id, hunk) else {
             return;
         };
-        self.review.update(cx, |review, cx| review.select_row(row, cx));
+        self.review
+            .update(cx, |review, cx| review.select_row(row, cx));
     }
 
     /// Whether the strip has anything to show, which is when it is drawn at all.

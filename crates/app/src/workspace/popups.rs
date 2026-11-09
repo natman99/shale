@@ -20,7 +20,7 @@
 //! worth naming: the popup takes the keyboard and gives it back, and the card never
 //! takes it, so closing a card has nothing to undo.
 
-use gpui::{AppContext, Bounds, Context, Entity, Focusable, Pixels, Point, Window, px};
+use gpui::{px, AppContext, Bounds, Context, Entity, Focusable, Pixels, Point, Window};
 
 use crate::acts::ShowNote;
 use crate::editor::View;

@@ -35,7 +35,9 @@ use shale_core::graph::geom::{Camera, MIN_ZOOM, ZOOM_STEP};
 use shale_core::graph::proj::Cam3;
 use shale_core::theme::Palette;
 
-use crate::acts::{GraphFit, GraphLocal, GraphLocalStep, GraphMode, GraphOpen, GraphPan, GraphSelect, GraphZoom};
+use crate::acts::{
+    GraphFit, GraphLocal, GraphLocalStep, GraphMode, GraphOpen, GraphPan, GraphSelect, GraphZoom,
+};
 use crate::field::Field;
 use crate::workspace::Workspace;
 
@@ -43,9 +45,9 @@ pub(crate) use frame::GraphFrame;
 // Re-exported for the tests only: the paint path calls `proj::paint_graph3d` where it
 // stands, and `proj` is private to this module, so a test that wants the projected
 // path's types needs them named here.
+pub(crate) use panel::{DEFAULT_LOCAL_DEPTH, FILTER_CONTEXT};
 #[cfg(test)]
 pub(crate) use proj::{paint_graph3d, Projection};
-pub(crate) use panel::{FILTER_CONTEXT, DEFAULT_LOCAL_DEPTH};
 pub(crate) use sim::{Dim, GraphSim};
 
 /// The key context the graph's bindings live in. It is a context of its own for the
@@ -880,7 +882,10 @@ impl GraphView {
     #[cfg(test)]
     pub(crate) fn drawn_node(&self, path: &str) -> Option<([f32; 2], f32)> {
         let frame = self.frame.as_ref()?;
-        let slot = frame.nodes.iter().position(|n| n.path.as_deref() == Some(path))?;
+        let slot = frame
+            .nodes
+            .iter()
+            .position(|n| n.path.as_deref() == Some(path))?;
         let node = &frame.nodes[slot];
         match self.mode {
             Dim::Two => {
@@ -920,9 +925,7 @@ impl GraphView {
             }
         };
         Some(
-            xs.iter()
-                .fold(f32::MIN, |a, &b| a.max(b))
-                - xs.iter().fold(f32::MAX, |a, &b| a.min(b)),
+            xs.iter().fold(f32::MIN, |a, &b| a.max(b)) - xs.iter().fold(f32::MAX, |a, &b| a.min(b)),
         )
     }
 
@@ -1023,10 +1026,7 @@ impl GraphView {
     fn world_at_depth(&self, screen: Point<Pixels>, slot: usize) -> Option<[f32; 3]> {
         let camera = self.camera3()?;
         let view_z = (*self.projection.borrow()).as_ref()?.view_z(slot)?;
-        Some(camera.screen_to_world_at_depth(
-            [screen.x.as_f32(), screen.y.as_f32()],
-            view_z,
-        ))
+        Some(camera.screen_to_world_at_depth([screen.x.as_f32(), screen.y.as_f32()], view_z))
     }
 
     /// The node the pointer's press should act on, and the keyboard's answer to the
@@ -1096,12 +1096,18 @@ impl GraphView {
                         drag.began = true;
                         if let Some(node) = self.frame.as_ref().and_then(|f| f.nodes.get(slot)) {
                             let _ = self.workspace.update(cx, |ws, cx| {
-                                ws.graph_drag_node(slot, [node.position[0], node.position[1], node.depth], cx);
+                                ws.graph_drag_node(
+                                    slot,
+                                    [node.position[0], node.position[1], node.depth],
+                                    cx,
+                                );
                             });
                         }
                     }
                     let world = match self.mode {
-                        Dim::Two => self.world_at(event.position).map(|(world, _)| [world[0], world[1], 0.0]),
+                        Dim::Two => self
+                            .world_at(event.position)
+                            .map(|(world, _)| [world[0], world[1], 0.0]),
                         Dim::Three => self.world_at_depth(event.position, slot),
                     };
                     if let Some(world) = world {

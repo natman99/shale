@@ -142,4 +142,3 @@ impl Workspace {
         self._services.update(cx, |s, _cx| s.stop_live());
     }
 }
-

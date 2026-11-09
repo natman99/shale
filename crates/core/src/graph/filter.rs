@@ -280,13 +280,15 @@ mod tests {
         let two = named(&at(2));
         assert_eq!(
             sorted(&two),
-            sorted(
-                &["gone", "p", "pie/p", "root", "sweet", "top", "x"].map(String::from)
-            ),
+            sorted(&["gone", "p", "pie/p", "root", "sweet", "top", "x"].map(String::from)),
             "the second hop arrives, and nothing unreachable does"
         );
         let zero = named(&at(0));
-        assert_eq!(zero, vec!["root".to_string()], "depth 0 is the centre alone");
+        assert_eq!(
+            zero,
+            vec!["root".to_string()],
+            "depth 0 is the centre alone"
+        );
         Ok(())
     }
 

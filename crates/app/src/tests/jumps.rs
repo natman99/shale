@@ -134,9 +134,7 @@ fn g_d_makes_the_note_a_link_asks_for(cx: &mut TestAppContext) {
         "made beside the note in hand, and opened"
     );
     assert!(
-        dir.path()
-            .join("areas/bread-v2/shopping-list.md")
-            .exists(),
+        dir.path().join("areas/bread-v2/shopping-list.md").exists(),
         "the file is on disk where the status bar says it is"
     );
     assert_eq!(
@@ -361,7 +359,9 @@ fn gd_lands_on_the_heading_a_link_names(cx: &mut TestAppContext) {
     let (_dir, window) = vault_with(cx, &[("host.md", ANCHORED), ("gift.md", SECTIONS)]);
     let mut cx = VisualTestContext::from_window(window.into(), cx);
     window
-        .update(&mut cx, |ws, _window, cx| ws.open_note(&PathBuf::from("host.md"), cx))
+        .update(&mut cx, |ws, _window, cx| {
+            ws.open_note(&PathBuf::from("host.md"), cx)
+        })
         .unwrap();
     on_the_link(&mut cx);
     cx.simulate_keystrokes("g d");
@@ -383,7 +383,9 @@ fn a_missing_heading_opens_the_note_anyway_and_says_so(cx: &mut TestAppContext) 
     let (_dir, window) = vault_with(cx, &[("host.md", host), ("gift.md", SECTIONS)]);
     let mut cx = VisualTestContext::from_window(window.into(), cx);
     window
-        .update(&mut cx, |ws, _window, cx| ws.open_note(&PathBuf::from("host.md"), cx))
+        .update(&mut cx, |ws, _window, cx| {
+            ws.open_note(&PathBuf::from("host.md"), cx)
+        })
         .unwrap();
     on_the_link(&mut cx);
     cx.simulate_keystrokes("g d");
@@ -404,11 +406,17 @@ fn g_d_creates_the_note_without_the_anchor_in_its_name(cx: &mut TestAppContext) 
     let (dir, window) = vault_with(cx, &[("host.md", host)]);
     let mut cx = VisualTestContext::from_window(window.into(), cx);
     window
-        .update(&mut cx, |ws, _window, cx| ws.open_note(&PathBuf::from("host.md"), cx))
+        .update(&mut cx, |ws, _window, cx| {
+            ws.open_note(&PathBuf::from("host.md"), cx)
+        })
         .unwrap();
     on_the_link(&mut cx);
     cx.simulate_keystrokes("g D");
-    assert_eq!(active(&window, &mut cx), "nowhere.md", "the note was made and opened");
+    assert_eq!(
+        active(&window, &mut cx),
+        "nowhere.md",
+        "the note was made and opened"
+    );
     assert!(
         dir.path().join("nowhere.md").exists(),
         "on disk, named for the target alone"
@@ -427,10 +435,16 @@ fn a_heading_link_with_no_target_scrolls_within_the_note(cx: &mut TestAppContext
     let (_dir, window) = vault_with(cx, &[("host.md", note)]);
     let mut cx = VisualTestContext::from_window(window.into(), cx);
     window
-        .update(&mut cx, |ws, _window, cx| ws.open_note(&PathBuf::from("host.md"), cx))
+        .update(&mut cx, |ws, _window, cx| {
+            ws.open_note(&PathBuf::from("host.md"), cx)
+        })
         .unwrap();
     cx.simulate_keystrokes("4 G ^ l l l l");
     cx.simulate_keystrokes("g d");
     assert_eq!(active(&window, &mut cx), "host.md", "no note was opened");
-    assert_eq!(caret_row(&window, &mut cx), 2, "the caret moved to that heading");
+    assert_eq!(
+        caret_row(&window, &mut cx),
+        2,
+        "the caret moved to that heading"
+    );
 }

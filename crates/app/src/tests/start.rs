@@ -41,7 +41,11 @@ fn open(cx: &mut VisualTestContext, window: &WindowHandle<Workspace>, note: &str
         .unwrap();
 }
 
-fn notes_in(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext, pix: usize) -> Vec<String> {
+fn notes_in(
+    window: &WindowHandle<Workspace>,
+    cx: &mut VisualTestContext,
+    pix: usize,
+) -> Vec<String> {
     window
         .update(cx, |ws, _window, cx| {
             ws.pane_tab_paths(pix, cx)
@@ -145,9 +149,7 @@ fn the_recent_list_is_the_vaults_and_not_the_windows(cx: &mut TestAppContext) {
     let (dir, window) = vault_with(cx, &[("a.md", "first\n"), ("b.md", "second\n")]);
     for note in ["a.md", "b.md"] {
         window
-            .update(cx, |ws, _window, cx| {
-                ws.open_note(&PathBuf::from(note), cx)
-            })
+            .update(cx, |ws, _window, cx| ws.open_note(&PathBuf::from(note), cx))
             .unwrap();
     }
     window
@@ -185,7 +187,9 @@ fn a_recent_clicked_in_a_pane_opens_in_that_pane(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("ctrl-w v");
     assert_eq!(panes_of(&window, &mut cx), 2, "a split to click in");
     assert_eq!(
-        window.update(&mut cx, |ws, _w, _cx| ws.active_pane_ix()).unwrap(),
+        window
+            .update(&mut cx, |ws, _w, _cx| ws.active_pane_ix())
+            .unwrap(),
         1,
         "the split took the keyboard, so pane 0 is the one without it"
     );
@@ -209,7 +213,9 @@ fn a_recent_clicked_in_a_pane_opens_in_that_pane(cx: &mut TestAppContext) {
         "the other pane is untouched by a click it did not receive"
     );
     assert_eq!(
-        window.update(&mut cx, |ws, _w, _cx| ws.active_pane_ix()).unwrap(),
+        window
+            .update(&mut cx, |ws, _w, _cx| ws.active_pane_ix())
+            .unwrap(),
         0,
         "and the keyboard went with the click"
     );

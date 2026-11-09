@@ -188,9 +188,7 @@ impl Render for PaintBench {
                                 let positions: Vec<[f32; 3]> = fit_frame
                                     .nodes
                                     .iter()
-                                    .map(|node| {
-                                        [node.position[0], node.position[1], node.depth]
-                                    })
+                                    .map(|node| [node.position[0], node.position[1], node.depth])
                                     .collect();
                                 let mut camera = shale_core::graph::proj::Cam3::new();
                                 camera.fit(&positions, box_px, FIT_MARGIN);
@@ -689,7 +687,6 @@ fn sweep3d(cx: &mut TestAppContext, root: &std::path::Path) {
         }
     }
 }
-
 
 /// The 5k fixture: 5261 nodes and ~19k links, which is the size the user's vault is at.
 #[gpui::test]

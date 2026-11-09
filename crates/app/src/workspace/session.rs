@@ -325,15 +325,10 @@ impl Workspace {
                 if self.pane().tabs.is_empty() {
                     self.add_tab(cx);
                 }
-                self.pane_mut().active = seat
-                    .active_tab
-                    .unwrap_or(0)
-                    .min(self.pane().tabs.len() - 1);
+                self.pane_mut().active =
+                    seat.active_tab.unwrap_or(0).min(self.pane().tabs.len() - 1);
             }
-            self.active_pane = session
-                .active_pane
-                .unwrap_or(0)
-                .min(self.panes.len() - 1);
+            self.active_pane = session.active_pane.unwrap_or(0).min(self.panes.len() - 1);
             self.mark_note_mru(cx);
             // The cursor and scroll belong to the tab that had the keyboard: the
             // session remembers one seat, the one the user was looking at — in the pane

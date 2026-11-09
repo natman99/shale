@@ -637,8 +637,6 @@ fn the_drift_arrives_where_fit_would(cx: &mut TestAppContext) {
     );
 }
 
-
-
 /// The spring is critically damped, so the camera must reach its framing without
 /// travelling through it. Overshoot is what makes a follow look like a bounce, and a
 /// discrete integrator can produce a little of it, so the tolerance is small but real.
@@ -687,7 +685,10 @@ fn the_drift_never_overshoots_its_framing(cx: &mut TestAppContext) {
             sign(zoom - target.1),
         ]);
     }
-    assert!(steps > 3, "a spring that arrives in one step is a snap: {steps}");
+    assert!(
+        steps > 3,
+        "a spring that arrives in one step is a snap: {steps}"
+    );
     let (end_zoom, end_pan) = cam2d(&mut cx, &window);
     assert!(
         (end_pan[0] - start_pan[0]).abs() + (end_pan[1] - start_pan[1]).abs() > 10.0
@@ -758,9 +759,15 @@ fn the_drift_parks_itself_when_it_arrives(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("]");
 
     let mut frames = 0;
-    while window.update(&mut cx, |ws, _window, cx| ws.graph_reframing(cx)).unwrap() {
+    while window
+        .update(&mut cx, |ws, _window, cx| ws.graph_reframing(cx))
+        .unwrap()
+    {
         frames += 1;
-        assert!(frames < 60, "the drift is still running after a minute of frames");
+        assert!(
+            frames < 60,
+            "the drift is still running after a minute of frames"
+        );
         repaint(&mut cx);
     }
     assert!(frames > 3, "the drift ran for real frames: {frames}");
@@ -770,7 +777,6 @@ fn the_drift_parks_itself_when_it_arrives(cx: &mut TestAppContext) {
         "the drift left no next-frame work behind, so the window can idle"
     );
 }
-
 
 /// Drive a depth change and the layout together, one drift step per couple of sim ticks.
 /// `paint` runs the layout to rest in one go, which hides the thing being tested: the
@@ -884,7 +890,10 @@ fn a_nodes_dot_never_fights_its_picture(cx: &mut TestAppContext) {
         }
         rising = sign;
     }
-    assert!(turns <= 1, "the dot changed direction {turns} times as the camera moved: {dots:?}");
+    assert!(
+        turns <= 1,
+        "the dot changed direction {turns} times as the camera moved: {dots:?}"
+    );
     // And it may not end up changed by more than the picture it sits in.
     let dot_move = (dots.last().unwrap() - dots[0]).abs() / dots[0];
     let picture_move = (trace.last().unwrap().2 - trace[0].2).abs() / trace[0].2;
@@ -895,4 +904,3 @@ fn a_nodes_dot_never_fights_its_picture(cx: &mut TestAppContext) {
         picture_move * 100.0
     );
 }
-

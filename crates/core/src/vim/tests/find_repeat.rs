@@ -21,7 +21,11 @@ fn semicolon_repeats_the_find_in_the_same_direction() {
     assert_eq!(cursor_after("a w b w c w d\n", "0fw"), 2);
     assert_eq!(cursor_after("a w b w c w d\n", "0fw;"), 6);
     assert_eq!(cursor_after("a w b w c w d\n", "0fw;;"), 10);
-    assert_eq!(cursor_after("a w b w c w d\n", "0fw2;"), 10, "a count reaches the second one");
+    assert_eq!(
+        cursor_after("a w b w c w d\n", "0fw2;"),
+        10,
+        "a count reaches the second one"
+    );
 }
 
 #[test]
@@ -29,15 +33,35 @@ fn a_failed_repeat_moves_nothing() {
     // Past the last `w` there is nothing to find, and vim leaves the cursor where
     // it was rather than parking it at the end of the line.
     assert_eq!(cursor_after("a w b w c w d\n", "0fw3;"), 2);
-    assert_eq!(cursor_after("a w b w c w d\n", "0fz;"), 0, "a find that never found is nothing to repeat");
-    assert_eq!(cursor_after("a w b w c w d\n", "0;"), 0, "and `;` with no find before it does nothing");
+    assert_eq!(
+        cursor_after("a w b w c w d\n", "0fz;"),
+        0,
+        "a find that never found is nothing to repeat"
+    );
+    assert_eq!(
+        cursor_after("a w b w c w d\n", "0;"),
+        0,
+        "and `;` with no find before it does nothing"
+    );
 }
 
 #[test]
 fn comma_repeats_in_the_other_direction() {
-    assert_eq!(cursor_after("a w b w c w d\n", "0fw2;,"), 6, "one step back");
-    assert_eq!(cursor_after("a w b w c w d\n", "0fw2;,,,"), 2, "back as far as the first one");
-    assert_eq!(cursor_after("a w b w c w d\n", "0fW;"), 0, "a backward find repeats backward");
+    assert_eq!(
+        cursor_after("a w b w c w d\n", "0fw2;,"),
+        6,
+        "one step back"
+    );
+    assert_eq!(
+        cursor_after("a w b w c w d\n", "0fw2;,,,"),
+        2,
+        "back as far as the first one"
+    );
+    assert_eq!(
+        cursor_after("a w b w c w d\n", "0fW;"),
+        0,
+        "a backward find repeats backward"
+    );
 }
 
 #[test]
@@ -71,7 +95,11 @@ fn an_operator_can_take_the_repeat() {
     let mut b = Buffer::new("a w b w c w d\n".to_string());
     type_keys(&mut vim, "0fwy;", &mut b);
     type_keys(&mut vim, "0P", &mut b);
-    assert_eq!(b.text(), "w b wa w b w c w d\n", "and a repeat yanks like a find would");
+    assert_eq!(
+        b.text(),
+        "w b wa w b w c w d\n",
+        "and a repeat yanks like a find would"
+    );
 }
 
 #[test]
@@ -79,5 +107,9 @@ fn the_repeat_survives_other_commands_in_between() {
     // The memory is of the last find, not of the last thing typed: two `w` steps
     // in between, and `;` still looks for `w`.
     assert_eq!(cursor_after("a w b w c w d\n", "0fw w w;"), 10);
-    assert_eq!(cursor_after("a w b w c w d\n", "0fT;"), 0, "a find of an absent character has nothing to give");
+    assert_eq!(
+        cursor_after("a w b w c w d\n", "0fT;"),
+        0,
+        "a find of an absent character has nothing to give"
+    );
 }

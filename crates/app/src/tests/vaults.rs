@@ -57,10 +57,7 @@ fn two_vaults_are_two_windows_in_one_process(cx: &mut TestAppContext) {
     assert_ne!(wa.window_id(), wb.window_id(), "two vaults, two windows");
     let mut opened = cx.update(|cx| vaults::open_vaults(cx));
     opened.sort();
-    let mut want = vec![
-        a.canonicalize().unwrap(),
-        b.canonicalize().unwrap(),
-    ];
+    let mut want = vec![a.canonicalize().unwrap(), b.canonicalize().unwrap()];
     want.sort();
     assert_eq!(opened, want);
 }
@@ -103,13 +100,13 @@ fn opening_a_vault_records_it_for_the_next_start(cx: &mut TestAppContext) {
     let recent = RecentVaults::load_from(&store_path);
     assert_eq!(
         recent.recent,
-        vec![
-            b.canonicalize().unwrap(),
-            a.canonicalize().unwrap()
-        ],
+        vec![b.canonicalize().unwrap(), a.canonicalize().unwrap()],
         "most recent first"
     );
-    assert_eq!(recent.last.as_deref(), Some(b.canonicalize().unwrap().as_path()));
+    assert_eq!(
+        recent.last.as_deref(),
+        Some(b.canonicalize().unwrap().as_path())
+    );
     assert_eq!(
         cx.update(|cx| vaults::recent_vaults(cx)),
         recent.recent,
@@ -160,7 +157,9 @@ fn a_closed_window_frees_its_vault(cx: &mut TestAppContext) {
         .unwrap();
     assert_eq!(cx.update(|cx| vaults::open_vaults(cx)).len(), 1);
     cx.update(|cx| {
-        window.update(cx, |_ws, window, _cx| window.remove_window()).unwrap();
+        window
+            .update(cx, |_ws, window, _cx| window.remove_window())
+            .unwrap();
     });
     // The registry notices the release, and the vault can be opened again —
     // by this process, in a fresh window.
@@ -199,7 +198,8 @@ fn the_vault_picker_switches_to_a_recent_vault(cx: &mut TestAppContext) {
 
     vcx.simulate_keystrokes(": v a u l t enter");
     assert_eq!(
-        wa.update(&mut vcx, |ws, _w, cx| ws.picker_matches(cx)).unwrap(),
+        wa.update(&mut vcx, |ws, _w, cx| ws.picker_matches(cx))
+            .unwrap(),
         Some(3),
         "the folder row and both vaults"
     );
@@ -267,11 +267,17 @@ async fn two_windows_remember_their_own_rooms(cx: &mut TestAppContext) {
         .unwrap();
     // The second window comes in the way a second window really arrives:
     // `:new-window`, sharing the vault's services.
-    let b = cx.update(|cx| vaults::open_extra_window(&vault, cx)).unwrap();
-    a.update(cx, |ws, _window, cx| ws.open_note(&PathBuf::from("alpha.md"), cx))
+    let b = cx
+        .update(|cx| vaults::open_extra_window(&vault, cx))
         .unwrap();
-    b.update(cx, |ws, _window, cx| ws.open_note(&PathBuf::from("beta.md"), cx))
-        .unwrap();
+    a.update(cx, |ws, _window, cx| {
+        ws.open_note(&PathBuf::from("alpha.md"), cx)
+    })
+    .unwrap();
+    b.update(cx, |ws, _window, cx| {
+        ws.open_note(&PathBuf::from("beta.md"), cx)
+    })
+    .unwrap();
     // The windows have to be painted once before their sessions carry a
     // frame: render is where the bounds are noticed.
     for handle in [a, b] {
@@ -284,16 +290,21 @@ async fn two_windows_remember_their_own_rooms(cx: &mut TestAppContext) {
     b.update(cx, |ws, _window, cx| ws.save_session(cx)).unwrap();
 
     // One file, two slots, and the frame each window sat in rides along.
-    let slot_of = |w: gpui::WindowHandle<crate::workspace::Workspace>,
-                   cx: &mut TestAppContext| {
+    let slot_of = |w: gpui::WindowHandle<crate::workspace::Workspace>, cx: &mut TestAppContext| {
         w.update(cx, |ws, _window, _cx| ws.session_slot()).unwrap()
     };
     let (sa, sb) = (slot_of(a, cx), slot_of(b, cx));
     assert_ne!(sa, sb, "two windows, two slots");
     let sessions = shale_core::Sessions::load(&vault).unwrap();
     assert_eq!(sessions.slots.len(), sb + 1);
-    assert_eq!(sessions.slots[sa].tabs[0].path, Some(PathBuf::from("alpha.md")));
-    assert_eq!(sessions.slots[sb].tabs[0].path, Some(PathBuf::from("beta.md")));
+    assert_eq!(
+        sessions.slots[sa].tabs[0].path,
+        Some(PathBuf::from("alpha.md"))
+    );
+    assert_eq!(
+        sessions.slots[sb].tabs[0].path,
+        Some(PathBuf::from("beta.md"))
+    );
     let geom = sessions.slots[sa].window.clone().expect("a frame is saved");
     assert_eq!((geom.w, geom.h), (1200., 800.));
 
@@ -305,7 +316,9 @@ async fn two_windows_remember_their_own_rooms(cx: &mut TestAppContext) {
     let a2 = cx
         .update(|cx| vaults::open_vault_window(&vault, OpenOptions::default(), cx))
         .unwrap();
-    let b2 = cx.update(|cx| vaults::open_extra_window(&vault, cx)).unwrap();
+    let b2 = cx
+        .update(|cx| vaults::open_extra_window(&vault, cx))
+        .unwrap();
     let room = |w: gpui::WindowHandle<crate::workspace::Workspace>, cx: &mut TestAppContext| {
         w.update(cx, |ws, _window, _cx| {
             ws.pane()
@@ -341,7 +354,11 @@ fn two_windows_on_one_vault_share_one_services(cx: &mut TestAppContext) {
         let g = cx.global::<vaults::VaultWindows>();
         (g.window_count(&root), g.services_up(&root))
     });
-    assert_eq!((wins, services), (2, true), "one vault, one set of services");
+    assert_eq!(
+        (wins, services),
+        (2, true),
+        "one vault, one set of services"
+    );
 
     // Closing one leaves the other fully alive: the services and the claim
     // go only with the last window.
@@ -353,7 +370,11 @@ fn two_windows_on_one_vault_share_one_services(cx: &mut TestAppContext) {
         let g = cx.global::<vaults::VaultWindows>();
         (g.window_count(&root), g.services_up(&root))
     });
-    assert_eq!((wins, services), (1, true), "the survivor keeps the vault open");
+    assert_eq!(
+        (wins, services),
+        (1, true),
+        "the survivor keeps the vault open"
+    );
     w2.read_with(cx, |_ws, _cx| ()).unwrap();
 
     // And the last one out takes the claim with it: the vault opens fresh.

@@ -24,7 +24,13 @@ pub(super) fn queue(root: &Path, note: &str, current: &str, proposed: &str) -> P
 }
 
 /// The same, with the profile named, for the tests that care whose proposal it is.
-pub(super) fn queued(root: &Path, note: &str, current: &str, proposed: &str, profile: &str) -> PendingEdit {
+pub(super) fn queued(
+    root: &Path,
+    note: &str,
+    current: &str,
+    proposed: &str,
+    profile: &str,
+) -> PendingEdit {
     let edit = PendingEdit {
         id: PendingEdit::new_id(profile, "write_note", 1_700_000_000),
         note: PathBuf::from(note),
@@ -841,11 +847,9 @@ fn one_queue_reaches_every_window_on_the_vault(cx: &mut TestAppContext) {
     .unwrap();
     cx.update(|cx| {
         cx.bind_keys(keybindings());
-        cx.set_global(
-            crate::workspace::vaults::VaultWindows::new(std::sync::Arc::new(
-                std::sync::atomic::AtomicBool::new(false),
-            )),
-        );
+        cx.set_global(crate::workspace::vaults::VaultWindows::new(
+            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        ));
     });
 
     let a = cx
@@ -871,9 +875,13 @@ fn one_queue_reaches_every_window_on_the_vault(cx: &mut TestAppContext) {
     }
 
     let strip_up = |w: &WindowHandle<Workspace>, cx: &mut TestAppContext| {
-        w.update(cx, |ws, _window, cx| ws.review_active(cx)).unwrap()
+        w.update(cx, |ws, _window, cx| ws.review_active(cx))
+            .unwrap()
     };
-    assert!(strip_up(&a, cx), "the window the beat was driven through sees it");
+    assert!(
+        strip_up(&a, cx),
+        "the window the beat was driven through sees it"
+    );
     assert!(
         strip_up(&b, cx),
         "and so does the other window on the same vault, unasked"

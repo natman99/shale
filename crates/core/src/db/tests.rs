@@ -17,13 +17,7 @@ fn opened() -> (tempfile::TempDir, Db) {
 /// The tables the roadmap promises, in the order the check reads them: P1.2's six
 /// plus the properties table P4.3a added.
 const TABLES: [&str; 7] = [
-    "notes",
-    "tags",
-    "links",
-    "events",
-    "marks",
-    "edges",
-    "props",
+    "notes", "tags", "links", "events", "marks", "edges", "props",
 ];
 
 #[test]

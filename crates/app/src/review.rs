@@ -216,9 +216,9 @@ impl Review {
     /// The row of one hunk of one proposal, named by id — how the note says "the hunk
     /// under my cursor" to a strip that counts rows (roadmap P2.5b).
     pub(crate) fn row_for(&self, id: &str, hunk: usize) -> Option<usize> {
-        self.rows().into_iter().position(|row| {
-            row.hunk == Some(hunk) && self.edits[row.edit].id == id
-        })
+        self.rows()
+            .into_iter()
+            .position(|row| row.hunk == Some(hunk) && self.edits[row.edit].id == id)
     }
 
     pub(crate) fn move_marker(&mut self, by: isize, cx: &mut Context<Self>) {

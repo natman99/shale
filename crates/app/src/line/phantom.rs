@@ -19,8 +19,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use gpui::{
-    App, Bounds, Element, ElementId, GlobalElementId, InspectorElementId, IntoElement, LayoutId,
-    Pixels, ShapedLine, SharedString, Style as ElementStyle, Window, font, px, relative,
+    font, px, relative, App, Bounds, Element, ElementId, GlobalElementId, InspectorElementId,
+    IntoElement, LayoutId, Pixels, ShapedLine, SharedString, Style as ElementStyle, Window,
 };
 use shale_core::theme::Palette;
 use shale_core::transclude::Origin;

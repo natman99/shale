@@ -87,7 +87,13 @@ impl Projection {
             .nodes
             .iter()
             .map(|node| {
-                camera.project_with([node.position[0], node.position[1], node.depth], sy, cy, sp, cp)
+                camera.project_with(
+                    [node.position[0], node.position[1], node.depth],
+                    sy,
+                    cy,
+                    sp,
+                    cp,
+                )
             })
             .collect();
 
@@ -214,10 +220,7 @@ impl Projection {
             .nearest(&points, screen, biggest + slop, None)
             .or_else(|| {
                 let (lo, hi) = self.bounds?;
-                let clamped = [
-                    screen[0].clamp(lo[0], hi[0]),
-                    screen[1].clamp(lo[1], hi[1]),
-                ];
+                let clamped = [screen[0].clamp(lo[0], hi[0]), screen[1].clamp(lo[1], hi[1])];
                 if clamped == screen {
                     return None;
                 }
@@ -239,9 +242,7 @@ impl Projection {
         self.projected
             .iter()
             .enumerate()
-            .min_by(|(_, a), (_, b)| {
-                distance(a.xy, screen).total_cmp(&distance(b.xy, screen))
-            })
+            .min_by(|(_, a), (_, b)| distance(a.xy, screen).total_cmp(&distance(b.xy, screen)))
             .map(|(slot, _)| slot)
     }
 
@@ -258,7 +259,6 @@ impl Projection {
             .in_cone(&points, from as u32, dir, None)
             .map(|slot| slot as usize)
     }
-
 }
 
 // ----- the paint ------------------------------------------------------------
@@ -285,11 +285,26 @@ pub(crate) fn paint_graph3d(
         let key = Key::new(frame, Geometry::Deep(projection.camera()), bounds);
 
         window.paint_layer(bounds, |window| {
-            paint_links3d(cache, &key, frame, projection, palette.graph_edge, bounds, window);
+            paint_links3d(
+                cache,
+                &key,
+                frame,
+                projection,
+                palette.graph_edge,
+                bounds,
+                window,
+            );
         });
         if let Some(slot) = look.hover {
             window.paint_layer(bounds, |window| {
-                paint_hover_links3d(frame, projection, slot, palette.graph_node_active, bounds, window);
+                paint_hover_links3d(
+                    frame,
+                    projection,
+                    slot,
+                    palette.graph_node_active,
+                    bounds,
+                    window,
+                );
             });
         }
         window.paint_layer(bounds, |window| {
@@ -372,8 +387,10 @@ fn paint_links3d(
     let keep = cache.worth_keeping(key);
     let mut links = LinkPaths::new(px(LINK_WIDTH.max(LINK_MIN_PX)), frame.edges.len());
     for &[from, to] in &frame.edges {
-        let (Some(a), Some(b)) = (projection.screen(from as usize), projection.screen(to as usize))
-        else {
+        let (Some(a), Some(b)) = (
+            projection.screen(from as usize),
+            projection.screen(to as usize),
+        ) else {
             continue;
         };
         // Cull on the pair's box, exactly as the 2D pass does: a hub's links are long
@@ -405,10 +422,7 @@ fn boxes_miss(a: [f32; 2], b: [f32; 2], bounds: Bounds<Pixels>) -> bool {
     let lo_y = bounds.origin.y.as_f32();
     let hi_x = lo_x + bounds.size.width.as_f32();
     let hi_y = lo_y + bounds.size.height.as_f32();
-    a[0].max(b[0]) < lo_x
-        || a[0].min(b[0]) > hi_x
-        || a[1].max(b[1]) < lo_y
-        || a[1].min(b[1]) > hi_y
+    a[0].max(b[0]) < lo_x || a[0].min(b[0]) > hi_x || a[1].max(b[1]) < lo_y || a[1].min(b[1]) > hi_y
 }
 
 /// The chosen node's links, in the active colour: the same answer as the 2D hover
@@ -706,8 +720,14 @@ fn paint_labels3d(
         }
         placed.add(box_);
         painted.push(slot);
-        if let Err(err) = shaped.paint(origin, px(labels.size), gpui::TextAlign::Left, None, window, cx)
-        {
+        if let Err(err) = shaped.paint(
+            origin,
+            px(labels.size),
+            gpui::TextAlign::Left,
+            None,
+            window,
+            cx,
+        ) {
             tracing::warn!("a graph label could not be painted: {err:#}");
             break;
         }
@@ -722,8 +742,8 @@ fn distance(a: [f32; 2], b: [f32; 2]) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::frame::GraphNode;
+    use super::*;
     use gpui::SharedString;
 
     /// A crowded frame: `n` nodes packed 12 px apart on a shallow depth, every one of
@@ -816,7 +836,10 @@ mod tests {
     #[test]
     fn a_label_that_would_land_on_another_is_skipped() {
         let mut placed = Placed::default();
-        assert!(placed.fits([0.0, 0.0, 60.0, 12.0]), "an empty canvas takes anything");
+        assert!(
+            placed.fits([0.0, 0.0, 60.0, 12.0]),
+            "an empty canvas takes anything"
+        );
         placed.add([0.0, 0.0, 60.0, 12.0]);
         assert!(
             !placed.fits([10.0, 2.0, 70.0, 14.0]),
@@ -866,7 +889,10 @@ mod tests {
         );
 
         let plain = label_slots(&frame, &projection, canvas(), None, None);
-        assert!(!plain.contains(&7), "the gate excludes it for an ordinary frame");
+        assert!(
+            !plain.contains(&7),
+            "the gate excludes it for an ordinary frame"
+        );
         let hovered = label_slots(&frame, &projection, canvas(), Some(7), None);
         assert!(hovered.contains(&7), "but the hover names it anyway");
     }

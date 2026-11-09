@@ -137,7 +137,11 @@ fn pair_range(text: &str, offset: usize, pair: Pair, inner: bool) -> Option<(usi
             continue;
         }
         if body.starts_with("```") || body.starts_with("~~~") {
-            fence = Some(if body.starts_with("```") { "```" } else { "~~~" });
+            fence = Some(if body.starts_with("```") {
+                "```"
+            } else {
+                "~~~"
+            });
             start = end + 1;
             continue;
         }
