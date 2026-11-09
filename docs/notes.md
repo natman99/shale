@@ -187,6 +187,23 @@ Operators **and** together, and text can sit beside them: `tag:monster prop:cr<=
 lair` means the line `lair`, in the low-cr monsters. A value with a space is
 quoted — `tag:"big bad"`, `prop:"Max HP">=10`.
 
+A note row shows its name and then **the line that answers**, with the part you
+asked for brighter than the rest:
+
+```
+goblin   tags: [monster, goblinoid] · notes
+goblin   Digs in a [[lair]]. · notes
+goblin   cr: 5 · notes
+```
+
+A `link:` quotes the line holding the `[[…]]`; a `prop:` quotes the frontmatter
+line and forwards the value the *note* wrote rather than the bound you typed, so
+`prop:cr<=5` on a note reading `cr: 3` shows the `3`. `path:` and `modified:` have
+no line to quote, so they answer with facts about the file — the folder, and
+`modified 2026-11-02`. The quote comes out of the note, not out of the index: if a
+note has been edited since it was indexed, its row shows no quote at all rather
+than a line it no longer holds.
+
 Two things it refuses rather than guesses at:
 
 - **A near-miss operator is said out loud.** `tags:monster` (with an `s`) would

@@ -766,6 +766,16 @@ impl Workspace {
             .map(|picker| picker.read(cx).offered().map(render_target).collect())
             .unwrap_or_default()
     }
+    /// Every row as drawn — `(label, detail, forwarded bytes of the detail)` — in
+    /// the order the picker shows them. What a search answer *shows* about why a
+    /// note matched lives here and nowhere else.
+    #[cfg(test)]
+    pub(crate) fn picker_shown(&self, cx: &gpui::App) -> Vec<crate::picker::ShownRow> {
+        self.picker
+            .as_ref()
+            .map(|picker| picker.read(cx).shown())
+            .unwrap_or_default()
+    }
     /// Where the note's first display line sits, in window coordinates: how a
     /// test checks the editor's margins, and that a picker floats over the text
     /// instead of moving it. `(top edge, x of the first character)`.

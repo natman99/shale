@@ -79,6 +79,7 @@ impl Workspace {
                             .map(rel_text)
                             .unwrap_or_default()
                             .into(),
+                        detail_ranges: Vec::new(),
                         search: rel_text(&entry.path).into(),
                     },
                     PickerTarget::Note(entry.path.clone()),
@@ -107,6 +108,7 @@ impl Workspace {
                     PickerItem {
                         label: SharedString::from(command.label()),
                         detail: SharedString::from(command.hint()),
+                        detail_ranges: Vec::new(),
                         // The keys match too, so `ctrl-w` finds the window commands.
                         // The command-line spellings are shown but *not* searched:
                         // their letters are what make `new note` match the word
@@ -194,12 +196,18 @@ impl Workspace {
                 // Operators only is a question about notes, so it gets one row per
                 // note rather than one row per line.
                 None => {
+                    // Operators only is a question about notes, so it gets one row
+                    // per note rather than one row per line — and each row carries
+                    // the line of the note that answers, or a row would name a note
+                    // with no way to see why it is there.
+                    let ops = q.ops.clone();
                     return selected
                         .unwrap_or_default()
                         .into_iter()
                         .take(MAX_SEARCH_HITS)
                         .map(|path| {
-                            let detail = rel_text(&path);
+                            let (detail, detail_ranges) = answered(&vault, &path, &ops);
+                            let search = rel_text(&path);
                             (
                                 PickerItem {
                                     label: clip(
@@ -207,8 +215,9 @@ impl Workspace {
                                         ROW_TEXT,
                                     )
                                     .into(),
-                                    detail: detail.clone().into(),
-                                    search: detail.into(),
+                                    detail: detail.into(),
+                                    detail_ranges,
+                                    search: search.into(),
                                 },
                                 PickerTarget::Note(path),
                             )
@@ -238,6 +247,9 @@ impl Workspace {
                                 rel_text(&hit.path),
                                 hit.line_number
                             )),
+                            // The line is the label, and the query's own characters
+                            // in it are what the picker forwards.
+                            detail_ranges: Vec::new(),
                             search: line.into(),
                         },
                         PickerTarget::Hit {
@@ -453,12 +465,101 @@ fn notice(reason: impl Into<SharedString>) -> (PickerItem, PickerTarget) {
         PickerItem {
             label: reason.clone(),
             detail: SharedString::default(),
+            detail_ranges: Vec::new(),
             search: reason.clone(),
         },
         // The reason travels with the row so choosing it can say it again where a
         // picker cannot: the status bar.
         PickerTarget::Notice(reason),
     )
+}
+
+/// How much of a note's line a row is allowed to quote. The row is a pointer to the
+/// note, not a reading view; the line's beginning is what identifies it.
+const EVIDENCE_TEXT: usize = 60;
+
+/// What a note says that makes the operators true: one fragment per operator, in
+/// the order the query asked, and the folder the note lives in last.
+///
+/// The fragments come from the note's own text ([`shale_core::evidence`]) rather
+/// than from the index's tables — the ruling, and the reason, are in that module.
+/// A note whose file has moved on from its index row contributes nothing for that
+/// operator, rather than a line it no longer holds.
+fn answered(
+    vault: &shale_core::vault::Vault,
+    path: &std::path::Path,
+    ops: &[shale_core::query::Op],
+) -> (String, Vec<(usize, usize)>) {
+    use shale_core::query::Op;
+    // The paths the index answers with are vault-relative, which is what makes a
+    // note one string on every platform — and what makes reading it here go through
+    // the vault rather than the process's working directory.
+    let text = vault.read(path).unwrap_or_default();
+    let mut detail = String::new();
+    let mut ranges: Vec<(usize, usize)> = Vec::new();
+
+    for op in ops {
+        let fragment = match op {
+            // The folder at the end of the row *is* the answer to `path:`.
+            Op::Path(_) => None,
+            // A date is a fact about the file, not a line inside it. The day shown
+            // is the file's own mtime — what `ls` would say — which is what the
+            // operator compared when the index was current.
+            Op::Modified(_) => Some((
+                format!("modified {}", modified_day(vault, path)),
+                Vec::new(),
+            )),
+            _ => shale_core::evidence::evidence(&text, op).map(|ev| (ev.line, ev.ranges)),
+        };
+        let Some((fragment, inner)) = fragment else {
+            continue;
+        };
+        let fragment = clip(fragment.trim(), EVIDENCE_TEXT);
+        if fragment.is_empty() {
+            continue;
+        }
+        if !detail.is_empty() {
+            detail.push_str(" · ");
+        }
+        let base = detail.len();
+        detail.push_str(&fragment);
+        // A range that the clip cut away is dropped rather than left pointing past
+        // the end of what is shown.
+        ranges.extend(
+            inner
+                .into_iter()
+                .filter(|(_, end)| *end <= fragment.len())
+                .map(|(start, end)| (base + start, base + end)),
+        );
+    }
+
+    // The folder last, so the note's words lead and a vault with two notes of the
+    // same name is still readable.
+    let rel = rel_text(path);
+    if let Some((folder, _)) = rel.rsplit_once('/') {
+        if !detail.is_empty() {
+            detail.push_str(" · ");
+        }
+        detail.push_str(folder);
+    }
+    (detail, ranges)
+}
+
+/// The day a file was last written, as `YYYY-MM-DD` — the same form `modified:`
+/// takes a date in.
+fn modified_day(vault: &shale_core::vault::Vault, rel: &std::path::Path) -> String {
+    let absolute = match vault.resolve(rel) {
+        Ok(path) => path,
+        Err(_) => return String::new(),
+    };
+    let secs = absolute
+        .metadata()
+        .and_then(|meta| meta.modified())
+        .ok()
+        .and_then(|when| when.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|since| since.as_secs() as i64)
+        .unwrap_or(0);
+    shale_core::query::civil_date(secs)
 }
 
 fn clip(text: &str, max: usize) -> String {

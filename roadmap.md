@@ -1302,6 +1302,32 @@ edges, query nodes, MCP canvas tools) is P6.10.
     **Left for P4.3:** the same grammar inside a `.shq` body, and whatever operators
     the query language wants beyond these five (`edges` still has no reader — typed
     edge kinds are P4.16's).
+  - **Landed 2026-11-09 (a row says *why* it matched).** An operator row names a
+    note, and a name with nothing after it gives the user no way to check the answer:
+    `tag:monster` and `tag:goblinoid` looked identical. So each row quotes the note's
+    own line — `cr: 5 · notes`, `Digs in a [[lair]]. · notes` — with the part the
+    query named brought forward in `match_text` and the rest left dim, which is the
+    same standard text search already uses. Two rulings came with it:
+    **the evidence comes from the note's text, not from the index's tables**
+    (`crates/core/src/evidence.rs`). `tags(note, tag)` cannot say whether the note
+    wrote `#character` in the body or `tags: character` in frontmatter, and a row
+    showing the second when the note holds the first says something the note does
+    not. The tables hold claims; a display string is not a claim. And **the scanner
+    that built the index finds the evidence** — `mdstyle::style_spans`, the same one
+    `extract_tags` uses — so a `#` inside a code fence is not evidence here either,
+    and a row cannot point at the word "character" in prose while the tag that
+    matched sits elsewhere. A bound is not the note's text either: `prop:cr<=5` on a
+    note reading `cr: 3` forwards the `3` that satisfied the bound, never the `5`
+    the query typed. When the index is ahead of the file, the row shows **no**
+    evidence rather than a line the note no longer holds — pinned by a test that
+    edits a note out from under its own index row.
+    **The v4 door stays open (user, 2026-11-09):** Obsidian stores the line and
+    character offset of each match so the lookup is a read rather than a scan. If we
+    want that, it is a schema v4 that puts `line` and a byte offset on `tags`,
+    `links` and `props`, plus a re-index — worth doing when something needs to *jump*
+    to the position (the properties pane, a backlinks pane with positions), not for a
+    label. Today's scan reads only the notes the index already chose, which is less
+    than the text search beside it already costs per keystroke.
 - **P4.15 Inline computed surfaces** (brainstorm ✅, policy ruled 2026-10-29, one widget
   to start). **Added by the audit.** App-offered, region-anchored facts (word count,
   reading time) — the status bar owns whole-note facts; user-authored widgets are
@@ -1559,7 +1585,21 @@ on P4.3/P4.3a. P7.9 waits on P7.2's dice grammar and nothing else. **P7.10 waits
 
 ---
 
-## Sequencing notes
+## The next vim pass — deferred keys
+
+A standing list, so a key decided against during one pass does not have to be
+re-litigated in the next one. Each entry is a deferral, not a ruling against the
+feature.
+
+- **`ctrl-p` → vault search.** Deferred 2026-11-09, when the operator search landed
+  and the user was told the key is free. It is genuinely unbound today: vim's
+  `ctrl-p` (up a line) is not implemented here either, so nothing is being
+  protected. It goes in during the next vim pass, where the pass that owns the
+  motion can also decide whether `ctrl-p` should be *the motion* instead — vim
+  users arriving from another editor will reach for it as quick-open regardless.
+  One keymap row plus the `docs/keymap.md` entry when it lands.
+
+
 
 - **Route 3 (ruled 2026-11-01):** build **P2.5a** next — the design pass is
   done, the lift is small (MCP-crate writes + watcher + one bottom widget +

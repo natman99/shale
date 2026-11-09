@@ -480,6 +480,7 @@ impl Workspace {
             PickerItem {
                 label: "Open a folder…".into(),
                 detail: "a vault this app has never seen".into(),
+                detail_ranges: Vec::new(),
                 search: "other new folder prompt dialog".into(),
             },
             PickerTarget::VaultPrompt,
@@ -495,6 +496,7 @@ impl Workspace {
                 PickerItem {
                     label: vault_title(&path).into(),
                     detail: detail.clone().into(),
+                    detail_ranges: Vec::new(),
                     search: detail.into(),
                 },
                 PickerTarget::Vault(path),

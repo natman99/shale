@@ -4,6 +4,7 @@ pub mod config;
 pub mod continuation;
 pub mod db;
 pub mod diff;
+pub mod evidence;
 pub mod fold;
 pub mod frontmatter;
 pub mod fuzzy;

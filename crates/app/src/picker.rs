@@ -89,10 +89,25 @@ pub(crate) struct PickerItem {
     /// Dimmer text after it: the folder a note lives in, the key a command is
     /// bound to, the line a search hit is on.
     pub detail: SharedString,
+    /// Which bytes of [`detail`](Self::detail) to bring forward. A row that answers
+    /// an operator carries the note's own text here — the line that makes
+    /// `tag:monster` true — and the part the query named is drawn in
+    /// [`Palette::match_text`] the way a matched label is.
+    ///
+    /// The *source* supplies these rather than the ranker, because the ranker only
+    /// knows the query string, and for `tag:character` the string `tag:character`
+    /// is not in the evidence: the value `character` is.
+    pub detail_ranges: Vec<(usize, usize)>,
     /// What the query is matched against, which is usually wider than the label:
     /// a note's whole path, so `no/an` reaches `notes/Another Note.md`.
     pub search: SharedString,
 }
+
+/// A row exactly as it is drawn: its label, its detail, and the detail's painted
+/// runs as `(length, brought forward)`. What the test accessor hands back, and the
+/// shape a search answer is checked against.
+#[cfg(test)]
+pub(crate) type ShownRow = (String, String, Vec<(usize, bool)>);
 
 /// One row in ranked order.
 struct Row {
@@ -274,6 +289,30 @@ impl<T: Clone + 'static> Picker<T> {
         self.ranked.iter().map(|row| &self.items[row.item].1)
     }
 
+    /// Every row as it is drawn: its label, its detail, and the detail's painted
+    /// runs as `(length, brought forward)`. A test that asks *what a row shows* —
+    /// rather than which note it stands for — needs this, because the evidence a
+    /// search answer carries lives in the item and nowhere else. The runs come from
+    /// the same call the row paints from.
+    #[cfg(test)]
+    pub(crate) fn shown(&self) -> Vec<ShownRow> {
+        let base_font = font(self.family.clone());
+        self.ranked
+            .iter()
+            .map(|row| {
+                let item = &self.items[row.item].0;
+                (
+                    item.label.to_string(),
+                    item.detail.to_string(),
+                    detail_runs(item, &base_font, &self.palette)
+                        .into_iter()
+                        .map(|run| (run.len, run.color == rgb(self.palette.match_text).into()))
+                        .collect(),
+                )
+            })
+            .collect()
+    }
+
     /// Move the highlighted row, clamped: a list that wraps is easier to lose.
     fn move_selection(&mut self, delta: isize) {
         if self.ranked.is_empty() {
@@ -424,6 +463,23 @@ fn substring_ranges(label: &str, query: &str) -> Vec<(usize, usize)> {
     }
 }
 
+/// The runs a row paints for its detail: the note's own words stay dim, and the
+/// part the query named comes forward in [`Palette::match_text`].
+///
+/// One producer on purpose. The row paints from here and the test accessor reads
+/// from here, so a test that asks what a row shows asks what it paints rather than
+/// what some parallel field claims it will paint. (gpui keeps a div's painted runs
+/// to itself, so the wiring itself is the one thing this cannot check headlessly.)
+fn detail_runs(item: &PickerItem, base_font: &Font, palette: &Palette) -> Vec<TextRun> {
+    runs(
+        item.detail.as_str(),
+        &item.detail_ranges,
+        base_font,
+        palette,
+        palette.ui_dim,
+    )
+}
+
 /// The label split into `gpui::TextRun`s at the characters the query matched, so
 /// a row shows *why* it matched. Matched characters are drawn in
 /// [`Palette::match_text`] rather than on a box behind them: one run per stretch
@@ -440,6 +496,7 @@ fn runs(
     matched: &[(usize, usize)],
     base_font: &Font,
     palette: &Palette,
+    base: u32,
 ) -> Vec<TextRun> {
     // (range, is a match) first, so neighbours of the same kind can merge.
     let mut parts: Vec<(Range<usize>, bool)> = Vec::new();
@@ -462,12 +519,7 @@ fn runs(
         .map(|(range, is_match)| TextRun {
             len: range.len(),
             font: base_font.clone(),
-            color: rgb(if is_match {
-                palette.match_text
-            } else {
-                palette.ui_fg
-            })
-            .into(),
+            color: rgb(if is_match { palette.match_text } else { base }).into(),
             background_color: None,
             underline: None,
             strikethrough: None,
@@ -519,11 +571,14 @@ impl<T: Clone + 'static> Render for Picker<T> {
                         &row.label_ranges,
                         &base_font,
                         &palette,
+                        palette.ui_fg,
                     )))
+                    // The detail is dim, and what a search answer forwards out of
+                    // the note is not: the same `match_text` a matched label gets,
+                    // so a row reads as *note — and here is the line that says so*.
                     .child(
-                        div()
-                            .text_color(gpui::rgb(palette.ui_dim))
-                            .child(item.detail.clone()),
+                        StyledText::new(item.detail.clone())
+                            .with_runs(detail_runs(item, &base_font, &palette)),
                     )
                     // The pointer picks the row it is over, which is what makes a
                     // preview (the theme picker's) follow the mouse, and what makes
@@ -636,10 +691,35 @@ mod tests {
     /// What each run is: how many bytes it covers and whether it was painted as
     /// a match rather than as ordinary row text.
     fn painted(label: &str, matched: &[(usize, usize)], palette: &Palette) -> Vec<(usize, bool)> {
-        runs(label, matched, &font("monospace"), palette)
+        runs(label, matched, &font("monospace"), palette, palette.ui_fg)
             .into_iter()
             .map(|r| (r.len, r.color == rgb(palette.match_text).into()))
             .collect()
+    }
+
+    /// The same helper serves a dim detail, and the row's evidence depends on it:
+    /// the note's words stay dim and only the part the query named comes forward.
+    #[test]
+    fn a_forwarded_span_is_the_only_bright_part_of_a_dim_detail() {
+        let palette = Palette::DEFAULT;
+        let detail = "tags: [monster, goblinoid] · notes";
+        let runs = runs(
+            detail,
+            &[(7, 14)],
+            &font("monospace"),
+            &palette,
+            palette.ui_dim,
+        );
+        let painted: Vec<(usize, gpui::Hsla)> = runs.iter().map(|r| (r.len, r.color)).collect();
+        assert_eq!(
+            painted,
+            vec![
+                (7, rgb(palette.ui_dim).into()),     // `tags: [`
+                (7, rgb(palette.match_text).into()), // `monster`
+                (21, rgb(palette.ui_dim).into()),    // `, goblinoid] · notes`
+            ],
+            "{painted:?}"
+        );
     }
 
     /// An empty query leaves the row as one run of ordinary text, which is also

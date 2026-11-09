@@ -835,3 +835,197 @@ fn an_operator_without_an_index_says_so(cx: &mut TestAppContext) {
     // already proves that on this same index-less vault. What changed is only that a
     // question the index cannot answer now says so instead of answering zero.
 }
+
+// --- what a row shows about why it is there ----------------------------------
+
+/// A row that answers an operator names a note. Without the note's own words beside
+/// it there is no way to tell *why* — `tag:monster` and `tag:goblinoid` would look
+/// identical. So the row quotes the line that makes the operator true, and forwards
+/// the part the query named.
+fn shown(
+    window: &WindowHandle<Workspace>,
+    cx: &mut VisualTestContext,
+) -> Vec<crate::picker::ShownRow> {
+    window
+        .update(cx, |ws, _window, cx| ws.picker_shown(cx))
+        .unwrap()
+}
+
+/// The detail rebuilt from the runs the row paints, with `[` `]` around the run
+/// drawn in the match colour. These are the painted runs, not a parallel field: the
+/// row and this helper call the same function.
+fn marked(detail: &str, runs: &[(usize, bool)]) -> String {
+    let mut out = String::new();
+    let mut at = 0;
+    for &(len, forward) in runs {
+        let chunk = &detail[at..at + len];
+        assert!(!chunk.is_empty(), "a zero-length run paints nothing");
+        if forward {
+            out.push('[');
+            out.push_str(chunk);
+            out.push(']');
+        } else {
+            out.push_str(chunk);
+        }
+        at += len;
+    }
+    assert_eq!(
+        at,
+        detail.len(),
+        "the runs must cover the detail: {detail:?}"
+    );
+    out
+}
+
+fn ask(query: &str, cx: &mut VisualTestContext) {
+    cx.simulate_keystrokes("ctrl-shift-f");
+    cx.simulate_input(query);
+}
+
+#[gpui::test]
+fn a_tag_row_quotes_the_line_that_holds_the_tag(cx: &mut TestAppContext) {
+    let (_dir, window) = query_vault(cx);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    ask("tag:monster", cx);
+
+    let rows = shown(&window, cx);
+    let goblin = rows.iter().find(|(label, _, _)| label == "goblin").unwrap();
+    assert_eq!(
+        marked(&goblin.1, &goblin.2),
+        "tags: [[monster], goblinoid] · notes",
+        "the frontmatter line the note wrote, the tag forward, the folder last"
+    );
+}
+
+#[gpui::test]
+fn a_prop_row_forwards_the_value_the_note_wrote(cx: &mut TestAppContext) {
+    let (_dir, window) = query_vault(cx);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    ask("prop:cr<=5", cx);
+
+    let rows = shown(&window, cx);
+    assert_eq!(rows.len(), 1, "snare's cr is prose, not a number");
+    assert_eq!(marked(&rows[0].1, &rows[0].2), "cr: [5] · notes");
+}
+
+#[gpui::test]
+fn a_link_row_quotes_the_line_holding_the_link(cx: &mut TestAppContext) {
+    let (_dir, window) = query_vault(cx);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    ask("link:lair", cx);
+
+    let rows = shown(&window, cx);
+    let goblin = rows.iter().find(|(label, _, _)| label == "goblin").unwrap();
+    assert_eq!(
+        marked(&goblin.1, &goblin.2),
+        "Digs in a [[[lair]]]. · notes",
+        "the line as written, brackets and full stop and all, with the target forward"
+    );
+}
+
+/// Two operators, two fragments, in the order the query asked. The row explains the
+/// **and**, which is the question a GM is actually asking.
+#[gpui::test]
+fn two_operators_answer_with_two_fragments(cx: &mut TestAppContext) {
+    let (_dir, window) = query_vault(cx);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    ask("tag:monster link:lair", cx);
+
+    let rows = shown(&window, cx);
+    let goblin = rows.iter().find(|(label, _, _)| label == "goblin").unwrap();
+    assert_eq!(
+        marked(&goblin.1, &goblin.2),
+        "tags: [[monster], goblinoid] · Digs in a [[[lair]]]. · notes"
+    );
+}
+
+/// `path:` and `modified:` answer with facts about the file rather than lines of
+/// the note, and the row says the fact anyway: a row with nothing after the name is
+/// a row the user cannot check.
+#[gpui::test]
+fn a_path_row_and_a_modified_row_still_say_something(cx: &mut TestAppContext) {
+    let (_dir, window) = query_vault(cx);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    ask("path:notes/*.md", cx);
+    let rows = shown(&window, cx);
+    assert_eq!(rows.len(), 3);
+    for (_, detail, _) in &rows {
+        assert_eq!(detail, "notes", "the folder is the answer to `path:`");
+    }
+
+    cx.simulate_keystrokes("escape");
+    ask("modified:2020-01-01", cx);
+    let rows = shown(&window, cx);
+    for (label, detail, runs) in &rows {
+        assert!(
+            detail.starts_with("modified ") && detail.ends_with(" · notes"),
+            "{label}: {detail}"
+        );
+        assert!(
+            runs.iter().all(|&(_, forward)| !forward),
+            "a date has nothing in the note to forward: {detail:?}"
+        );
+    }
+}
+
+/// The index can be ahead of the file. When the note no longer says what the index
+/// claims, the row shows no evidence rather than a line the note does not hold —
+/// the same honesty rule as the kind census.
+#[gpui::test]
+fn a_stale_index_shows_no_evidence_rather_than_a_wrong_one(cx: &mut TestAppContext) {
+    let (dir, window) = query_vault(cx);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    std::fs::write(
+        dir.path().join("notes/goblin.md"),
+        "---\ncr: 5\n---\n# Goblin\n\nNo tags any more.\n",
+    )
+    .unwrap();
+
+    // The index still claims goblin and the note no longer says it. The row keeps
+    // its place and quotes nothing — a line the note does not hold would be a lie
+    // with a highlight on it. (When the watcher catches up the claim goes away
+    // altogether, which the index tests already pin down; the debounce here is real
+    // time, and parking the executor does not spend it.)
+    ask("tag:monster", cx);
+    let rows = shown(&window, cx);
+    let goblin = rows.iter().find(|(label, _, _)| label == "goblin").unwrap();
+    assert_eq!(
+        goblin.1, "notes",
+        "the folder is all the row can stand behind"
+    );
+    assert!(
+        goblin.2.iter().all(|&(_, forward)| !forward),
+        "nothing on this row is brought forward: {:?}",
+        goblin.2
+    );
+
+    // The note that still says it is unaffected.
+    let snare = rows.iter().find(|(label, _, _)| label == "snare").unwrap();
+    assert_eq!(marked(&snare.1, &snare.2), "tags: [monster] · notes");
+}
+
+/// The runs a row paints cover its detail exactly, and every run it brings forward
+/// holds text. A clipped fragment can leave a range past the end of what is shown;
+/// the row drops that range rather than painting a highlight onto nothing, and this
+/// checks the invariant over every kind of answer at once.
+#[gpui::test]
+fn the_painted_runs_cover_the_detail_exactly(cx: &mut TestAppContext) {
+    let (_dir, window) = query_vault(cx);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    for query in [
+        "tag:monster",
+        "prop:cr<=5",
+        "link:lair",
+        "tag:monster link:lair",
+        "path:notes/*.md",
+    ] {
+        ask(query, cx);
+        for (label, detail, runs) in shown(&window, cx) {
+            // `marked` is the assertion: it walks the runs across the detail and
+            // fails if they leave a byte uncovered or forward an empty stretch.
+            marked(&detail, &runs);
+            let _ = label;
+            cx.simulate_keystrokes("escape");
+        }
+    }
+}

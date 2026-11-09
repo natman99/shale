@@ -313,6 +313,7 @@ fn theme_row(name: &str, origin: &str) -> (PickerItem, PickerTarget) {
         PickerItem {
             label: name.to_string().into(),
             detail: origin.to_string().into(),
+            detail_ranges: Vec::new(),
             search: name.to_string().into(),
         },
         PickerTarget::Theme(name.to_string()),
