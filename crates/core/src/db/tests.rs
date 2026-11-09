@@ -14,8 +14,17 @@ fn opened() -> (tempfile::TempDir, Db) {
     (dir, db)
 }
 
-/// The tables roadmap P1.2 lists, in the order the check reads them.
-const TABLES: [&str; 6] = ["notes", "tags", "links", "events", "marks", "edges"];
+/// The tables the roadmap promises, in the order the check reads them: P1.2's six
+/// plus the properties table P4.3a added.
+const TABLES: [&str; 7] = [
+    "notes",
+    "tags",
+    "links",
+    "events",
+    "marks",
+    "edges",
+    "props",
+];
 
 #[test]
 fn opening_a_vault_puts_the_index_in_its_state_directory() {

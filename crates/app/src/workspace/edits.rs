@@ -187,6 +187,7 @@ impl Workspace {
                 Err(err) => self.say(format!("{err:#}"), cx),
             },
             ex::Ex::WordCount(folder) => self.wordcount(&folder, cx),
+            ex::Ex::Props => self.props(cx),
             ex::Ex::ThemeExport(name) => match self.export_theme(&name) {
                 Ok(path) => self.say(format!("wrote {}", rel_text(&path)), cx),
                 Err(err) => self.say(format!("{err:#}"), cx),

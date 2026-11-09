@@ -248,6 +248,10 @@ actions!(
         // reading every note again (`:wordcount [folder]`). The palette row counts
         // the whole vault; the command line can scope it to one folder.
         WordCount,
+        // What the index knows about the note the caret is in: its frontmatter
+        // properties, read from the `props` table rather than re-parsed from the
+        // buffer (`:props`, P4.3a). The vault-wide census is a later surface.
+        Props,
         // Agent edit review (roadmap P2.5a). The strip is a focusable widget with a
         // key context of its own, so its bare `j`/`k`/`y`/`x`/`o`/`za` reach these
         // only while it has the keyboard; `]a`/`[a` in the note reach the same two

@@ -9,9 +9,10 @@ create/rename/delete refuse to touch anything under one.
 | path | what it is | safe to delete? |
 | --- | --- | --- |
 | `config.toml` | the vault's settings ([config.md](config.md)) | yes — a starter is rewritten |
+| `props.toml` | optional: the key types you declare, `cr = "number"` | yes |
 | `session.json` | one slot per window: panes, tabs, cursors, the jump chain, the graph's camera and filter, the window's frame; plus the vault's recent notes at the top level | yes — you lose the arrangement |
 | `themes/<name>.toml` | your palettes | yes |
-| `shale.db` (+`-wal`, `-shm`) | the index cache: notes, tags, links, word counts, the event log | yes — rebuilt from the notes |
+| `shale.db` (+`-wal`, `-shm`) | the index cache: notes, tags, links, properties, word counts, the event log | yes — rebuilt from the notes |
 | `backups/shale-<day>.db` | one copy per day of **the index**, newest 7 kept | yes |
 | `pending-edits/<epoch>-<profile>-<tool>-<hex>.toml` | the agent's proposals waiting for review | only on purpose — that is the queue |
 | `lock` | the `flock` claim: which process owns this vault | only while nothing is running |

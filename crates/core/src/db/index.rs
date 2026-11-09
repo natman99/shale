@@ -24,6 +24,7 @@ use std::time::{Duration, UNIX_EPOCH};
 use anyhow::{Context as _, Result};
 use rusqlite::{params, Connection};
 
+use crate::frontmatter::{self, Kind, Prop};
 use crate::graph::extract_tags;
 use crate::markdown::extract_wikilinks;
 use crate::vault::{rel_text, Vault, VaultEntry};
@@ -122,6 +123,48 @@ struct Record {
     tags: Vec<String>,
     /// Link targets, deduped, each paired with its [`target_kind`].
     links: Vec<(String, &'static str)>,
+    /// The frontmatter block's properties, as authored and then declared.
+    props: Vec<Prop>,
+    /// Why the block could not be read, if it could not. The note still gets its
+    /// other rows — a bad block costs its own note its props, not the pass — and the
+    /// pass reports it, because a silently empty `props` is a misleading answer.
+    frontmatter_error: Option<String>,
+}
+
+/// The vault's key declarations: `<vault>/.shale/props.toml`, `cr = "number"`.
+///
+/// A declaration is the override half of the inferred-first / override-second rule
+/// (ruling §1.2), and it is read once per pass rather than once per note because it
+/// is one small file. A missing file is not an error and not a warning: a vault
+/// without declarations gets inference alone.
+pub struct Decls(BTreeMap<String, Kind>);
+
+impl Decls {
+    /// Read the declarations, ignoring a file that is absent or unreadable.
+    ///
+    /// Unreadable is ignored rather than reported because the file is optional and a
+    /// vault whose *declarations* are broken should still get an index; the census
+    /// that `:props` shows is where a key the author meant to declare shows up with
+    /// the kind inference gave them.
+    pub fn read(vault: &Vault) -> Decls {
+        let path = vault.root().join(super::STATE_DIR).join("props.toml");
+        let Ok(text) = fs::read_to_string(&path) else {
+            return Decls(BTreeMap::new());
+        };
+        let Ok(map) = toml::from_str::<BTreeMap<String, String>>(&text) else {
+            return Decls(BTreeMap::new());
+        };
+        Decls(
+            map.into_iter()
+                .filter_map(|(key, kind)| Kind::parse(&kind).map(|kind| (key, kind)))
+                .collect(),
+        )
+    }
+
+    /// The declared kind of a key, if the vault declares one.
+    fn get(&self, key: &str) -> Option<Kind> {
+        self.0.get(key).copied()
+    }
 }
 
 /// Read one note and work out its rows.
@@ -133,6 +176,7 @@ fn record(
     rel: &Path,
     notes: &[VaultEntry],
     attachments: &[VaultEntry],
+    decls: &Decls,
 ) -> Result<Record> {
     let abs = vault.resolve(rel)?;
     let text = fs::read_to_string(&abs).with_context(|| format!("indexing {}", abs.display()))?;
@@ -170,6 +214,28 @@ fn record(
         }
     }
 
+    // The frontmatter block, if the note opens with one. Parsing happens here, on the
+    // caller's thread and outside the write transaction (EDGE-26), and the scan stops
+    // at the closing fence, so a 5k-note vault pays for the block's head rather than
+    // for the note (EDGE-27).
+    let block = frontmatter::block(&text);
+    let (props, frontmatter_error) = match block {
+        None => (Vec::new(), None),
+        Some(block) if block.malformed.is_some() => (
+            Vec::new(),
+            Some(block.malformed.unwrap_or_default()),
+        ),
+        Some(block) => {
+            let mut props = block.props;
+            for prop in props.iter_mut() {
+                if let Some(kind) = decls.get(&prop.key) {
+                    frontmatter::declare(prop, kind);
+                }
+            }
+            (props, None)
+        }
+    };
+
     Ok(Record {
         path: rel_text(rel),
         size: meta.len() as i64,
@@ -177,6 +243,8 @@ fn record(
         words: word_count(&text) as i64,
         tags: extract_tags(&text),
         links,
+        props,
+        frontmatter_error,
     })
 }
 
@@ -250,6 +318,26 @@ fn write_record(conn: &Connection, note: &Record, provenance: Provenance) -> Res
         )
         .with_context(|| format!("indexing {}", note.path))?;
     }
+
+    // Properties are replaced wholesale (EDGE-19): delete-then-insert for the note's
+    // whole prop set, with no per-key diff. That is what lets a frontmatter block the
+    // author deleted take its rows with it, and it is why `props_note` exists.
+    conn.execute("DELETE FROM props WHERE note = ?1", params![note.path])
+        .with_context(|| format!("indexing {}", note.path))?;
+    for prop in &note.props {
+        conn.execute(
+            "INSERT INTO props (note, key, ordinal, value, kind) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                note.path,
+                prop.key,
+                // NULL means a scalar; an index means one item of a list.
+                prop.ordinal.map(|o| o as i64),
+                prop.value,
+                prop.kind.as_str()
+            ],
+        )
+        .with_context(|| format!("indexing {}", note.path))?;
+    }
     Ok(())
 }
 
@@ -262,6 +350,7 @@ fn drop_note(conn: &Connection, path: &str) -> Result<()> {
     // still contain the text, so their links come back as ghosts the next time each
     // of those notes is indexed.
     conn.execute("DELETE FROM links WHERE target = ?1", params![path])?;
+    conn.execute("DELETE FROM props WHERE note = ?1", params![path])?;
     Ok(())
 }
 
@@ -392,7 +481,8 @@ impl Db {
     pub fn note_renamed(&self, vault: &Vault, from: &Path, to: &Path) -> Result<()> {
         let notes = vault.list_markdown()?;
         let attachments = vault.list_attachments()?;
-        let note = record(vault, to, &notes, &attachments)?;
+        let decls = Decls::read(vault);
+        let note = record(vault, to, &notes, &attachments, &decls)?;
         let old = rel_text(from);
         self.write(move |conn| {
             drop_note(conn, &old)?;
@@ -434,6 +524,38 @@ impl Db {
         Ok((words, notes))
     }
 
+    /// The properties the index holds for one note, in the order they were written.
+    ///
+    /// Read back from the DB rather than re-parsed from the buffer, which is the point
+    /// of the table: `:props`, a `.shq` body and the `prop:` operator all ask the same
+    /// question, and only one of them has the note open.
+    pub fn note_props(&self, rel: &Path) -> Result<Vec<Prop>> {
+        let path = rel_text(rel);
+        let conn = self.read()?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT key, value, ordinal, kind FROM props WHERE note = ?1 \
+                 ORDER BY rowid",
+            )
+            .context("reading the vault index's properties")?;
+        let rows = stmt
+            .query_map(params![path], |row| {
+                let kind: String = row.get(3)?;
+                Ok(Prop {
+                    key: row.get(0)?,
+                    value: row.get(1)?,
+                    ordinal: row.get::<_, Option<i64>>(2)?.map(|o| o as usize),
+                    kind: Kind::parse(&kind).unwrap_or(Kind::Text),
+                })
+            })
+            .context("reading the vault index's properties")?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row.context("reading the vault index's properties")?);
+        }
+        Ok(out)
+    }
+
     /// The shared body of every incremental pass.
     ///
     /// `events` is false only for [`Db::reconcile`], where "this note is new to the
@@ -452,6 +574,8 @@ impl Db {
         // One walk each, shared by every note in the pass.
         let notes = vault.list_markdown()?;
         let attachments = vault.list_attachments()?;
+        // And one read of the vault's key declarations, shared the same way.
+        let decls = Decls::read(vault);
 
         let mut written: Vec<Record> = Vec::new();
         let mut created: Vec<String> = Vec::new();
@@ -461,8 +585,9 @@ impl Db {
             if !is_markdown(path) {
                 continue;
             }
-            match record(vault, path, &notes, &attachments) {
+            match record(vault, path, &notes, &attachments, &decls) {
                 Ok(note) => {
+                    report_frontmatter(&mut report, path, &note);
                     if events {
                         created.push(note.path.clone());
                     }
@@ -475,8 +600,9 @@ impl Db {
             if !is_markdown(path) {
                 continue;
             }
-            match record(vault, path, &notes, &attachments) {
+            match record(vault, path, &notes, &attachments, &decls) {
                 Ok(note) => {
+                    report_frontmatter(&mut report, path, &note);
                     // Only a writer that is not the user typing is worth the log:
                     // see this module's header.
                     if events && provenance != Provenance::User {
@@ -562,6 +688,20 @@ impl Db {
     }
 }
 
+/// Say so when a note's frontmatter block would not parse.
+///
+/// The note keeps its other rows and the pass carries on — one bad block costs its
+/// own note its props, not the vault its index — but an empty `props` that came from
+/// a parse failure is a different answer from an empty `props` that came from a note
+/// with no frontmatter, and the difference belongs in the report.
+fn report_frontmatter(report: &mut SyncReport, path: &Path, note: &Record) {
+    if let Some(why) = &note.frontmatter_error {
+        report
+            .failed
+            .push((path.to_path_buf(), format!("frontmatter: {why}")));
+    }
+}
+
 /// Whether a path is a note, which is the same test [`Vault::list_markdown`] uses.
 ///
 /// The signature the watcher compares includes every file and directory, so a pass
@@ -595,7 +735,7 @@ fn whole_seconds(stamp: Stamp) -> Stamp {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::schema::{SCHEMA_V1, SCHEMA_VERSION};
+    use crate::db::schema::{SCHEMA_V1, SCHEMA_V2, SCHEMA_VERSION};
     use std::fs::{File, FileTimes};
 
     /// A vault whose notes are written by hand, and its index. The `TempDir` is
@@ -893,5 +1033,189 @@ mod tests {
             column(&db, "SELECT path FROM notes WHERE size = 7"),
             vec!["x.md"]
         );
+    }
+
+    /// The rebuild that will actually happen for our users: an index at v2 (no
+    /// `props`) becomes v3 by being dropped, not by an `ALTER TABLE`.
+    #[test]
+    fn an_index_at_the_previous_version_gains_the_props_table_by_rebuild() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join(".shale")).unwrap();
+        {
+            let conn = Connection::open(dir.path().join(".shale/shale.db")).unwrap();
+            conn.execute_batch(SCHEMA_V2).unwrap();
+            conn.execute_batch("PRAGMA user_version = 2;").unwrap();
+        }
+        let db = Db::open(dir.path()).unwrap();
+        assert_eq!(db.schema_version(), SCHEMA_VERSION);
+        assert_eq!(
+            column(&db, "SELECT CAST(COUNT(*) AS TEXT) FROM props"),
+            vec!["0"],
+            "the table exists, and it is empty until the notes are read again"
+        );
+    }
+
+    /// P4.3a M1: the frontmatter block reaches `props`, one row per value, with the
+    /// kind inferred from the value itself.
+    #[test]
+    fn a_note_properties_are_indexed_one_row_per_value() {
+        let (_dir, vault, db) = vault_with(&[(
+            "Goblin.md",
+            "---\ncr: 1/4\ntype: goblin\nhp: 7\naliases:\n  - Goblin\n  - Hobgoblin\n---\n# Goblin\n",
+        )]);
+        db.reconcile(&vault).unwrap();
+        assert_eq!(
+            column(
+                &db,
+                "SELECT key || '=' || COALESCE(CAST(ordinal AS TEXT), '-') \
+                 || ':' || value || ':' || kind FROM props"
+            ),
+            vec![
+                "aliases=0:Goblin:text",
+                "aliases=1:Hobgoblin:text",
+                // As authored: `1/4` is text in YAML, and the index says so rather
+                // than quietly deciding otherwise.
+                "cr=-:1/4:text",
+                "hp=-:7:number",
+                "type=-:goblin:text",
+            ]
+        );
+    }
+
+    /// Ruling §1.2 and EDGE-17: a key the vault declares wins over inference, and a
+    /// declared-numeric key normalizes the fraction spelling the domain uses.
+    #[test]
+    fn a_declared_key_overrides_the_inferred_kind() {
+        let (dir, vault, db) = vault_with(&[("Goblin.md", "---\ncr: 1/4\n---\nbody\n")]);
+        std::fs::write(
+            dir.path().join(".shale").join("props.toml"),
+            "cr = \"number\"\n",
+        )
+        .unwrap();
+        db.reconcile(&vault).unwrap();
+        assert_eq!(
+            column(&db, "SELECT value || ':' || kind FROM props"),
+            vec!["0.25:number"],
+            "a `cr <= 5` query has to see CR 1/4 as a number"
+        );
+    }
+
+    /// EDGE-19: re-indexing replaces the note's whole prop set, so a frontmatter
+    /// block the author deleted takes its rows with it.
+    #[test]
+    fn a_deleted_block_takes_its_rows_with_it() {
+        let (_dir, vault, db) = vault_with(&[("one.md", "---\ncr: 1\n---\nbody\n")]);
+        db.reconcile(&vault).unwrap();
+        assert_eq!(column(&db, "SELECT value FROM props"), vec!["1"]);
+        vault.write("one.md", "body only now\n").unwrap();
+        db.note_saved(&vault, Path::new("one.md"), Provenance::User)
+            .unwrap();
+        assert!(
+            column(&db, "SELECT value FROM props").is_empty(),
+            "no per-key diff means no row left behind"
+        );
+    }
+
+    /// EDGE-24: a deleted note takes its props with it.
+    #[test]
+    fn a_deleted_note_takes_its_props_with_it() {
+        let (_dir, vault, db) = vault_with(&[("gone.md", "---\ncr: 1\n---\nbody\n")]);
+        db.reconcile(&vault).unwrap();
+        db.note_deleted(Path::new("gone.md"), Provenance::External)
+            .unwrap();
+        assert!(column(&db, "SELECT value FROM props").is_empty());
+    }
+
+    /// EDGE-20: a rename must not leave props pointing at the old path.
+    #[test]
+    fn a_renamed_notes_props_follow_it() {
+        let (_dir, vault, db) = vault_with(&[("old.md", "---\ncr: 3\n---\nbody\n")]);
+        db.reconcile(&vault).unwrap();
+        vault.rename("old.md", "new.md").unwrap();
+        db.note_renamed(&vault, Path::new("old.md"), Path::new("new.md"))
+            .unwrap();
+        assert_eq!(
+            column(&db, "SELECT note || '=' || value FROM props"),
+            vec!["new.md=3"]
+        );
+    }
+
+    /// The error posture, inherited from the indexer: a block that will not parse
+    /// costs that note its props, is reported, and costs nothing else.
+    #[test]
+    fn a_broken_block_costs_one_note_its_props_and_says_so() {
+        let (_dir, vault, db) = vault_with(&[
+            ("bad.md", "---\nsummary: a: b\n---\nbody text\n"),
+            ("good.md", "---\ncr: 2\n---\n"),
+        ]);
+        let report = db.reconcile(&vault).unwrap();
+        assert_eq!(report.indexed, 2, "both notes still got their rows");
+        assert_eq!(report.failed.len(), 1);
+        assert!(
+            report.failed[0].1.starts_with("frontmatter:"),
+            "the report says which part failed: {:?}",
+            report.failed
+        );
+        assert_eq!(
+            column(&db, "SELECT value FROM props"),
+            vec!["2"],
+            "only the bad note lost its props"
+        );
+        assert_eq!(
+            column(&db, "SELECT path FROM notes WHERE path = 'bad.md'"),
+            vec!["bad.md"],
+            "and it is still a note in the index"
+        );
+    }
+
+    /// EDGE-8: a duplicate key is findable in SQL with no column for it, because a
+    /// repeated occurrence restarts its ordinals.
+    #[test]
+    fn a_duplicate_key_shows_itself_in_the_census() {
+        let (_dir, vault, db) = vault_with(&[(
+            "dup.md",
+            "---\ntags: a\ntags: b\nsolo: x\nlist:\n  - p\n  - q\n---\n",
+        )]);
+        db.reconcile(&vault).unwrap();
+        assert_eq!(
+            column(
+                &db,
+                "SELECT key FROM props WHERE note = 'dup.md' GROUP BY key \
+                 HAVING COUNT(*) > COUNT(DISTINCT COALESCE(ordinal, -1))"
+            ),
+            vec!["tags"],
+            "two scalars for one key, and nothing else in the note looks like that"
+        );
+    }
+
+    /// The regression the plan asks for by name: a note with body tags and no
+    /// frontmatter indexes exactly as it did before props existed.
+    #[test]
+    fn a_note_without_frontmatter_indexes_as_it_always_did() {
+        let (_dir, vault, db) = vault_with(&[("plain.md", "# Plain\n\nA [[Goblin]] and #alpha.\n")]);
+        let report = db.reconcile(&vault).unwrap();
+        assert!(report.failed.is_empty());
+        assert_eq!(column(&db, "SELECT tag FROM tags"), vec!["alpha"]);
+        assert_eq!(
+            column(&db, "SELECT target || ':' || target_kind FROM links"),
+            vec!["Goblin:ghost"],
+            "no note of that name in this vault, so a ghost — as before props existed"
+        );
+        assert!(column(&db, "SELECT value FROM props").is_empty());
+    }
+
+    /// The read side `:props` uses: the note's own rows, in order, kinds decoded.
+    #[test]
+    fn the_index_answers_for_one_notes_props() {
+        let (_dir, vault, db) = vault_with(&[("one.md", "---\nname: Goblin\ndead: 2024-01-31\n---\n")]);
+        db.reconcile(&vault).unwrap();
+        let rows = db.note_props(Path::new("one.md")).unwrap();
+        assert_eq!(rows.len(), 2);
+        // Authored order, not alphabetical: the rows were inserted in the order the
+        // block was written, and the rowid keeps that.
+        assert_eq!(rows[0].key, "name");
+        assert_eq!(rows[0].kind, Kind::Text);
+        assert_eq!(rows[1].key, "dead");
+        assert_eq!(rows[1].kind, Kind::Date);
     }
 }

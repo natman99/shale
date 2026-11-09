@@ -537,6 +537,15 @@ const ALL: &[Command] = &[
         action: Some(|| Box::new(PasteText)),
     },
     Command {
+        id: "vault.props",
+        label: "Show the open note's properties",
+        keys: "",
+        ex: &["props", "properties"],
+        args: "",
+        in_palette: true,
+        action: Some(|| Box::new(Props)),
+    },
+    Command {
         id: "vault.wordcount",
         label: "Count the vault's words",
         keys: "",

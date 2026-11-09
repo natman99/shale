@@ -19,6 +19,15 @@ fn type_command(line: &str, cx: &mut VisualTestContext) {
     cx.simulate_keystrokes("enter");
 }
 
+/// Open one note in the window, so a command that reads the caret's note has one.
+fn open_note(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext, name: &str) {
+    window
+        .update(cx, |ws, _window, cx| {
+            ws.open_note(&PathBuf::from(name), cx)
+        })
+        .unwrap();
+}
+
 /// The status line, where the count is reported.
 fn status(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> String {
     window.update(cx, |ws, _window, _cx| ws.status()).unwrap()
@@ -225,4 +234,78 @@ fn opening_a_vault_takes_todays_index_backup(cx: &mut TestAppContext) {
         })
         .count();
     assert_eq!(stray, 0, "no backup in the vault's root");
+}
+
+// ---- `:props`: the properties table, read back through the window (P4.3a M1) ----
+
+const STATBLOCK: &str = "---\ncr: 1/4\ntype: goblin\nhp: 7\naliases:\n  - Goblin\n  - Hobgoblin\n---\n# Goblin\n\nSmall and mean.\n";
+
+/// The command reads the table, not the buffer: one entry per key, a list in
+/// brackets, and the kind the indexer worked out named next to each.
+#[gpui::test]
+fn the_command_line_reads_one_notes_properties(cx: &mut TestAppContext) {
+    let (_dir, window) = indexed_vault(cx, &[("Goblin.md", STATBLOCK)]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "Goblin.md");
+
+    type_command("props", cx);
+    assert_eq!(
+        status(&window, cx),
+        "Goblin.md: cr=1/4 (text), type=goblin (text), hp=7 (number), \
+         aliases=[Goblin, Hobgoblin] (text)",
+        "authored order, and `1/4` stays text until the vault declares `cr` numeric"
+    );
+}
+
+/// A note with no frontmatter is not an error and not a mystery.
+#[gpui::test]
+fn a_note_without_frontmatter_says_so(cx: &mut TestAppContext) {
+    let (_dir, window) = indexed_vault(cx, &[("Plain.md", "# Plain\n\nNothing up top.\n")]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "Plain.md");
+
+    type_command("props", cx);
+    assert_eq!(status(&window, cx), "Plain.md has no properties");
+}
+
+/// EDGE-25: with no index, `:props` says there is nothing to read rather than
+/// reporting that the note has no properties. "Zero" and "I cannot look" are
+/// different answers, and this is the posture `:wordcount` and the spellchecker keep.
+#[gpui::test]
+fn no_index_is_reported_as_no_index(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("Plain.md", "---\ncr: 1\n---\nbody\n")]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "Plain.md");
+
+    type_command("props", cx);
+    assert_eq!(
+        status(&window, cx),
+        "there is no vault index to read (index.enabled = false)"
+    );
+}
+
+/// The two badges the census will lean on: a key the note wrote twice, and a value
+/// Shale indexes but does not read. Both are shown rather than smoothed over.
+#[gpui::test]
+fn a_written_twice_key_and_an_unread_value_say_what_they_are(cx: &mut TestAppContext) {
+    let (_dir, window) = indexed_vault(
+        cx,
+        &[(
+            "Odd.md",
+            "---\ntags: a\ntags: b\nquest:\n  name: The Lost Mine\n---\nbody\n",
+        )],
+    );
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "Odd.md");
+
+    type_command("props", cx);
+    let line = status(&window, cx);
+    assert!(
+        line.contains("tags=a | b (text, written twice)"),
+        "the duplicate is shown, not merged: {line}"
+    );
+    assert!(
+        line.contains("quest=name: The Lost Mine (nested, not read)"),
+        "the unread value is named as unread: {line}"
+    );
 }

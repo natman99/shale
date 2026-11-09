@@ -77,6 +77,9 @@ pub(crate) enum Ex {
     /// as typed — holds. The count comes from the vault index, so it is the index's
     /// answer rather than a fresh read of every note.
     WordCount(String),
+    /// `props` / `properties`: the note the caret is in, as the index holds it — one
+    /// row per authored value, with the kind the indexer worked out (P4.3a).
+    Props,
     /// `review` / `pending`: give the keyboard to the review strip, the list of agent
     /// edits waiting to be accepted or rejected (roadmap P2.5a). The strip appears by
     /// itself whenever there is something in the queue; this is how the user gets to
@@ -156,6 +159,7 @@ impl Ex {
             Ex::YankClipboard => "clipboard.copy",
             Ex::PasteClipboard => "clipboard.paste",
             Ex::WordCount(_) => "vault.wordcount",
+            Ex::Props => "vault.props",
             Ex::Review => "review.focus",
             Ex::TabNew => "tab.new",
             Ex::TabNext => "tab.next",
@@ -321,6 +325,9 @@ pub(crate) fn parse(line: &str) -> Ex {
         // The folder is whatever follows the word, so `:wordcount notes/daily` is
         // one argument; an unknown word after it is not guessed at.
         "wordcount" | "wc" => Ex::WordCount(rest.to_string()),
+        // The note's own properties. `properties` is spelled out because `:props`
+        // next to `:wordcount` is not self-explanatory the first time.
+        "props" | "properties" => Ex::Props,
         // The review strip. `pending` is there because that is the word the queue is
         // named by on disk, and the quit prompt says "agent edits are waiting".
         "review" | "pending" => Ex::Review,

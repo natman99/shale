@@ -5,6 +5,7 @@ pub mod continuation;
 pub mod db;
 pub mod diff;
 pub mod fold;
+pub mod frontmatter;
 pub mod fuzzy;
 pub mod glob;
 pub mod graph;

@@ -84,6 +84,11 @@ pub(crate) fn diagnostics(params: &Value, text: &str) -> Vec<Diagnostic> {
     // Markup the checker has never heard of. Worked out once per publish, which
     // is cheap: publishes are debounced and a note is one document.
     let markup = shale_core::mdstyle::callout_headers(text);
+    // A frontmatter block is YAML, not prose. `PROJECT.md` lists it as the known
+    // false-positive case the checker would otherwise report on, and this is the same
+    // scan the index runs when it reads properties — one parser, one answer to
+    // "where does the block end".
+    let frontmatter = shale_core::frontmatter::block(text).map(|block| block.bytes);
     let mut out = Vec::with_capacity(list.len());
     for entry in list {
         let Some(start) = position(entry, "start") else {
@@ -99,6 +104,9 @@ pub(crate) fn diagnostics(params: &Value, text: &str) -> Vec<Diagnostic> {
             .iter()
             .any(|&(mark_start, mark_end)| mark_start <= start && end <= mark_end)
         {
+            continue;
+        }
+        if frontmatter.is_some_and(|(open, close)| open <= start && end <= close) {
             continue;
         }
         out.push(Diagnostic {
@@ -378,6 +386,34 @@ mod tests {
         });
         let found = diagnostics(&params, text);
         assert_eq!(found.len(), 1, "the marker's note goes, the body's stays");
+        assert_eq!(&text[found[0].start..found[0].end], "wrogn");
+    }
+
+    /// The frontmatter block is data, not prose: a key the author spelled their own
+    /// way and a value that is a stat rather than a sentence are not things to
+    /// correct. The body below the block is still checked.
+    #[test]
+    fn a_note_inside_the_frontmatter_block_is_dropped() {
+        let text = "---\nnam: Gobllyn\n---\nThis is wrogn.\n";
+        let params = serde_json::json!({
+            "uri": "file:///a.md",
+            "diagnostics": [
+                {
+                    "message": "Did you mean to spell `Gobllyn` this way?",
+                    "code": "SpellCheck",
+                    "range": { "start": { "line": 1, "character": 5 },
+                               "end": { "line": 1, "character": 11 } }
+                },
+                {
+                    "message": "Did you mean to spell `wrogn` this way?",
+                    "code": "SpellCheck",
+                    "range": { "start": { "line": 3, "character": 8 },
+                               "end": { "line": 3, "character": 13 } }
+                }
+            ]
+        });
+        let found = diagnostics(&params, text);
+        assert_eq!(found.len(), 1, "the block's note goes, the body's stays");
         assert_eq!(&text[found[0].start..found[0].end], "wrogn");
     }
 

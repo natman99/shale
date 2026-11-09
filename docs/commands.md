@@ -43,6 +43,7 @@ as you would type it.
 | `note.redo` | Redo | `ctrl-r, ctrl-y, ctrl-shift-z` | — | — |
 | `clipboard.copy` | Copy the selection, or the last yank, to the clipboard | `ctrl-shift-c, space y` | `:y`, `:yank`, `:clip`, `:copy` | — |
 | `clipboard.paste` | Paste from the clipboard | `ctrl-shift-v` | `:paste`, `:p` | — |
+| `vault.props` | Show the open note's properties | — | `:props`, `:properties` | — |
 | `vault.wordcount` | Count the vault's words | — | `:wordcount [folder]`, `:wc [folder]` | `[folder]` |
 | `review.focus` | Review the agent edits that are waiting | — | `:review`, `:pending` | — |
 | `review.next` | Next pending hunk | `j in the strip, ]a in the note` | — | — |

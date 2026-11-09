@@ -17,9 +17,9 @@ use rusqlite::Connection;
 /// The shape this build of Shale expects, stored in the DB's own
 /// `user_version` so an older or newer file says which it is.
 ///
-/// Bumped by changing [`SCHEMA_V2`] without touching [`SCHEMA_V1`]: an index at an
-/// older version is dropped and rebuilt by [`apply`], never migrated.
-pub const SCHEMA_VERSION: i64 = 2;
+/// Bumped by adding a new `SCHEMA_V{n}` constant without touching the earlier ones:
+/// an index at an older version is dropped and rebuilt by [`apply`], never migrated.
+pub const SCHEMA_VERSION: i64 = 3;
 
 /// v1: the tables roadmap P1.2 lists.
 ///
@@ -102,7 +102,11 @@ CREATE INDEX IF NOT EXISTS edges_dst ON edges (dst, kind);
 /// colouring with); `edges` is the typed layer, where a frontmatter link property
 /// and a body wikilink are different `kind`s. Display inverses live in the
 /// edge-type registry, never here — one directed row per fact.
-const SCHEMA_V2: &str = r#"
+///
+/// Kept after being superseded so the rebuild test has a real v2 to build against;
+/// nothing at runtime needs it.
+#[cfg(test)]
+pub(crate) const SCHEMA_V2: &str = r#"
 CREATE TABLE IF NOT EXISTS notes (
     path             TEXT    PRIMARY KEY,
     created_at       INTEGER NOT NULL,
@@ -161,9 +165,107 @@ CREATE TABLE IF NOT EXISTS edges (
 CREATE INDEX IF NOT EXISTS edges_dst ON edges (dst, kind);
 "#;
 
+/// v3: v2 plus the properties table the whole query story was priced against
+/// (`properties-plan.md` §2). Written as v2 with one table added rather than as a
+/// migration, because that is what it is: an index at v2 is dropped and rebuilt.
+///
+/// `props` is the record of what the author wrote, one row per **value**: a scalar
+/// is one row with `ordinal` NULL, a list is one row per item with `ordinal`
+/// 0-based. There is no primary key, deliberately — a key may legitimately appear
+/// twice in one block (EDGE-8) and both rows must survive. That is also what makes a
+/// duplicate findable without a column for it: ordinals restart per occurrence, so
+/// `COUNT(*) > COUNT(DISTINCT COALESCE(ordinal, -1))` for a note and key is the
+/// signature.
+///
+/// `kind` is per value rather than per key so that a key whose values disagree stays
+/// visible as a disagreement (`GROUP BY key, kind`) instead of being silently cast
+/// into agreement. `value` holds the authored text, with the one exception the plan
+/// rules in: a key the vault *declares* numeric stores a bare `n/m` as its decimal
+/// (EDGE-17), because a `cr <= 5` query that silently drops every CR ¼ monster is
+/// worse than a census that says so. The note on disk keeps what the author wrote —
+/// the index is a query surface, and the editing surface reads the buffer.
+const SCHEMA_V3: &str = r#"
+CREATE TABLE IF NOT EXISTS notes (
+    path             TEXT    PRIMARY KEY,
+    created_at       INTEGER NOT NULL,
+    modified_at      INTEGER NOT NULL,
+    size             INTEGER NOT NULL DEFAULT 0,
+    word_count       INTEGER NOT NULL DEFAULT 0,
+    created_by       TEXT    NOT NULL DEFAULT '',
+    last_modified_by TEXT    NOT NULL DEFAULT '',
+    open_count       INTEGER NOT NULL DEFAULT 0,
+    edit_count       INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS tags (
+    note TEXT NOT NULL,
+    tag  TEXT NOT NULL,
+    PRIMARY KEY (note, tag)
+);
+CREATE INDEX IF NOT EXISTS tags_tag ON tags (tag);
+
+CREATE TABLE IF NOT EXISTS links (
+    source       TEXT    NOT NULL,
+    target       TEXT    NOT NULL,
+    target_kind TEXT NOT NULL DEFAULT 'note',
+    first_seen_at INTEGER NOT NULL,
+    last_seen_at  INTEGER NOT NULL,
+    PRIMARY KEY (source, target, target_kind)
+);
+CREATE INDEX IF NOT EXISTS links_target ON links (target);
+
+CREATE TABLE IF NOT EXISTS events (
+    id         INTEGER PRIMARY KEY,
+    note       TEXT    NOT NULL,
+    kind       TEXT    NOT NULL,
+    at         INTEGER NOT NULL,
+    provenance TEXT    NOT NULL,
+    detail     TEXT    NOT NULL DEFAULT '',
+    line_start INTEGER,
+    line_end   INTEGER
+);
+CREATE INDEX IF NOT EXISTS events_note_at ON events (note, at);
+
+CREATE TABLE IF NOT EXISTS marks (
+    name       TEXT    PRIMARY KEY,
+    path       TEXT    NOT NULL,
+    position   INTEGER NOT NULL,
+    label      TEXT    NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS edges (
+    src  TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    dst  TEXT NOT NULL,
+    PRIMARY KEY (src, kind, dst)
+);
+CREATE INDEX IF NOT EXISTS edges_dst ON edges (dst, kind);
+
+CREATE TABLE IF NOT EXISTS props (
+    note    TEXT    NOT NULL,
+    key     TEXT    NOT NULL,
+    ordinal INTEGER,
+    value   TEXT    NOT NULL,
+    kind    TEXT    NOT NULL
+);
+-- `key` for the query story and the `prop:` operator, `note` for the
+-- delete-then-insert that re-indexes one note. EDGE-29: both are required.
+CREATE INDEX IF NOT EXISTS props_key  ON props (key, kind);
+CREATE INDEX IF NOT EXISTS props_note ON props (note);
+"#;
+
 /// The tables each superseded version created, so an index at an older version can
 /// be dropped rather than migrated. Every name here is this crate's own constant.
-const SUPERSEDED_TABLES: [&str; 6] = ["notes", "tags", "links", "events", "marks", "edges"];
+const SUPERSEDED_TABLES: [&str; 7] = [
+    "notes",
+    "tags",
+    "links",
+    "events",
+    "marks",
+    "edges",
+    "props",
+];
 
 /// Bring `conn` to [`SCHEMA_VERSION`].
 ///
@@ -198,7 +300,7 @@ pub(crate) fn apply(conn: &Connection) -> Result<()> {
                 .with_context(|| format!("could not drop the superseded {table} table"))?;
         }
     }
-    conn.execute_batch(SCHEMA_V2)
+    conn.execute_batch(SCHEMA_V3)
         .context("could not create the vault index's tables")?;
     // `PRAGMA` takes no bound parameters, and the value is this crate's own
     // constant rather than anything read from the file.

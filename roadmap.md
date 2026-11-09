@@ -47,11 +47,16 @@ and live MCP per vault), per-window session slots, and remembered window frames
 (`784e56f`). **There is no open process-lifetime issue** — the reported
 "process lingers after the last window closes" was a `pgrep -f` artifact; every
 exit path was re-measured clean (PROGRESS.md, 2026-11-04). Still unbuilt from
-the original Goals list: Database tables/Obsidian-bases (P4.3 `.shq`, whose first
-commit is **P4.3a frontmatter indexing** — the props table the whole query story was
-priced against and which no phase owned until 2026-11-08), PDF
+the original Goals list: Database tables/Obsidian-bases (P4.3 `.shq` — its first
+commit, **P4.3a frontmatter indexing**, landed 2026-11-08, so the props table the whole
+query story was priced against exists; the query notes themselves do not), PDF
 export, Templates, tree-sitter code highlighting.
-**What is being built now (2026-11-07): P4.0, transclusion — the editable half.** P4.0a
+**What is being built now (2026-11-08): P4.3a, properties — the indexing half.** P4.0
+closed on 2026-11-08 (the hover card was its last owed item; `![[query-name]]` waits on
+P4.3 and block refs on P4.9), and P4.3a's M1 — the frontmatter parser, the `props`
+table and `:props` — landed the same day. The open half of P4.3a is M2/M3.
+
+**P4.0, transclusion — the editable half (closed 2026-11-08).** P4.0a
 (read-only embeds) shipped on 2026-11-06, and **P4.0b — editing inside an embed — is
 built through M4**: the buffer registry that made it possible (P4.17), entering with
 `ctrl-]` or a click, the seam, per-note dirty state and the save story, links and the
@@ -958,6 +963,17 @@ so Phase 2 is closed on its own terms** (only the P2.6/7/8 addendum remains).
   rule changed on the way: the "camera showing nothing falls back to fit" guard
   was ruled out (see PROJECT.md "2D / 3D mode rules") because it fights a
   deliberate pan, and the orientation-only memory makes it unnecessary in 3D.
+- **P3.7 Named workspaces** (brainstorm ✅ parity item, **owner assigned 2026-11-08** —
+  it was ruled and unowned). It is sugar over machinery that already exists: the session
+  file is one `Session` per window slot and the pane tree's leaves *are* the panes list,
+  so a workspace is **a named set of window sessions** written to
+  `.shale/workspaces/<name>.json`, with `:ws save name` / `:ws load name` / `:ws list`,
+  and MCP `ws.list` / `ws.load` so an agent can set up a working context.
+  **Contents ruled:** exactly what `session.json` already stores per window — the pane
+  tree, the tabs, and the view decisions that already ride a session (graph camera, mode,
+  filter). Nothing new is stored, so there is nothing to refactor later; the GM cockpit
+  (brainstorm "Session-linked chips") is one named workspace and is the reason this is
+  pulled into Phase 3 rather than left as Phase 6 polish.
 
 **Sequencing ruling (2026-11-04):** P3.6 goes **before** P3.2's leftovers and
 before the addendum. The rule it breaks, named plainly: *each phase's exit
@@ -1125,6 +1141,26 @@ edges, query nodes, MCP canvas tools) is P6.10.
     paths, tags and links, so the columns arrive **with** the feature, not after it.
     M1–M3 of that plan are this item's scope; M4 (in-place preview of the block) and M5
     (the properties pane) are separate surfaces and may be scheduled apart.
+    - **M1 landed 2026-11-08.** `crates/core/src/frontmatter.rs` is the hand-rolled
+      YAML-subset parser, with the §5 ledger written as its test table (EDGE-1…18 each
+      have a test that names the case); schema v3 adds `props` and drops-and-rebuilds
+      from v2; `<vault>/.shale/props.toml` carries the declared-key overrides and
+      EDGE-17's `cr: 1/4` → 0.25 normalization; `:props` prints one note's rows from
+      the DB, with the no-index posture (EDGE-25) and badges for a key written twice
+      and a value that was not read. The free ride landed with it: the spell/grammar
+      checker drops a note that lands inside the block (`lsp/mapping.rs`), which is
+      the false-positive case `PROJECT.md` had been carrying. **M2 (the projections:
+      `tags` from frontmatter, `aliases`, and the first writer `edges` has ever had)
+      and M3 (the `prop:` operator, the kind census, the first `.shq`) are open.**
+  - **P4.3b Headings index — AFTER P4.3a, and explicitly NOT inside it** (ruled
+    2026-11-08). Schema **v4** adds `headings(note, line, text, depth)`, filled in the
+    same indexer pass from `mdstyle`/`mdlayout` — derived, not authored, so it cannot
+    lie, and it is dropped/rebuilt like the rest of the index. It is what lets a *query*
+    group things by the section they sit in (cue chips, counter chips, scene cards), and
+    it is already wanted by the outline pane (P4.13), `#heading` anchors, block refs
+    (P4.9) and Canvas C3's block cards. **Do not grow P4.3a to cover it**: P4.3a is in
+    flight, and a second table in the same commit turns a schema decision into a moving
+    target for whoever is implementing it.
 - **P4.4 Tag tree panel** (brainstorm ✅): rollup counts, fuzzy filter, Enter =
   search, `g` = filter graph, `r` = rename tag vault-wide, color assignment →
   graph groups. Plus `#` autocomplete from the DB.
@@ -1192,6 +1228,9 @@ edges, query nodes, MCP canvas tools) is P6.10.
   tree as a pane, click to jump, current section marked; the heading knowledge comes
   from `mdstyle`/`mdlayout`, the same units `da#` operates on. Distinct from the
   canvas outline view in P5.6 — do not build one and call it both.
+  **Pointer (2026-11-08):** once **P4.3b** lands the `headings` table, the pane can read
+  the tree from the index for notes it has not opened; the buffer path stays the source
+  for the *open* note, because an unsaved heading is not in the index yet.
 - **P4.14 Search operators** (brainstorm ✅). **Added by the audit.** `tag:`, `path:`,
   `link:`, `modified:` and friends in vault search, over the P1 index. **One grammar,
   one parser, shared with `.shq` (P4.3)** — inventing it twice is how the two surfaces
@@ -1200,10 +1239,29 @@ edges, query nodes, MCP canvas tools) is P6.10.
   to start). **Added by the audit.** App-offered, region-anchored facts (word count,
   reading time) — the status bar owns whole-note facts; user-authored widgets are
   plugins and out of scope; data tables are `.shq`. Hosts P4.7's counts.
+  **Named instance (2026-11-08):** "the cue for the section the caret is in" (brainstorm
+  "Session-linked chips") is a legitimate one — a line-level fact painted near the block,
+  **not** in the status bar — and it is the *only* cue-aware surface allowed: no
+  notification, no scroll-triggered motion (the motion contract in `design-language.md`
+  reserves animation for toasts), no playback.
 - **P4.16 Graph lenses** (brainstorm ✅, split ruling 2026-10-29). **Added by the audit.**
   Saved, named graph filters over the existing filter model — the constellation filter
   and `region:` props already do the mechanics; a lens is a saved filter with a name
   and a keybinding. Tag colouring rides P4.4's "color assignment → graph groups".
+  - **Rewritten 2026-11-08: a lens is a saved `.shq`, not a filter format.** The query
+    supplies the **node set** (a row must resolve to a note path — first column that
+    resolves, or one named `path`; anything else refuses out loud and names the column);
+    edges are the **induced subgraph** over that set from `links`, with `+neighbors` to
+    widen one hop on the built local-neighbourhood machinery; the existing filter
+    dimensions (tag, orphans, edge kinds, local depth) then **narrow** the set, so the
+    two can never disagree. Ghosts are allowed through — a ghost in a lens is a visible
+    plot hole. **`relative: current` is refused for graph lenses** (a graph tab has no
+    host note; inventing one from the adjacent pane is implicit context, and the error
+    says so). This shrinks the item from "invent a lens format" to "query + the
+    edge-kind display layer", and it folds **canvas-as-saved-selection** (P6.10) into
+    the same mechanism — that item becomes one more query. Measure the *sim* over a
+    large selected set before promising a vault-wide lens; the 5k paint numbers
+    (2.3–2.6 ms) are not the constraint, the force layout is.
 
 - **P4.17 One note, one buffer per window (the registry)** — **added 2026-11-06 by the
   P4.0b design pass; it is P4.0b's first commit, not a later cleanup.** A per-window
@@ -1295,6 +1353,20 @@ note comes back from the trash with its links intact.
   external converter. One export command with presets (plain / handout /
   statblock card / broadsheet) driven by the render-profile registry;
   screen and print share the profiles. Exports provenance-logged.
+  **Registry ruled 2026-11-08:** profiles are a named registry keyed by `type:` / callout
+  kind, **inferred-first and override-second** (`.shale/profiles.toml`), with **zero
+  built-in profiles beyond the three named above** — the artifact vocabulary
+  (`letter`, `handbill`, `inventory`, `sheet`, `session card`) is vault data, matching the
+  zero-built-in-vocabulary rule already held for edge kinds. Screen-only profiles are
+  cheap; the print path is where the bill is.
+  - **P6.5a PDF font pipeline — its own item** (ruled 2026-11-08, scheduled). The real
+    cost of the print sink is not layout: it is **glyph outlines and subsetting**. The
+    screen path has gpui's font system; a PDF writer does not, and embedding nothing
+    means the export is only as good as the reader's fonts. Scope: face selection from the
+    profile, cmap + glyph run extraction, subset embedding, and the metric match that
+    keeps the PDF identical to what the screen laid out. Land it before promising any
+    multi-column print profile, and bench a page against the screen layout rather than
+    eyeballing it.
 - **P6.6 Tree-sitter code highlighting** — goal. **Ruled ✅ (2026-10-28): C
   bindings are fine here** — the user wants the developer-friendly feature; the
   SQLite-style exception now covers tree-sitter (bundled C, build-time).

@@ -186,6 +186,33 @@ has stopped being drawn.
 - **Tags** (`#tag`) are indexed and drawn in the graph as their own nodes, with
   OKLCH hues derived from the palette.
 
+## Properties (frontmatter)
+
+A note that opens with a `---` block has properties, and Shale reads them into the
+vault index: one row per value, with the kind worked out from the value itself —
+`hp: 7` is a number, `died: 2024-01-31` a date, `ally: "[[Zhentarim]]"` a link.
+`:props` prints what the index holds for the note your cursor is in.
+
+What Shale reads: `key: value` pairs, block lists (`- item`) and flow lists
+(`[a, b]`), quoted values, comments, and JSON frontmatter. What it does not read:
+nested maps, block scalars (`|`, `>`), anchors and explicit tags. Those are still
+indexed, as `nested`, and show up in `:props` badged "not read" — and **Shale never
+rewrites the block**, so whatever a plugin wrote survives untouched.
+
+Two rules worth knowing:
+
+- **A kind is inferred from the value, not guessed at.** `yes`, `no`, `007`, `0x1f`
+  and `1/4` are text, because a query that reads them as something else is wrong
+  quietly rather than loudly. To make a key numeric vault-wide, declare it in
+  `.shale/props.toml` (`cr = "number"`); a declared-numeric key reads `cr: 1/4` as
+  0.25 for queries, and the note keeps the text you wrote.
+- **The block is not prose.** The spell and grammar checker ignores it, so a key you
+  spell your own way is not a typo.
+
+Keys keep their case and their spaces: `Max HP` and `max hp` are different keys, and
+nothing renames them for you. A key the note writes twice keeps both rows, and
+`:props` says so.
+
 ## Spelling and grammar
 
 A language server (`harper-ls --stdio` by default, named by `[spellcheck]` in
