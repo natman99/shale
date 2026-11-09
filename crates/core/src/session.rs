@@ -578,7 +578,7 @@ mod tests {
             open_note: Some(PathBuf::from("two.md")),
             ..Session::default()
         };
-        let mut sessions = Sessions {
+        let sessions = Sessions {
             slots: vec![one.clone(), two.clone()],
             recent: vec![PathBuf::from("a.md")],
         };
@@ -610,7 +610,7 @@ mod tests {
             sessions
                 .recent
                 .iter()
-                .filter(|p| **p == PathBuf::from("n5.md"))
+                .filter(|p| p.as_path() == Path::new("n5.md"))
                 .count(),
             1
         );

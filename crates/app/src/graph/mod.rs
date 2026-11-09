@@ -529,11 +529,7 @@ impl GraphView {
             self.set_summary(summary, cx);
             self.store_frame(frame);
             // The chips say what the filter is, and the filter changed.
-            if let Some(filter) = self
-                .workspace
-                .update(cx, |ws, _cx| ws.graph_filter_state())
-                .ok()
-            {
+            if let Ok(filter) = self.workspace.update(cx, |ws, _cx| ws.graph_filter_state()) {
                 self.adopt_filter(filter);
             }
         }
@@ -556,11 +552,7 @@ impl GraphView {
                     self.set_summary(summary, cx);
                     self.store_frame(frame);
                 }
-                if let Some(filter) = self
-                    .workspace
-                    .update(cx, |ws, _cx| ws.graph_filter_state())
-                    .ok()
-                {
+                if let Ok(filter) = self.workspace.update(cx, |ws, _cx| ws.graph_filter_state()) {
                     self.adopt_filter(filter);
                 }
                 cx.notify();
@@ -575,11 +567,7 @@ impl GraphView {
                     self.set_summary(summary, cx);
                     self.store_frame(frame);
                 }
-                if let Some(filter) = self
-                    .workspace
-                    .update(cx, |ws, _cx| ws.graph_filter_state())
-                    .ok()
-                {
+                if let Ok(filter) = self.workspace.update(cx, |ws, _cx| ws.graph_filter_state()) {
                     self.adopt_filter(filter);
                 }
                 cx.notify();

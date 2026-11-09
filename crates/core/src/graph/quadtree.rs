@@ -563,7 +563,6 @@ mod bench {
             println!("n={n:5}  2D build     {:>8.2?}", t0.elapsed() / 20);
             let tree = Tree::<2>::new(&pos2);
             let mut vel = vec![[0.0; 2]; n];
-            let pinned = vec![false; n];
             let t0 = Instant::now();
             for _ in 0..20 {
                 let mut stack = Vec::with_capacity(256);
@@ -612,12 +611,10 @@ mod bench {
                 total += 1;
                 let c = &tree.cells[ci as usize];
                 let d2 = (c.com[0] - p[0]).powi(2) + (c.com[1] - p[1]).powi(2);
-                if c.children != [NONE; 8] {
-                    if c.width2 > THETA * THETA * d2 {
-                        for &k in &c.children {
-                            if k != NONE {
-                                stack.push(k);
-                            }
+                if c.children != [NONE; 8] && c.width2 > THETA * THETA * d2 {
+                    for &k in &c.children {
+                        if k != NONE {
+                            stack.push(k);
                         }
                     }
                 }

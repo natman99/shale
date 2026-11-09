@@ -305,7 +305,7 @@ impl VaultServices {
                 // a `read_dir` of a folder that is almost always empty, not a walk of
                 // the vault, and the walk's reason for a background thread — a big tree
                 // taking an unpredictable time — is not this folder's reason.
-                let _ = services.update(cx, |s, cx| {
+                services.update(cx, |s, cx| {
                     let queue = shale_core::pending::list(s.vault.root());
                     s.fan_out_queue(queue, cx);
                 });

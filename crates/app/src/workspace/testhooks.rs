@@ -320,14 +320,6 @@ impl Workspace {
             .unwrap_or_default()
     }
 
-    /// The buffer rows the vim engine currently treats as under review.
-    #[cfg(test)]
-    pub(crate) fn review_lines<C: gpui::AppContext>(&self, cx: &C) -> Vec<(usize, usize)> {
-        self.editor()
-            .map(|editor| editor.read_with(cx, |editor, _cx| editor.review_lines()))
-            .unwrap_or_default()
-    }
-
     pub(crate) fn active_path(&self) -> Option<PathBuf> {
         self.note()
     }
@@ -411,10 +403,6 @@ impl Workspace {
             .collect()
     }
     /// Which tab one pane shows.
-    #[cfg(test)]
-    pub(crate) fn pane_tab_index(&self, pix: usize) -> usize {
-        self.panes[pix].active
-    }
     /// The root split's shape: `leaf`, `row` or `col` — enough for a test to
     /// check that `s` stacked and `v` tiled sideways.
     #[cfg(test)]
@@ -608,21 +596,6 @@ impl Workspace {
         cx: &gpui::App,
     ) -> Option<usize> {
         self.graph_view()?.read(cx).projection_hit(frame, screen)
-    }
-
-    /// Ship a frame to the graph view without drawing it, the way the layout's beat
-    /// does. A test that wants the window between a frame arriving and the frame being
-    /// painted — where the projection on the view still belongs to the graph before it —
-    /// cannot get there through a keystroke, because a simulated keystroke paints.
-    #[cfg(test)]
-    pub(crate) fn graph_ship_frame(
-        &self,
-        frame: Rc<crate::graph::GraphFrame>,
-        cx: &mut Context<Workspace>,
-    ) {
-        if let Some(view) = self.graph_view().cloned() {
-            view.update(cx, |view, cx| view.set_frame(frame, cx));
-        }
     }
 
     /// Run the layout for `ticks` ticks and ship the frame. `settle_graph` runs the sim

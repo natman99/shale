@@ -36,7 +36,7 @@ fn a_failed_repeat_moves_nothing() {
 #[test]
 fn comma_repeats_in_the_other_direction() {
     assert_eq!(cursor_after("a w b w c w d\n", "0fw2;,"), 6, "one step back");
-    assert_eq!(cursor_after("a w b w c w d\n", "0fw2;,,,"), 0 + 2, "back as far as the first one");
+    assert_eq!(cursor_after("a w b w c w d\n", "0fw2;,,,"), 2, "back as far as the first one");
     assert_eq!(cursor_after("a w b w c w d\n", "0fW;"), 0, "a backward find repeats backward");
 }
 

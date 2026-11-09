@@ -108,7 +108,7 @@ fn ctrl_w_v_tiles_a_second_pane_beside(cx: &mut TestAppContext) {
 /// `ctrl-w S` splits with the note in hand: the same note in two panes, each
 /// with its own tab — the "top here, bottom there" case.
 #[gpui::test]
-fn ctrl_w_S_splits_with_the_note_in_hand(cx: &mut TestAppContext) {
+fn ctrl_w_s_splits_with_the_note_in_hand(cx: &mut TestAppContext) {
     let (_dir, window, mut cx) = two_notes(cx);
     cx.simulate_keystrokes("ctrl-w S");
     assert_eq!(pane_tabs(&window, &mut cx, 1), vec!["a.md"]);

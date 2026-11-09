@@ -280,9 +280,7 @@ impl Workspace {
         match depth {
             None => self.graph_filter.local = None,
             Some(depth) => {
-                let Some(center) = self.graph_center() else {
-                    return None;
-                };
+                let center = self.graph_center()?;
                 self.graph_filter.local = Some(LocalScope {
                     center,
                     depth: depth.clamp(1, LOCAL_DEPTH_MAX),

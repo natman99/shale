@@ -1,7 +1,7 @@
 //! File-tree construction from flat vault entries.
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use shale_core::vault::VaultEntry;
 
@@ -51,7 +51,7 @@ pub fn build_tree(entries: &[VaultEntry], dirs: &[VaultEntry]) -> Vec<TreeNode> 
         }
     }
 
-    fn build(dir: &DirNode, path: &PathBuf) -> Vec<TreeNode> {
+    fn build(dir: &DirNode, path: &Path) -> Vec<TreeNode> {
         let mut out = Vec::new();
         for (name, sub) in &dir.dirs {
             let sub_path = path.join(name);

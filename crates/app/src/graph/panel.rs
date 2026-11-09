@@ -141,11 +141,7 @@ impl GraphView {
         };
         self.summary = Some(summary);
         self.store_frame(frame);
-        if let Some(filter) = self
-            .workspace
-            .update(cx, |ws, _cx| ws.graph_filter_state())
-            .ok()
-        {
+        if let Ok(filter) = self.workspace.update(cx, |ws, _cx| ws.graph_filter_state()) {
             self.adopt_filter(filter);
         }
         cx.notify();

@@ -434,7 +434,7 @@ impl Workspace {
             } else {
                 (*y - ay).abs().max((*y + *h - (ay + ah)).abs())
             };
-            if best.map_or(true, |(_, bd)| dist < bd) {
+            if best.is_none_or(|(_, bd)| dist < bd) {
                 best = Some((*ix, dist));
             }
         }

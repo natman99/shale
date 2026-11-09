@@ -1032,6 +1032,10 @@ impl MarkdownEditor {
     /// It hangs inside the host's wrapper div rather than joining the scroller's
     /// children, so the display-line index space stays the host's and the scroll
     /// target of a caret in the block is the host line the block hangs off.
+    // The arguments are the row's paint context, not a bag of options; bundling them
+    // into a struct would cost a copy per row for no clarity win. Same ruling as
+    // `shale_core::transclude`.
+    #[allow(clippy::too_many_arguments)]
     fn embed_line(
         &self,
         origin: &shale_core::transclude::Origin,

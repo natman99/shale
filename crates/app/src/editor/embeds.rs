@@ -392,7 +392,10 @@ impl Cache {
 mod tests {
     use super::*;
 
-    fn painted(lines: &[&str]) -> Vec<(String, Vec<(usize, usize, Style)>)> {
+    /// A painted row: the text, and `(start, end, style)` for each span in it.
+    type Painted = Vec<(String, Vec<(usize, usize, Style)>)>;
+
+    fn painted(lines: &[&str]) -> Painted {
         paint_body(
             &lines.iter().map(|l| l.to_string()).collect::<Vec<_>>(),
             &[],

@@ -124,13 +124,9 @@ fn leaving_the_block_while_its_panel_is_up_gives_the_keyboard_back(cx: &mut Test
     // note's own — the row it reports belongs to the other note.
     let band = window
         .update(&mut cx, |ws, _window, _cx| {
-            ws.editor().unwrap().read_with(_cx, |editor, _cx| {
-                editor
-                    .embed_rows()
-                    .into_iter()
-                    .next()
-                    .map(|(row, left, top, bottom)| (row, left, top, bottom))
-            })
+            ws.editor()
+                .unwrap()
+                .read_with(_cx, |editor, _cx| editor.embed_rows().into_iter().next())
         })
         .unwrap()
         .expect("the block's first row is painted");

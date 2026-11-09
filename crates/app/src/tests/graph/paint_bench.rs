@@ -691,10 +691,6 @@ fn sweep3d(cx: &mut TestAppContext, root: &std::path::Path) {
 }
 
 
-/// Diagnostic: same, but for the layout that arrives by *switching* 2D -> 3D.
-
-/// Diagnostic: how balanced is a settled layout's spread across the three axes?
-
 /// The 5k fixture: 5261 nodes and ~19k links, which is the size the user's vault is at.
 #[gpui::test]
 #[ignore]

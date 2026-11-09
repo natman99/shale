@@ -83,7 +83,7 @@ fn wrap_model_versus_shaped_widths(cx: &mut TestAppContext) {
             let run = gpui::TextRun {
                 len: s.len(),
                 font: gpui::font("monospace"),
-                color: gpui::black().into(),
+                color: gpui::black(),
                 background_color: None,
                 underline: None,
                 strikethrough: None,
@@ -158,7 +158,7 @@ fn wrap_stays_accurate_for_tabs_and_unicode(cx: &mut TestAppContext) {
             let run = gpui::TextRun {
                 len: s.len(),
                 font: gpui::font("monospace"),
-                color: gpui::black().into(),
+                color: gpui::black(),
                 background_color: None,
                 underline: None,
                 strikethrough: None,

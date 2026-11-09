@@ -269,6 +269,7 @@ impl Projection {
 ///
 /// The caller hands over a [`Projection`] it built with the same camera it will use
 /// for the pointer, so what the user clicked and what the user saw are one answer.
+#[allow(clippy::too_many_arguments)] // a paint pass's arguments are the frame's context
 pub(crate) fn paint_graph3d(
     bounds: Bounds<Pixels>,
     frame: &Rc<GraphFrame>,
@@ -639,6 +640,7 @@ fn remembered_first(mut chosen: Vec<usize>, remembered: &[usize]) -> Vec<usize> 
     chosen
 }
 
+#[allow(clippy::too_many_arguments)] // likewise: the label pass reads the whole frame
 fn paint_labels3d(
     frame: &GraphFrame,
     projection: &Projection,

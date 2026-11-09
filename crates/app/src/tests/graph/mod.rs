@@ -124,11 +124,11 @@ fn paint(cx: &mut VisualTestContext, window: &WindowHandle<Workspace>) {
     }
 }
 
-/// Draw frames *and* deliver the next-frame callbacks they schedule, which is what a
-/// real window does and `draw().clear()` on its own does not. The keyboard and the hover
-/// move to the tab on screen one frame after the tab does (`Workspace::focus_stale`), so
-/// a test that presses a key straight after a tab change without this is pressing it
-/// against a view that has already left the tree — the keystroke goes nowhere.
+// Draw frames *and* deliver the next-frame callbacks they schedule, which is what a
+// real window does and `draw().clear()` on its own does not. The keyboard and the hover
+// move to the tab on screen one frame after the tab does (`Workspace::focus_stale`), so
+// a test that presses a key straight after a tab change without this is pressing it
+// against a view that has already left the tree — the keystroke goes nowhere.
 // `repaint` lives in `tests/mod.rs` now: the pane tests need the same frame-pumping
 // helper, and a keyboard that has not followed a tab change is the same trap in both.
 

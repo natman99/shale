@@ -652,10 +652,7 @@ impl MarkdownEditor {
         // is painted: one display line per row to start with. That is what `j`/`k` and
         // the ruler step over, and it has to agree with the paint or the two fall out
         // of step — the same rule the note's own wrap model obeys.
-        let embed_slot = self
-            .embed_slots
-            .remove(&origin.path)
-            .unwrap_or_else(ViewSlot::new);
+        let embed_slot = self.embed_slots.remove(&origin.path).unwrap_or_default();
         let host_slot = std::mem::replace(&mut self.slot, embed_slot);
         {
             let buf = self.buffer.borrow();

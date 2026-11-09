@@ -493,9 +493,9 @@ mod tests {
             (after.xy[0] - before.xy[0], after.xy[1] - before.xy[1])
         };
 
-        let (dx, dy) = at(0.0, 0.0, 120.0, 0.0);
+        let (dx, _) = at(0.0, 0.0, 120.0, 0.0);
         assert!(dx > 0.0, "dragging right moved the front node {dx} px — against the pointer");
-        let (dx, dy) = at(0.0, 0.0, 0.0, 120.0);
+        let (_, dy) = at(0.0, 0.0, 0.0, 120.0);
         assert!(dy > 0.0, "dragging down moved the front node {dy} px — against the pointer");
         // And the other way round, so the test is about the direction rather than
         // one lucky sign.

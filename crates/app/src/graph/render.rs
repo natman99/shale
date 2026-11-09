@@ -778,6 +778,7 @@ fn chosen_labels(
 
 /// The labels: [`LABEL_CAP`] of them at most, highest degree first, at full strength,
 /// plus the hovered node always.
+#[allow(clippy::too_many_arguments)] // a paint pass's arguments are the frame's context
 pub(crate) fn paint_labels(
     frame: &GraphFrame,
     camera: &Camera,
