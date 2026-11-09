@@ -271,8 +271,17 @@ is the authored text the strip must show and rewrite; the projection is a query 
 - **M2 — projections:** `tags` (body unchanged + frontmatter added), `aliases`, `edges`.
   Exit: `edges` is non-empty on a vault with a link property; a body-only-tagged note
   indexes identically to before (regression test); ghosts get typed edges.
-- **M3 — query surfaces:** `prop:` search operator, the kind census in `:props`, and the
-  first `.shq` written against `props` (the statblock query is the natural fixture).
+- **M3 — query surfaces:** the kind census in `:props` (✅ 2026-11-08: `Db::kinds_for_keys`
+  reads the vault-wide kind set for the keys a note writes, and `:props` badges a key the
+  vault holds a kind for *elsewhere* — the clean note is the one that needs telling,
+  because the query reads every note that writes the key).
+  - **Scope correction, made while implementing (2026-11-08):** the `prop:` operator and
+    "the first `.shq`" are **not buildable inside P4.3a** — there is no query language and
+    no `.shq` note type in the tree yet (`core::search` is body-text search; the roadmap's
+    P4.3 is what introduces `.shq` notes, their SQL body and read-only connection). They
+    are P4.3's first commit, and P4.3a's job is to have the columns ready when it lands,
+    which it now does. What P4.3a owes and has: the `props` table, the kinds, the census,
+    and the `props_key (key, kind)` index a `prop:` filter would ride.
 - **M4 — in-place live preview of the block** (display segments / hidden ranges; the
   buffer never changes; `:raw` shows the YAML). Editing a value is a text edit.
 - **M5 — the vault-wide properties pane:** key list with counts, kind conflicts, and key

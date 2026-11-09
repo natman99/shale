@@ -1168,8 +1168,17 @@ edges, query nodes, MCP canvas tools) is P6.10.
       `aliases` table, and making `LinkResolver` alias-aware changes how `[[Foo]]`
       resolves vault-wide (alias-vs-name collisions), which is a ruling to make rather
       than take in passing — it lands as its own commit, additively (aliases consulted
-      only when the existing three rules find nothing). **M3 (the `prop:` operator, the
-      kind census, the first `.shq`) is the open half.**
+      only when the existing three rules find nothing).
+    - **M3 landed 2026-11-08 (the kind census).** `Db::kinds_for_keys` reads the
+      vault-wide kind set for the keys a note writes, and `:props` badges a key the vault
+      holds a kind for *elsewhere* — `cr=5 (number, vault also text)`. The clean note is
+      the one that needs telling, because a `cr <= 5` query reads every note that writes
+      the key. **Scope correction, not a gap:** the `prop:` operator and "the first
+      `.shq`" are not buildable inside P4.3a — there is no query language and no `.shq`
+      note type in the tree (`core::search` is body-text search); they are **P4.3's first
+      commit**, and P4.3a's job was to have the columns and the `props_key (key, kind)`
+      index ready when it lands. Done. What is left of P4.3a is `aliases` (its own commit,
+      ruling above) and the M4/M5 surfaces.
   - **P4.3b Headings index — AFTER P4.3a, and explicitly NOT inside it** (ruled
     2026-11-08). Schema **v4** adds `headings(note, line, text, depth)`, filled in the
     same indexer pass from `mdstyle`/`mdlayout` — derived, not authored, so it cannot

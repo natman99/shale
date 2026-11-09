@@ -593,6 +593,31 @@ impl Db {
     /// Read back from the DB rather than re-parsed from the buffer, which is the point
     /// of the table: `:props`, a `.shq` body and the `prop:` operator all ask the same
     /// question, and only one of them has the note open.
+    /// The kinds the vault holds for each key the caller is looking at — the kind
+    /// census (ruling §1.3), narrowed to those keys so the read stays on the
+    /// `props_key (key, kind)` index. A key with more than one kind is a disagreement
+    /// worth *showing*: the app badges it and the query author decides what to do about
+    /// it. This is why `declare` refuses to cast a value that cannot carry a kind — a
+    /// row that lies about its kind makes the census report a clean vault.
+    pub fn kinds_for_keys(&self, keys: &[&str]) -> Result<BTreeMap<String, Vec<Kind>>> {
+        let conn = self.read()?;
+        let mut out = BTreeMap::new();
+        for key in keys {
+            let mut stmt = conn.prepare_cached(
+                "SELECT DISTINCT kind FROM props WHERE key = ?1 ORDER BY kind",
+            )?;
+            let kinds: Vec<Kind> = stmt
+                .query_map(params![key], |row| Ok(Kind::parse(&row.get::<_, String>(0)?)))?
+                .flatten()
+                .flatten()
+                .collect();
+            if !kinds.is_empty() {
+                out.insert((*key).to_string(), kinds);
+            }
+        }
+        Ok(out)
+    }
+
     pub fn note_props(&self, rel: &Path) -> Result<Vec<Prop>> {
         let path = rel_text(rel);
         let conn = self.read()?;

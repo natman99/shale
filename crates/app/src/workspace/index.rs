@@ -169,8 +169,25 @@ impl Workspace {
                 self.say(format!("{} has no properties", note.display()), cx);
             }
             Ok(rows) => {
-                let line = describe_props(&note, &rows);
-                self.say(line, cx);
+                // The census is vault-wide and the line is one note's, so the read is
+                // narrowed to the keys this note actually writes.
+                let keys: Vec<&str> = {
+                    let mut seen: Vec<&str> = Vec::new();
+                    for row in &rows {
+                        if !seen.contains(&row.key.as_str()) {
+                            seen.push(row.key.as_str());
+                        }
+                    }
+                    seen
+                };
+                let census = match db.kinds_for_keys(&keys) {
+                    Ok(census) => census,
+                    Err(err) => {
+                        tracing::warn!("could not read the kind census: {err:#}");
+                        Default::default()
+                    }
+                };
+                self.say(describe_props(&note, &rows, &census), cx);
             }
             Err(err) => {
                 tracing::warn!("could not read the note's properties: {err:#}");
@@ -204,7 +221,16 @@ impl Workspace {
 /// A summary rather than a table — the table is the vault-wide pane (M5). A key whose
 /// values disagree in kind names both kinds, because that disagreement is the typo
 /// worth *seeing* rather than something to smooth over.
-fn describe_props(note: &Path, rows: &[Prop]) -> String {
+///
+/// `census` is the vault-wide kind set for each key (the kind census, ruling §1.3). A
+/// key that is clean *in this note* but not across the vault gets said anyway: the
+/// author looking at `cr=5 (number)` cannot see that another note writes `cr: low`, and
+/// a `cr <= 5` query is about to be wrong about that note in a way nobody chose.
+fn describe_props(
+    note: &Path,
+    rows: &[Prop],
+    census: &BTreeMap<String, Vec<Kind>>,
+) -> String {
     // First-appearance order, so the line reads in the order the block was written.
     let mut order: Vec<&str> = Vec::new();
     let mut groups: BTreeMap<&str, Vec<&Prop>> = BTreeMap::new();
@@ -251,12 +277,30 @@ fn describe_props(note: &Path, rows: &[Prop]) -> String {
                 .join(" | ")
         };
         let kind = kinds.join("+");
+        // Kinds the vault holds for this key that this note does not itself write.
+        let elsewhere: Vec<&str> = census
+            .get(key)
+            .map(|vault| {
+                vault
+                    .iter()
+                    .map(|k| k.as_str())
+                    .filter(|k| !kinds.contains(k))
+                    .collect()
+            })
+            .unwrap_or_default();
         let badge = if duplicate {
             format!("{kind}, written twice")
         } else if row_is_nested(group) {
             format!("{kind}, not read")
         } else {
             kind
+        };
+        // Said even when this note's own block is clean, because the query that reads
+        // this key reads every note that writes it.
+        let badge = if elsewhere.is_empty() {
+            badge
+        } else {
+            format!("{badge}, vault also {}", elsewhere.join("/"))
         };
         parts.push(format!("{key}={values} ({badge})"));
     }

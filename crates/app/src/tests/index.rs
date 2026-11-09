@@ -257,6 +257,30 @@ fn the_command_line_reads_one_notes_properties(cx: &mut TestAppContext) {
     );
 }
 
+/// The kind census is vault-wide, so a key that is clean *in this note* still gets said
+/// when another note writes it differently. The query that reads `cr` reads both notes,
+/// and SQLite reads `CAST('low' AS REAL)` as 0 — a disagreement the author of the clean
+/// note cannot see from their own block is exactly what the census is for.
+#[gpui::test]
+fn the_command_line_names_a_kind_the_vault_holds_elsewhere(cx: &mut TestAppContext) {
+    let (_dir, window) = indexed_vault(
+        cx,
+        &[
+            ("Goblin.md", "---\ncr: 5\n---\n# Goblin\n"),
+            ("Wisp.md", "---\ncr: low\n---\n# Wisp\n"),
+        ],
+    );
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "Goblin.md");
+
+    type_command("props", cx);
+    assert_eq!(
+        status(&window, cx),
+        "Goblin.md: cr=5 (number, vault also text)",
+        "the note's own kind first, and the vault's other kind named beside it"
+    );
+}
+
 /// A note with no frontmatter is not an error and not a mystery.
 #[gpui::test]
 fn a_note_without_frontmatter_says_so(cx: &mut TestAppContext) {
