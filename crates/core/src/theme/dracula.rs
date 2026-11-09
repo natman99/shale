@@ -23,6 +23,7 @@ pub const PALETTE: Palette = Palette {
     link: 0xbd93f9,
     link_unresolved: 0x6272a4,
     dim: 0x6272a4,
+    frontmatter: 0xa975b3, // dim toward accent
     heading: 0xf8f8f2,
     quote: 0x6272a4,
     accent: 0xff79c6,

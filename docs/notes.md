@@ -243,6 +243,13 @@ vault index: one row per value, with the kind worked out from the value itself. 
 a number, `died: 2024-01-31` a date, `ally: "[[Zhentarim]]"` a link.
 `:props` prints what the index holds for the note your cursor is in.
 
+You can see which case you are in. A block's fences keep the dashes the file holds —
+they are not drawn as a rule across the page — and the fences and the keys are drawn in
+the palette's `frontmatter` colour. A block the parser refuses, and a `---` at the top
+of a note that never closes, are drawn in the colour of an error, because in both cases
+the note has **no** properties at all. A `---` at the top followed by prose is still a
+thematic break: the line after the fence decides whether someone meant a block.
+
 To start a block on a note that has none, the palette's **Add frontmatter
 properties** writes an empty one at the top and puts the caret between the fences,
 where the first key goes. It is one undo step, and `u` takes the whole block away. On a

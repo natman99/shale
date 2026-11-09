@@ -114,6 +114,13 @@ fn roles(p: &Palette) -> Vec<(&'static str, u32, &'static str, u32, f32)> {
         ("quoted text", p.quote, "the note background", p.bg, 2.5),
         ("syntax markers", p.dim, "the note background", p.bg, 2.0),
         (
+            "a properties block",
+            p.frontmatter,
+            "the note background",
+            p.bg,
+            2.5,
+        ),
+        (
             "an unresolved link",
             p.link_unresolved,
             "the note background",
@@ -451,6 +458,27 @@ pub fn audit(palette: &Palette) -> Vec<Flag> {
             }
         }
     }
+    // A properties block earns its colour by *not* being the punctuation around it.
+    // A theme that sets it to `dim` puts the block back to looking like a rule, which
+    // is the thing the role exists to prevent, and one that sets it to `accent` puts
+    // the note's metadata in the hue `agent` falls back to.
+    for (what, other, same) in [
+        (
+            "a properties block",
+            "syntax markers",
+            palette.frontmatter == palette.dim,
+        ),
+        (
+            "a properties block",
+            "the structural accent",
+            palette.frontmatter == palette.accent,
+        ),
+    ] {
+        if same {
+            flags.push(Flag::SameColour { a: what, b: other });
+        }
+    }
+
     // "You cannot have this" must never read as more important than a label.
     let disabled = contrast(palette.ui_bg, palette.ui_disabled);
     let label = contrast(palette.ui_bg, palette.ui_dim);

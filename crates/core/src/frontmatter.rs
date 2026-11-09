@@ -420,6 +420,17 @@ fn block_items(body: &[&str], at: usize) -> (Items, usize) {
 /// A colon ends the key only when a space or the end of the line follows it, which is
 /// what makes `time: 10:30` one pair rather than a parse failure.
 fn split_key(line: &str) -> Option<(String, String)> {
+    let cut = key_cut(line)?;
+    let key = unquote(line[..cut].trim());
+    if key.is_empty() {
+        return None;
+    }
+    Some((key, line[cut + 1..].to_string()))
+}
+
+/// Where a line's `key: value` colon is: the first `:` outside quotes with a space
+/// (or the end of the line) after it.
+fn key_cut(line: &str) -> Option<usize> {
     let bytes = line.as_bytes();
     let mut in_single = false;
     let mut in_double = false;
@@ -438,12 +449,22 @@ fn split_key(line: &str) -> Option<(String, String)> {
             _ => {}
         }
     }
-    let cut = cut?;
-    let key = unquote(line[..cut].trim());
-    if key.is_empty() {
+    cut
+}
+
+/// The byte range of a line's key **as the author wrote it**, colon included, where
+/// the line has one.
+///
+/// This reads [`key_cut`] — the same colon finder the parser uses — so the key the
+/// editor colours and the key the index stores cannot drift apart. A coloured key that
+/// is not the parsed key is a claim the parser cannot back up.
+pub(crate) fn key_span(line: &str) -> Option<(usize, usize)> {
+    let cut = key_cut(line)?;
+    let start = line.len() - line.trim_start().len();
+    if line[start..cut].trim().is_empty() {
         return None;
     }
-    Some((key, line[cut + 1..].to_string()))
+    Some((start, cut + 1))
 }
 
 /// `[a, b]` as its items. Flow lists are read for compatibility; Obsidian writes block

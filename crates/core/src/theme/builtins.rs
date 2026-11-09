@@ -27,6 +27,7 @@ impl Palette {
         link: 0x7aa6f0,
         link_unresolved: 0x7d6f6f,
         dim: 0x6b7280,
+        frontmatter: 0x7289b2, // dim toward accent
         heading: 0xe8e8e8,
         quote: 0x9aa0a6,
         accent: 0x7aa6f0,
@@ -114,6 +115,7 @@ impl Palette {
         link: 0x17497c,
         link_unresolved: 0x7d6262,
         dim: 0x686d76,
+        frontmatter: 0x445d79, // dim toward accent
         heading: 0x1f1f23,
         quote: 0x545960,
         accent: 0x17497c,

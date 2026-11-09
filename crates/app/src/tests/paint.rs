@@ -480,6 +480,73 @@ fn a_thematic_break_is_painted_as_a_rule(cx: &mut TestAppContext) {
     assert!(rules.is_empty(), "no rule while the dashes are visible");
 }
 
+/// A properties block is not a divider. Its fences keep the dashes the author wrote
+/// and wear the block's colour, and only a real thematic break becomes a rule across
+/// the editor — which is how a reader tells properties that are being indexed from a
+/// line someone drew, and from a block that silently indexes nothing.
+#[gpui::test]
+fn a_properties_block_is_not_painted_as_a_rule(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.bind_keys(keybindings()));
+
+    let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+    let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+    editor
+        .update(cx, |editor, window, cx| {
+            editor.set_text("---\ncr: 3\n---\n\nA rule:\n\n---\n".to_string(), cx);
+            let focus = editor.focus_handle(cx);
+            window.focus(&focus, cx);
+        })
+        .unwrap();
+    // The caret starts on row 0, and the caret's row always shows its syntax; move it
+    // off the block so the paint decision is the one under test.
+    cx.simulate_keystrokes("j j j");
+    for _ in 0..2 {
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+    }
+
+    let (painted, rules) = editor
+        .read_with(cx, |editor, _cx| {
+            (editor.painted_text(), editor.painted_rules())
+        })
+        .unwrap();
+    assert_eq!(painted[0], "---", "the block's fence keeps its dashes");
+    assert_eq!(painted[2], "---", "and so does its closing fence");
+    assert_eq!(rules, vec![6], "only the real thematic break is a rule");
+}
+
+/// The case the colour exists for: an opening fence with no closing one. The parser
+/// sees no block, so the note has no properties at all, and the line used to draw as
+/// a decorative rule.
+#[gpui::test]
+fn an_unclosed_properties_block_is_not_painted_as_a_rule(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.bind_keys(keybindings()));
+
+    let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+    let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+    editor
+        .update(cx, |editor, window, cx| {
+            editor.set_text("---\ncr: 3\n\n# Goblin\n".to_string(), cx);
+            let focus = editor.focus_handle(cx);
+            window.focus(&focus, cx);
+        })
+        .unwrap();
+    cx.simulate_keystrokes("j j j");
+    for _ in 0..2 {
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+    }
+
+    let (painted, rules) = editor
+        .read_with(cx, |editor, _cx| {
+            (editor.painted_text(), editor.painted_rules())
+        })
+        .unwrap();
+    assert_eq!(
+        painted[0], "---",
+        "the fence that failed is visible, not a rule"
+    );
+    assert!(rules.is_empty(), "nothing here is a thematic break");
+}
+
 /// A callout is painted as a box that covers every row of the block, with its
 /// `>` markers and `[!type]` header hidden on the rows the cursor is not on.
 #[gpui::test]

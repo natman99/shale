@@ -90,6 +90,20 @@ pub enum Style {
     TableRule,
     /// A thematic break (`---`, `***`, `___`).
     Rule,
+    /// A properties block's `---` fence, styled apart from [`Style::Rule`] on purpose.
+    /// Live preview draws a thematic break as a rule across the editor and hides the
+    /// dashes, which is exactly how a properties block ends up looking like a divider
+    /// the author hoped meant something. The range comes from the parser the index
+    /// runs, so the colour cannot promise properties the note does not have.
+    FrontmatterFence,
+    /// The `key:` of a line inside a properties block. The value stays ordinary text:
+    /// colouring it as though the editor understood it would be a claim about its type
+    /// that the block alone does not support.
+    FrontmatterKey,
+    /// A properties block the parser refused, or a `---` on the first line that never
+    /// closes. The note has **no** properties, and the block is drawn as the error it
+    /// is instead of looking like it worked.
+    FrontmatterBroken,
     /// Syntax punctuation to draw dimly: brackets, delimiters, backticks.
     Punctuation,
 }
@@ -163,13 +177,52 @@ pub fn style_spans(text: &str) -> Vec<StyleSpan> {
     // Which lines belong to a table: GFM tables need a delimiter row, so a row
     // is a table row when it is (or touches) one.
     let table_rows = table_row_flags(&lines);
+    let front = frontmatter(text, &lines);
 
     let mut out: Vec<StyleSpan> = Vec::new();
+    // A block's keys go in before the line walk, so an inline style inside a value
+    // still wins over them the way every other block/inline pair does.
+    if let Some(front) = &front {
+        for &(start, end) in &front.keys {
+            out.push(StyleSpan {
+                start,
+                end,
+                style: Style::FrontmatterKey,
+            });
+        }
+    }
     let mut fence: Option<(u8, usize)> = None;
     // The kind of the callout whose body the previous line belonged to, if any:
     // a callout runs until the first line that is not part of a blockquote.
     let mut callout: Option<CalloutKind> = None;
     for (index, (line_start, content)) in lines.iter().enumerate() {
+        let line_end = *line_start + content.len();
+        // A block the parser refused is the note's error, top to bottom: no inline
+        // styling inside it, because a link colour over a block that indexes nothing
+        // is the note lying about itself in two colours at once.
+        if let Some((start, end)) = front.as_ref().and_then(|f| f.broken) {
+            if *line_start >= start && line_end <= end {
+                out.push(StyleSpan {
+                    start: *line_start,
+                    end: line_end,
+                    style: Style::FrontmatterBroken,
+                });
+                continue;
+            }
+        }
+        // A fence line belongs to the block, not to the thematic-break branch below,
+        // which would draw it as a rule across the editor and hide the dashes.
+        if front
+            .as_ref()
+            .is_some_and(|f| f.fences.contains(line_start))
+        {
+            out.push(StyleSpan {
+                start: *line_start,
+                end: line_end,
+                style: Style::FrontmatterFence,
+            });
+            continue;
+        }
         scan_line(
             *line_start,
             content,
@@ -181,6 +234,84 @@ pub fn style_spans(text: &str) -> Vec<StyleSpan> {
     }
     out.sort_by_key(|s| (s.start, s.end));
     out
+}
+
+/// Where a note's properties block is, as the parser sees it.
+///
+/// The ranges come from [`crate::frontmatter::block`] — the same parse the indexer
+/// runs — because the whole point of styling the block is to answer "is this being
+/// picked up?", and an answer from a second, slightly different scanner is a second
+/// opinion, not an answer.
+struct Frontmatter {
+    /// The byte offset each fence line starts at. Two of them, unless the block is
+    /// broken, in which case the fences are covered by `broken`.
+    fences: Vec<usize>,
+    /// Each `key:` inside the block, as the author wrote it.
+    keys: Vec<(usize, usize)>,
+    /// The whole block when the parser refused it, or the lone `---` when the note
+    /// opens a block and never closes it.
+    broken: Option<(usize, usize)>,
+}
+
+fn frontmatter(text: &str, lines: &[(usize, &str)]) -> Option<Frontmatter> {
+    if let Some(block) = crate::frontmatter::block(text) {
+        if block.malformed.is_some() {
+            return Some(Frontmatter {
+                fences: Vec::new(),
+                keys: Vec::new(),
+                broken: Some(block.bytes),
+            });
+        }
+        let mut keys = Vec::new();
+        for index in (block.lines.0 + 1)..block.lines.1 {
+            if let Some((start, content)) = lines.get(index) {
+                if let Some((key_start, key_end)) = crate::frontmatter::key_span(content) {
+                    keys.push((start + key_start, start + key_end));
+                }
+            }
+        }
+        let line_start = |index: usize| lines.get(index).map(|(start, _)| *start);
+        let (Some(open), Some(close)) = (line_start(block.lines.0), line_start(block.lines.1))
+        else {
+            return None;
+        };
+        return Some(Frontmatter {
+            fences: vec![open, close],
+            keys,
+            broken: None,
+        });
+    }
+    // An opening fence that never closes. `block` answers `None` both for "this is not
+    // frontmatter" and for "this is frontmatter with no closing fence", and the second
+    // one is the note silently losing every property it wrote — the case the colour
+    // exists to catch, so the scanner has to tell them apart itself.
+    //
+    // The line after the fence decides. A `key:` after it is an author who meant a
+    // properties block and forgot to close it; a blank line, prose or nothing is a
+    // thematic break written at the top of a note, which is what it has always looked
+    // like.
+    let (start, content) = *lines.first()?;
+    let bare = content.strip_prefix('\u{feff}').unwrap_or(content);
+    if bare != crate::frontmatter::FENCE {
+        return None;
+    }
+    let closes = lines[1..]
+        .iter()
+        .any(|(_, content)| *content == crate::frontmatter::FENCE || *content == "...");
+    if closes {
+        return None;
+    }
+    let meant_a_block = lines
+        .get(1)
+        .is_some_and(|(_, content)| crate::frontmatter::key_span(content).is_some());
+    if !meant_a_block {
+        return None;
+    }
+    Some(Frontmatter {
+        fences: Vec::new(),
+        keys: Vec::new(),
+        broken: Some((start, start + content.len())),
+    })
 }
 
 /// The `[!type]` headers that open a callout, as byte ranges covering the
@@ -285,6 +416,73 @@ mod tests {
             .filter(|s| s.style == style)
             .map(|s| &text[s.start..s.end])
             .collect()
+    }
+
+    /// A properties block is not a divider, and the difference is the whole point:
+    /// live preview draws a thematic break as a rule across the editor and hides its
+    /// dashes, so a block and a rule used to look identical.
+    #[test]
+    fn a_properties_block_is_styled_as_a_block() {
+        let text = "---\ncr: 3\ntags: [a, b]\n---\n# Goblin\n\nA rule:\n\n---\n";
+        assert_eq!(texts(text, Style::FrontmatterFence), vec!["---", "---"]);
+        assert_eq!(texts(text, Style::FrontmatterKey), vec!["cr:", "tags:"]);
+        // The rule further down the note is still a rule; the block's fences are not.
+        assert_eq!(texts(text, Style::Rule), vec!["---"]);
+    }
+
+    /// A value inside the block keeps whatever inline styling it earns, because a
+    /// `[[…]]` in a property is link-shaped — that is what writes the `edges` table —
+    /// and a block colour that swallowed it would hide the one value the graph cares
+    /// about.
+    #[test]
+    fn a_property_value_keeps_its_inline_styling() {
+        let text = "---\nally: [[Goblin]]\n---\n";
+        assert_eq!(texts(text, Style::WikiLink), vec!["Goblin"]);
+        assert_eq!(texts(text, Style::FrontmatterKey), vec!["ally:"]);
+    }
+
+    /// A block the parser refuses indexes nothing, so it is drawn as the error it is
+    /// rather than in the colour of a block that works.
+    #[test]
+    fn a_block_that_will_not_parse_is_the_error_it_is() {
+        // An unquoted value still holding `: ` is genuinely ambiguous YAML (EDGE-11).
+        let text = "---\nname: goblin: yes\n---\nbody\n";
+        assert_eq!(
+            texts(text, Style::FrontmatterBroken),
+            vec!["---", "name: goblin: yes", "---"]
+        );
+        assert!(spans(text, Style::FrontmatterFence).is_empty());
+        assert!(spans(text, Style::FrontmatterKey).is_empty());
+        assert!(spans(text, Style::Rule).is_empty());
+    }
+
+    /// The nastiest silent failure in the file: an opening fence with no closing one.
+    /// The parser sees no block at all, so every property in the note is dropped, and
+    /// the one line that says so has been drawing as a decorative rule.
+    #[test]
+    fn an_unclosed_block_says_so() {
+        let text = "---\ncr: 3\n# Goblin\n";
+        assert_eq!(texts(text, Style::FrontmatterBroken), vec!["---"]);
+        assert!(spans(text, Style::Rule).is_empty());
+    }
+
+    /// The other side of that call: a `---` at the top of a note followed by prose is
+    /// a thematic break someone wrote on purpose, and it keeps its rule.
+    #[test]
+    fn a_rule_at_the_top_of_a_note_is_still_a_rule() {
+        for text in ["---\n\nprose\n", "---\nprose\n", "---\n"] {
+            assert_eq!(texts(text, Style::Rule), vec!["---"], "{text:?}");
+            assert!(spans(text, Style::FrontmatterBroken).is_empty(), "{text:?}");
+        }
+    }
+
+    /// `...` closes a block as well as `---` (EDGE-2), and the fence the author wrote
+    /// is the fence the note shows.
+    #[test]
+    fn a_dots_fence_is_a_fence() {
+        let text = "---\ncr: 3\n...\nbody\n";
+        assert_eq!(texts(text, Style::FrontmatterFence), vec!["---", "..."]);
+        assert_eq!(texts(text, Style::FrontmatterKey), vec!["cr:"]);
     }
 
     #[test]

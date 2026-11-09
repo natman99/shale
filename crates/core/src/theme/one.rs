@@ -28,6 +28,7 @@ pub const DARK: Palette = Palette {
     link: 0x61afef,            // blue
     link_unresolved: 0x636d83, // @syntax-gutter
     dim: 0x5c6370,             // mono-3, the comment colour
+    frontmatter: 0x5875b0,     // dim toward accent
     heading: 0xe5e7eb,         // @text-color-highlight
     quote: 0x828997,           // mono-2
     accent: 0x528bff,          // the theme's accent, which it also uses as the caret
@@ -100,6 +101,7 @@ pub const LIGHT: Palette = Palette {
     link: 0x4078f2,            // blue
     link_unresolved: 0x9d9d9f, // @syntax-gutter
     dim: 0xa0a1a7,             // mono-3, the comment colour
+    frontmatter: 0x7d8acf,     // dim toward accent
     heading: 0x1c1d21,         // @text-color-highlight
     quote: 0x696c77,           // mono-2
     accent: 0x526eff,          // the theme's accent, which it also uses as the caret

@@ -1193,6 +1193,20 @@ edges, query nodes, MCP canvas tools) is P6.10.
       commit**, and P4.3a's job was to have the columns and the `props_key (key, kind)`
       index ready when it lands. Done. What is left of P4.3a is `aliases` (its own commit,
       ruling above) and the M4/M5 surfaces.
+    - **Landed 2026-11-09 (the block says whether it is being read).** A user could not
+      tell a properties block from a divider: live preview draws a leading `---` as a rule
+      across the editor and hides the dashes, so a block the index is reading, a block the
+      parser refused, and a thematic break someone wrote on purpose were one glyph. Now the
+      fences keep their dashes and the fences and keys wear a new `frontmatter` palette
+      role; a block the parser refuses — **or a `---` on the first line that never closes**,
+      which the parser reports as "no block" and the note silently loses every property to —
+      is drawn in `callout_danger`. The ranges come from `frontmatter::block` itself, not a
+      second scanner, and the key spans come from the parser's own `key_cut`, so the colour
+      cannot promise a property the index does not hold. The role is named in all 21
+      built-in palettes and is a TOML key like any other (`design-language.md` §1: roles are
+      additive and named in the same pass, not derived); the readability auditor now floors
+      it at 2.5 and flags it when a theme paints it in `dim` or in `accent`. A `---` at the
+      top followed by prose stays a rule — the line after the fence decides.
   - **P4.3b Headings index — AFTER P4.3a, and explicitly NOT inside it** (ruled
     2026-11-08). Schema **v4** adds `headings(note, line, text, depth)`, filled in the
     same indexer pass from `mdstyle`/`mdlayout` — derived, not authored, so it cannot

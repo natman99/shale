@@ -221,6 +221,27 @@ fn the_built_in_palettes_are_readable() {
 /// They were not audited at all until the kind marks made it obvious that the palette
 /// answers fourteen kinds with ten colours — so a theme could put a callout's bar the same
 /// colour as its own box and nothing said so. This is the pair that test.
+/// A properties block has to read as a block in **every** family, or the change is a
+/// fix in some themes and a decoration in others.
+#[test]
+fn every_built_in_can_draw_a_properties_block() {
+    for (name, palette) in Palette::BUILT_INS {
+        let block = palette.frontmatter;
+        assert_ne!(
+            block, palette.dim,
+            "{name}: a block drawn in its own punctuation colour is not distinguished"
+        );
+        assert_ne!(
+            block, palette.accent,
+            "{name}: the block would wear the hue `agent` falls back to"
+        );
+        assert!(
+            contrast::contrast(block, palette.bg) >= contrast::contrast(palette.dim, palette.bg),
+            "{name}: the block reads worse than the rule it replaces"
+        );
+    }
+}
+
 #[test]
 fn the_auditor_flags_a_callout_whose_bar_matches_its_box() {
     let mut palette = Palette::DARK;
@@ -280,6 +301,24 @@ fn the_auditor_flags_a_theme_file_that_reads_badly() {
 /// The Catppuccin flavours are selectable by name, by their `catppuccin-`
 /// prefixed alias, and as the `base` of a theme file, so a Catppuccin user
 /// can pick a flavour or tune one without leaving the palette they know.
+/// The block's colour earns its place by not being the punctuation next to it, and a
+/// theme file that paints it in `dim` is told so instead of quietly putting the block
+/// back to looking like a rule.
+#[test]
+fn the_auditor_flags_a_block_painted_in_its_own_punctuation() {
+    let mut palette = Palette::DARK;
+    palette.frontmatter = palette.dim;
+    let said = contrast::audit(&palette)
+        .iter()
+        .map(|flag| flag.to_string())
+        .collect::<Vec<_>>();
+    assert!(
+        said.iter()
+            .any(|s| s.starts_with("a properties block and syntax markers")),
+        "the collision went unreported: {said:?}"
+    );
+}
+
 #[test]
 fn the_catppuccin_flavours_are_built_ins() {
     let dir = tempfile::tempdir().unwrap();

@@ -193,6 +193,15 @@ impl RunStyle {
                 run.bold = true;
             }
             Style::TablePipe | Style::TableRule | Style::Rule => run.color = palette.dim,
+            // A properties block reads as a block: its fences keep the dashes the
+            // author wrote instead of becoming a rule across the note, and its keys
+            // wear the block's colour. The values stay ordinary text — the block says
+            // what the note calls a thing, not what the index made of it.
+            Style::FrontmatterFence | Style::FrontmatterKey => run.color = palette.frontmatter,
+            // A block the parser refused, or a fence that never closes: the note has no
+            // properties, and the block says so in the colour of an error rather than
+            // looking like it worked.
+            Style::FrontmatterBroken => run.color = palette.callout_danger,
             Style::Punctuation => run.color = palette.dim,
         }
         run
@@ -282,6 +291,24 @@ mod tests {
         let plain = RunStyle::plain(&Palette::LIGHT);
         assert_eq!(plain.color, Palette::LIGHT.fg);
         assert_eq!(plain.background, None);
+    }
+
+    /// A properties block is drawn in the block's own colour, and a block the parser
+    /// refused is drawn in the colour of an error — the two states a reader cannot
+    /// otherwise tell apart.
+    #[test]
+    fn a_properties_block_reads_as_a_block_or_as_an_error() {
+        for palette in [&Palette::DARK, &Palette::LIGHT] {
+            let fence = RunStyle::for_style(Style::FrontmatterFence, palette);
+            let key = RunStyle::for_style(Style::FrontmatterKey, palette);
+            assert_eq!(fence.color, palette.frontmatter);
+            assert_eq!(key.color, palette.frontmatter);
+            // Not the colour of a rule, which is what it used to be.
+            let rule = RunStyle::for_style(Style::Rule, palette);
+            assert_ne!(fence.color, rule.color);
+            let broken = RunStyle::for_style(Style::FrontmatterBroken, palette);
+            assert_eq!(broken.color, palette.callout_danger);
+        }
     }
 
     /// The family choice has to land on something installed *and* able to draw

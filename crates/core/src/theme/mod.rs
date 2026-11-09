@@ -97,6 +97,22 @@ pub struct Palette {
     pub link_unresolved: u32,
     /// Syntax punctuation and markers: `#`, `*`, `|`, brackets, table pipes.
     pub dim: u32,
+    /// A note's properties block: its `---` fences and its `key:`s.
+    ///
+    /// Its own role rather than `dim`, because the two say opposite things and used to
+    /// look identical: `dim` is a mark inside a sentence, and a leading `---` drawn in
+    /// it is indistinguishable from a thematic break — which is how a block of
+    /// properties that the index is reading and a line someone drew as a divider both
+    /// looked like decoration. A block the parser *refuses* is drawn in
+    /// [`Self::callout_danger`], so the three states a reader cannot otherwise tell
+    /// apart — block, rule, broken block — each have their own colour.
+    ///
+    /// Every built-in names it from its own family: `dim` moved toward that family's
+    /// `accent`, and where that blend would read *quieter* than the rule it replaces
+    /// (solarized-dark's magenta does) it is lifted toward `fg` until the §10 floor is
+    /// cleared. Naming the same derivation in 21 places was not worth it; naming the
+    /// result is what `design-language.md` §1 asks for.
+    pub frontmatter: u32,
     /// Heading text.
     pub heading: u32,
     /// Blockquote text.
@@ -291,6 +307,7 @@ impl Palette {
             link,
             link_unresolved,
             dim,
+            frontmatter,
             heading,
             quote,
             accent,
@@ -355,6 +372,7 @@ impl Palette {
             (&mut out.link, link),
             (&mut out.link_unresolved, link_unresolved),
             (&mut out.dim, dim),
+            (&mut out.frontmatter, frontmatter),
             (&mut out.heading, heading),
             (&mut out.quote, quote),
             (&mut out.accent, accent),
@@ -470,6 +488,7 @@ impl Palette {
             link: Some(self.link),
             link_unresolved: Some(self.link_unresolved),
             dim: Some(self.dim),
+            frontmatter: Some(self.frontmatter),
             heading: Some(self.heading),
             quote: Some(self.quote),
             accent: Some(self.accent),
@@ -613,6 +632,13 @@ pub struct ThemeFile {
         serialize_with = "serialize_color"
     )]
     pub dim: Option<u32>,
+    /// A note's properties block.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
+    pub frontmatter: Option<u32>,
     /// Heading text.
     #[serde(
         default,

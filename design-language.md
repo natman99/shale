@@ -29,6 +29,7 @@ added to the Palette, never inlined at the paint site.
 | `agent` | "the agent is / has been here": review badges, edit provenance, graph node rings — one color for the whole presence cluster |
 | `ui_disabled` | unavailable controls: dimmed keybinds, inactive chips |
 | `graph_ghost` / `graph_tag` / `graph_attachment` | node kinds named, not derived from neighbors' colors |
+| `frontmatter` (added 2026-11-09) | a note's properties block: its `---` fences and its `key:`s. A block of properties and a divider someone drew were the same three dashes in the same `dim`; the block now reads as a block. A block the parser **refuses** takes `callout_danger` — no new role, because an unreadable block is an error and the palette already says that |
 
 **✅ Rule: roles are additive.** A new role is *optional* in TOML themes, so the 20 built-ins
 and every user theme keep loading untouched, and **the built-ins name them explicitly in the

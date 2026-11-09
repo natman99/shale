@@ -30,6 +30,7 @@ pub const MAIN: Palette = Palette {
     link: 0x31748f,
     link_unresolved: 0x6e6a86,
     dim: 0x6e6a86,
+    frontmatter: 0xa66c8b, // dim toward accent
     heading: 0xe0def4,
     quote: 0x908caa,
     accent: 0xeb6f92,
@@ -100,6 +101,7 @@ pub const MOON: Palette = Palette {
     link: 0x3e8fb0,
     link_unresolved: 0x6e6a86,
     dim: 0x6e6a86,
+    frontmatter: 0xa66c8b, // dim toward accent
     heading: 0xe0def4,
     quote: 0x908caa,
     accent: 0xeb6f92,
@@ -174,6 +176,7 @@ pub const DAWN: Palette = Palette {
     link: 0x286983,
     link_unresolved: 0x9893a5,
     dim: 0x9893a5,
+    frontmatter: 0xa57d92, // dim toward accent
     heading: 0x464261,
     quote: 0x797593,
     accent: 0xb4637a,
