@@ -205,7 +205,11 @@ Two rules worth knowing:
   and `1/4` are text, because a query that reads them as something else is wrong
   quietly rather than loudly. To make a key numeric vault-wide, declare it in
   `.shale/props.toml` (`cr = "number"`); a declared-numeric key reads `cr: 1/4` as
-  0.25 for queries, and the note keeps the text you wrote.
+  0.25 for queries, and the note keeps the text you wrote. Declare `session` numeric
+  for the same reason: as text, `Session 10` sorts before `Session 2`, and every
+  chronological query inherits that mistake. A declaration never *casts* a value that
+  cannot carry it — `session: tonight` stays text, and `:props` shows the key holding
+  two kinds, because a disagreement you can see beats a wrong answer you cannot.
 - **The block is not prose.** The spell and grammar checker ignores it, so a key you
   spell your own way is not a typo.
 

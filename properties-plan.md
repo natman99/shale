@@ -94,6 +94,12 @@ the **majority kind across the vault's values for that key**, ties → `text`. A
 values disagree is a typo worth *seeing*, not a value worth silently casting: the census
 is a query (`GROUP BY key, kind`), surfaced in `:props`.
 
+**A declaration is honored only where the value can carry it** (learned while
+implementing M2). Declaring `cr` numeric and then storing `cr: low` as `kind='number'`
+is the silent cast this section refuses in another costume: SQLite reads
+`CAST('low' AS REAL)` as 0, so `cr <= 5` ranks that monster first and says nothing. The
+row keeps its own kind, which is the only way the census can show the conflict at all.
+
 Value-level rules, deliberately narrow (YAML 1.2 core, not YAML 1.1):
 
 - `true` / `false` → `bool`. `yes` / `no` / `on` / `off` stay **text** (the YAML 1.1
@@ -140,6 +146,13 @@ fills:
 - **`edges`** — every `link`-kind value, scalar or list item, one directed row per fact,
   no inverses (ruled). **This is the pass that finally fills `edges`** and therefore
   closes the dangling "until P3.3" pointer.
+  - **Ruled while implementing (2026-11-08): only the `[[…]]` spelling is link-shaped.**
+    This section's looser test — "or resolves to a note path" — was tried and rejected by
+    its own consequence: a statblock that says `name: Goblin` in a vault holding a
+    `Goblin.md` asserts a link to itself, and every `type: goblin` in the vault lights up
+    as an edge. **Naming a note is not the same claim as linking to it**, and Obsidian
+    agrees: an unquoted value is a string. A bare value stays `text`, and a query can
+    still compare it to note names however it likes.
 
 Two rows for one authored fact (props + projection) is the one deliberate exception to
 "one row per fact", and it is the same argument already used for `edges`: the props row

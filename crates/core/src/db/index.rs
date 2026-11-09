@@ -125,6 +125,10 @@ struct Record {
     links: Vec<(String, &'static str)>,
     /// The frontmatter block's properties, as authored and then declared.
     props: Vec<Prop>,
+    /// Typed edges the frontmatter asserts: `(kind, target)` per link-shaped value,
+    /// where `kind` is the key that wrote it (`ally`, `region`) and `target` is the
+    /// note it resolves to, or what the author wrote when nothing resolves.
+    edges: Vec<(String, String)>,
     /// Why the block could not be read, if it could not. The note still gets its
     /// other rows — a bad block costs its own note its props, not the pass — and the
     /// pass reports it, because a silently empty `props` is a misleading answer.
@@ -236,13 +240,57 @@ fn record(
         }
     };
 
+    // The projections the props feed (ruling §1.3). Both are additive: the body's
+    // `#tags` and `[[links]]` keep working exactly as they did, and frontmatter adds
+    // to them rather than replacing them — which is a test, not a comment.
+    let mut tags = extract_tags(&text);
+    for prop in &props {
+        if frontmatter::is_tag_key(&prop.key) {
+            let tag = prop.value.trim().trim_start_matches('#').trim();
+            if !tag.is_empty() && !tags.iter().any(|t| t == tag) {
+                tags.push(tag.to_string());
+            }
+        }
+    }
+
+    // Only the `[[…]]` spelling is a link. The plan's looser test — "or resolves to a
+    // note path" — was tried and rejected by its own consequence: a statblock that
+    // says `name: Goblin` in a vault that has a `Goblin.md` would assert a link to
+    // itself, and every `type: goblin` in the vault would light up as an edge. Naming a
+    // note is not the same claim as linking to it, and Obsidian agrees: an unquoted
+    // value is a string. So the author's brackets are the intent, and a bare value
+    // stays text for a query to compare however it likes.
+    let resolver = crate::vault::LinkResolver::new(notes);
+
+    // Every link-shaped value is one directed edge, keyed by the property that wrote
+    // it (EDGE-16). A target that resolves to nothing still gets its row: an ally
+    // that is not a note is a plot hole worth seeing, not a row to drop.
+    let mut edges: Vec<(String, String)> = Vec::new();
+    for prop in &props {
+        if prop.kind != Kind::Link {
+            continue;
+        }
+        let target = frontmatter::wikilink(&prop.value).unwrap_or(prop.value.trim());
+        if target.is_empty() {
+            continue;
+        }
+        let stored = match resolver.resolve_link(target) {
+            Some(entry) => rel_text(&entry.path),
+            None => target.to_string(),
+        };
+        if !edges.iter().any(|(_, dst)| dst == &stored) {
+            edges.push((prop.key.clone(), stored));
+        }
+    }
+
     Ok(Record {
         path: rel_text(rel),
         size: meta.len() as i64,
         modified_at,
         words: word_count(&text) as i64,
-        tags: extract_tags(&text),
+        tags,
         links,
+        edges,
         props,
         frontmatter_error,
     })
@@ -319,6 +367,21 @@ fn write_record(conn: &Connection, note: &Record, provenance: Provenance) -> Res
         .with_context(|| format!("indexing {}", note.path))?;
     }
 
+    // Typed edges, one row per link-shaped value, keyed by the property that wrote it.
+    // Only the note's OWN rows go here: a row pointing at this note belongs to the note
+    // that wrote it, and wiping it on this note's re-index loses a fact nobody asked to
+    // lose (`links` deletes by source for exactly this reason; the `target`/`dst` delete
+    // belongs to drop_note, where the pointing notes really are due to be re-read).
+    conn.execute("DELETE FROM edges WHERE src = ?1", params![note.path])
+        .with_context(|| format!("indexing {}", note.path))?;
+    for (kind, dst) in &note.edges {
+        conn.execute(
+            "INSERT OR IGNORE INTO edges (src, kind, dst) VALUES (?1, ?2, ?3)",
+            params![note.path, kind, dst],
+        )
+        .with_context(|| format!("indexing {}", note.path))?;
+    }
+
     // Properties are replaced wholesale (EDGE-19): delete-then-insert for the note's
     // whole prop set, with no per-key diff. That is what lets a frontmatter block the
     // author deleted take its rows with it, and it is why `props_note` exists.
@@ -350,6 +413,7 @@ fn drop_note(conn: &Connection, path: &str) -> Result<()> {
     // still contain the text, so their links come back as ghosts the next time each
     // of those notes is indexed.
     conn.execute("DELETE FROM links WHERE target = ?1", params![path])?;
+    conn.execute("DELETE FROM edges WHERE src = ?1 OR dst = ?1", params![path])?;
     conn.execute("DELETE FROM props WHERE note = ?1", params![path])?;
     Ok(())
 }
@@ -1100,6 +1164,42 @@ mod tests {
         );
     }
 
+    /// The declaration is a claim about the key; a prose value is a claim about the
+    /// row; when they disagree the row keeps its truth and the census shows the
+    /// conflict. Declaring `session` numeric is the case the GM round added (as text,
+    /// `Session 10` sorts before `Session 2`) — and the same declaration must not turn
+    /// `session: tonight` into a number, because SQLite reads `CAST('tonight' AS REAL)`
+    /// as 0 and a chronological query would rank it first in silence.
+    #[test]
+    fn a_declaration_does_not_cast_a_value_that_cannot_carry_it() {
+        let (dir, vault, db) = vault_with(&[
+            ("Session-15.md", "---\nsession: 15\n---\nbody\n"),
+            ("Loose.md", "---\nsession: tonight\n---\nbody\n"),
+        ]);
+        std::fs::write(
+            dir.path().join(".shale").join("props.toml"),
+            "session = \"number\"\n",
+        )
+        .unwrap();
+        db.reconcile(&vault).unwrap();
+        assert_eq!(
+            column(&db, "SELECT note || ' ' || value || ':' || kind FROM props"),
+            [
+                "Loose.md tonight:text",
+                "Session-15.md 15:number",
+            ]
+            .map(String::from)
+            .to_vec()
+        );
+        // The census (`GROUP BY key, kind`) is what makes the disagreement a thing the
+        // user can see rather than a wrong answer, and it only works because both kinds
+        // survived in the table.
+        assert_eq!(
+            column(&db, "SELECT key || '=' || kind || '=' || CAST(COUNT(*) AS TEXT) FROM props GROUP BY key, kind"),
+            ["session=number=1", "session=text=1"].map(String::from).to_vec()
+        );
+    }
+
     /// EDGE-19: re-indexing replaces the note's whole prop set, so a frontmatter
     /// block the author deleted takes its rows with it.
     #[test]
@@ -1217,5 +1317,100 @@ mod tests {
         assert_eq!(rows[0].kind, Kind::Text);
         assert_eq!(rows[1].key, "dead");
         assert_eq!(rows[1].kind, Kind::Date);
+    }
+
+    /// The M2 exit criterion in both directions: frontmatter tags add to the body's
+    /// `#tags`, and a note with no frontmatter indexes exactly as it did before
+    /// properties existed at all.
+    #[test]
+    fn a_frontmatter_tag_adds_to_the_body_tags_and_a_plain_note_is_unchanged() {
+        let (_dir, vault, db) = vault_with(&[
+            (
+                "notes/both.md",
+                "---\ntags:\n  - \"#party\"\n  - villain\n---\nBody #bodytag text\n",
+            ),
+            ("notes/plain.md", "Body #bodytag only\n"),
+        ]);
+        db.reconcile(&vault).unwrap();
+        // The leading `#` on a frontmatter tag is optional and means the same thing
+        // either way; the body tag and both frontmatter tags are rows.
+        assert_eq!(
+            column(&db, "SELECT note || ' ' || tag FROM tags WHERE note = 'notes/both.md'"),
+            [
+                "notes/both.md bodytag",
+                "notes/both.md party",
+                "notes/both.md villain",
+            ]
+            .map(String::from)
+            .to_vec()
+        );
+        // The regression half: nothing about a body-only note moved.
+        assert_eq!(
+            column(&db, "SELECT tag FROM tags WHERE note = 'notes/plain.md'"),
+            vec!["bodytag".to_string()]
+        );
+    }
+
+    /// EDGE-16: every link-shaped value is one directed row keyed by the property that
+    /// wrote it, and a target that resolves to nothing keeps its row anyway.
+    #[test]
+    fn a_link_property_writes_typed_edges_and_a_ghost_keeps_its_row() {
+        let (_dir, vault, db) = vault_with(&[
+            (
+                "notes/lares.md",
+                "---\nregion: \"[[Waterdeep]]\"\nally:\n  - \"[[Zhentarim]]\"\n  - \"[[Ashover]]\"\n---\n\nBody\n",
+            ),
+            ("notes/waterdeep.md", "The city.\n"),
+        ]);
+        db.reconcile(&vault).unwrap();
+        let rows = column(&db, "SELECT kind || '=' || dst FROM edges WHERE src = 'notes/lares.md'");
+        // A wikilink that names a note is stored resolved; the two allies are rows of
+        // their own; and the ghost is stored as authored, because an ally that is not a
+        // note is a plot hole worth seeing rather than a row to drop.
+        assert_eq!(
+            rows,
+            [
+                "ally=Ashover",
+                "ally=Zhentarim",
+                "region=notes/waterdeep.md",
+            ]
+            .map(String::from)
+            .to_vec()
+        );
+
+        // The prop agrees with the edge table about what is a link.
+        assert_eq!(
+            column(
+                &db,
+                "SELECT key || '=' || kind FROM props WHERE note = 'notes/lares.md' ORDER BY key",
+            ),
+            // Two list items are two rows, which is what a repeated key means here.
+            ["ally=link", "ally=link", "region=link"]
+                .map(String::from)
+                .to_vec()
+        );
+    }
+
+    /// Re-indexing replaces a note's edges rather than adding to them, and deleting the
+    /// note takes its rows with it.
+    #[test]
+    fn an_edge_set_is_replaced_on_reindex_and_dropped_with_the_note() {
+        let (_dir, vault, db) = vault_with(&[("a.md", "---\nally: \"[[B]]\"\n---\n\nBody\n")]);
+        let edges = |db: &Db| column(db, "SELECT src || ' ' || kind || '=' || dst FROM edges");
+        db.reconcile(&vault).unwrap();
+        assert_eq!(edges(&db), vec!["a.md ally=B".to_string()]);
+        vault
+            .write("a.md", "---\nally: \"[[B]]\"\nally: \"[[C]]\"\n---\n\nBody\n")
+            .unwrap();
+        db.note_saved(&vault, Path::new("a.md"), Provenance::User)
+            .unwrap();
+        assert_eq!(
+            edges(&db),
+            ["a.md ally=B", "a.md ally=C"].map(String::from).to_vec(),
+            "re-indexing replaces the note's edges rather than adding to them"
+        );
+        vault.delete("a.md").unwrap();
+        db.note_deleted(Path::new("a.md"), Provenance::External).unwrap();
+        assert!(edges(&db).is_empty());
     }
 }

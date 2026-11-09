@@ -1153,9 +1153,23 @@ edges, query nodes, MCP canvas tools) is P6.10.
       the DB, with the no-index posture (EDGE-25) and badges for a key written twice
       and a value that was not read. The free ride landed with it: the spell/grammar
       checker drops a note that lands inside the block (`lsp/mapping.rs`), which is
-      the false-positive case `PROJECT.md` had been carrying. **M2 (the projections:
-      `tags` from frontmatter, `aliases`, and the first writer `edges` has ever had)
-      and M3 (the `prop:` operator, the kind census, the first `.shq`) are open.**
+      the false-positive case `PROJECT.md` had been carrying.
+    - **M2 landed 2026-11-08 (projections).** `tags` is body `#tags` **plus** the
+      `tags:`/`tag:` key's items (`#` optional either spelling), and the regression half
+      is a test: a body-only note indexes exactly as it did before properties existed.
+      `edges` finally has a writer — one directed row per `[[…]]` value keyed by the
+      property that wrote it, ghosts included, resolved targets stored as paths. Two
+      rulings came out of doing it, both recorded in `properties-plan.md`: **only the
+      `[[…]]` spelling is link-shaped** (the plan's "or resolves to a note path" makes
+      `name: Goblin` in `Goblin.md` a link to itself), and **a declaration is honored
+      only where the value can carry it** (declaring `cr` numeric and storing `cr: low`
+      as a number is the silent cast the plan refuses; the row keeps its kind so the
+      census can show the conflict). **`aliases` is deferred, not forgotten:** there is no
+      `aliases` table, and making `LinkResolver` alias-aware changes how `[[Foo]]`
+      resolves vault-wide (alias-vs-name collisions), which is a ruling to make rather
+      than take in passing — it lands as its own commit, additively (aliases consulted
+      only when the existing three rules find nothing). **M3 (the `prop:` operator, the
+      kind census, the first `.shq`) is the open half.**
   - **P4.3b Headings index — AFTER P4.3a, and explicitly NOT inside it** (ruled
     2026-11-08). Schema **v4** adds `headings(note, line, text, depth)`, filled in the
     same indexer pass from `mdstyle`/`mdlayout` — derived, not authored, so it cannot

@@ -32,6 +32,12 @@
 //! leaves the note with no props and says why, and the caller reports it the way the
 //! index reports a note it could not read.
 
+/// Whether a key feeds the `tags` projection. Case-significant, like every other
+/// key: `Tags:` is your key, `tags:` is Shale's.
+pub fn is_tag_key(key: &str) -> bool {
+    key == "tags" || key == "tag"
+}
+
 /// What kind a property's value is.
 ///
 /// Stored as text in `props.kind`, and the whole trick of the layout: the type
@@ -655,14 +661,35 @@ pub fn normalize_number(value: &str) -> Option<String> {
     Some(format!("{out}"))
 }
 
-/// Apply a vault's declaration for a key (ruling §1.2: declared wins).
+/// Apply a vault's declaration for a key (ruling §1.2: declared wins) — **where the
+/// value can carry the declared kind.**
+///
+/// The declaration is a claim about the *key*, and a prose value is a claim about the
+/// row, and when they disagree the row keeps its truth. Storing `cr: low` as
+/// `kind='number'` would be the silent cast the plan refuses: SQLite's
+/// `CAST('low' AS REAL)` is 0, so a `cr <= 5` query would rank that monster first and
+/// never say so. Keeping it `text` is what makes the disagreement *visible* — the kind
+/// census is `GROUP BY key, kind`, and it can only show a conflict between two kinds
+/// that both survive in the table.
+///
+/// `Number` is the only kind with a value to rewrite (EDGE-17's `1/4` → `0.25`);
+/// `Text`/`Link`/`Nested` are not shape-checked, so a declaration for those is taken
+/// at its word.
 pub fn declare(prop: &mut Prop, kind: Kind) {
-    if kind == Kind::Number {
-        if let Some(value) = normalize_number(&prop.value) {
-            prop.value = value;
-        }
+    let carries = match kind {
+        Kind::Number => match normalize_number(&prop.value) {
+            Some(value) => {
+                prop.value = value;
+                true
+            }
+            None => false,
+        },
+        Kind::Date | Kind::DateTime | Kind::Bool => value_kind(&prop.value) == kind,
+        _ => true,
+    };
+    if carries {
+        prop.kind = kind;
     }
-    prop.kind = kind;
 }
 
 /// JSON frontmatter: `---`, one JSON object, `---`.
