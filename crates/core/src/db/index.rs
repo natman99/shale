@@ -22,11 +22,13 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, UNIX_EPOCH};
 
 use anyhow::{Context as _, Result};
+use rusqlite::types::Value;
 use rusqlite::{params, Connection};
 
 use crate::frontmatter::{self, Kind, Prop};
 use crate::graph::extract_tags;
 use crate::markdown::extract_wikilinks;
+use crate::query::Query;
 use crate::vault::{rel_text, Vault, VaultEntry};
 use crate::watch::{Stamp, VaultChanges};
 
@@ -590,11 +592,6 @@ impl Db {
         Ok((words, notes))
     }
 
-    /// The properties the index holds for one note, in the order they were written.
-    ///
-    /// Read back from the DB rather than re-parsed from the buffer, which is the point
-    /// of the table: `:props`, a `.shq` body and the `prop:` operator all ask the same
-    /// question, and only one of them has the note open.
     /// The kinds the vault holds for each key the caller is looking at — the kind
     /// census (ruling §1.3), narrowed to those keys so the read stays on the
     /// `props_key (key, kind)` index. A key with more than one kind is a disagreement
@@ -621,6 +618,11 @@ impl Db {
         Ok(out)
     }
 
+    /// The properties the index holds for one note, in the order they were written.
+    ///
+    /// Read back from the DB rather than re-parsed from the buffer, which is the point
+    /// of the table: `:props`, a `.shq` body and the `prop:` operator all ask the same
+    /// question, and only one of them has the note open.
     pub fn note_props(&self, rel: &Path) -> Result<Vec<Prop>> {
         let path = rel_text(rel);
         let conn = self.read()?;
@@ -644,6 +646,144 @@ impl Db {
         let mut out = Vec::new();
         for row in rows {
             out.push(row.context("reading the vault index's properties")?);
+        }
+        Ok(out)
+    }
+
+    /// Which notes a query selects, as vault-relative paths, sorted.
+    ///
+    /// This is the reader the `tags`, `links` and `props` tables were built for:
+    /// vault search's operators (P4.14) and, later, the same grammar in a `.shq`.
+    /// One statement per query, so the operators **and** together and the plan stays
+    /// on the indexes the schema already has (`tags_tag`, `links_target`,
+    /// `props_key (key, kind)`).
+    ///
+    /// Two parts are deliberately not SQL:
+    ///
+    /// - `path:` is answered in Rust — [`crate::glob::covers`] when the pattern is a
+    ///   glob, substring when it is not — because SQLite's `LIKE` is a different
+    ///   language and the ignore rules already speak `covers`.
+    /// - **a comparison never casts.** An ordering reads only rows the index recorded
+    ///   as numbers, so a note whose `cr` says `low` is not a note with a low
+    ///   challenge rating; `CAST('low' AS REAL)` is `0` and SQLite will not warn.
+    ///   Equality follows the value instead: a number compares as a number, anything
+    ///   else compares the stored text, which is what makes `prop:due=2026-11-08`
+    ///   find a date row.
+    pub fn notes_matching(&self, q: &Query) -> Result<Vec<PathBuf>> {
+        use crate::query::{After, Cmp, Op};
+        let mut sql = String::from("SELECT path FROM notes n WHERE 1=1");
+        let mut args: Vec<Value> = Vec::new();
+        // Path operators are refined after the query; see the method comment.
+        let mut paths: Vec<String> = Vec::new();
+
+        for op in &q.ops {
+            match op {
+                Op::Tag(tag) => add(
+                    &mut sql,
+                    &mut args,
+                    " AND EXISTS (SELECT 1 FROM tags t WHERE t.note = n.path \
+                     AND t.tag = ? COLLATE NOCASE)",
+                    &[tag],
+                ),
+                Op::Link(name) => {
+                    // A link is stored as the resolved path, or as the raw `[[name]]`
+                    // when the target does not exist yet. Both are reachable by the
+                    // name the user would type: exactly, at the vault root, nested,
+                    // and as a ghost.
+                    let file = if name.ends_with(".md") {
+                        name.to_string()
+                    } else {
+                        format!("{name}.md")
+                    };
+                    let like = format!("%/{}", escape_like(&file));
+                    add(
+                        &mut sql,
+                        &mut args,
+                        " AND EXISTS (SELECT 1 FROM links l WHERE l.source = n.path AND ( \
+                 l.target = ? COLLATE NOCASE \
+              OR l.target = ? COLLATE NOCASE \
+              OR l.target LIKE ? \
+              OR (l.target_kind = 'ghost' AND l.target = ? COLLATE NOCASE)))",
+                        &[name, &file, &like, name],
+                    );
+                }
+                Op::Prop { key, cmp, value } => match cmp {
+                    Cmp::Has => add(
+                        &mut sql,
+                        &mut args,
+                        " AND EXISTS (SELECT 1 FROM props p WHERE p.note = n.path AND p.key = ?)",
+                        &[key],
+                    ),
+                    Cmp::Ne => {
+                        // "cr is not 5" is a statement about notes that *have* a cr.
+                        // A note with no cr at all is not a note with a different one.
+                        let frag = prop_equality(value.as_deref().unwrap_or(""));
+                        add(
+                            &mut sql,
+                            &mut args,
+                            &format!(
+                                " AND EXISTS (SELECT 1 FROM props p WHERE p.note = n.path AND p.key = ?) \
+                 AND NOT EXISTS (SELECT 1 FROM props p WHERE p.note = n.path AND p.key = ?{frag})"
+                            ),
+                            &[key, key, value.as_deref().unwrap_or("")],
+                        );
+                    }
+                    Cmp::Eq => {
+                        let frag = prop_equality(value.as_deref().unwrap_or(""));
+                        add(
+                            &mut sql,
+                            &mut args,
+                            &format!(
+                                " AND EXISTS (SELECT 1 FROM props p WHERE p.note = n.path AND p.key = ?{frag})"
+                            ),
+                            &[key, value.as_deref().unwrap_or("")],
+                        );
+                    }
+                    other => {
+                        let frag = prop_ordering(*other);
+                        add(
+                            &mut sql,
+                            &mut args,
+                            &format!(
+                                " AND EXISTS (SELECT 1 FROM props p WHERE p.note = n.path AND p.key = ?{frag})"
+                            ),
+                            &[key, value.as_deref().unwrap_or("")],
+                        );
+                    }
+                },
+                Op::Modified(after) => {
+                    // A date counts from midnight UTC of the day typed; a duration
+                    // counts back from this moment.
+                    let from = match after {
+                        After::Since(secs) => now_epoch().saturating_sub(*secs),
+                        After::At(secs) => *secs,
+                    };
+                    add_values(
+                        &mut sql,
+                        &mut args,
+                        " AND n.modified_at >= ?",
+                        &[Value::Integer(from)],
+                    );
+                }
+                Op::Path(pattern) => paths.push(pattern.clone()),
+            }
+        }
+
+        let conn = self.read()?;
+        let mut stmt = conn.prepare(&sql)?;
+        let mut out: Vec<PathBuf> = stmt
+            .query_map(rusqlite::params_from_iter(args.iter()), |row| {
+                row.get::<_, String>(0)
+            })?
+            .map(|row| row.map(PathBuf::from))
+            .collect::<Result<_, _>>()?;
+        out.sort();
+        drop(stmt);
+
+        // `path:` last, because it is the cheapest filter to apply in Rust and the
+        // one SQLite would get wrong.
+        if !paths.is_empty() {
+            out.retain(|p| paths.iter().all(|pat| path_matches(pat, p)));
         }
         Ok(out)
     }
@@ -822,6 +962,98 @@ fn whole_seconds(stamp: Stamp) -> Stamp {
                 ),
         },
     }
+}
+
+/// Append a fragment to the statement, numbering each `?` in it against `args`.
+///
+/// The fragment is written with plain `?` so it reads like SQL; the numbering is
+/// what lets one statement carry every operator of a query.
+fn add(sql: &mut String, args: &mut Vec<Value>, frag: &str, values: &[&str]) {
+    add_values(
+        sql,
+        args,
+        frag,
+        &values
+            .iter()
+            .map(|v| Value::Text(v.to_string()))
+            .collect::<Vec<_>>(),
+    )
+}
+
+/// [`add`] with values that are already the right SQLite type.
+///
+/// A timestamp has to arrive as an integer: binding it as text would have SQLite
+/// compare an INTEGER column against a string, which is a type comparison rather
+/// than the one being asked for.
+fn add_values(sql: &mut String, args: &mut Vec<Value>, frag: &str, values: &[Value]) {
+    let parts: Vec<&str> = frag.split('?').collect();
+    assert_eq!(
+        parts.len() - 1,
+        values.len(),
+        "the fragment and its values must agree"
+    );
+    let base = args.len();
+    for (i, part) in parts.iter().enumerate() {
+        sql.push_str(part);
+        if i + 1 < parts.len() {
+            sql.push_str(&format!("?{}", base + i + 1));
+        }
+    }
+    args.extend(values.iter().cloned());
+}
+
+/// The SQL that compares a property row for equality against `value`.
+///
+/// A numeric value compares numerically and reads only rows the index recorded as
+/// numbers; anything else compares the stored text, which is what lets
+/// `prop:due=2026-11-08` find a date row without pretending dates are numbers.
+fn prop_equality(value: &str) -> String {
+    if value.parse::<f64>().is_ok() {
+        " AND p.kind = 'number' AND CAST(p.value AS REAL) = ?".to_string()
+    } else {
+        " AND p.value = ? COLLATE NOCASE".to_string()
+    }
+}
+
+/// The SQL for an ordering comparison. Always numeric — see
+/// [`Db::notes_matching`]. The parser has already refused an ordering whose value
+/// is not a number, so a non-numeric value never reaches here.
+fn prop_ordering(cmp: crate::query::Cmp) -> &'static str {
+    use crate::query::Cmp;
+    match cmp {
+        Cmp::Lt => " AND p.kind = 'number' AND CAST(p.value AS REAL) < ?",
+        Cmp::Le => " AND p.kind = 'number' AND CAST(p.value AS REAL) <= ?",
+        Cmp::Gt => " AND p.kind = 'number' AND CAST(p.value AS REAL) > ?",
+        Cmp::Ge => " AND p.kind = 'number' AND CAST(p.value AS REAL) >= ?",
+        _ => " AND p.kind = 'number' AND CAST(p.value AS REAL) = ?",
+    }
+}
+
+/// Whether a `path:` pattern selects a note.
+///
+/// A pattern with glob metacharacters is matched by [`crate::glob::covers`], the
+/// same matcher the ignore rules use. Without them it is a substring, because
+/// `path:notes/` is how someone says "under notes/" and a glob would have said
+/// `notes/*` to mean the same thing.
+fn path_matches(pattern: &str, path: &Path) -> bool {
+    if pattern.chars().any(|c| matches!(c, '*' | '?' | '[' | '{')) {
+        crate::glob::covers(pattern, path)
+    } else {
+        rel_text(path).contains(pattern)
+    }
+}
+
+/// Quote the LIKE wildcards in a name used as a link target, so `link:100%` looks
+/// for a note called `100%` rather than one whose name ends in anything.
+fn escape_like(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    for ch in name.chars() {
+        if matches!(ch, '%' | '_' | '\\') {
+            out.push('\\');
+        }
+        out.push(ch);
+    }
+    out
 }
 
 #[cfg(test)]
@@ -1449,5 +1681,176 @@ mod tests {
         db.note_deleted(Path::new("a.md"), Provenance::External)
             .unwrap();
         assert!(edges(&db).is_empty());
+    }
+
+    // --- the query operators (P4.14) -------------------------------------------
+
+    /// The vault the operators are priced against: notes that differ in exactly the
+    /// ways a query can ask about — a `cr` that is a number in one note and prose in
+    /// another, a tag written two ways, a link to a note that does not exist.
+    fn query_vault() -> (tempfile::TempDir, Db) {
+        let (dir, vault, db) = vault_with(&[
+            (
+                "notes/goblin.md",
+                "---\ncr: 5\ntags: [monster, goblinoid]\n---\n# Goblin\n\nDigs in a [[lair]].\n",
+            ),
+            (
+                "notes/snare.md",
+                "---\ncr: low\ntags: monster\n---\n# Snare\n\nA [[lair]] snare.\n",
+            ),
+            (
+                "notes/lair.md",
+                "---\ncr: 8\ntags: [location]\n---\n# Lair\n\nWhere goblins dig.\n",
+            ),
+            ("factions/zhentarim.md", "# Zhentarim\n\nA faction.\n"),
+            (
+                "inbox/plot.md",
+                "# Plot\n\nA [[Zhentarim]] scheme and a [[Ghost Here]] hole.\n",
+            ),
+        ]);
+        db.reconcile(&vault).unwrap();
+        (dir, db)
+    }
+
+    /// Run a query and name the notes it selects. Which notes, never how many: two
+    /// sets of the same size make a count pass for the wrong answer.
+    fn matched(db: &Db, input: &str) -> Vec<String> {
+        let q = crate::query::parse(input);
+        assert!(q.unknown.is_empty(), "{input} was refused: {q:?}");
+        db.notes_matching(&q)
+            .unwrap()
+            .iter()
+            .map(rel_text)
+            .collect()
+    }
+
+    #[test]
+    fn tag_link_and_path_each_select_their_notes() {
+        let (_dir, db) = query_vault();
+        assert_eq!(
+            matched(&db, "tag:monster"),
+            vec!["notes/goblin.md", "notes/snare.md"],
+            "a frontmatter list and a bare scalar are the same tag"
+        );
+        assert_eq!(
+            matched(&db, "link:Zhentarim"),
+            vec!["inbox/plot.md"],
+            "the name a person would type, not the path they would not"
+        );
+        assert_eq!(
+            matched(&db, r#"link:"Ghost Here""#),
+            vec!["inbox/plot.md"],
+            "a link to a note that does not exist is still a link, and a name with a
+             space is quoted like any other value"
+        );
+        assert_eq!(
+            matched(&db, "path:notes/"),
+            vec!["notes/goblin.md", "notes/lair.md", "notes/snare.md"]
+        );
+        // The glob dialect is the one the ignore rules use, not SQL's `LIKE`: `*`
+        // stays inside one segment, so `*.md` is the vault's top level and `**/*.md`
+        // is everywhere. Pinning this is the point — a `LIKE '%.md'` would have
+        // answered both the same and quietly disagreed with a profile's patterns.
+        assert!(
+            matched(&db, "path:*.md").is_empty(),
+            "no note sits at the vault root"
+        );
+        assert_eq!(
+            matched(&db, "path:notes/*.md"),
+            vec!["notes/goblin.md", "notes/lair.md", "notes/snare.md"]
+        );
+        assert_eq!(
+            matched(&db, "path:**/*.md"),
+            vec![
+                "factions/zhentarim.md",
+                "inbox/plot.md",
+                "notes/goblin.md",
+                "notes/lair.md",
+                "notes/snare.md"
+            ]
+        );
+    }
+
+    /// The rule the whole `kind` column exists for. Without the kind filter SQLite
+    /// computes `CAST('low' AS REAL)` as `0`, so the note that says `cr: low` ranks
+    /// above the one with a real challenge rating — and nothing complains.
+    #[test]
+    fn a_numeric_comparison_needs_a_number() {
+        let (_dir, db) = query_vault();
+        assert_eq!(matched(&db, "prop:cr<=5"), vec!["notes/goblin.md"]);
+        assert_eq!(matched(&db, "prop:cr>5"), vec!["notes/lair.md"]);
+        assert_eq!(
+            matched(&db, "prop:cr>=5"),
+            vec!["notes/goblin.md", "notes/lair.md"]
+        );
+        // The prose row is not invisible; it answers a question about text.
+        assert_eq!(matched(&db, "prop:cr=low"), vec!["notes/snare.md"]);
+        assert_eq!(
+            matched(&db, "prop:cr"),
+            vec!["notes/goblin.md", "notes/lair.md", "notes/snare.md"],
+            "with no comparison the question is only whether the note writes the key"
+        );
+    }
+
+    /// `cr!=5` is a statement about notes that have a cr. A note with no cr is not a
+    /// note with a different one.
+    #[test]
+    fn not_equal_still_requires_the_key() {
+        let (_dir, db) = query_vault();
+        assert_eq!(
+            matched(&db, "prop:cr!=5"),
+            vec!["notes/lair.md", "notes/snare.md"]
+        );
+    }
+
+    /// Operators **and** together — which is what makes `tag:monster prop:cr<=5` a
+    /// question a GM actually asks at the table.
+    #[test]
+    fn the_operators_and_together() {
+        let (_dir, db) = query_vault();
+        assert_eq!(
+            matched(&db, "tag:monster prop:cr<=5"),
+            vec!["notes/goblin.md"]
+        );
+        assert_eq!(
+            matched(&db, "tag:monster link:lair"),
+            vec!["notes/goblin.md", "notes/snare.md"]
+        );
+        assert!(
+            matched(&db, "tag:monster link:Zhentarim").is_empty(),
+            "no note is both, and saying so is the answer"
+        );
+    }
+
+    /// `modified:` counts back from now for a duration, and from midnight UTC for a
+    /// date. The mtime is set by hand so the test does not depend on when it runs.
+    #[test]
+    fn modified_counts_back_from_now() {
+        let (dir, db) = query_vault();
+        let old = UNIX_EPOCH + Duration::from_secs((now_epoch() - 30 * 86_400) as u64);
+        let file = std::fs::File::options()
+            .write(true)
+            .open(dir.path().join("notes/snare.md"))
+            .unwrap();
+        file.set_times(FileTimes::new().set_modified(old)).unwrap();
+        let vault = Vault::open(dir.path()).unwrap();
+        db.reconcile(&vault).unwrap();
+
+        let recent = matched(&db, "modified:7d");
+        assert!(
+            !recent.contains(&"notes/snare.md".to_string()),
+            "a note untouched for a month is not recent"
+        );
+        assert!(recent.contains(&"notes/goblin.md".to_string()));
+        assert_eq!(
+            matched(&db, "modified:60d"),
+            vec![
+                "factions/zhentarim.md",
+                "inbox/plot.md",
+                "notes/goblin.md",
+                "notes/lair.md",
+                "notes/snare.md"
+            ]
+        );
     }
 }

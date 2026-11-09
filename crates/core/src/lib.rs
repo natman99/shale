@@ -15,6 +15,7 @@ pub mod mdlayout;
 pub mod mdstyle;
 pub mod note_name;
 pub mod pending;
+pub mod query;
 pub mod recent;
 pub mod rename;
 pub mod search;
