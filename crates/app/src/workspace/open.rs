@@ -474,9 +474,88 @@ fn notice(reason: impl Into<SharedString>) -> (PickerItem, PickerTarget) {
     )
 }
 
-/// How much of a note's line a row is allowed to quote. The row is a pointer to the
-/// note, not a reading view; the line's beginning is what identifies it.
-const EVIDENCE_TEXT: usize = 60;
+/// How much room the row's evidence gets in total. Split between the fragments, so
+/// two operators both get their key shown rather than the first eating the row.
+const EVIDENCE_TEXT: usize = 90;
+
+/// The floor for one fragment: below this a quote stops being a quote.
+const MIN_FRAGMENT: usize = 16;
+
+/// A slice of a line to show, cut **around the match** rather than from its start,
+/// with the forwarded ranges re-mapped into what is actually shown.
+///
+/// The head of a long line is not the interesting part: a 78-character line quoted
+/// at 60 can cut the match away entirely, which is the opposite of why the row is
+/// there. So the window is centred on the first forwarded range, and the ellipses
+/// say where text was left out.
+///
+/// Everything here counts in characters and hands back byte ranges into the string
+/// it built, because gpui's text runs are byte lengths and a run that ends inside a
+/// multi-byte character is an `invalid text run` panic — which is exactly how the
+/// first version of this crashed, its range landing inside the `…` it had appended.
+pub(crate) fn evidence_window(
+    line: &str,
+    ranges: &[(usize, usize)],
+    max: usize,
+) -> (String, Vec<(usize, usize)>) {
+    let chars: Vec<char> = line.chars().collect();
+    // Byte offset of each character, so a character window can be stated in bytes.
+    let mut byte_of = Vec::with_capacity(chars.len() + 1);
+    let mut acc = 0usize;
+    for c in chars.iter() {
+        byte_of.push(acc);
+        acc += c.len_utf8();
+    }
+    byte_of.push(acc);
+
+    if chars.len() <= max {
+        return (line.to_string(), ranges.to_vec());
+    }
+
+    // The key: the first range the query named, in character indices.
+    let key = ranges
+        .first()
+        .and_then(|&(start, end)| Some((char_index(line, start)?, char_index(line, end)?)));
+    let key_len = key.map_or(0, |(start, end)| end.saturating_sub(start));
+
+    let room = max.saturating_sub(key_len);
+    let mut start = key.map_or(0, |(k, _)| k.saturating_sub(room / 2));
+    if start + max > chars.len() {
+        start = chars.len().saturating_sub(max);
+    }
+    let end = (start + max).min(chars.len());
+
+    let prefix = if start > 0 { "…" } else { "" };
+    let suffix = if end < chars.len() { "…" } else { "" };
+    let shown: String = format!("{prefix}{}{suffix}", &line[byte_of[start]..byte_of[end]]);
+    let shift = prefix.len();
+
+    let mapped = ranges
+        .iter()
+        .filter_map(|&(s, e)| {
+            let (cs, ce) = (char_index(line, s)?, char_index(line, e)?);
+            // Only a range wholly inside the window is forwarded; a partial one is
+            // dropped rather than clipped, so a highlight never claims half a word.
+            if cs < start || ce > end || cs >= ce {
+                return None;
+            }
+            Some((
+                shift + byte_of[cs] - byte_of[start],
+                shift + byte_of[ce] - byte_of[start],
+            ))
+        })
+        .collect();
+    (shown, mapped)
+}
+
+/// The character index a byte offset sits at, or `None` when the byte is not the
+/// start of a character — a range that arrives mid-character is dropped.
+fn char_index(line: &str, byte: usize) -> Option<usize> {
+    if byte > line.len() || !line.is_char_boundary(byte) {
+        return None;
+    }
+    Some(line[..byte].chars().count())
+}
 
 /// What a note says that makes the operators true: one fragment per operator, in
 /// the order the query asked, and the folder the note lives in last.
@@ -498,6 +577,15 @@ fn answered(
     let mut detail = String::new();
     let mut ranges: Vec<(usize, usize)> = Vec::new();
 
+    // Two operators, two quotes, both with their key visible: the row's evidence
+    // budget is split rather than spent by whichever operator comes first.
+    let asked = ops
+        .iter()
+        .filter(|op| !matches!(op, Op::Path(_) | Op::Modified(_)))
+        .count()
+        .max(1);
+    let budget = (EVIDENCE_TEXT / asked).max(MIN_FRAGMENT);
+
     for op in ops {
         let fragment = match op {
             // The folder at the end of the row *is* the answer to `path:`.
@@ -514,7 +602,7 @@ fn answered(
         let Some((fragment, inner)) = fragment else {
             continue;
         };
-        let fragment = clip(fragment.trim(), EVIDENCE_TEXT);
+        let (fragment, inner) = evidence_window(fragment.trim(), &inner, budget);
         if fragment.is_empty() {
             continue;
         }
@@ -523,12 +611,9 @@ fn answered(
         }
         let base = detail.len();
         detail.push_str(&fragment);
-        // A range that the clip cut away is dropped rather than left pointing past
-        // the end of what is shown.
         ranges.extend(
             inner
                 .into_iter()
-                .filter(|(_, end)| *end <= fragment.len())
                 .map(|(start, end)| (base + start, base + end)),
         );
     }

@@ -1029,3 +1029,155 @@ fn the_painted_runs_cover_the_detail_exactly(cx: &mut TestAppContext) {
         }
     }
 }
+
+/// The crash this feature shipped with: a 78-character line quoted at 60 characters
+/// had its forwarded range landing inside the `…` the clip appended, and gpui reads
+/// a run that ends mid-character as an `invalid text run` panic. Reproduced here on
+/// the demo vault's own notes, because that is how the user found it: `space s`,
+/// then `link:Welcome`, and the window died on the last letter.
+#[gpui::test]
+fn a_long_line_cannot_panic_on_its_own_ellipsis(cx: &mut TestAppContext) {
+    let (_dir, window) = indexed_vault(
+        cx,
+        &[
+            (
+                "notes/Another Note.md",
+                "---\nalias: anon\ncr: 3\n---\nBack to [[Welcome]].\n",
+            ),
+            (
+                "Welcome.md",
+                "# Welcome\n\nThis is [[Another Note]].\n",
+            ),
+            (
+                "Markdown Tour.md",
+                "# Markdown Tour\n\nLive-preview styling, one construct per line. Links: [[Welcome]], [[Another Note]],\n[[alias|an aliased link]] and [[A Note That Does Not Exist]].\n",
+            ),
+        ],
+    );
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    // Typed a character at a time: the row only exists once the operator is whole,
+    // which is the moment the panic arrived.
+    cx.simulate_keystrokes("ctrl-shift-f");
+    for ch in "link:Welcome".chars() {
+        cx.simulate_input(&ch.to_string());
+    }
+    let rows = shown(&window, cx);
+    let tour = rows
+        .iter()
+        .find(|(label, _, _)| label == "Markdown Tour")
+        .unwrap_or_else(|| panic!("no row for the long line: {rows:?}"));
+    assert!(
+        tour.1.contains("[[Welcome]]"),
+        "the match is the point of the row: {:?}",
+        tour.1
+    );
+    // `marked` slices the detail at every run boundary, so a boundary landing inside
+    // a character would panic here exactly as it did in the render.
+    marked(&tour.1, &tour.2);
+}
+
+/// The head of a long line is not the interesting part. A line longer than the row's
+/// budget is cut **around the match**, with an ellipsis saying what was left out.
+#[gpui::test]
+fn a_long_line_is_cut_around_the_match_not_at_its_start(cx: &mut TestAppContext) {
+    let filler = "and then a great deal of prose that nobody is looking for, ".repeat(3);
+    let (_dir, window) = indexed_vault(
+        cx,
+        &[("deep.md", &format!("{filler}buried deep in it: [[lair]]\n"))],
+    );
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    ask("link:lair", cx);
+
+    let rows = shown(&window, cx);
+    let (label, detail, runs) = &rows[0];
+    assert_eq!(label, "deep");
+    assert!(
+        detail.contains("[[lair]]"),
+        "the key evidence survived the cut: {detail:?}"
+    );
+    assert!(detail.starts_with('…'), "the cut is marked: {detail:?}");
+    assert!(
+        detail.chars().count() <= 90 + 2,
+        "and the row stays a row: {} chars",
+        detail.chars().count()
+    );
+    // The window runs to the end of the line, because the match is there: centring
+    // can only pull the window back from the head, not past the tail.
+    let marked = marked(detail, runs);
+    assert!(
+        marked.ends_with("buried deep in it: [[[lair]]]"),
+        "the match sits at the end of what is shown: {marked}"
+    );
+    assert!(marked.starts_with('…'), "the cut is marked: {marked}");
+}
+
+/// Two operators, two quotes, and **both** keys visible: the budget is split rather
+/// than spent by whichever operator the query happened to name first.
+#[gpui::test]
+fn two_operators_both_keep_their_key_visible(cx: &mut TestAppContext) {
+    let filler = "prose that goes on long enough to matter, ".repeat(4);
+    let (_dir, window) = indexed_vault(
+        cx,
+        &[(
+            "long.md",
+            &format!("---\ncr: {}\n---\n{filler}and the tag #monster lives out here\n\n{filler}and a link to [[lair]] lives further out\n", 9),
+        )],
+    );
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    ask("tag:monster link:lair", cx);
+
+    let rows = shown(&window, cx);
+    let (_, detail, runs) = &rows[0];
+    assert!(detail.contains("#monster"), "first key: {detail:?}");
+    assert!(detail.contains("[[lair]]"), "second key: {detail:?}");
+    marked(detail, runs);
+    assert_eq!(
+        runs.iter().filter(|&&(_, forward)| forward).count(),
+        2,
+        "both forwarded, not just the first: {runs:?}"
+    );
+}
+
+/// The shape that actually crashed, at the size that made it crash: a match
+/// straddling where the cut falls. The old code measured the forwarded range against
+/// the clipped string *including* the `…` it had appended, so the run ended inside
+/// the ellipsis — and gpui reads a run boundary that is not a character boundary as
+/// an `invalid text run` panic, in the render, with no way back.
+#[gpui::test]
+fn a_match_straddling_the_cut_cannot_end_a_run_mid_character(cx: &mut TestAppContext) {
+    let (_dir, window) = indexed_vault(
+        cx,
+        // 84 filler characters, then a link whose *target* runs two bytes past the
+        // ninetieth character — the shape that put a run boundary inside the `…`.
+        &[("straddle.md", &format!("{}[[lairx]]\n", "x".repeat(84)))],
+    );
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    ask("link:lairx", cx);
+
+    let rows = shown(&window, cx);
+    let (_, detail, runs) = &rows[0];
+    // Slicing the detail at every run boundary comes first: a boundary inside a
+    // character panics here exactly as it did in the render.
+    let marked = marked(detail, runs);
+    assert!(
+        marked.contains("[[[lairx]]]"),
+        "the key survived the cut: {marked}"
+    );
+}
+
+/// A cut that lands inside a multi-byte character is the same panic in another
+/// costume: the runs are byte lengths, so the boundary has to be a character
+/// boundary even when the line is full of em dashes and accents.
+#[gpui::test]
+fn a_cut_never_lands_inside_a_character(cx: &mut TestAppContext) {
+    let filler = "café — naïve — résumé — “quoted” — ".repeat(6);
+    let (_dir, window) = indexed_vault(cx, &[("unicode.md", &format!("{filler}[[lair]]\n"))]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    ask("link:lair", cx);
+
+    let rows = shown(&window, cx);
+    let (_, detail, runs) = &rows[0];
+    assert!(detail.contains("[[lair]]"), "{detail:?}");
+    // Slicing at every boundary is the assertion.
+    marked(detail, runs);
+}

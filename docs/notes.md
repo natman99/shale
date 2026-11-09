@@ -201,6 +201,11 @@ no line to quote, so they answer with facts about the file: the folder, and
 note has been edited since it was indexed, its row shows no quote at all rather
 than a line it no longer holds.
 
+A line longer than the row is cut **around the match**, not at its start, with `…`
+marking what was left out — the head of a long sentence is not the part the query
+named. Several operators split the row's evidence budget, so `tag:monster link:lair`
+shows both quotes with both keys rather than one long quote and a dropped second.
+
 Two things it refuses rather than guesses at:
 
 - **A near-miss operator is said out loud.** `tags:monster` (with an `s`) would

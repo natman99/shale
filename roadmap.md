@@ -1328,6 +1328,18 @@ edges, query nodes, MCP canvas tools) is P6.10.
     to the position (the properties pane, a backlinks pane with positions), not for a
     label. Today's scan reads only the notes the index already chose, which is less
     than the text search beside it already costs per keystroke.
+  - **Landed with it: the row is cut around the match, and a crash went with it.**
+    Quoting the *start* of a line hides the answer when the line is long: a 78-character
+    sentence clipped at 60 can cut the match away entirely. So the quote is a window
+    centred on the forwarded span, `…` marking what was left out, and several operators
+    split the row's evidence budget instead of the first one spending it.
+    **The first version panicked in gpui's text run** (`space s`, `link:Welcome`, dead
+    window on the last letter). The clip appended an ellipsis and then measured the
+    forwarded range against the string *including* it, so a match straddling the cut put
+    a run boundary inside the `…` — `invalid text run`, on the render path, no way back.
+    The window counts in characters and returns byte ranges into what it actually built;
+    `a_match_straddling_the_cut_cannot_end_a_run_mid_character` reproduces the original
+    panic byte for byte against the old logic.
 - **P4.15 Inline computed surfaces** (brainstorm ✅, policy ruled 2026-10-29, one widget
   to start). **Added by the audit.** App-offered, region-anchored facts (word count,
   reading time) — the status bar owns whole-note facts; user-authored widgets are
