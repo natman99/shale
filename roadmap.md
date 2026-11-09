@@ -1262,6 +1262,32 @@ edges, query nodes, MCP canvas tools) is P6.10.
   `link:`, `modified:` and friends in vault search, over the P1 index. **One grammar,
   one parser, shared with `.shq` (P4.3)** — inventing it twice is how the two surfaces
   end up disagreeing about what `tag:` means.
+  - **Landed 2026-11-09 (vault search; the grammar is `.shq`'s to reuse).**
+    `crates/core/src/query.rs` is the parser and knows only the *shape* of a query —
+    terms, operators, what each is asking — and says nothing about SQL, so P4.3 reads
+    the same module rather than inventing a second dialect. `tag:` `path:` `link:`
+    `prop:` `modified:`, quoted values for names with spaces, operators **and**
+    together, and bare text keeps its old literal meaning: operators narrow *which
+    notes* the line scan runs over. An operators-only query is a question about notes,
+    so it answers one row per note instead of one row per line.
+    `Db::notes_matching` is the reader — and this is the first production reader the
+    `props`, `tags` and `links` tables have had (the 2026-11-09 audit's finding: all
+    17 `FROM props` reads were inside `db/index.rs`, and `edges` had a writer and no
+    reader). One statement per query, so the plan stays on `tags_tag`, `links_target`
+    and `props_key (key, kind)`.
+    Three rulings came out of building it, all in the code's doc comments and
+    `docs/notes.md`: **a near-miss operator is refused out loud** (`tags:monster`
+    searched as prose answers "0 of 0 matching", which reads as an empty vault rather
+    than a typo; a value starting with `//` is exempt because that is a URL);
+    **a comparison never casts, in either direction** (an ordering reads only rows the
+    index recorded as numbers, and `prop:cr<=low` is refused rather than evaluated —
+    `CAST('low' AS REAL)` is `0` on the query side too); and **`path:` speaks the
+    ignore rules' glob dialect**, not SQL `LIKE`, so search and an agent profile's
+    patterns cannot mean different things by `*.md`. With the index off, operators say
+    so instead of answering zero — the EDGE-25 posture `:props` already uses.
+    **Left for P4.3:** the same grammar inside a `.shq` body, and whatever operators
+    the query language wants beyond these five (`edges` still has no reader — typed
+    edge kinds are P4.16's).
 - **P4.15 Inline computed surfaces** (brainstorm ✅, policy ruled 2026-10-29, one widget
   to start). **Added by the audit.** App-offered, region-anchored facts (word count,
   reading time) — the status bar owns whole-note facts; user-authored widgets are

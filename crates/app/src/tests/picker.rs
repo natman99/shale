@@ -672,3 +672,166 @@ fn a_search_with_no_hits_has_nothing_to_choose(cx: &mut TestAppContext) {
     let (_, active) = state(&window, cx);
     assert_eq!(active, "", "and no note was opened");
 }
+
+// --- search operators (P4.14) -------------------------------------------------
+
+/// Notes that differ in exactly the ways an operator can ask about: a tag written
+/// two ways, a property that is a number in one note and prose in another, and a
+/// link from one to the other. The index is on, because an operator is a question
+/// about the index.
+fn query_vault(cx: &mut TestAppContext) -> (tempfile::TempDir, WindowHandle<Workspace>) {
+    indexed_vault(
+        cx,
+        &[
+            (
+                "notes/goblin.md",
+                "---\ncr: 5\ntags: [monster, goblinoid]\n---\n# Goblin\n\nDigs in a [[lair]].\n",
+            ),
+            (
+                "notes/snare.md",
+                "---\ncr: low\ntags: monster\n---\n# Snare\n\nA [[lair]] snare.\n",
+            ),
+            (
+                "notes/lair.md",
+                "---\ncr: 8\ntags: [location]\n---\n# Lair\n\nWhere goblins dig.\n",
+            ),
+        ],
+    )
+}
+
+/// Every row the picker is offering, in order. A count is a weak oracle: two sets
+/// of the same size pass a count and disagree on which notes they named.
+fn rows(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> Vec<String> {
+    window
+        .update(cx, |ws, _window, cx| ws.picker_rows(cx))
+        .unwrap()
+}
+
+/// The status line, where a refusal goes once the picker is gone.
+fn status_line(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> String {
+    window.update(cx, |ws, _window, _cx| ws.status()).unwrap()
+}
+
+/// An operator-only query asks about notes, so it answers with one row per note
+/// rather than one row per line.
+#[gpui::test]
+fn an_operator_query_answers_with_notes_not_lines(cx: &mut TestAppContext) {
+    let (_dir, window) = query_vault(cx);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    cx.simulate_keystrokes("ctrl-shift-f");
+    cx.simulate_input("tag:monster");
+    assert_eq!(
+        rows(&window, cx),
+        vec!["notes/goblin.md", "notes/snare.md"],
+        "a frontmatter list and a bare scalar are the same tag"
+    );
+
+    cx.simulate_keystrokes("enter");
+    let (_, active) = state(&window, cx);
+    assert_eq!(
+        active, "notes/goblin.md",
+        "choosing a row opens the note it names"
+    );
+}
+
+/// The operators choose *which notes*; the text still chooses the line.
+#[gpui::test]
+fn an_operator_narrows_the_lines_that_get_searched(cx: &mut TestAppContext) {
+    let (_dir, window) = query_vault(cx);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    cx.simulate_keystrokes("ctrl-shift-f");
+    cx.simulate_input("tag:location dig");
+    assert_eq!(
+        rows(&window, cx),
+        vec!["notes/lair.md:7"],
+        "the goblin also digs, and is not a location"
+    );
+}
+
+/// The same vault asked with text alone: both notes dig, so the operator in the
+/// test above narrowed *which notes*, and nothing else about how text is matched.
+#[gpui::test]
+fn text_alone_reaches_every_note(cx: &mut TestAppContext) {
+    let (_dir, window) = query_vault(cx);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    cx.simulate_keystrokes("ctrl-shift-f");
+    cx.simulate_input("dig");
+    assert_eq!(
+        rows(&window, cx),
+        vec!["notes/goblin.md:7", "notes/lair.md:7"],
+        "one row per line, in the order the notes were read"
+    );
+}
+
+/// The rule the `kind` column exists for, seen from the search box: a numeric
+/// comparison must not rank the note that wrote `cr: low`, because SQLite reads
+/// `CAST('low' AS REAL)` as 0 and says nothing about it.
+#[gpui::test]
+fn a_number_question_does_not_answer_a_note_that_wrote_prose(cx: &mut TestAppContext) {
+    let (_dir, window) = query_vault(cx);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    cx.simulate_keystrokes("ctrl-shift-f");
+    cx.simulate_input("prop:cr<=5");
+    assert_eq!(rows(&window, cx), vec!["notes/goblin.md"]);
+}
+
+/// The prose row is not invisible; it answers a different question. Splitting the
+/// two asks into their own tests rather than editing one query in place keeps the
+/// keystrokes out of the way of what is being proved.
+#[gpui::test]
+fn a_text_question_answers_the_note_that_wrote_prose(cx: &mut TestAppContext) {
+    let (_dir, window) = query_vault(cx);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    cx.simulate_keystrokes("ctrl-shift-f");
+    cx.simulate_input("prop:cr=low");
+    assert_eq!(rows(&window, cx), vec!["notes/snare.md"]);
+}
+
+/// A near-miss operator is said out loud. Searched as prose it would answer "0 of
+/// 0 matching", which reads as an empty vault rather than a typo.
+#[gpui::test]
+fn a_misspelled_operator_says_so_instead_of_answering_zero(cx: &mut TestAppContext) {
+    let (_dir, window) = query_vault(cx);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    cx.simulate_keystrokes("ctrl-shift-f");
+    cx.simulate_input("tags:monster");
+    let offered = rows(&window, cx);
+    assert_eq!(offered.len(), 1, "{offered:?}");
+    assert!(
+        offered[0].starts_with("not an operator: tags:monster"),
+        "{offered:?}"
+    );
+
+    cx.simulate_keystrokes("enter");
+    let (_, active) = state(&window, cx);
+    assert_eq!(active, "", "the refusal row opens nothing");
+    assert!(
+        status_line(&window, cx).starts_with("not an operator"),
+        "and the reason outlives the picker: {}",
+        status_line(&window, cx)
+    );
+}
+
+/// With the index off an operator has no answer. Returning nothing would lie the
+/// same way an empty vault does, so the picker says which half is missing.
+#[gpui::test]
+fn an_operator_without_an_index_says_so(cx: &mut TestAppContext) {
+    let (_dir, window) = needle_vault(cx);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    cx.simulate_keystrokes("ctrl-shift-f");
+    cx.simulate_input("tag:monster");
+    let offered = rows(&window, cx);
+    assert_eq!(offered.len(), 1, "{offered:?}");
+    assert!(offered[0].contains("vault index"), "{offered:?}");
+
+    // Plain text is unaffected — `ctrl_shift_f_finds_the_lines_that_hold_the_query`
+    // already proves that on this same index-less vault. What changed is only that a
+    // question the index cannot answer now says so instead of answering zero.
+}

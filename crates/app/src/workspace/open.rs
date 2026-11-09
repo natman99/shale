@@ -9,7 +9,7 @@ use std::rc::Rc;
 
 use gpui::{prelude::*, Context, Focusable, SharedString, Window};
 use shale_core::search::{search, SearchOptions};
-use shale_core::vault::rel_text;
+use shale_core::vault::{rel_text, VaultEntry};
 
 use crate::acts::{CommandPalette, QuickOpen, SearchVault};
 use crate::picker::{self, PickerItem, RowSource};
@@ -38,6 +38,11 @@ pub(crate) enum PickerTarget {
     Vault(std::path::PathBuf),
     /// The file dialog that adds a vault the app has never seen.
     VaultPrompt,
+    /// A row that exists to be read rather than chosen: the query could not be
+    /// answered, and the reason *is* the answer. Choosing it repeats the reason in
+    /// the status bar. A picker has no other way to say anything, and returning no
+    /// rows at all would read as an empty vault rather than a refused question.
+    Notice(SharedString),
 }
 
 /// How many search hits to offer. A keystroke reads the vault, so the walk stops
@@ -133,16 +138,91 @@ impl Workspace {
     ) {
         let vault = Rc::clone(&self.vault);
         let entries = self.entries.clone();
+        let db = self.db.clone();
         let source: RowSource<PickerTarget> = Rc::new(move |query: &str| {
             let query = query.trim();
             if query.is_empty() {
                 return Vec::new();
             }
+            let q = shale_core::query::parse(query);
+
+            // A token shaped like an operator and not one is said, not searched.
+            // As prose it would return "0 of 0 matching" for a literal string,
+            // which reads as an empty vault rather than a typo.
+            if !q.unknown.is_empty() {
+                return q
+                    .unknown
+                    .iter()
+                    .map(|token| {
+                        notice(format!(
+                            "not an operator: {token}  (tag: path: link: prop: modified:)"
+                        ))
+                    })
+                    .collect();
+            }
+
+            // Operators are questions about the index. With no index there is no
+            // answer, and no rows would lie the same way an empty vault does.
+            let selected = if q.needs_index() {
+                match db.as_ref().map(|db| db.notes_matching(&q)) {
+                    Some(Ok(paths)) => Some(paths),
+                    Some(Err(err)) => {
+                        return vec![notice(format!("the vault index could not answer: {err:#}"))]
+                    }
+                    None => {
+                        return vec![notice(
+                            "tag:, path:, link:, prop: and modified: ask the vault index, \
+                             and this vault has none (index.enabled in .shale/config.toml)",
+                        )]
+                    }
+                }
+            } else {
+                None
+            };
+
+            // The operators choose *which notes*; the text still chooses the line.
+            let scoped: Vec<VaultEntry> = match &selected {
+                Some(paths) => entries
+                    .iter()
+                    .filter(|entry| paths.contains(&entry.path))
+                    .cloned()
+                    .collect(),
+                None => entries.clone(),
+            };
+
+            let text = match q.text.as_deref() {
+                // Operators only is a question about notes, so it gets one row per
+                // note rather than one row per line.
+                None => {
+                    return selected
+                        .unwrap_or_default()
+                        .into_iter()
+                        .take(MAX_SEARCH_HITS)
+                        .map(|path| {
+                            let detail = rel_text(&path);
+                            (
+                                PickerItem {
+                                    label: clip(
+                                        path.file_stem().and_then(|s| s.to_str()).unwrap_or(""),
+                                        ROW_TEXT,
+                                    )
+                                    .into(),
+                                    detail: detail.clone().into(),
+                                    search: detail.into(),
+                                },
+                                PickerTarget::Note(path),
+                            )
+                        })
+                        .collect();
+                }
+                Some(text) => text,
+            };
+
             let opts = SearchOptions {
                 max_hits: Some(MAX_SEARCH_HITS),
                 ..Default::default()
             };
-            let Ok(hits) = search(&vault, &entries, query, &opts) else {
+            let Ok(hits) = search(&vault, &scoped, text, &opts) else {
                 return Vec::new();
             };
             hits.into_iter()
@@ -266,6 +346,13 @@ impl Workspace {
         }
         self.close_picker(window, cx);
         match chosen {
+            PickerTarget::Notice(reason) => {
+                // The row already says it; this puts the same words where they
+                // outlive the picker.
+                if !reason.is_empty() {
+                    self.say(reason.to_string(), cx);
+                }
+            }
             PickerTarget::Note(path) => self.open_note(&path, cx),
             PickerTarget::Hit { path, line } => {
                 self.open_note_at(&path, line, cx);
@@ -359,6 +446,21 @@ impl Workspace {
 
 /// Shorten to `max` characters, marking that something was left off. Never cuts
 /// through the middle of a character.
+/// A row whose whole job is to be read. See [`PickerTarget::Notice`].
+fn notice(reason: impl Into<SharedString>) -> (PickerItem, PickerTarget) {
+    let reason: SharedString = reason.into();
+    (
+        PickerItem {
+            label: reason.clone(),
+            detail: SharedString::default(),
+            search: reason.clone(),
+        },
+        // The reason travels with the row so choosing it can say it again where a
+        // picker cannot: the status bar.
+        PickerTarget::Notice(reason),
+    )
+}
+
 fn clip(text: &str, max: usize) -> String {
     if text.chars().count() <= max {
         return text.to_string();

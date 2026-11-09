@@ -164,10 +164,41 @@ has stopped being drawn.
 | door | what it does |
 | --- | --- |
 | `space f`, `gf`, `:e` | quick-open: a fuzzy list of every note; the match is a subsequence of the name or path |
-| `ctrl-shift-f`, `space s` | vault search: every line that holds what you typed; choosing a row opens the note on that line |
+| `ctrl-shift-f`, `space s` | vault search: every line that holds what you typed, or every note that answers an operator (below); choosing a row opens the note |
 | `/`, then `n` / `N` | search the note that is open |
 | `:wordcount [folder]` | words in the vault, or in one subtree (needs the index) |
 | `space g` | the graph, whose filter strip narrows by `orphans` / `missing` / `tags` and by a search line |
+
+### Asking with operators
+
+A plain query is matched literally, line by line, exactly as it always was.
+Operators narrow **which notes** that search runs over — and on their own they ask
+for notes rather than lines, so `tag:monster` gives one row per monster.
+
+| operator | asks |
+| --- | --- |
+| `tag:monster` | the note carries that tag, from body `#tags` or the `tags:` property |
+| `path:notes/` | the path matches — a substring if you type no wildcards, otherwise `inbox/**`-style globs |
+| `link:Zhentarim` | the note links to that note, by name; a link to a note that does not exist yet still counts |
+| `prop:cr<=5` | a property compared: `=` `!=` `<` `<=` `>` `>=`, or the key alone for "writes it at all" |
+| `modified:7d` | indexed as changed in the last 7 days, or on/after a date like `modified:2026-11-01` |
+
+Operators **and** together, and text can sit beside them: `tag:monster prop:cr<=5
+lair` means the line `lair`, in the low-cr monsters. A value with a space is
+quoted — `tag:"big bad"`, `prop:"Max HP">=10`.
+
+Two things it refuses rather than guesses at:
+
+- **A near-miss operator is said out loud.** `tags:monster` (with an `s`) would
+  otherwise search for that literal string and answer "0 of 0 matching", which
+  reads as an empty vault rather than a typo.
+- **A comparison never casts.** `prop:cr<=5` reads only the notes where `cr` is a
+  number, so a note that says `cr: low` is not ranked as a low challenge rating.
+  Ask about the prose directly with `prop:cr=low`. Likewise `prop:cr<=low` is
+  refused instead of quietly meaning "cr at most 0".
+
+Operators are answered by the vault index (`.shale/shale.db`). With the index off
+they say so rather than answering zero; plain text search does not need it.
 
 ## Markdown that Shale does something with
 

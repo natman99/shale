@@ -264,6 +264,16 @@ impl<T: Clone + 'static> Picker<T> {
         self.selected = 0;
     }
 
+    /// Every row on offer, in the order the picker shows them, as their payloads.
+    ///
+    /// A test that asks *which* rows rather than how many needs this: two sets of
+    /// the same size pass a count and disagree on what they named. Test-only, so the
+    /// widget does not carry an accessor nothing in the app calls.
+    #[cfg(test)]
+    pub(crate) fn offered(&self) -> impl Iterator<Item = &T> {
+        self.ranked.iter().map(|row| &self.items[row.item].1)
+    }
+
     /// Move the highlighted row, clamped: a list that wraps is easier to lose.
     fn move_selection(&mut self, delta: isize) {
         if self.ranked.is_empty() {

@@ -754,14 +754,17 @@ impl Workspace {
         self.picker
             .as_ref()
             .and_then(|picker| picker.read(cx).chosen())
-            .map(|target| match target {
-                PickerTarget::Note(path) => rel_text(&path),
-                PickerTarget::Hit { path, line } => format!("{}:{}", rel_text(&path), line),
-                PickerTarget::Command(command) => command.label().to_string(),
-                PickerTarget::Theme(name) => name,
-                PickerTarget::Vault(path) => path.display().to_string(),
-                PickerTarget::VaultPrompt => "prompt".into(),
-            })
+            .map(|target| render_target(&target))
+    }
+
+    /// Every row the picker is offering, in order, each rendered the way
+    /// [`Self::picker_choice`] renders one. Which rows, never how many.
+    #[cfg(test)]
+    pub(crate) fn picker_rows(&self, cx: &gpui::App) -> Vec<String> {
+        self.picker
+            .as_ref()
+            .map(|picker| picker.read(cx).offered().map(render_target).collect())
+            .unwrap_or_default()
     }
     /// Where the note's first display line sits, in window coordinates: how a
     /// test checks the editor's margins, and that a picker floats over the text
@@ -785,5 +788,19 @@ impl Workspace {
     #[cfg(test)]
     pub(crate) fn picker_matches(&self, cx: &gpui::App) -> Option<usize> {
         self.picker.as_ref().map(|picker| picker.read(cx).matches())
+    }
+}
+
+/// One picker row, as a test reads it: a note by its vault path, a hit as
+/// `path:line`, a command by its label, a refusal by its reason.
+fn render_target(target: &PickerTarget) -> String {
+    match target {
+        PickerTarget::Note(path) => rel_text(path),
+        PickerTarget::Hit { path, line } => format!("{}:{}", rel_text(path), line),
+        PickerTarget::Command(command) => command.label().to_string(),
+        PickerTarget::Theme(name) => name.clone(),
+        PickerTarget::Vault(path) => path.display().to_string(),
+        PickerTarget::VaultPrompt => "prompt".into(),
+        PickerTarget::Notice(reason) => reason.to_string(),
     }
 }
