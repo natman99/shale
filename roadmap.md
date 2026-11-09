@@ -132,6 +132,10 @@ link resolver + renderer (exist) ──► P4.0 transclusion ──┬─► ![[
                                                         └─► P4.9 block refs ──► canvas C3
 props index (P4.3a) ──► .shq columns, `prop:` operator (P4.14), typed edges (fills
                         `edges`), tag tree + graph hues from frontmatter, GM toolkit
+headings index (P4.3b, AFTER P4.3a) ──► section-grouped chips (P7.10), outline pane from
+                        the index, block cards (C3), `#heading` anchors
+relative queries (P4.3) ──► scene cards, cue/counter lists, per-session prep,
+                        graph lenses (P4.16: a lens IS a saved .shq)
 ```
 
 The last edge was missing until the 2026-11-05 plan audit: three phases depend on a
@@ -1473,10 +1477,22 @@ token-pushing, no range/LOS math.
   `:session 12`) and the **party ledger as a saved query** — the write-back ledger is
   refused under the manual-tables parent rule.
 
+- **P7.10 Session-linked chips (cue + counter) and relative queries** (brainstorm ✅,
+  ruled 2026-11-08) — `.shq` frontmatter gains `relative: current` (a bound `:current`
+  parameter over the existing `links` table; **the anchor path joins the cache key**), and
+  two callout kinds ride built callout machinery: `> [!cue]` (heading-derived anchor,
+  optional `for: ^ref` override, click copies the track name, **no notification, no
+  scroll motion, no playback**) and `> [!counter]` (bar painted from `n / m` text; click
+  edits **the ranges the chip painted**, one counter per callout, ambiguous body = no
+  affordance, identity-based tests). Scene cards and the GM screen's per-session lists are
+  the same query embedded, not features. **Gates: P4.3 (queries), P4.3b (headings index,
+  for section grouping), P4.9 (the `for:` override); the GM cockpit is P3.7.**
+
 **Dependency order:** P4.3 `.shq` → P4.9 block refs → P4.15 computed surfaces → P7.1 /
 P7.3 / P7.4. P7.6 gates on the same provenance/filter work as P4.8. **P7.8 is the one GM
 item buildable today** (table model + command registry are shipped); its *queries* wait
-on P4.3/P4.3a. P7.9 waits on P7.2's dice grammar and nothing else.
+on P4.3/P4.3a. P7.9 waits on P7.2's dice grammar and nothing else. **P7.10 waits on P4.3
++ P4.3b**, and P4.3b is deliberately sequenced after P4.3a rather than folded into it.
 
 ---
 

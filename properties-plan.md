@@ -86,7 +86,10 @@ Rejected, with the reason recorded so it is not re-pitched:
 
 ### Kind inference (per key, not per value)
 
-Declared in `<vault>/.shale/props.toml` (`cr = number`, `died = date`) wins. Otherwise
+Declared in `<vault>/.shale/props.toml` (`cr = number`, `died = date`) wins. A GM
+campaign's `session` key is a **declared number** for the same reason `cr` is: as text,
+`Session 10` sorts before `Session 2`, which silently breaks every chronological query
+(EDGE-17's family). Otherwise
 the **majority kind across the vault's values for that key**, ties → `text`. A key whose
 values disagree is a typo worth *seeing*, not a value worth silently casting: the census
 is a query (`GROUP BY key, kind`), surfaced in `:props`.
@@ -264,6 +267,14 @@ is the authored text the strip must show and rewrite; the projection is a query 
 
 M1–M3 are the schema decision and belong to P4.3a. M4–M5 are surfaces and can be
 scheduled apart from it.
+
+**Explicitly NOT in P4.3a's scope (added 2026-11-08, while it is being implemented):** a
+`headings` index. A later round ruled that queries should be able to group things by the
+section they sit in (cue/counter chips, the outline pane reading the index), and that
+pulls a **`headings(note, line, text, depth)` table — schema v4, roadmap P4.3b — which
+lands AFTER P4.3a, never inside it.** P4.3a ships v3 with `props` alone. If the parser
+happens to see headings on its way through the note, that is not a licence to add the
+table in the same commit.
 
 ---
 

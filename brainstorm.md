@@ -205,6 +205,14 @@ zero frames when idle — and all of it is config-off-able as a group
   `.shale/macros.toml`). Two forms:
   `keys = "..."` (replayed through normal key dispatch — respects modes/counts) or
   `commands = [...]` (invokes palette commands — robust to keymap changes).
+  - **Macro arguments 🔭→✅ (ruled 2026-11-08): macros take arguments from context** —
+    the selection, the word under the caret, the current note's name/path, and the
+    current note's props. This is the general home for a whole class of ideas that would
+    otherwise each get their own command: improvised-name capture (turn the word under
+    the caret into a note with `campaign:`/`type:` pre-filled), `:tag <word>`,
+    `:link <word>`, "make a note for what I just selected", and the GM cockpit's
+    `:ws load gm`. **Rule it here, not per feature** — several GM pitches were refused as
+    features precisely because they are one macro plus an argument source.
   Record-from-palette flow: record → stop → name → written to TOML. Shows up in
   the command palette, fuzzy-findable, bindable. Recursion limit; macros can't
   write config.
@@ -711,7 +719,12 @@ mobile, ~~Canvas~~ **reopened 2026-11-03 — see the Canvas section below and
   event log. Links to the deleted note degrade to ghosts as already specced;
   restoring clears the ghost.
 
-### Workspaces ✅ (session restore is the base; named workspaces are sugar)
+### Workspaces ✅ (session restore is the base; named workspaces are sugar) — **owner P3.7 (2026-11-08)**
+- **Contents ruled 2026-11-08:** a workspace is exactly what `session.json` already
+  stores per window — the pane tree, the tabs, and the view decisions that already ride a
+  session (graph camera, mode, filter). Nothing new is stored, so there is nothing to
+  refactor later. The GM cockpit is one named workspace, which is why this moved from
+  Phase 6 polish into Phase 3.
 - Pane layout + open tabs + active pane + per-pane cursor saved as JSON in
   `.shale/workspaces/<name>.json`.
 - **Auto-save the session continuously** (cheap) and restore on launch —
@@ -811,6 +824,20 @@ build; the rest is configuration of things that already exist.
   secret blocks in their collapsed state, never silently expanded.
 - Rationale: no markdown app distinguishes GM knowledge from player knowledge;
   the custom renderer makes it a callout-type decision, not a plugin hack.
+- **Both halves kept (ruled 2026-11-08)** — the block kind stays for GM-side reading
+  comfort (collapse/dim/lock, "someone is peeking over my shoulder") *and* export
+  stripping stays. The handout-as-note alternative was considered and rejected as the
+  primary route for a candid reason: **the GM will not reliably maintain secret tags in
+  personal notes**, so a subtraction rule nobody follows is worse than an explicit export.
+- **Agent profiles with redaction ✅ (2026-11-08, roadmap P7.6)** — the live MCP server
+  picks a profile per connection: a `prep` profile reads secret blocks inline; a
+  `handout` profile gets them **redacted, not omitted**, so the agent knows something is
+  hidden and asks instead of confidently writing a handout that reads wrong. Why now:
+  export is the only sanctioned route from GM knowledge to player-facing text, and if any
+  agent can read secrets, the export rule is decorative. **The cost is the leak-surface
+  audit** — redaction must apply to search hits, backlink excerpts, `.shq` results and
+  hover payloads, not just `read_note`; it gets more expensive with every read path that
+  exists, which is why it is ruled before the tool surface grows.
 
 ### Inline dice ✅
 - Syntax: `!r 1d20+5` (also `!r 2d8+1d6-2`, `!r 4d6kh3` keep-highest for stats,
@@ -922,6 +949,13 @@ build; the rest is configuration of things that already exist.
   assembled into a new note from a template, provenance recorded. A
   random-encounter table with zero syntax; generalizes to names, treasure,
   rumors.
+- **Generalized 2026-11-08 into one verb: query → note.** Run a saved query, write the
+  rows into a new note as plain markdown, provenance stamped, undoable. That single verb
+  serves prep cards, capture promotion, and generated notes, and it is the honest shape
+  of every "assemble a note from the vault" idea: **explicit, safe, and visible** — the
+  user's standing rule that note-mutating features are fine as long as they are explicit
+  and cannot lose data, which beats hidden state the user cannot reach. Never automatic
+  (manual-tables rule).
 
 ### GM screen ✅ (mostly saved queries + a pane flag)
 - A note that's a stack of named `.shq` blocks (party ACs/HP, active quests
@@ -959,6 +993,103 @@ build; the rest is configuration of things that already exist.
   layout's job). The VTT guard still stands either way — reference and annotation only,
   no tokens, no grid, no movement.
 
+### Session-linked chips and relative queries ✅ (ruled 2026-11-08, GM round 3)
+
+One small general primitive absorbs four pitches (scene cards, music cues, per-session
+prep, "who's in this scene"): a saved query that reads **in relation to the note you are
+standing in**. Everything below is that, plus two callout kinds.
+
+- **Relative queries ✅** — `.shq` frontmatter gains `relative: current`, and the SQL body
+  gets a bound parameter (`:current`) handed to the read-only connection at run time.
+  **No new index**: it is the existing `links` table keyed by source, joined to `props`
+  for the type filter. The whole feature is the binding plus **putting the anchor path in
+  the cache key** beside the query hash — otherwise a query named `at the table` cached
+  for `Session 15` answers for `Session 16`. Inside an embed chain `:current` is the host
+  note (the resolver already knows it; the nesting cap already bounds the recursion).
+  **Refused for graph lenses** (P4.16): a graph tab has no host note.
+- **Cue chips ✅** — `> [!cue] The Apotheosis` as a callout kind (built machinery). A cue's
+  failure mode at a table is *forgetting it exists*; the app never plays anything (no
+  media surface — a wall, not a cost) and never interrupts.
+  - **Anchor: heading-derived by default.** The chip's section is the nearest enclosing
+    heading, computed at query time and *displayed* beside the chip, so there is nothing
+    to keep in sync and moving the chip moves its meaning — which is correct. A chip
+    before any heading renders unanchored; nothing is invented for it. Optional `for:
+    ^block-ref` override when the derivation is not what you meant (rides P4.9, survives
+    heading renames).
+  - **Click = copy the track name to the clipboard.** That is the honest bridge to
+    whatever actually plays music.
+  - **No notification, ever.** No scroll-triggered anything: `design-language.md`'s motion
+    contract reserves animation for toasts, and a toast fired by scrolling fires on
+    scrolling, which happens constantly. The **GM screen is the notification** — it is the
+    surface that is up during play, and its relative query lists tonight's cues. `:cues`
+    is the explicit version. The only other allowed surface is the caret-anchored
+    computed hint (P4.15), painted near the block, never in the status bar.
+- **Counter chips ✅** — `> [!counter] Unmaking clock` with `4 / 5` in the body; the bar is
+  painted from the numbers, which stay plain text in the buffer.
+  - **Click ticks it, and it edits the byte ranges the chip painted** — the same discipline
+    as `HitLine`/`PhantomHit`: a paint record carries its own identity. Never a text
+    search, never "the Nth counter in the note" (indices shift the moment a counter is
+    added above — the same bug class as the graph's snapshot-slot indexing crash).
+  - **One counter per callout block.** A second counter is a second callout. If a body
+    contains two lines that both read `n / m`, the chip paints no bar and offers no click:
+    no affordance beats a wrong affordance (the same posture as a review hunk that no
+    longer fits the note not being painted at all). Inside an embed the edit goes to the
+    embedded note's buffer, and the transitive dirty dot and `:w` fan-out follow the
+    existing `touched` bookkeeping.
+  - **Tests assert *which* counter changed**: two counters `4/5` and `4/9`, tick the
+    second, assert the first is byte-identical. "A count went up" passes for the broken
+    behavior.
+  - **The GM screen embeds the block; it never renders the number as a query cell.** A
+    query cell would make ticking a DB→file write with a sync story. An embed is a live
+    view of the real buffer (the canvas rule), so one buffer, one truth, the source tab's
+    dirty dot lights, `:w` saves it. Known-and-honest edge: two windows on one vault
+    reach each other through `apply_disk_changes`, which re-reads a clean buffer and
+    deliberately leaves a dirty one alone.
+  - **Live counters live in the session note.** The encounter note holds the *design*;
+    an explicit command **copies** tonight's counters into the session note as plain text
+    (provenance-stamped, undoable). Copy, not link: prep stays immutable during play,
+    there is no link to keep in sync, and the copy is ordinary text. The GM screen reads
+    the session note, not the encounter note.
+- **Scene cards ✅** — the NPCs linked from the current session note, embedded side by
+  side. Zero new machinery: a relative query whose rows are notes, embedded. **Not a
+  mode** (one-special-table rule): no context, no active row.
+- **GM cockpit = a named workspace, not a feature** — `:ws load gm` (P3.7). The pane tree,
+  tabs and view decisions are exactly what `session.json` already stores.
+- **Schema dependency: the headings index (roadmap P4.3b, schema v4) — AFTER P4.3a, never
+  inside it.** For a *query* to group chips by section, something must know a note's
+  heading structure; today only the open buffer does (the outline pane reads
+  `mdstyle`/`mdlayout` live). Indexing `headings(note, line, text, depth)` is derived,
+  not authored, so it cannot lie — and it is already wanted by the outline pane,
+  `#heading` anchors, block refs and Canvas C3's block cards. The alternative (stamping
+  the anchor into the chip's text) puts derived data in the buffer and makes a heading
+  rename a rewrite hazard. Refused.
+- **Timeline = a sorted query, not a system ✅** — a saved `.shq` ordered by the `session:`
+  prop *is* a timeline; the overlap with plain `ORDER BY` is total, and the only durable
+  ruling is that **`session:` is declared a number prop** so `Session 10` does not sort
+  before `Session 2` (same trap family as `cr: 1/4`). A render profile can make it read as
+  time rather than a grid; no new item. No auto-dating — the time key is what you wrote.
+
+### Refused in this round, with the reason (do not re-pitch)
+- **Scroll-triggered notification / chip pulse** — motion contract, and an interrupt that
+  is usually wrong at a table.
+- **Counter as a query cell with write-back** — a second source of truth.
+- **Playback, media surface, "now playing"** — out of the app's shape entirely.
+- **Improvised-name capture as a GM feature** — it is a **macro argument** (caret word /
+  selection), see "Macros → plugins ladder"; the GM case is one instance.
+- **Fight-board canvas** — the toolkit tracks turns; it does not build battle maps.
+- **House-rule index over a rules folder** — too specific; house rules live where the GM
+  already writes them.
+- **Rumor provenance as a feature** — it is note-keeping; "which rumors did I tell" is a
+  mention query over built backlinks. `true:` / `twist:` stay a convention.
+- **"What changed since last session"** — overlaps the time machine and the scrubber, and
+  it is against the grain: Shale answers questions, it does not volunteer summaries.
+- **Scrubber history keyed to sessions** — clunky, and it would need text-matching
+  "Session 12" or a scrubber mode that renders vault state at a date. Also: `notes.created_at`
+  is *"when the index first saw the note"*, not the file's birth time (P1.3), so a
+  date-keyed history built on it lies after a re-index. Dropped.
+- **Plot-hole dashboard, quote attribution, printable-props vocabulary** — none is a
+  feature: a saved query, a plain wikilink, and profile names in a vault, respectively.
+
 ### Spotlight ledger ✅
 - The DB knows session-note text; PC notes are wikilinked there. Count
   PC-name mentions (wikilinks + `aliases:` prop) per session → spotlight
@@ -984,6 +1115,20 @@ build; the rest is configuration of things that already exist.
   like a physical card), `handout` (secret-stripped, serif-forward),
   `broadsheet` (columns, drop caps, masthead). Screen rendering and print use
   the same profiles: what you see is literally what exports.
+- **Registry ruled 2026-11-08: machinery in the app, vocabulary in the vault.** Profiles
+  are selected by `type:` / callout kind, **inferred-first and override-second**
+  (`.shale/profiles.toml`), with **zero built-in profiles beyond the three above** — the
+  same zero-built-in-instances rule already held for edge kinds. The artifact family is
+  therefore free to name: `letter` (serif, framed, dated — a letter note renders *as a
+  letter on screen*, which is what makes it a deliberate artifact rather than a note with
+  a flag on it), `handbill` / `sign` (huge type, one rule), `inventory` / `treasure card`
+  (tabular, prints to a card), `sheet` (a PC sheet the GM prints for a new player — still
+  GM-side; players never open Shale), `session card` (the GM's one-pager: who's involved,
+  what's at stake, the DCs, tonight's cues).
+- **The print bill is fonts, not layout (roadmap P6.5a, scheduled 2026-11-08).** The
+  screen path has gpui's font system; a PDF writer does not. Glyph-outline extraction,
+  subset embedding, and keeping the PDF's metrics identical to the screen layout are the
+  real cost — land them before promising any multi-column print profile.
 - Exports are provenance-logged (what was printed, when, which preset) —
   "what did the GM hand out" stays a query.
 
@@ -1014,6 +1159,13 @@ build; the rest is configuration of things that already exist.
   at a glance.
 - Kept principle: lenses are graph filters + edge layers over existing
   index data; no new storage.
+- **Rewritten 2026-11-08: a lens is a saved `.shq`, not a filter format** (roadmap
+  P4.16). The query supplies the node set (rows must resolve to note paths; ghosts
+  allowed — a ghost in a lens is a visible plot hole), edges are the induced subgraph
+  over that set, `+neighbors` widens one hop, and the existing filter dimensions narrow
+  the result so the two can never disagree. `relative: current` is refused here. This
+  makes the hook→payoff and region lenses queries over `edges` / `region:`, and folds
+  canvas-as-saved-selection into the same mechanism.
 
 ### NPC knowledge graph ❄️ (parked, user call 2026-10-29)
 - Fact notes + `knows:` frontmatter → graph-reachability as an NPC's mind;
@@ -1119,6 +1271,15 @@ build; the rest is configuration of things that already exist.
   second source of truth, and it obeys the manual-tables rule above.
 - Block refs (`^id`) for exact NPC quotes in session notes; relationship
   graph (NPC↔faction↔location) is just the existing graph + tag coloring.
+- **Aliases as a resolver rule ✅ (2026-11-08)** — the "guise" problem (a villain met
+  under three names; every quote and interaction attributed to a different one) is one
+  rule in `Vault::resolve_link`: an `aliases:` value resolves to the true note, so `gd`,
+  backlinks and mentions land in one place. **No graph node-merging** — merging nodes in
+  the drawing is where it gets expensive and confusing. The query half ("everything to do
+  with Merrick, however named") is a `.shq`, not a feature.
+- **Roll attribution is a label, not a subsystem ✅ (2026-11-08)** — `!r 1d20+5 vs DC15
+  (Thane)` is a grammar extension to P7.2's dice notation; "how often does this party
+  fail vs DC 15" is then a query over the `rolls` table.
 
 ---
 
