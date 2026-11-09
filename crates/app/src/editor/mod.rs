@@ -13,6 +13,7 @@
 
 mod actions;
 pub(crate) mod embeds;
+pub(crate) mod frontmatter;
 mod input;
 pub(crate) mod overlay;
 mod render;

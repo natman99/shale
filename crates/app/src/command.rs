@@ -300,6 +300,15 @@ const ALL: &[Command] = &[
         action: Some(|| Box::new(NewFolder)),
     },
     Command {
+        id: "note.add-properties",
+        label: "Add frontmatter properties to the top of the note",
+        keys: "",
+        ex: &[],
+        args: "",
+        in_palette: true,
+        action: Some(|| Box::new(AddProperties)),
+    },
+    Command {
         id: "note.rename",
         label: "Rename the selected note",
         keys: "ctrl-shift-r, r in the tree",

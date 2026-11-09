@@ -13,7 +13,8 @@ use std::time::Duration;
 use gpui::{Context, Window};
 use shale_core::vault::rel_text;
 
-use crate::acts::Save;
+use crate::acts::{AddProperties, Save};
+use crate::editor::frontmatter::Frontmatter;
 use crate::note::Note;
 
 use super::tabs::TabContent;
@@ -154,6 +155,38 @@ impl Workspace {
             return;
         };
         editor.update(cx, |editor, cx| editor.exit_embed(None, cx));
+    }
+
+    /// The palette's add-properties: write a frontmatter block at the top of the
+    /// note, or step into the one it already has.
+    ///
+    /// The caret decides which note, the same rule `:w` and `:rename` follow: inside
+    /// an embed this writes the embedded note, because that is the note the keyboard
+    /// is on. The editor owns the buffer, so the block arrives as one grouped edit and
+    /// one `u` takes the whole thing away — which is the point of doing it through the
+    /// buffer rather than by rewriting the file.
+    pub(super) fn add_properties(
+        &mut self,
+        _: &AddProperties,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(editor) = self.pane().active_tab().editor().cloned() else {
+            self.say("no note to write", cx);
+            return;
+        };
+        let outcome = editor.update(cx, |editor, cx| editor.ensure_frontmatter(cx));
+        self.say(
+            match outcome {
+                // The undo is named because the command is the kind someone tries on
+                // a note they were not sure about.
+                Frontmatter::Added => "properties added at the top (u takes it back)",
+                Frontmatter::Already => "the note already has properties; caret moved inside",
+                Frontmatter::ReadOnly => "the note is read-only here (preview mode)",
+                Frontmatter::NoNote => "no note to write",
+            },
+            cx,
+        );
     }
 
     pub(crate) fn open_note(&mut self, path: &PathBuf, cx: &mut Context<Self>) {

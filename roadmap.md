@@ -1169,6 +1169,20 @@ edges, query nodes, MCP canvas tools) is P6.10.
       resolves vault-wide (alias-vs-name collisions), which is a ruling to make rather
       than take in passing — it lands as its own commit, additively (aliases consulted
       only when the existing three rules find nothing).
+    - **Landed 2026-11-09 (a surface asked for out of the blue, not an M-milestone):**
+      the palette's `note.add-properties` — write an empty frontmatter block at the
+      top of the note and put the caret between the fences. Three rules came with it,
+      all tested: **one insertion, so one `u` takes the whole block away** (split it
+      into two edits and the undo leaves a fence behind — the test does exactly that
+      to prove it discriminates); **never a second block** (a note with two blocks at
+      the top is a note whose properties are a coin flip, and the parser reads the
+      first — the command moves the caret into the one that is there and says so);
+      and **a read-only view is refused out loud**, because the buffer would have
+      dropped the edit in silence and the status line would have claimed a block that
+      never appeared. It follows the caret rule `:w` and `:rename` already follow:
+      inside an embed it writes the embedded note. Palette-only, deliberately —
+      `:props`/`:properties` already read them, and a second `:` word for the same
+      noun is a coin flip of its own.
     - **M3 landed 2026-11-08 (the kind census).** `Db::kinds_for_keys` reads the
       vault-wide kind set for the keys a note writes, and `:props` badges a key the vault
       holds a kind for *elsewhere* — `cr=5 (number, vault also text)`. The clean note is

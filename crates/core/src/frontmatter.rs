@@ -200,7 +200,12 @@ pub fn block(text: &str) -> Option<Block> {
     Some(parse((0, close), (skip, end), &body))
 }
 
-const FENCE: &str = "---";
+/// The line that opens and closes a frontmatter block.
+///
+/// Public because the app writes a block too — the palette's add-properties command
+/// — and two spellings of the fence is how a note ends up with a block the parser
+/// does not see.
+pub const FENCE: &str = "---";
 
 /// Read the lines between the fences.
 fn parse(lines: (usize, usize), bytes: (usize, usize), body: &[&str]) -> Block {

@@ -511,3 +511,152 @@ fn wq_writes_the_note_then_exits(cx: &mut TestAppContext) {
         "and so did the exit"
     );
 }
+
+// --- the palette's add-properties ------------------------------------------
+
+/// Open the command palette, type, and choose the row it points at.
+fn run_palette(query: &str, cx: &mut VisualTestContext) {
+    cx.simulate_keystrokes("ctrl-shift-p");
+    cx.simulate_input(query);
+    cx.simulate_keystrokes("enter");
+}
+
+fn buffer(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> String {
+    window
+        .update(cx, |ws, _window, cx| ws.buffer_text(cx))
+        .unwrap()
+}
+
+fn caret(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> (usize, usize) {
+    window
+        .update(cx, |ws, _window, cx| ws.cursor_position(cx))
+        .unwrap()
+}
+
+/// The command writes a frontmatter block at the top of the note and puts the caret
+/// inside it, so the next thing typed is a key rather than a newline.
+#[gpui::test]
+fn add_properties_writes_a_block_and_puts_the_caret_inside(cx: &mut TestAppContext) {
+    let (dir, window) = vault_with(cx, &[("a.md", "# Title\n\nbody\n")]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(cx, &window);
+
+    run_palette("add properties", cx);
+    assert_eq!(buffer(&window, cx), "---\n---\n# Title\n\nbody\n");
+    assert_eq!(
+        caret(&window, cx),
+        (1, 0),
+        "the caret is on the empty line between the fences, where a key goes"
+    );
+    assert!(
+        status(&window, cx).starts_with("properties added"),
+        "{}",
+        status(&window, cx)
+    );
+
+    // Dirty like any other edit, so the save paths — autosave and `:w` — see it.
+    type_command("w", cx);
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("a.md")).unwrap(),
+        "---\n---\n# Title\n\nbody\n",
+        "the block reached the disk through the usual write path"
+    );
+}
+
+/// The promise the user asked for: **one** `u` takes the whole block away. It
+/// arrives as one grouped edit through the buffer, not as three lines and not as a
+/// rewrite of the file, which would have left the undo history pointing at text
+/// that no longer exists.
+#[gpui::test]
+fn one_undo_takes_the_whole_block_back(cx: &mut TestAppContext) {
+    let (dir, window) = vault_with(cx, &[("a.md", "# Title\n\nbody\n")]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(cx, &window);
+
+    run_palette("add properties", cx);
+    assert_eq!(buffer(&window, cx), "---\n---\n# Title\n\nbody\n");
+
+    cx.simulate_keystrokes("u");
+    assert_eq!(
+        buffer(&window, cx),
+        "# Title\n\nbody\n",
+        "one undo, not three keystrokes"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("a.md")).unwrap(),
+        "# Title\n\nbody\n",
+        "and nothing was written behind the buffer"
+    );
+}
+
+/// A note that already has a block gets no second one. Two blocks at the top is a
+/// note whose properties are a coin flip — the parser reads the first — so the
+/// command steps into the block that is there instead.
+#[gpui::test]
+fn a_note_that_already_has_properties_is_not_written_twice(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("a.md", "---\ncr: 5\n---\n# Title\n")]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(cx, &window);
+    cx.simulate_keystrokes("G");
+    assert_eq!(
+        caret(&window, cx),
+        (4, 0),
+        "the caret starts on the heading, away from where the block would go"
+    );
+
+    run_palette("add properties", cx);
+    assert_eq!(buffer(&window, cx), "---\ncr: 5\n---\n# Title\n");
+    assert_eq!(
+        caret(&window, cx),
+        (1, 0),
+        "the caret moved into the block that was already there"
+    );
+    assert!(
+        status(&window, cx).starts_with("the note already has properties"),
+        "{}",
+        status(&window, cx)
+    );
+}
+
+/// The palette reaches the command from the words a person would actually type.
+/// Which row it ranks first is the ranker's business; being *offered* is the
+/// contract, so the assertion is about membership rather than the top row.
+#[gpui::test]
+fn the_palette_offers_the_command_from_several_words(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("a.md", "one line\n")]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    for query in ["add properties", "frontmatter", "props"] {
+        cx.simulate_keystrokes("ctrl-shift-p");
+        cx.simulate_input(query);
+        let offered = window
+            .update(cx, |ws, _window, cx| ws.picker_rows(cx))
+            .unwrap();
+        assert!(
+            offered
+                .iter()
+                .any(|row| row == "Add frontmatter properties to the top of the note"),
+            "{query} offers: {offered:?}"
+        );
+        cx.simulate_keystrokes("escape");
+    }
+}
+
+/// Preview mode cannot be written. The buffer would have refused the insertion in
+/// silence, so the command asks first and says which half is missing — otherwise
+/// the status line would claim a block that never appeared.
+#[gpui::test]
+fn add_properties_refuses_a_read_only_view(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("a.md", "# Title\n")]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(cx, &window);
+    type_command("preview", cx);
+
+    run_palette("add properties", cx);
+    assert_eq!(buffer(&window, cx), "# Title\n", "nothing was written");
+    assert!(
+        status(&window, cx).starts_with("the note is read-only"),
+        "{}",
+        status(&window, cx)
+    );
+}

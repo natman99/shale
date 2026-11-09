@@ -224,6 +224,14 @@ vault index: one row per value, with the kind worked out from the value itself �
 `hp: 7` is a number, `died: 2024-01-31` a date, `ally: "[[Zhentarim]]"` a link.
 `:props` prints what the index holds for the note your cursor is in.
 
+To start a block on a note that has none, the palette's **Add frontmatter
+properties** writes an empty one at the top and puts the caret between the fences,
+where the first key goes. It is one undo step — `u` takes the whole block away — and
+on a note that already has a block it moves the caret into that one rather than
+writing a second, because two blocks at the top is a note whose properties are a
+coin flip. Inside an embed it writes the embedded note, the same rule `:w` and
+`:rename` follow: the caret decides.
+
 What Shale reads: `key: value` pairs, block lists (`- item`) and flow lists
 (`[a, b]`), quoted values, comments, and JSON frontmatter. What it does not read:
 nested maps, block scalars (`|`, `>`), anchors and explicit tags. Those are still

@@ -18,6 +18,7 @@ as you would type it.
 | `note.write-quit` | Write the note, then quit | — | `:wq`, `:x`, `:xit`, `:exit` | — |
 | `note.new` | New note | `ctrl-n, n in the tree` | — | — |
 | `folder.new` | New folder | `ctrl-shift-n, shift-n in the tree` | — | — |
+| `note.add-properties` | Add frontmatter properties to the top of the note | — | — | — |
 | `note.rename` | Rename the selected note | `ctrl-shift-r, r in the tree` | — | — |
 | `note.delete` | Delete the selected note | `ctrl-shift-d, shift-d in the tree` | — | — |
 | `note.open` | Open a note | `space f, g f` | `:e`, `:edit`, `:open` | — |
