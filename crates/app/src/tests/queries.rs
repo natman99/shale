@@ -54,13 +54,50 @@ fn a_saved_query_answers_with_rows(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("enter");
     assert_eq!(
         offered(&window, cx),
-        vec!["columns: note · value", "Wisp.md", "Goblin.md"],
+        vec!["queries/tough.shq", "Wisp.md", "Goblin.md"],
         "the answer, in the order the query asked for it: cr 3 before cr 5"
+    );
+    let shown = window
+        .update(cx, |ws, _window, cx| ws.picker_shown(cx))
+        .unwrap();
+    assert_eq!(
+        shown[0].0, "columns: note · value",
+        "the first row still says what the columns are: {shown:?}"
+    );
+    assert_eq!(
+        shown[0].1, "open queries/tough.shq",
+        "and says where choosing it goes"
     );
 }
 
 /// A query note with no declaration at all is still a query: the fence is optional, and
 /// so is the ceremony.
+#[gpui::test]
+fn the_columns_row_of_an_answer_opens_the_query_file(cx: &mut TestAppContext) {
+    let (_dir, window) = monsters(cx, TOUGH);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    type_command("query", cx);
+    cx.simulate_keystrokes("enter");
+    let shown = window
+        .update(cx, |ws, _window, cx| ws.picker_shown(cx))
+        .unwrap();
+    assert_eq!(
+        shown[0].0, "columns: note · value",
+        "the answer's first row: {shown:?}"
+    );
+
+    // The picker opens on its first row, so one more enter chooses the row that
+    // names the columns — and that row is the way back to the file that computed
+    // them, which is where a reader goes when the answer is not what they wanted.
+    cx.simulate_keystrokes("enter");
+    let (_, active) = state(&window, cx);
+    assert_eq!(
+        active, "queries/tough.shq",
+        "the columns row should open the query file"
+    );
+}
+
 #[gpui::test]
 fn a_query_note_with_no_declaration_runs_its_body(cx: &mut TestAppContext) {
     let (_dir, window) = monsters(
@@ -72,7 +109,7 @@ fn a_query_note_with_no_declaration_runs_its_body(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("enter");
     assert_eq!(
         offered(&window, cx),
-        vec!["columns: note", "Goblin.md", "Wisp.md"]
+        vec!["queries/tough.shq", "Goblin.md", "Wisp.md"]
     );
 }
 
@@ -90,7 +127,7 @@ fn the_declaration_sorts_the_answer(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("enter");
     assert_eq!(
         offered(&window, cx),
-        vec!["columns: note · value", "Goblin.md", "Wisp.md"],
+        vec!["queries/tough.shq", "Goblin.md", "Wisp.md"],
         "the declaration's `-value` outranks the statement's ascending ORDER BY"
     );
 }
@@ -124,7 +161,7 @@ fn a_row_naming_a_note_that_is_not_there_opens_nothing(cx: &mut TestAppContext) 
     let cx = &mut VisualTestContext::from_window(window.into(), cx);
     type_command("query", cx);
     cx.simulate_keystrokes("enter");
-    assert_eq!(offered(&window, cx), vec!["columns: note", "Ghost.md"]);
+    assert_eq!(offered(&window, cx), vec!["queries/tough.shq", "Ghost.md"]);
     cx.simulate_keystrokes("down enter");
     cx.run_until_parked();
     assert_eq!(
@@ -886,9 +923,195 @@ fn a_refusal_that_spans_lines_is_drawn_on_one(cx: &mut TestAppContext) {
     assert!(!rows[0].contains('\n'), "one line per row: {:?}", rows[0]);
 }
 
+/// `G` asks for the last row of the file, and on a query note that row is inside the
+/// fold. The caret cannot come to rest in a row nothing paints — the status bar would
+/// say one thing and the screen another, and the next `j` would leave from where the
+/// reader cannot see — so it lands on the row the fold is drawn on, which is what vim
+/// does with a closed fold too.
+#[gpui::test]
+fn the_end_of_the_file_lands_on_a_row_the_reader_can_see(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.bind_keys(keybindings()));
+    let (_dir, window) = monsters(cx, TOUGH);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "queries/tough.shq");
+    cx.run_until_parked();
+    assert_eq!(drawn(&window, cx), 1, "the program is folded");
+
+    cx.simulate_keystrokes("G");
+    cx.run_until_parked();
+    let (row, _) = window
+        .update(cx, |ws, _window, cx| ws.cursor_position(cx))
+        .unwrap();
+    assert_eq!(
+        row, 0,
+        "the last row of the file is inside the fold, so the caret lands on the row \
+         the fold is drawn on"
+    );
+    assert!(
+        window
+            .update(cx, |ws, _window, cx| ws.cursor_line_is_visible(cx))
+            .unwrap(),
+        "and the caret is on a row the view paints"
+    );
+}
+
+/// Preview's `G` is a reading motion, not a caret motion: it goes to the end of what
+/// the view shows. A query note hangs its answer below the program, and the rows of an
+/// answer belong to no line of the file — so the last row of the file is not the last
+/// row on screen, and reaching it takes the scroller, not the caret.
+#[gpui::test]
+fn preview_jumps_to_the_last_row_of_the_answer(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.bind_keys(keybindings()));
+    let long = "WITH RECURSIVE x(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM x WHERE n < 250) \
+         SELECT n FROM x\n";
+    let (_dir, window) = monsters(cx, long);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "queries/tough.shq");
+    cx.run_until_parked();
+    window
+        .update(cx, |ws, _window, cx| {
+            ws.editor().map(|editor| {
+                editor.update(cx, |editor, cx| {
+                    editor.set_view(crate::editor::View::Preview, cx)
+                })
+            })
+        })
+        .unwrap();
+    cx.run_until_parked();
+
+    // (offset, how far the view can go, the pane's height). The answer is 200 rows
+    // plus the line admitting the rest, so the view has somewhere to jump to.
+    let probe = |ws: &mut Workspace, cx: &mut gpui::Context<Workspace>| {
+        ws.editor()
+            .map(|e| e.read_with(cx, |e, _| e.scroll_probe()))
+            .expect("a note in the editor")
+    };
+    let (offset, reach, height, _) = window.update(cx, |ws, _window, cx| probe(ws, cx)).unwrap();
+    assert!(
+        reach > height * 2.,
+        "the answer should overflow the pane by a wide margin: {reach} over {height}"
+    );
+    assert!(offset > -2., "the view starts at the top: {offset}");
+
+    cx.simulate_keystrokes("G");
+    cx.run_until_parked();
+    let (offset, reach, height, _) = window.update(cx, |ws, _window, cx| probe(ws, cx)).unwrap();
+    assert!(
+        offset <= -(reach - 2.),
+        "the view should be at the bottom of the answer: {offset} of -{reach} (pane {height})"
+    );
+
+    // And `gg` still goes to the top, which is the half that already worked.
+    cx.simulate_keystrokes("g g");
+    cx.run_until_parked();
+    let offset = window
+        .update(cx, |ws, _window, cx| probe(ws, cx))
+        .unwrap()
+        .0;
+    assert!(offset > -2., "the view is back at the top: {offset}");
+}
+
 /// A database message that quotes the statement it refused is longer than any pane,
 /// and a block has no viewport of its own — the host scrolls. So the refusal wraps:
 /// the reason arrives in pieces, and every piece of it is on screen.
+#[gpui::test]
+fn a_query_fold_survives_clicking_a_row_and_coming_back(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.bind_keys(keybindings()));
+    let (_dir, window) = monsters(cx, TOUGH);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "queries/tough.shq");
+    cx.run_until_parked();
+    assert_eq!(drawn(&window, cx), 1, "the program starts folded");
+
+    cx.simulate_keystrokes("space z");
+    cx.run_until_parked();
+    assert_eq!(drawn(&window, cx), 4, "the reader opened it");
+
+    // The door: a row of the answer, clicked.
+    let bands = window
+        .update(cx, |ws, _window, cx| ws.phantom_bands(cx))
+        .unwrap();
+    let door = bands
+        .iter()
+        .find(|band| band.0)
+        .expect("a row that opens a note");
+    let at = gpui::point(gpui::px(door.1 + 5.), gpui::px((door.2 + door.3) / 2.));
+    cx.simulate_mouse_down(at, gpui::MouseButton::Left, gpui::Modifiers::default());
+    cx.simulate_mouse_up(at, gpui::MouseButton::Left, gpui::Modifiers::default());
+    cx.run_until_parked();
+    let opened = window
+        .update(cx, |ws, _window, _cx| ws.active_path())
+        .unwrap();
+    assert_ne!(
+        opened,
+        Some(PathBuf::from("queries/tough.shq")),
+        "the click did not leave the query note"
+    );
+
+    cx.simulate_keystrokes("ctrl-o");
+    cx.run_until_parked();
+    assert_eq!(
+        window
+            .update(cx, |ws, _window, _cx| ws.active_path())
+            .unwrap(),
+        Some(PathBuf::from("queries/tough.shq")),
+        "ctrl-o should come back to the query"
+    );
+    assert_eq!(
+        drawn(&window, cx),
+        4,
+        "and find the program as the reader left it"
+    );
+}
+
+#[gpui::test]
+fn a_row_that_opens_a_note_says_so_to_the_pointer(cx: &mut TestAppContext) {
+    let (_dir, window) = monsters(cx, TOUGH);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "queries/tough.shq");
+    cx.run_until_parked();
+
+    let bands = window
+        .update(cx, |ws, _window, cx| ws.phantom_bands(cx))
+        .unwrap();
+    let over = |band: &(bool, f32, f32, f32)| {
+        gpui::point(gpui::px(band.1 + 5.), gpui::px((band.2 + band.3) / 2.))
+    };
+
+    let door = bands
+        .iter()
+        .find(|band| band.0)
+        .expect("a row that opens a note");
+    cx.simulate_mouse_move(over(door), None, gpui::Modifiers::none());
+    cx.run_until_parked();
+    assert_eq!(
+        window
+            .update(cx, |ws, _window, cx| ws.cursor_style(cx))
+            .unwrap(),
+        "hand",
+        "the pointer over a row that opens a note stayed a caret: {bands:?}"
+    );
+
+    // And off again, below the table: a pointer that only ever turns into a hand
+    // would leave the note unreadable as soon as the reader moves away from a row.
+    // (Only addressable rows record a band at all, so "a row that opens nothing" is
+    // not in this list — the space past the last row is the honest way out.)
+    let last = bands.iter().fold(0f32, |low, band| low.max(band.3));
+    cx.simulate_mouse_move(
+        gpui::point(gpui::px(bands[0].1 + 5.), gpui::px(last + 30.)),
+        None,
+        gpui::Modifiers::none(),
+    );
+    cx.run_until_parked();
+    assert_eq!(
+        window
+            .update(cx, |ws, _window, cx| ws.cursor_style(cx))
+            .unwrap(),
+        "ibeam",
+        "the pointer past the last row kept the hand: {bands:?}"
+    );
+}
+
 #[gpui::test]
 fn the_answer_wears_a_grid_and_no_rule_lands_on_a_letter(cx: &mut TestAppContext) {
     let (_dir, window) = monsters(cx, TOUGH);

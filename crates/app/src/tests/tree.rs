@@ -135,6 +135,61 @@ fn backspace_edits_the_name(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn the_tree_scrolls_to_follow_the_keyboard(cx: &mut TestAppContext) {
+    // Enough rows that the sidebar cannot show them all: a selection that walks
+    // past the bottom edge has to be brought back, not left off screen.
+    let names: Vec<String> = (0..80).map(|i| format!("notes/Note {i:02}.md")).collect();
+    let names: Vec<&str> = names.iter().map(|s| s.as_str()).collect();
+    let (_dir, window) = workspace(cx, &names);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    cx.simulate_keystrokes("ctrl-w h l");
+    cx.run_until_parked();
+    assert_eq!(
+        window
+            .update(cx, |ws, _window, _cx| ws.tree_scroll_offset())
+            .unwrap(),
+        0.,
+        "the sidebar starts at the top"
+    );
+
+    // One more press than there are notes: the folder row is row 0, so the last
+    // note is row 80 of 81.
+    for _ in 0..80 {
+        cx.simulate_keystrokes("j");
+    }
+    cx.run_until_parked();
+    let selected = window
+        .update(cx, |ws, _window, _cx| ws.tree_selection())
+        .unwrap();
+    assert_eq!(selected, Some(PathBuf::from("notes/Note 79.md")));
+    let down = window
+        .update(cx, |ws, _window, _cx| ws.tree_scroll_offset())
+        .unwrap();
+    assert!(
+        down < 0.,
+        "the sidebar never scrolled for the keyboard: {down}"
+    );
+
+    // And back up: a handle that only ever scrolls down would leave the top of the
+    // tree unreachable once the keyboard has walked away from it.
+    for _ in 0..80 {
+        cx.simulate_keystrokes("k");
+    }
+    cx.run_until_parked();
+    let up = window
+        .update(cx, |ws, _window, _cx| ws.tree_scroll_offset())
+        .unwrap();
+    // The scroll container pads its own content, so "at the top" is a few pixels
+    // off zero — the handle aligns the row to the viewport, not the padding. What
+    // matters is that the walk back up undid the walk down.
+    assert!(
+        up > -12.,
+        "walking back to the top left the sidebar scrolled: {up}"
+    );
+}
+
+#[gpui::test]
 fn the_tree_walks_with_j_and_k(cx: &mut TestAppContext) {
     let (_dir, window) = workspace(cx, &["Welcome.md", "notes/First.md", "notes/Second.md"]);
     let cx = &mut VisualTestContext::from_window(window.into(), cx);

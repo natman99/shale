@@ -112,6 +112,18 @@ impl ViewSlot {
         &self.folds
     }
 
+    /// Hand this view the fold decisions it made about this note before.
+    ///
+    /// What a reader chose to hide belongs to the note they were reading, not to the
+    /// moment they were reading it: a view that forgets it makes `ctrl-o` undo a
+    /// decision the reader never asked to undo. The regions themselves are worked out
+    /// again from the text, so a note that changed underneath still resolves the
+    /// decisions against the regions it has now.
+    pub fn restore_folds(&mut self, folds: fold::FoldState) {
+        self.folds = folds;
+        self.fold_cache = None;
+    }
+
     /// Whether this view has any fold closed, which lets the UI skip
     /// [`Self::fold_view`] for the common case of a note with no folds.
     pub fn has_closed_folds(&self) -> bool {

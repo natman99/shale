@@ -169,6 +169,11 @@ impl Workspace {
             None => 0,
         };
         self.tree_selection = Some(self.tree_rows[next].clone());
+        // The rows the keyboard steps through are the rows the last frame laid out,
+        // in the same order, so the row's index is the scroll container's item index:
+        // `j` past the bottom edge brings the row back rather than leaving the
+        // selection somewhere off screen.
+        self.tree_scroll.scroll_to_item(next);
         cx.notify();
     }
 

@@ -284,6 +284,15 @@ pub(crate) struct Workspace {
     last_window_title: Option<String>,
     /// The sidebar's own focus, so the tree can be driven from the keyboard.
     tree_focus: gpui::FocusHandle,
+    /// What each note's editor view had folded, kept while the note is not on screen.
+    /// A reader's decision about what to hide belongs to the note, not to the moment:
+    /// clicking a row in a query's answer and coming back with `ctrl-o` should find the
+    /// program still open, the way it was left.
+    fold_memory: std::collections::HashMap<PathBuf, shale_core::fold::FoldState>,
+    /// The sidebar's scroll position. The wheel moves it on its own; the keyboard
+    /// has to be told, or a selection that walks off the bottom of the sidebar
+    /// keeps walking with nothing on screen to look at.
+    tree_scroll: gpui::ScrollHandle,
     /// The tree row the keyboard has selected.
     tree_selection: Option<PathBuf>,
     /// Whether the file tree is drawn. `space e` / `:tree` move it, and the note takes
@@ -597,6 +606,8 @@ impl Workspace {
             // first frame names it.
             last_window_title: None,
             tree_focus: cx.focus_handle(),
+            fold_memory: std::collections::HashMap::new(),
+            tree_scroll: gpui::ScrollHandle::default(),
             tree_selection: None,
             // Every window starts with its tree showing; `restore_session` is what
             // hides it again for a vault whose user had it hidden.

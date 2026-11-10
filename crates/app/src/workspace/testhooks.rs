@@ -183,6 +183,11 @@ impl Workspace {
         self.tree_rows.clone()
     }
     #[cfg(test)]
+    /// How far the sidebar has been scrolled, in pixels; negative is scrolled down.
+    pub(crate) fn tree_scroll_offset(&self) -> f32 {
+        self.tree_scroll.offset().y.as_f32()
+    }
+
     pub(crate) fn tree_selection(&self) -> Option<PathBuf> {
         self.tree_selection.clone()
     }
@@ -257,6 +262,26 @@ impl Workspace {
     pub(crate) fn query_shape<C: gpui::AppContext>(&self, cx: &mut C) -> Vec<String> {
         self.editor()
             .map(|editor| editor.update(cx, |editor, _cx| editor.query_shape()))
+            .unwrap_or_default()
+    }
+
+    /// Where the phantom rows were painted this frame, and which of them open
+    /// something: `(opens, left, top, bottom)`.
+    pub(crate) fn phantom_bands<C: gpui::AppContext>(&self, cx: &C) -> Vec<(bool, f32, f32, f32)> {
+        self.editor()
+            .map(|editor| editor.read_with(cx, |editor, _cx| editor.phantom_bands()))
+            .unwrap_or_default()
+    }
+
+    /// The cursor the editor is drawing, spelled out for a test.
+    pub(crate) fn cursor_style<C: gpui::AppContext>(&self, cx: &C) -> String {
+        self.editor()
+            .map(|editor| {
+                editor.read_with(cx, |editor, _cx| match editor.cursor_style() {
+                    gpui::CursorStyle::PointingHand => "hand".to_string(),
+                    other => format!("{other:?}").to_lowercase(),
+                })
+            })
             .unwrap_or_default()
     }
 

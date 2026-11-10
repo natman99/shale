@@ -51,16 +51,30 @@ impl MarkdownEditor {
                     self.preview_scroll(-self.line_height_px(), cx);
                     return;
                 }
-                // The keys a reader keeps. `g` and `G` stay with the engine:
-                // they move the (hidden) caret to the buffer's ends and the
-                // reveal scrolls the view there — the jump preview wants —
-                // while `g t`/`g T` keep changing tabs and `g f` keeps
+                // The keys a reader keeps. `g` stays with the engine: it moves
+                // the (hidden) caret to the top and the reveal scrolls the view
+                // there, while `g t`/`g T` keep changing tabs and `g f` keeps
                 // following links. Space is the leader, `/` searches, `n` and
                 // `N` repeat it, and escape is escape.
+                Key::Char('G') => {
+                    // The end of what this view shows, not the end of the file's
+                    // rows. A query note hangs its answer below the program, and a
+                    // reader asking for the end of one wants the last row of the
+                    // answer — which no caret position can reach, because the rows
+                    // of an answer belong to no line of the file. The caret still
+                    // goes to the end of the text, so what `n` and `g f` work on
+                    // afterwards is the end the reader is looking at.
+                    self.buffer.borrow_mut().buffer_end();
+                    self.buffer
+                        .borrow_mut()
+                        .clamp_cursor_out_of_folds(&mut self.slot);
+                    self.scroll_handle.scroll_to_bottom();
+                    cx.notify();
+                    return;
+                }
                 Key::Char(' ')
                 | Key::Char('/')
                 | Key::Char('g')
-                | Key::Char('G')
                 | Key::Char('n')
                 | Key::Char('N')
                 | Key::Escape => {}
@@ -87,6 +101,14 @@ impl MarkdownEditor {
                 .handle_normal_key(key, &mut self.buffer.borrow_mut(), &mut self.slot);
         // Inside an embed, the section's edges are the caret's edges (roadmap P4.0b).
         self.clamp_to_embed();
+        // A motion can ask for a row this view refuses to paint: `G` on a folded
+        // program, `5G` inside a closed section. The fold commands already clamp when
+        // they hide the caret's row; this is the same rule at the other door. Without
+        // it the caret sits in a row nothing draws — the status bar says one thing and
+        // the screen another, and the next `j` leaves from where the reader cannot see.
+        self.buffer
+            .borrow_mut()
+            .clamp_cursor_out_of_folds(&mut self.slot);
         let changed = self.buffer.borrow().text() != before;
         if changed {
             self.mark_dirty(cx);

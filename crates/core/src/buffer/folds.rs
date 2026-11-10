@@ -158,7 +158,15 @@ impl Buffer {
     /// A closed fold must never hide the cursor: put it on the heading that
     /// opens the innermost fold covering it, then walk outward until the row it
     /// lands on is drawn. Each step moves strictly upwards, so this terminates.
-    fn clamp_cursor_out_of_folds(&mut self, view: &mut ViewSlot) {
+    /// Bring the caret to a row this view actually paints.
+    ///
+    /// Two doors need it. Closing a fold can hide the row the caret is sitting on.
+    /// And a *motion* can ask for a row that is already hidden: `G` on a query note
+    /// whose program is folded asks for the last row of the file, which is inside
+    /// the fold. Both end the same way — the caret comes to rest on the row the fold
+    /// is drawn on, the only row of it a reader can see — which is also what vim does,
+    /// and what keeps the status bar and the screen telling the same story.
+    pub fn clamp_cursor_out_of_folds(&mut self, view: &mut ViewSlot) {
         loop {
             let row = self.cursor_row();
             let hidden = self

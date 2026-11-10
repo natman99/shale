@@ -251,6 +251,21 @@ impl Workspace {
         };
         let text = note.buffer.borrow().text().to_string();
         tracing::debug!(path = %path.display(), bytes = text.len(), "opened note");
+        // The fold decisions travel with the note, not with the view's attention:
+        // the note being replaced hands up what it had folded, and the arriving note
+        // gets back whatever the reader had folded in it before.
+        let leaving = match &self.pane().tabs[index].content {
+            TabContent::Note { path, editor, .. } => {
+                let path = path.clone();
+                let folds = editor.read_with(cx, |editor, _cx| editor.folds());
+                Some((path, folds))
+            }
+            _ => None,
+        };
+        if let Some((Some(leaving), folds)) = leaving {
+            self.fold_memory.insert(leaving, folds);
+        }
+        let arriving = self.fold_memory.get(path).cloned();
         if let TabContent::Note {
             path: slot, editor, ..
         } = &mut self.pane_mut().tabs[index].content
@@ -258,6 +273,9 @@ impl Workspace {
             *slot = Some(path.clone());
             editor.update(cx, |editor, cx| {
                 editor.set_note(Rc::clone(&note), cx);
+                if let Some(folds) = arriving {
+                    editor.restore_folds(folds);
+                }
                 // What this note embeds is resolved relative to *it*, and its
                 // links resolve against the notes on disk now.
                 editor.set_embed_context(Some(path), notes.clone(), cx);

@@ -4,8 +4,8 @@
 use std::rc::Rc;
 
 use gpui::{
-    div, font, prelude::*, px, rgb, Context, CursorStyle, ImgResourceLoader, IntoElement,
-    MouseButton, ParentElement, Render, SharedString, Styled, Window,
+    div, font, prelude::*, px, rgb, Context, ImgResourceLoader, IntoElement, MouseButton,
+    ParentElement, Render, SharedString, Styled, Window,
 };
 use shale_core::vim::{Key, Mode};
 
@@ -281,7 +281,19 @@ impl Render for MarkdownEditor {
             .key_context(context)
             .track_focus(&self.focus_handle)
             .size_full()
-            .cursor(CursorStyle::IBeam)
+            // The note is text, so the note's cursor is a caret — except over a row
+            // that answers a click by opening something, which says so the way every
+            // other clickable thing in the app does.
+            .cursor(self.cursor_style())
+            .on_mouse_move(
+                cx.listener(|this, event: &gpui::MouseMoveEvent, _window, cx| {
+                    let door = this.door_at(event.position).is_some();
+                    if this.hover_door != door {
+                        this.hover_door = door;
+                        cx.notify();
+                    }
+                }),
+            )
             // Vim normal-mode keys.
             .on_action(
                 cx.listener(|this, _: &VimH, window, cx| this.normal(Key::Char('h'), window, cx)),

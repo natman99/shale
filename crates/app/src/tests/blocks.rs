@@ -75,6 +75,45 @@ fn folding_a_section_steps_over_its_rows(cx: &mut TestAppContext) {
 }
 
 /// A fold command on a row with no section around it does nothing, and a bare
+/// A motion can ask for a row a fold has hidden: `G` on a note whose last section is
+/// shut. The caret cannot come to rest in a row nothing paints, so it lands on the
+/// heading the fold is drawn on — the same rule `zc` applies when it hides the row the
+/// caret was already sitting on, asked from the other door.
+#[gpui::test]
+fn a_motion_cannot_land_inside_a_closed_fold(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.bind_keys(keybindings()));
+
+    let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+    let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+    editor
+        .update(cx, |editor, window, cx| {
+            editor.set_text("# Top\none\ntwo\n# Other\nlast".to_string(), cx);
+            let focus = editor.focus_handle(cx);
+            window.focus(&focus, cx);
+        })
+        .unwrap();
+    for _ in 0..2 {
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+    }
+
+    // Fold both sections, so the note's last row is out of the display model.
+    cx.simulate_keystrokes("z a j z a");
+    let lines = editor
+        .read_with(cx, |editor, _cx| editor.display_line_count())
+        .unwrap();
+    assert_eq!(lines, 2, "both headings show, and nothing under either");
+
+    cx.simulate_keystrokes("G");
+    let pos = editor
+        .read_with(cx, |editor, _cx| editor.cursor_position())
+        .unwrap();
+    assert_eq!(
+        pos,
+        (3, 0),
+        "`G` asked for `last`, which is hidden, so the caret rests on the heading that stands for it"
+    );
+}
+
 /// `z` waits for its command letter without touching the buffer.
 #[gpui::test]
 fn a_fold_command_needs_a_section_under_the_cursor(cx: &mut TestAppContext) {

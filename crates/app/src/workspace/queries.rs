@@ -149,7 +149,10 @@ impl Workspace {
                     vec![notice("no note answers this")],
                 )
             }
-            Ok(rows) => (format!("Query {name}"), result_rows(&rows, &self.entries)),
+            Ok(rows) => (
+                format!("Query {name}"),
+                result_rows(&rows, &self.entries, path),
+            ),
         };
         self.open_picker(&label, rows, window, cx);
     }
@@ -205,9 +208,22 @@ pub(crate) fn query_row(
 pub(crate) fn result_rows(
     answer: &shale_core::db::Rows,
     entries: &[VaultEntry],
+    query: &Path,
 ) -> Vec<(PickerItem, PickerTarget)> {
     let mut rows = Vec::with_capacity(answer.rows.len() + 2);
-    rows.push(notice(format!("columns: {}", answer.columns.join(" · "))));
+    // The row naming the columns is the way back to the file that computed them. The
+    // picker is the surface where an answer is readable, and the reader who wants to
+    // see or edit the program should reach it from the answer instead of going hunting
+    // through the tree.
+    rows.push((
+        PickerItem {
+            label: format!("columns: {}", answer.columns.join(" · ")).into(),
+            detail: format!("open {}", query.display()).into(),
+            detail_ranges: Vec::new(),
+            search: format!("columns {}", query.display()).into(),
+        },
+        PickerTarget::Note(query.to_path_buf()),
+    ));
 
     for cells in answer.rows.iter().take(MAX_ROWS) {
         let first = cells.first().map(Cell::display).unwrap_or_default();

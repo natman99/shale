@@ -722,6 +722,7 @@ impl Render for Workspace {
                                         .flex_1()
                                         .min_h_0()
                                         .overflow_scroll()
+                                        .track_scroll(&self.tree_scroll)
                                         .key_context(tree::CONTEXT)
                                         .track_focus(&self.tree_focus)
                                         .on_action(cx.listener(

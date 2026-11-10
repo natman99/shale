@@ -420,6 +420,10 @@ pub struct MarkdownEditor {
     /// back from a pixel on an embed row to the note that row belongs to (roadmap
     /// P4.0b), and a stale one would answer for a row that is no longer on screen.
     phantom_hits: Rc<RefCell<Vec<crate::line::phantom::PhantomHit>>>,
+    /// Whether the pointer is over a phantom row that opens something. The editor's own
+    /// mouse-move handler sets it, and the cursor it draws follows: a row that answers a
+    /// click says so before the click, the way every other clickable thing in the app does.
+    pub(crate) hover_door: bool,
     /// Where the *entered* embed's rows were painted this frame, each carrying the
     /// byte range of the embedded note it covers. Rebuilt every paint like `hit_lines`,
     /// and kept apart from them for the same reason the rows are `embed` rows: a click
@@ -492,6 +496,7 @@ impl MarkdownEditor {
             embed_slots: HashMap::new(),
             touched: Vec::new(),
             phantom_hits: Rc::new(RefCell::new(Vec::new())),
+            hover_door: false,
             embed_hits: Vec::new(),
             entered_anchor: None,
             embed_gone: None,
@@ -640,6 +645,45 @@ impl MarkdownEditor {
             .iter()
             .find(|hit| hit.bounds.contains(&point))
             .and_then(|hit| hit.origin.clone())
+    }
+
+    /// The fold decisions this view has made. The workspace keeps them per note and
+    /// hands them back when the note comes back — see [`shale_core::buffer::ViewSlot`].
+    pub(crate) fn folds(&self) -> shale_core::fold::FoldState {
+        self.slot.folds().clone()
+    }
+
+    /// Take back the fold decisions this view made about this note earlier.
+    pub(crate) fn restore_folds(&mut self, folds: shale_core::fold::FoldState) {
+        self.slot.restore_folds(folds);
+    }
+
+    /// The cursor the editor draws: a caret over the note's text, a hand over a row
+    /// that answers a click by opening something. One decision, drawn and tested.
+    pub(crate) fn cursor_style(&self) -> gpui::CursorStyle {
+        if self.hover_door {
+            gpui::CursorStyle::PointingHand
+        } else {
+            gpui::CursorStyle::IBeam
+        }
+    }
+
+    /// The painted band of every phantom row of the last frame: `(opens something,
+    /// left, top, bottom)`. A test uses it to put the pointer on a row it can name.
+    #[cfg(test)]
+    pub(crate) fn phantom_bands(&self) -> Vec<(bool, f32, f32, f32)> {
+        self.phantom_hits
+            .borrow()
+            .iter()
+            .map(|hit| {
+                (
+                    hit.door.is_some(),
+                    hit.bounds.origin.x.as_f32(),
+                    hit.bounds.origin.y.as_f32(),
+                    hit.bounds.bottom().as_f32(),
+                )
+            })
+            .collect()
     }
 
     /// The link a badge row stands for, if the point landed on one.
