@@ -302,6 +302,11 @@ actions!(
         // would be eight names for two gestures.
         GraphOpen,
         GraphFit,
+        // `escape` in the graph tab: put down the chosen node and stay in the graph.
+        // It is deliberately *not* `note.focus-editor`, which is what it used to be —
+        // that handler moves the pane back to the last note tab, so escape read as
+        // 'the graph closed'. `ctrl-w l` is the way out, as it is everywhere else.
+        GraphClearSelection,
         // The graph tab's filter strip (`/` in the graph, roadmap P3.4 Task 8). `escape`
         // and `enter` are one action: the filter took effect as it was typed, so there is
         // nothing for `enter` to accept that `escape` would be undoing. Closing the strip

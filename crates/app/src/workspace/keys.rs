@@ -482,9 +482,11 @@ fn build() -> (Vec<KeyBinding>, Vec<KeymapRow>) {
     // note is not what has the keyboard. Task 5 gives it the way out; the pan, zoom
     // and selection keys land with Task 7.
     //
-    // `escape` is `note.focus-editor` rather than a graph-specific action because it is
-    // the same request `ctrl-w l` makes: put the keyboard on the note. With the graph on
-    // screen that means moving the frame back to the note tab the user was last on.
+    // `escape` used to be `note.focus-editor` — the same request `ctrl-w l` makes — and
+    // that turned into a complaint, because the handler moves the pane back to the last
+    // note tab and the graph looks like it closed. The graph is a place the user went to
+    // on purpose; escape now means what it means everywhere else in Shale, which is to put
+    // down the last small decision: the chosen node. `ctrl-w l` is the way out.
     bind!(b, Some(crate::graph::CONTEXT), [
         // vim's command line, from the graph too: the ex bar is the workspace's,
         // not the note's, so `:tabnext`, `:only` and friends are the way out of
@@ -504,7 +506,7 @@ fn build() -> (Vec<KeyBinding>, Vec<KeymapRow>) {
         // live outside the `ctrl-w` prefix, and the graph is one of them.
         "g t" => TabNext,
         "g T" => TabPrev,
-        "escape" => FocusEditor,
+        "escape" => GraphClearSelection,
         // `enter` opens the chosen node's note, and `f` frames the whole graph again.
         "enter" => GraphOpen,
         "f" => GraphFit,
@@ -648,6 +650,7 @@ fn action_note(name: &str) -> Option<&'static str> {
         "PickerUp" => "move the highlighted row up",
         "RunCommandLine" => "type a `:` command",
         "GraphOpen" => "open the chosen node's note",
+        "GraphClearSelection" => "put down the chosen node",
         "GraphFit" => "frame the whole graph",
         "GraphFilterOpen" => "open the filter strip",
         "GraphFilterClose" => "close the filter strip",

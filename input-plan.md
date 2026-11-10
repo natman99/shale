@@ -35,9 +35,11 @@ milestones in the order they land.
    an indent the file spelled with spaces.
 5. **`escape` in the graph stays in the graph.** It clears the keyboard's chosen node, and
    closes the filter strip when the strip has the keyboard (already `GraphFilterClose`).
-   `ctrl-w l` is the way to the note. (Ruled 2026-11-10.) *Addition, veto-able:* a second
-   `escape` with nothing chosen does nothing — the graph never hands the keyboard away on its
-   own, because that is the surprise the item was about.
+   `ctrl-w l` is the way to the note. (Ruled 2026-11-10.) A second `escape` with nothing
+   chosen does nothing — the graph never hands the keyboard away on its own, because that is
+   the surprise the item was about. This retires the P3.4 note in `acts.rs` that spelled the
+   strip's close as "the first `escape` closes the strip and only a second one leaves the
+   tab": the second one now puts down a node.
 6. **The default theme follows the desktop; the fallback is dark.** `theme = ""` becomes the
    shipped default and the starter config writes it commented-out-but-empty with the reason
    spelled out. The auto pair is **`dark` / `light`** — Shale's own neutral built-ins, not a
@@ -136,9 +138,12 @@ milestones in the order they land.
 - **M3 — side buttons → jump list.** **Landed.** `capture_any_mouse_down` on the window's
   root (see EDGE-22), the modal-field guard, two tests: the buttons walk the chain and land on
   the byte the link was read at; and a picker keeps its keyboard, its rows and its focus.
-- **M4 — graph `escape`.** A `GraphClearSelection` action, the view's `clear_selection`, the
-  context binding replacing `FocusEditor` for bare `escape`, tests for both halves (chosen
-  node cleared; filter strip still closes).
+- **M4 — graph `escape`.** **Landed.** `GraphClearSelection`, the view's `clear_selection`
+  (the graph handles its own actions; no workspace hop), and the binding swapped. The old
+  behaviour was load-bearing in four tests and two doc lines — `escape` was how you got from
+  the graph to the note to type a command — so those moved to `ctrl-w l` in the same commit.
+  The falsification is the old binding put back: the new test goes red on the selection
+  assertion, not on the tab assertion, which is the half that actually changed.
 - **M5 — theme default.** `Palette::DEFAULT`/`DEFAULT_NAME` → `dark`; `desktop::built_in_for`
   → `dark`/`light`; `Config::starter()` default and the starter template's `theme` line; docs
   (`docs/config.md`, `docs/keys.md` untouched, `design-language.md` §15's auto-pair line

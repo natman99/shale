@@ -325,7 +325,7 @@ in hand. `docs/keys.md` is the human map of both halves.
 | `space g` | Show the vault's link graph | `OpenGraph` | `graph.open` |
 | `g t` | Go to the next tab | `TabNext` | `tab.next` |
 | `g T` | Go to the previous tab | `TabPrev` | `tab.prev` |
-| `escape` | hand the keyboard to the note | `FocusEditor` | — |
+| `escape` | put down the chosen node | `GraphClearSelection` | — |
 | `enter` | open the chosen node's note | `GraphOpen` | — |
 | `f` | frame the whole graph | `GraphFit` | — |
 | `/` | open the filter strip | `GraphFilterOpen` | — |

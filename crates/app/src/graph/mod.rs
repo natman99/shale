@@ -36,7 +36,8 @@ use shale_core::graph::proj::Cam3;
 use shale_core::theme::Palette;
 
 use crate::acts::{
-    GraphFit, GraphLocal, GraphLocalStep, GraphMode, GraphOpen, GraphPan, GraphSelect, GraphZoom,
+    GraphClearSelection, GraphFit, GraphLocal, GraphLocalStep, GraphMode, GraphOpen, GraphPan,
+    GraphSelect, GraphZoom,
 };
 use crate::field::Field;
 use crate::workspace::Workspace;
@@ -1350,6 +1351,23 @@ impl GraphView {
     /// projected one the **angle survives** and only the framing is redone: `f` is the
     /// recovery key for a view that has drifted off the graph, and losing the angle the
     /// user was looking at would make it a way to get lost rather than found.
+    /// `escape`: put down the chosen node and stay in the graph. The graph is a place
+    /// the user went to on purpose, so the key that means 'undo the last small
+    /// decision' everywhere else means that here too, rather than leaving the tab —
+    /// `ctrl-w l` is the way out, as it is in every other surface. The pointer's hover
+    /// is the pointer's business and is left alone; the next `h`/`j`/`k`/`l` starts
+    /// from the middle again, which is the same rule as a graph nothing has chosen.
+    fn clear_selection(
+        &mut self,
+        _: &GraphClearSelection,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.selected.take().is_some() {
+            cx.notify();
+        }
+    }
+
     fn fit(&mut self, _: &GraphFit, _window: &mut Window, cx: &mut Context<Self>) {
         self.cancel_reframe();
         self.camera = None;
@@ -1554,6 +1572,7 @@ impl Render for GraphView {
             .on_action(cx.listener(Self::select))
             .on_action(cx.listener(Self::open))
             .on_action(cx.listener(Self::fit))
+            .on_action(cx.listener(Self::clear_selection))
             .on_action(cx.listener(Self::turn))
             .on_action(cx.listener(Self::local_step))
             .on_action(cx.listener(Self::local))

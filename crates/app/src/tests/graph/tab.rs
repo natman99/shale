@@ -112,9 +112,9 @@ fn a_note_saved_while_the_scan_runs_is_folded_in(cx: &mut TestAppContext) {
 fn the_graph_is_one_tab_per_window(cx: &mut TestAppContext) {
     let (_dir, window, mut cx) = linked_vault(cx);
     cx.simulate_keystrokes("space g");
-    // Out and back: `escape` returns to the note, and `space g` again must find the
+    // Out and back: `ctrl-w l` returns to the note, and `space g` again must find the
     // tab that is already there rather than opening another.
-    cx.simulate_keystrokes("escape");
+    cx.simulate_keystrokes("ctrl-w l");
     assert!(!graph(&window, &mut cx));
     cx.simulate_keystrokes("space g");
     assert!(graph(&window, &mut cx));
@@ -130,22 +130,24 @@ fn the_graph_is_one_tab_per_window(cx: &mut TestAppContext) {
     );
 
     // The command line is the other door, and reaches the same one tab.
-    cx.simulate_keystrokes("escape");
+    cx.simulate_keystrokes("ctrl-w l");
     command_line("graph", &mut cx);
     assert_eq!(graph_tabs(&window, &mut cx), 1);
     assert!(graph(&window, &mut cx));
 }
 
-/// `escape` in the graph is `note.focus-editor`: the same request `ctrl-w l` makes. It
-/// cannot hand the keyboard to an editor that is not drawn, so it moves the frame back
-/// to the note tab the user was last on.
+/// The way out of a graph tab is `ctrl-w l`, the same request every other surface
+/// answers. It cannot hand the keyboard to an editor that is not drawn, so it moves
+/// the frame back to the note tab the user was last on. (`escape` used to be bound to
+/// the same action, and read as 'escape closed the graph' — it now puts down the
+/// chosen node instead, and stays.)
 #[gpui::test]
-fn escape_leaves_the_graph_for_the_note(cx: &mut TestAppContext) {
+fn ctrl_w_l_leaves_the_graph_for_the_note(cx: &mut TestAppContext) {
     let (_dir, window, mut cx) = linked_vault(cx);
     cx.simulate_keystrokes("space g");
     assert!(graph(&window, &mut cx));
 
-    cx.simulate_keystrokes("escape");
+    cx.simulate_keystrokes("ctrl-w l");
     assert!(!graph(&window, &mut cx), "the note is on screen again");
     assert_eq!(marker(&window, &mut cx), 0);
     assert_eq!(

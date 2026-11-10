@@ -760,3 +760,45 @@ fn a_projection_only_ever_answers_about_the_picture_it_made(cx: &mut TestAppCont
         );
     }
 }
+
+/// `escape` in the graph puts down the chosen node and stays in the graph. It used
+/// to be bound to `note.focus-editor`, whose handler moves the pane back to the last
+/// note tab — which is why it felt like escape closed the graph. The way out is the
+/// one every other surface uses, `ctrl-w l`.
+#[gpui::test]
+fn escape_puts_down_the_chosen_node_and_keeps_the_graph(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("a.md", "see [[b]]\n"), ("b.md", "back to [[a]]\n")]);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    let selected = |cx: &mut VisualTestContext| {
+        window
+            .update(cx, |ws, _window, cx| ws.graph_selected(cx))
+            .unwrap()
+    };
+    show(&mut cx, &window, "a.md");
+    cx.simulate_keystrokes("space g");
+    paint(&mut cx, &window);
+
+    cx.simulate_keystrokes("l");
+    assert!(
+        selected(&mut cx).is_some(),
+        "`l` chose the node nearest the middle"
+    );
+    cx.simulate_keystrokes("escape");
+    assert_eq!(selected(&mut cx), None, "`escape` put the node down");
+    assert!(
+        graph(&window, &mut cx),
+        "and the graph is still what is on screen"
+    );
+
+    // Choosing again works, so the key cleared a decision rather than breaking the
+    // keyboard: the next `l` starts from the middle, as it does on a fresh graph.
+    cx.simulate_keystrokes("l");
+    assert!(selected(&mut cx).is_some(), "a node can be chosen again");
+
+    // The way out is the window's own.
+    cx.simulate_keystrokes("ctrl-w l");
+    assert!(
+        !graph(&window, &mut cx),
+        "`ctrl-w l` hands the keyboard to the note"
+    );
+}

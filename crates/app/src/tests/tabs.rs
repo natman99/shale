@@ -611,9 +611,9 @@ fn the_window_is_titled_for_its_vault_and_note(cx: &mut TestAppContext) {
     assert_eq!(title(&mut cx).as_deref(), Some(vault.as_str()));
 
     // Walking back to the note brings its name back: the title tracks the tab on
-    // screen, not the last note that was opened. `escape` is the graph's way out,
+    // screen, not the last note that was opened. `ctrl-w l` is the graph's way out,
     // and it lands on the note tab the frame was last on.
-    cx.simulate_keystrokes("escape");
+    cx.simulate_keystrokes("ctrl-w l");
     assert_eq!(
         title(&mut cx).as_deref(),
         Some(format!("{vault} — Deep Note").as_str())
