@@ -225,6 +225,7 @@ impl Workspace {
             | ex::Ex::PasteClipboard
             | ex::Ex::Review
             | ex::Ex::PropertyKeys
+            | ex::Ex::Query
             | ex::Ex::TabNew
             | ex::Ex::TabNext
             | ex::Ex::TabPrev
@@ -643,6 +644,10 @@ impl Workspace {
             .unwrap_or_default();
         self.known = known_names(&self.entries, &self.aliases);
         self.attachments = self.vault.list_attachments().unwrap_or_default();
+        // The saved queries ride the same refresh, so a `.shq` an agent just wrote is a
+        // tree row and a `:query` candidate without a restart.
+        self.queries = self.vault.list_queries().unwrap_or_default();
+        self.tree_files = super::tree_files(&self.entries, &self.queries);
         let vault = Rc::clone(&self.vault);
         // Every tab, not only the one on screen: a wiki-link in a tab nobody is
         // looking at has to resolve against the disk the same way the moment that

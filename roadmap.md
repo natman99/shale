@@ -68,9 +68,10 @@ by its **shape** instead — a background band and a hairline boundary in the ne
 key across every note that writes it. **P4.3a is closed.** What it leaves behind for
 P4.3: `core::query` is the one grammar, `props` is the table a `.shq` body will read, and
 the key rename is the migration path a saved query's vocabulary can lean on.
-**P4.3 has started: M1 — the `.shq` file format and the read-only runner — landed
-2026-11-09.** The plan, an edge ledger (EDGE-1…22) and the six rulings the surface needs
-are in `queries-plan.md`.
+**P4.3 has started: M1 — the `.shq` file format and the read-only runner — and M2, the
+door (`:query`, the picker that lists saved queries and draws their answers) landed
+2026-11-09.** The plan, an edge ledger (EDGE-1…22) and the rulings still open are in
+`queries-plan.md`.
 
 **P4.0, transclusion — the editable half (closed 2026-11-08).** P4.0a
 (read-only embeds) shipped on 2026-11-06, and **P4.0b — editing inside an embed — is
@@ -1362,6 +1363,32 @@ edges, query nodes, MCP canvas tools) is P6.10.
     that list `![[my-query]]` would resolve to a query note and paint it as a broken image.
     Each rule falsified individually. Plan, edge ledger and six open rulings in
     `queries-plan.md`.
+  - **Landed 2026-11-09 (P4.3 M2: the door).** `:query` and the palette's **Run a saved
+    query**: the vault's `.shq` files, each labelled with the name it declares rather than
+    the stem of the file it lives in, and the answer drawn in the picker — the columns
+    once, then one row per answer. Two rulings were asked and taken: **the picker for M2,
+    the in-view results region for M3**, and **a query note is a tree row but not a
+    quick-open row** — the tree is where the author's own files live, and `space f` keeps
+    answering one question. What the surface refuses to say silently, each a row: an answer
+    of nothing ("no note answers this", EDGE-1), SQL the database refuses (its own words,
+    EDGE-2), a body that is not a question (EDGE-3), a file that is not a query note
+    (EDGE-6), and the index being off ("there is no vault index to read", EDGE-14 — the
+    EDGE-25 posture, because "zero" and "I could not look" are different answers). A row
+    whose first cell names a note in the vault *is* that note, which is what makes a saved
+    query a door rather than a printout; a row that names no note stays a row, so a query
+    over a half-populated campaign shows its plot holes instead of offering dead clicks
+    (EDGE-16). NULL is drawn `∅` and an empty string `''` (EDGE-8), and an answer longer
+    than 200 rows is cut with a row saying how much was cut (EDGE-9) — the core reads what
+    the query answers, the surface decides what a person can scan, and the cut and the
+    admission are one decision. The declaration's `sort` is honoured from the start,
+    applied to the answer rather than spliced into the statement. The binding rules got a
+    walker fix on the way: a `;` and a `:name` are found by **one** scan, because two
+    walkers that disagree about where a quote ends would leave one rule a hole the other
+    does not have; a binding the body never asks for is dropped (the surface offers an
+    anchor whether or not this query wants one) and a body asking for a name nothing
+    supplies is refused by name. The demo vault gained two query notes, and both were run
+    against a copy of it to check the demo is not a broken embed waiting to happen.
+    Fourteen surface tests, seven of them falsified.
   - **P4.3b Headings index — AFTER P4.3a, and explicitly NOT inside it** (ruled
     2026-11-08). Schema **v4** adds `headings(note, line, text, depth)`, filled in the
     same indexer pass from `mdstyle`/`mdlayout` — derived, not authored, so it cannot

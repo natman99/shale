@@ -22,6 +22,7 @@ mod notes;
 mod open;
 pub(crate) mod panes;
 mod popups;
+mod queries;
 mod render;
 mod review;
 mod search;
@@ -196,6 +197,14 @@ pub(crate) struct Workspace {
     /// The files that are not notes, for the same reason: `![[image.png]]` resolves
     /// against these.
     attachments: Vec<VaultEntry>,
+    /// The vault's saved queries (`.shq`) — neither notes nor attachments (P4.3). The
+    /// tree lists them, because they are files the author owns and edits; quick-open
+    /// does not, so `space f` keeps answering one question instead of two.
+    queries: Vec<VaultEntry>,
+    /// What the sidebar rows are built from: notes and query notes together. Its own
+    /// list rather than a per-frame concatenation, because the tree is rebuilt on every
+    /// frame and the vault is not small.
+    tree_files: Vec<VaultEntry>,
     /// The vault's link graph, built the first time the graph tab is opened and kept
     /// current from then on (see [`crate::graph`] and `graph-view-plan.md`).
     ///
@@ -443,6 +452,11 @@ impl Workspace {
         // handed to one editor, because every tab opened later has to see the vault
         // exactly as the first one does.
         let attachments = vault.list_attachments().unwrap_or_default();
+        // The saved questions, and the list the sidebar is drawn from. Refreshed
+        // wherever `entries` is refreshed, so a `.shq` written by an agent shows up in
+        // the tree the same way a note does.
+        let queries = vault.list_queries().unwrap_or_default();
+        let tree_files = tree_files(&entries, &queries);
         // The palette comes from `appearance.theme`: a built-in name or a
         // `<vault>/.shale/themes/<name>.toml` file. A theme that cannot be found
         // or parsed must not stop the editor from starting, so it is reported —
@@ -556,6 +570,8 @@ impl Workspace {
             known: every_name,
             aliases,
             attachments,
+            queries,
+            tree_files,
             // Not built at startup: the graph reads every note, and most windows never
             // ask for it (see [`Workspace::open_graph`]).
             graph: None,
@@ -988,6 +1004,16 @@ impl Workspace {
 /// The alias keys go in because this set is what the editor paints resolved links with.
 /// Leaving them out would draw `[[anon]]` as a dead end in a vault where the index, the
 /// graph and `Enter` all agree it reaches a note.
+/// The files the sidebar lists: every note, plus every saved query. Attachments stay
+/// out — the tree is for the files a reader edits, and an image in a tree of notes is
+/// a different question.
+fn tree_files(entries: &[VaultEntry], queries: &[VaultEntry]) -> Vec<VaultEntry> {
+    let mut files = entries.to_vec();
+    files.extend(queries.iter().cloned());
+    files.sort_by(|a, b| a.path.cmp(&b.path));
+    files
+}
+
 fn known_names(entries: &[VaultEntry], aliases: &[(String, String)]) -> HashSet<String> {
     let mut keys = note_keys(entries);
     for (alias, _) in aliases {

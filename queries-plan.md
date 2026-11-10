@@ -27,6 +27,19 @@ file, answers from the index, and can be embedded anywhere. Brainstorm ruled the
   `.shq`; modes are rationed.** A query view must not become a mode with its own keys
   unless it earns one.
 
+## Landed — M2 (2026-11-09)
+
+`:query` and **Run a saved query**: the `.shq` list labelled by declared name, and the
+answer drawn in the picker — columns once, then one row per answer. A row whose first cell
+names a note in the vault is that note; one that names none stays a row. The declaration's
+`sort` is honoured (applied to the answer, not spliced into the statement). The citizenship
+ruling is in: `.shq` rows are in the tree and open in the editor, and are not in quick-open.
+The binding rules were finished here: one `scan` finds both the statement break and the
+`:name` parameters (two walkers would disagree about where a quote ends), an unasked-for
+binding is dropped, and an unsupplied one is refused by name. EDGE-1, 2, 3, 6, 8, 9, 14,
+16 and the palette door are covered by tests; the demo vault holds two query notes, both
+run against a copy of the vault to check the demo answers.
+
 ## Landed — M1 (2026-11-09, `8f93336`)
 
 `query_note::QueryNote::parse` (the file: optional TOML declaration between `+++` fences,
@@ -77,8 +90,8 @@ Built ones name their test; the rest name the milestone that owes one.
 ## Milestones
 
 - **M1 — the format and the runner.** Landed. No surface.
-- **M2 — the door.** `:query` and the palette's *Run a saved query*: pick a `.shq`, run
-  it, show the rows. Where the rows go is §Q1. Carries EDGE-1, 2, 9, 14, 15, 17.
+- **M2 — the door.** Landed. `:query` and the palette's *Run a saved query*, the rows in
+  the picker, the tree and quick-open citizenship settled.
 - **M3 — the results where the query lives.** The declaration's `sort`/`view` start to
   mean something; rows that name notes behave like links. EDGE-16, 19, 22.
 - **M4 — `![[query-name]]`.** The transclusion resolver's third branch (note, attachment,
@@ -92,20 +105,16 @@ Built ones name their test; the rest name the milestone that owes one.
   file rather than a session. EDGE-18.
 - **Not here:** the graph lens (P4.16) and the GM screen (P7.4) consume this item.
 
-## Rulings I need
+## Rulings
 
-1. **Where do results render?** (a) the picker for M2 — rows as text, enter opens the
-   note a row names — and the in-view results region in M3; (b) the region under the SQL
-   from the start; (c) a results pane of its own. **Recommend (a):** the picker already
-   renders rows, detail and highlight, and it proves the whole pipeline in one commit;
-   the region is the right end state and it is a bigger draw.
-2. **Is a `.shq` a note in the tree and in quick-open?** **Recommend:** visible in the
-   tree (it is a file the author owns), absent from quick-open's note list, reached by
-   its own `:query` picker. A `.shq` in the note list would make `space f` answer two
-   different questions.
+1. **Where do results render?** — **taken (a)**: the picker for M2, the in-view results
+   region for M3. `result_rows` is the one producer of what a row says, so the region
+   draws the same rows differently rather than re-deciding them.
+2. **Is a `.shq` a note in the tree and in quick-open?** — **taken**: a tree row (and it
+   opens in the editor like any file the author owns), not a quick-open row, reached by its
+   own `:query` picker.
 3. **The declaration fence is `+++`.** Taken in M1, because `---` collides with a note's
-   YAML block and with SQL's `--` comment. Veto if you want `---` for consistency with
-   notes.
+   YAML block and with SQL's `--` comment. No veto, so it stands.
 4. **No result cache until a query is measured slow.** Taken in M1 (the key rule the
    cache owes is written in `db/query.rs`). Say so if you want the hash+mtime+anchor
    cache built now.

@@ -112,7 +112,27 @@ impl Db {
             .with_context(|| format!("the query could not be prepared: {sql}"))?;
         let columns: Vec<String> = stmt.column_names().map(str::to_string).collect();
         let width = columns.len();
-        let named: Vec<(&str, &str)> = bindings.iter().map(|b| (b.name, b.text)).collect();
+        // The body's own list of parameters decides what gets bound. rusqlite refuses
+        // a name the statement does not hold, and the surface offers an anchor whether
+        // or not this query asked for one — so an unasked-for binding is dropped rather
+        // than reported. The other direction is the one worth a message: a body that
+        // asks for `:curent` is a typo, and SQLite's answer for it names neither the
+        // intent nor the anchor that was sitting right there.
+        let wanted = parameters(sql);
+        if let Some(missing) = wanted
+            .iter()
+            .find(|name| !bindings.iter().any(|bound| bound.name == **name))
+        {
+            return Err(anyhow!(
+                "the query asks for `{missing}`, and nothing supplies it"
+            ));
+        }
+
+        let named: Vec<(&str, &str)> = bindings
+            .iter()
+            .filter(|bound| wanted.iter().any(|name| name == bound.name))
+            .map(|b| (b.name, b.text))
+            .collect();
         let mut out = Rows {
             columns,
             rows: Vec::new(),
@@ -157,10 +177,17 @@ fn check(sql: &str) -> Result<()> {
              not `SELECT` or `WITH`"
         ));
     }
-    if let Some(after) = second_statement(sql) {
+    let mut extra: Option<&str> = None;
+    scan(sql, &mut |event| {
+        if let Event::StatementBreak(after) = event {
+            extra.get_or_insert(after);
+        }
+    });
+    if let Some(after) = extra {
         return Err(anyhow!(
             "a query note holds one statement; this one continues after a `;` \
-             with `{after}`"
+             with `{}`",
+            clipped(after)
         ));
     }
     Ok(())
@@ -198,12 +225,22 @@ fn first_word(sql: &str) -> Option<String> {
     (at > start).then(|| sql[start..at].to_ascii_lowercase())
 }
 
-/// The text after a `;` that ends a statement, if the body holds one.
+/// What matters inside a statement, found by one walk.
+#[derive(Debug)]
+enum Event<'a> {
+    /// A `;` with more text after it — a second statement.
+    StatementBreak(&'a str),
+    /// A `:name` parameter, spelled as the body spells it.
+    Parameter(&'a str),
+}
+
+/// Walk a statement and report what matters, skipping quoted text and comments.
 ///
-/// Quoted text and comments are walked through rather than searched, because `;` is
-/// ordinary inside a string (`'a; b'`), inside a quoted identifier, and inside a
-/// comment — and a refusal that fires on those is a rule that rejects valid queries.
-fn second_statement(sql: &str) -> Option<String> {
+/// One walker rather than two, because a `;` and a `:name` are both ordinary inside a
+/// string (`'a; b'`), inside a quoted identifier and inside a comment — and two walkers
+/// that disagree about where a quote ends would leave one rule a hole the other does not
+/// have.
+fn scan<'a>(sql: &'a str, found: &mut impl FnMut(Event<'a>)) {
     let bytes = sql.as_bytes();
     let mut at = 0;
     while at < bytes.len() {
@@ -249,15 +286,38 @@ fn second_statement(sql: &str) -> Option<String> {
                     // Named up to the next statement break, so the message quotes the
                     // reader's own text rather than the whole file.
                     let end = rest.find(';').unwrap_or(rest.len());
-                    let shown = rest[..end].trim();
-                    return Some(clipped(shown));
+                    found(Event::StatementBreak(rest[..end].trim()));
                 }
                 at += 1;
+            }
+            b':' | b'@' | b'$'
+                if bytes
+                    .get(at + 1)
+                    .is_some_and(|c| c.is_ascii_alphabetic() || *c == b'_') =>
+            {
+                let start = at;
+                at += 1;
+                while at < bytes.len() && (bytes[at].is_ascii_alphanumeric() || bytes[at] == b'_') {
+                    at += 1;
+                }
+                found(Event::Parameter(&sql[start..at]));
             }
             _ => at += 1,
         }
     }
-    None
+}
+
+/// The `:name` parameters the body asks for, in the order they appear, deduplicated.
+fn parameters(sql: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    scan(sql, &mut |event| {
+        if let Event::Parameter(name) = event {
+            if !out.iter().any(|seen| seen == name) {
+                out.push(name.to_string());
+            }
+        }
+    });
+    out
 }
 
 /// Shorten a quote of the reader's own text to something a status line can carry,
@@ -409,6 +469,37 @@ mod tests {
         ] {
             assert!(db.run(body, &[]).is_ok(), "{body} was refused");
         }
+        Ok(())
+    }
+
+    /// A binding the body never asks for is not an error: the surface offers an anchor
+    /// whether or not this particular query wants one, and rusqlite would refuse the
+    /// surplus. The other direction is the one that earns a message — a body asking for
+    /// `:curent` is a typo, and SQLite's answer for an unbound parameter names neither
+    /// the intent nor the anchor that was sitting right there.
+    #[test]
+    fn an_unasked_for_binding_is_dropped_and_an_unsupplied_one_is_named() -> Result<()> {
+        let (_d, _v, db) = vault()?;
+        let anchor = [Binding::new(":current", "Wisp.md")];
+        let rows = db.run("SELECT path FROM notes ORDER BY path", &anchor)?;
+        assert!(
+            !rows.rows.is_empty(),
+            "an anchor the body never asked for broke the query"
+        );
+        let err = db
+            .run("SELECT path FROM notes WHERE path = :curent", &anchor)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains(":curent") && err.contains("nothing supplies"),
+            "{err}"
+        );
+        // A `:name` inside a string or a comment is text, not a request for a binding.
+        assert!(
+            db.run("SELECT ':current' AS literal -- :current too", &[])
+                .is_ok(),
+            "a parameter shape inside text was read as a parameter"
+        );
         Ok(())
     }
 

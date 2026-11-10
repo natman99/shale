@@ -349,6 +349,41 @@ Keys keep their case and their spaces: `Max HP` and `max hp` are different keys,
 nothing renames them for you. A key the note writes twice keeps both rows, and
 `:props` says so.
 
+## Saved queries
+
+A question worth asking twice is worth keeping, and Shale keeps it the way it keeps
+everything else: a plain text file you can read, edit and commit. A `.shq` holds one SQL
+statement, and optionally a declaration between `+++` fences naming it and sorting its
+answer:
+
+```
++++
+name = "Who is still missing"
+sort = "-cr"
++++
+SELECT note, value AS cr FROM props WHERE key = 'cr'
+```
+
+`:query` — or **Run a saved query** in the palette — lists the vault's `.shq` files and
+answers in the same surface: the columns once, then one row per answer. A row whose first
+cell names a note in the vault *is* that note, so a saved query is a door and not a
+printout; a row that names no note stays a row, which is how a query over a
+half-populated campaign shows its plot holes instead of offering dead clicks. An answer of
+nothing says "no note answers this" and a query that fails says why in the database's own
+words, because "zero" and "I could not look" are different answers. A long answer is cut
+at 200 rows and says how much was cut.
+
+The statement runs against the vault index on a read-only connection, so it cannot write —
+the connection refuses, which is a different kind of promise than filtering what you are
+allowed to type. A body that is not a question (`UPDATE`, `PRAGMA`, or a second statement
+after a `;`) is refused before it runs: not because it could do damage, but because a note
+that quietly runs two statements answers a different question than the one you wrote.
+
+Query notes are files the author owns: they appear in the file tree and open in the editor
+like any other file. They are not in quick-open, which stays a list of notes, and they are
+not attachments — `![[my-query]]` does not resolve to one yet, and will mean the query
+when query embedding lands.
+
 ## Spelling and grammar
 
 A language server (`harper-ls --stdio` by default, named by `[spellcheck]` in

@@ -46,6 +46,10 @@ pub(crate) enum PickerTarget {
     /// (`:rename-key`, P4.3a M5): the key is not a question to search, it is the
     /// thing whose spelling is about to change.
     RenameKey(String),
+    /// A saved query note (`.shq`) to run against the index (P4.3 M2). The path is the
+    /// file, not a note: the answer's rows are the surface, and a row that names a note
+    /// becomes a [`Self::Note`] target on its own.
+    RunQuery(std::path::PathBuf),
     /// A row that exists to be read rather than chosen: the query could not be
     /// answered, and the reason *is* the answer. Choosing it repeats the reason in
     /// the status bar. A picker has no other way to say anything, and returning no
@@ -389,6 +393,7 @@ impl Workspace {
                 let seed = prop_token(&key);
                 self.search_vault_with(&seed, window, cx);
             }
+            PickerTarget::RunQuery(path) => self.run_query(&path, window, cx),
             PickerTarget::RenameKey(key) => {
                 // The pane has said *which* key; the prompt asks for the new
                 // spelling and starts with the old one, so the reader edits a name

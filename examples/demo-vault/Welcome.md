@@ -1,3 +1,7 @@
+---
+tags: start here
+---
+
 # Welcome
 
 This is [[Another Note]] and an [[alias|aliased link]]. The same note answers to

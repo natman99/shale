@@ -384,7 +384,7 @@ impl Render for Workspace {
             self.publish_live(cx);
         }
         self.sync_window_title(window);
-        let tree = tree::build_tree(&self.entries, &self.dirs);
+        let tree = tree::build_tree(&self.tree_files, &self.dirs);
         let active = self.note();
         let selected = self.tree_selection.clone();
         let expanded = &self.expanded;
@@ -646,6 +646,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::show_props))
             .on_action(cx.listener(Self::show_property_keys))
             .on_action(cx.listener(Self::show_rename_key))
+            .on_action(cx.listener(Self::show_queries))
             // Agent edit review (roadmap P2.5a). Handled here rather than on the strip
             // itself because these commands are reachable from three doors at once: the
             // strip's own keys, `]a`/`[a` in the note, and the palette.

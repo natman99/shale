@@ -262,6 +262,9 @@ actions!(
         // choosing a key means renaming it; the command line can skip both steps
         // with `:rename-key cr challenge`.
         RenamePropertyKey,
+        // Run a saved query: choose a `.shq`, run it against the index, read the rows
+        // (`:query`, P4.3 M2).
+        RunQuery,
         // Write a properties block at the top of the note, or step into the one it
         // already has. Palette-only: `:props` reads them and `:properties` is its
         // spelling, so a second `:` word for the same noun would be a coin flip.

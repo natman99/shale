@@ -564,6 +564,15 @@ const ALL: &[Command] = &[
         action: Some(|| Box::new(PropertyKeys)),
     },
     Command {
+        id: "vault.query",
+        label: "Run a saved query",
+        keys: "",
+        ex: &["query"],
+        args: "",
+        in_palette: true,
+        action: Some(|| Box::new(RunQuery)),
+    },
+    Command {
         id: "vault.rename-key",
         label: "Rename a property key across the vault",
         keys: "",

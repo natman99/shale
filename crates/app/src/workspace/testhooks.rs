@@ -823,6 +823,7 @@ fn render_target(target: &PickerTarget) -> String {
         // The same census row, in the pane's rename mood: what a test needs to see
         // is that choosing this row renames *this* key rather than searching it.
         PickerTarget::RenameKey(key) => format!("rename {key}"),
+        PickerTarget::RunQuery(path) => format!("query {}", path.display()),
         PickerTarget::Notice(reason) => reason.to_string(),
     }
 }

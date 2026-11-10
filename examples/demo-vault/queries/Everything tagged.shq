@@ -1,0 +1,8 @@
++++
+name = "Everything tagged"
+sort = "tag"
++++
+-- The vault's vocabulary: one row per tag a note writes.
+-- `sort` in the declaration is the reader's override, applied to the answer rather
+-- than spliced into the statement.
+SELECT note, value AS tag FROM props WHERE key = 'tags'

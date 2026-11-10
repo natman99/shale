@@ -75,6 +75,7 @@ mod paint;
 mod panes;
 mod picker;
 mod popup;
+mod queries;
 mod quotes;
 mod review;
 mod search;

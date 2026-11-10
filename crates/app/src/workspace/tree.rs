@@ -100,7 +100,15 @@ pub(super) fn push_node(
             cx.listener(move |this, _: &gpui::ClickEvent, _window, cx| {
                 tracing::debug!(path = %path.display(), is_dir, "tree click");
                 this.tree_selection = Some(path.clone());
-                if !is_dir && path.extension().map(|e| e == "md").unwrap_or(false) {
+                // A query note opens in the same editor as a note: it is a plain text
+                // file the author owns and edits (P4.3 ruling). It is not indexed as a
+                // note, and it is not in quick-open — the tree is where the author's own
+                // files live, and `space f` stays a note list.
+                let opens = path
+                    .extension()
+                    .map(|e| e == "md" || e == "shq")
+                    .unwrap_or(false);
+                if !is_dir && opens {
                     this.open_note(&path, cx);
                 } else {
                     this.toggle_dir(path.clone());

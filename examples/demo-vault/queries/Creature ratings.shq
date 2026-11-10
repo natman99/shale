@@ -1,0 +1,7 @@
++++
+name = "Creature ratings"
+sort = "-cr"
++++
+-- Every note that writes `cr`, most dangerous first.
+-- The row is the note: choosing it opens it.
+SELECT note, value AS cr FROM props WHERE key = 'cr'

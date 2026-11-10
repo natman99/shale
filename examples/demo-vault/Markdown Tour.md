@@ -1,3 +1,7 @@
+---
+tags: reference
+---
+
 # Markdown Tour
 
 Live-preview styling, one construct per line. Links: [[Welcome]], [[Another Note]],
