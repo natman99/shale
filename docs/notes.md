@@ -291,8 +291,13 @@ field: the search is what lists the notes writing it, and the question can be wi
 from there.
 
 To start a block on a note that has none, the palette's **Add frontmatter
-properties** writes an empty one at the top and puts the caret between the fences,
-where the first key goes. It is one undo step, and `u` takes the whole block away. On a
+properties** writes one at the top with `aliases:` left empty, and puts the caret
+after the colon so the first thing you type is the alias. The field is empty on
+purpose — the command starts the properties rather than guessing at them — and an
+unfilled `aliases:` is a key the note writes without being an alias for anything. It
+is the field worth starting with: a note answers to its aliases as a link target, so
+that line is what makes `[[the green one]]` reach the note you call by a nickname.
+It is one undo step, and `u` takes the whole block away. On a
 note that already has a block it moves the caret into that one rather than
 writing a second, because two blocks at the top is a note whose properties are a
 coin flip. Inside an embed it writes the embedded note, the same rule `:w` and

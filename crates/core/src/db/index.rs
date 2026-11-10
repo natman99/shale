@@ -988,7 +988,10 @@ impl Db {
 /// then list order.
 fn alias_pairs(conn: &Connection) -> Result<Vec<(String, String)>> {
     let mut stmt = conn
-        .prepare("SELECT note, value FROM props WHERE key = 'aliases' ORDER BY note, ordinal")
+        .prepare(
+            "SELECT note, value FROM props WHERE key = 'aliases' AND value <> '' \
+             ORDER BY note, ordinal",
+        )
         .context("reading the vault index's aliases")?;
     let rows = stmt
         .query_map([], |row| {
@@ -1969,6 +1972,36 @@ mod tests {
             ),
             vec!["notes/hero.md notes/goblin.md:note".to_string()],
             "the ghost is filed as an edge instead of rotting until someone edits hero.md"
+        );
+    }
+
+    /// The block the "add properties" command writes opens with `aliases:` left empty,
+    /// so an empty value has to be a key the note writes and **not** an alias: an alias
+    /// is a name, and the empty string is nobody's name. The row stays in `props` — the
+    /// note does write the key, and `:props` and `prop:aliases` should say so — and only
+    /// the alias reader skips it.
+    #[test]
+    fn an_empty_aliases_field_is_a_key_and_not_an_alias() {
+        let (_dir, vault, db) = vault_with(&[
+            ("notes/goblin.md", "---\naliases:\n---\n# Goblin\n"),
+            ("notes/other.md", "---\naliases: anon\n---\n# Other\n"),
+        ]);
+        db.reconcile(&vault).unwrap();
+        assert_eq!(
+            column(
+                &db,
+                "SELECT note || '=' || value FROM props WHERE key = 'aliases' ORDER BY note"
+            ),
+            vec![
+                "notes/goblin.md=".to_string(),
+                "notes/other.md=anon".to_string()
+            ],
+            "the unfilled field is still a key the note writes"
+        );
+        assert_eq!(
+            db.aliases().unwrap(),
+            vec![("anon".to_string(), "notes/other.md".to_string())],
+            "and the empty one is an alias for nothing"
         );
     }
 

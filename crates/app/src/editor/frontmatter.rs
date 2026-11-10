@@ -31,15 +31,31 @@ pub(crate) enum Frontmatter {
     NoNote,
 }
 
-/// The body of an empty frontmatter block: an opening fence, an empty body, and a
-/// closing fence. Empty on purpose — the command is "start the properties", not
-/// "here are some properties", and a guessed key is a thing to delete.
-const EMPTY_BLOCK: &str = "---\n---\n";
-
-/// Where the caret lands after each outcome, as a byte offset.
+/// The body of a new frontmatter block: the fences, and one key left empty.
 ///
-/// Inside the block, on the line between the fences: the next thing the user types
-/// is a key, and putting them anywhere else means typing a newline first.
+/// `aliases` earns its place. It is the one property every note can use, the one the
+/// Properties UI puts in front of people, and in Shale it is load-bearing rather than
+/// decorative: a note answers to its aliases as a wiki-link target, so this field is
+/// the difference between `[[Goblin]]` resolving and `[[the green one]]` not. It is
+/// left **empty** because the command is "start the properties", not "here are some
+/// properties" — and an empty value is not an alias, it is the shape of one waiting
+/// for a name (`Db::aliases` skips empty values, so an unfilled field cannot make an
+/// empty link name resolve).
+const EMPTY_BLOCK: &str = "---\naliases:\n---\n";
+
+/// The key a new block opens with, spelled as it is written.
+const FIRST_KEY: &str = "aliases:";
+
+/// Where the caret lands in a block that was just written: after the key's colon, so
+/// the first thing typed is the value rather than a jump past a word.
+fn first_key_offset(block_start: usize) -> usize {
+    block_start + frontmatter::FENCE.len() + 1 + FIRST_KEY.len()
+}
+
+/// Where the caret lands in a block that was already there: the start of the body,
+/// which is the first key's line. Not after `FIRST_KEY` — an existing block's first
+/// line is whatever its author wrote, and counting past it would land the caret in
+/// the closing fence.
 fn body_offset(block_start: usize) -> usize {
     // Past the opening fence and its newline.
     block_start + frontmatter::FENCE.len() + 1
@@ -65,7 +81,7 @@ impl MarkdownEditor {
         if !self.apply_edits(&[(0, 0, EMPTY_BLOCK.to_string())], cx) {
             return Frontmatter::NoNote;
         }
-        self.reveal_offset(body_offset(0), cx);
+        self.reveal_offset(first_key_offset(0), cx);
         Frontmatter::Added
     }
 }

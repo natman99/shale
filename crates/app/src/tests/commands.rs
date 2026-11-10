@@ -542,11 +542,11 @@ fn add_properties_writes_a_block_and_puts_the_caret_inside(cx: &mut TestAppConte
     open_note(cx, &window);
 
     run_palette("add properties", cx);
-    assert_eq!(buffer(&window, cx), "---\n---\n# Title\n\nbody\n");
+    assert_eq!(buffer(&window, cx), "---\naliases:\n---\n# Title\n\nbody\n");
     assert_eq!(
         caret(&window, cx),
-        (1, 0),
-        "the caret is on the empty line between the fences, where a key goes"
+        (1, 8),
+        "the caret is after `aliases:`, so the first thing typed is the value"
     );
     assert!(
         status(&window, cx).starts_with("properties added"),
@@ -558,7 +558,7 @@ fn add_properties_writes_a_block_and_puts_the_caret_inside(cx: &mut TestAppConte
     type_command("w", cx);
     assert_eq!(
         std::fs::read_to_string(dir.path().join("a.md")).unwrap(),
-        "---\n---\n# Title\n\nbody\n",
+        "---\naliases:\n---\n# Title\n\nbody\n",
         "the block reached the disk through the usual write path"
     );
 }
@@ -574,7 +574,7 @@ fn one_undo_takes_the_whole_block_back(cx: &mut TestAppContext) {
     open_note(cx, &window);
 
     run_palette("add properties", cx);
-    assert_eq!(buffer(&window, cx), "---\n---\n# Title\n\nbody\n");
+    assert_eq!(buffer(&window, cx), "---\naliases:\n---\n# Title\n\nbody\n");
 
     cx.simulate_keystrokes("u");
     assert_eq!(
