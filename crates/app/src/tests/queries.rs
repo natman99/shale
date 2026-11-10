@@ -302,6 +302,289 @@ fn a_query_note_is_a_tree_row_and_not_a_quick_open_row(cx: &mut TestAppContext) 
     );
 }
 
+// ----- M3: the program folded, the answer where the reader is -----
+
+/// A bare editor showing `text` as the file `path`, focused. The path matters:
+/// it is what makes the view ask whether this is a query note at all.
+fn query_editor(cx: &mut TestAppContext, path: &str, text: &str) -> WindowHandle<MarkdownEditor> {
+    let window = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+    window
+        .update(cx, |editor, window, cx| {
+            editor.set_text(text.to_string(), cx);
+            editor.set_embed_context(Some(Path::new(path)), Vec::new(), cx);
+            let focus = editor.focus_handle(cx);
+            window.focus(&focus, cx);
+        })
+        .unwrap();
+    window
+}
+
+/// The rows on screen and the fold markers painted on them.
+fn shown(
+    editor: &WindowHandle<MarkdownEditor>,
+    cx: &mut VisualTestContext,
+) -> (usize, Vec<String>) {
+    for _ in 0..2 {
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+    }
+    editor
+        .read_with(cx, |editor, _cx| {
+            (
+                editor.display_line_count(),
+                editor
+                    .painted_fold_markers()
+                    .into_iter()
+                    .map(|(_line, label)| label)
+                    .collect(),
+            )
+        })
+        .unwrap()
+}
+
+/// A query note is a program with an answer attached, so it opens with the
+/// program folded away — and the marker says what the file computes, not how
+/// many rows are in the way.
+#[gpui::test]
+fn a_query_note_opens_with_its_program_folded(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.bind_keys(keybindings()));
+    let editor = query_editor(cx, "queries/tough.shq", TOUGH);
+    let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+
+    let (lines, markers) = shown(&editor, cx);
+    assert_eq!(
+        lines, 1,
+        "the declaration and the SQL are one fold, and it starts shut"
+    );
+    assert_eq!(
+        markers,
+        vec![" tough"],
+        "the marker names the query (the file's own stem, with no declaration to say otherwise)"
+    );
+
+    // The fold is display state: the file is untouched, which is the same promise
+    // a heading's fold makes.
+    let text = editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
+    assert_eq!(text, TOUGH, "a fold never touches the text");
+}
+
+/// A declaration's `name` is what the marker says, because that is the name the
+/// reader knows the query by.
+#[gpui::test]
+fn the_declaration_names_the_fold(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.bind_keys(keybindings()));
+    let editor = query_editor(
+        cx,
+        "queries/ratings.shq",
+        "+++\nname = \"Creature ratings\"\n+++\nSELECT 1\n",
+    );
+    let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+
+    let (_lines, markers) = shown(&editor, cx);
+    assert_eq!(
+        markers,
+        vec![" Creature ratings"],
+        "the declared name, not the file's"
+    );
+}
+
+/// `space z` is the keyboard route. It has to exist because preview swallows
+/// `za` with every other caret motion, and a query note whose fold starts shut
+/// is no use to a reader who cannot open it without a mouse.
+#[gpui::test]
+fn space_z_opens_the_program_and_shuts_it_again(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.bind_keys(keybindings()));
+    let editor = query_editor(cx, "queries/tough.shq", TOUGH);
+    let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+    assert_eq!(shown(&editor, cx).0, 1);
+
+    cx.simulate_keystrokes("space z");
+    let (lines, markers) = shown(&editor, cx);
+    assert_eq!(lines, 4, "the whole program is on screen");
+    assert!(markers.is_empty(), "an open fold paints no marker");
+
+    cx.simulate_keystrokes("space z");
+    assert_eq!(shown(&editor, cx).0, 1, "and the same key shuts it again");
+}
+
+/// Preview swallows `za` along with every other caret motion — it scrolls, it
+/// does not move — so the leader chord is the keyboard's way into a folded
+/// program. Without it, a query note in preview could only be read shut.
+#[gpui::test]
+fn preview_opens_the_program_with_the_leader(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.bind_keys(keybindings()));
+    let editor = query_editor(cx, "queries/tough.shq", TOUGH);
+    let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+    editor
+        .update(cx, |editor, _window, cx| {
+            editor.set_view(crate::editor::View::Preview, cx)
+        })
+        .unwrap();
+    assert_eq!(shown(&editor, cx).0, 1, "preview folds the program too");
+
+    cx.simulate_keystrokes("z a");
+    assert_eq!(
+        shown(&editor, cx).0,
+        1,
+        "`za` is swallowed in a reading view"
+    );
+
+    cx.simulate_keystrokes("space z");
+    assert_eq!(shown(&editor, cx).0, 4, "the leader chord is not");
+}
+
+/// Raw mode is the source. A fold whose job is to hide the program has no
+/// business in the view whose whole job is to show it.
+#[gpui::test]
+fn raw_mode_shows_the_program(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.bind_keys(keybindings()));
+    let editor = query_editor(cx, "queries/tough.shq", TOUGH);
+    let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+    assert_eq!(shown(&editor, cx).0, 1);
+
+    editor
+        .update(cx, |editor, _window, cx| {
+            editor.set_view(crate::editor::View::Raw, cx)
+        })
+        .unwrap();
+    let (lines, markers) = shown(&editor, cx);
+    assert_eq!(lines, 4, "raw shows every row of the file");
+    assert!(markers.is_empty(), "and folds nothing");
+
+    // Back to live, and the program is folded again: the mode is the question,
+    // not a one-way door.
+    editor
+        .update(cx, |editor, _window, cx| {
+            editor.set_view(crate::editor::View::Live, cx)
+        })
+        .unwrap();
+    assert_eq!(shown(&editor, cx).0, 1);
+}
+
+/// A file that does not parse as a query note has no fold at all. That is the
+/// first half of *a refusal reveals its source*: nothing is hidden, so the
+/// reader sees exactly what is wrong with it.
+#[gpui::test]
+fn a_file_that_is_not_a_query_shows_its_source(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.bind_keys(keybindings()));
+    let editor = query_editor(cx, "queries/bad.shq", "not a question at all\nnope\n");
+    let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+
+    let (lines, markers) = shown(&editor, cx);
+    assert_eq!(lines, 3, "every row of a refusal is on screen");
+    assert!(markers.is_empty(), "and nothing is folded away");
+}
+
+/// Raw mode is the source, and a `.shq` is not markdown: not even in the view
+/// that shows the raw text does a `#`-looking line open a section.
+#[gpui::test]
+fn raw_mode_folds_nothing_in_a_query_note(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.bind_keys(keybindings()));
+    let editor = query_editor(
+        cx,
+        "queries/notes.shq",
+        "+++\n+++\nSELECT 1\n# not a heading\nFROM x\n",
+    );
+    let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+    editor
+        .update(cx, |editor, _window, cx| {
+            editor.set_view(crate::editor::View::Raw, cx)
+        })
+        .unwrap();
+    assert_eq!(shown(&editor, cx).0, 6, "raw shows every row");
+
+    cx.simulate_keystrokes("g g j j j");
+    cx.simulate_keystrokes("z a");
+    let (lines, markers) = shown(&editor, cx);
+    assert_eq!(lines, 6, "and a fold command on a `#` row folds nothing");
+    assert!(markers.is_empty(), "no marker anywhere");
+}
+
+/// `zM` closes every section a note has. A query note has one — its program — so
+/// opening the program again afterwards leaves no section marker behind. If its
+/// `#`-looking lines counted as sections, this is where the half-folded
+/// statement would surface: the program open, a line of it shut.
+#[gpui::test]
+fn closing_every_section_leaves_no_fake_section_behind(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.bind_keys(keybindings()));
+    let editor = query_editor(
+        cx,
+        "queries/notes.shq",
+        "+++\n+++\nSELECT 1\n# not a heading\nFROM x\n",
+    );
+    let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+
+    cx.simulate_keystrokes("space z");
+    assert_eq!(shown(&editor, cx).0, 6, "the program open");
+    cx.simulate_keystrokes("z M");
+    assert_eq!(shown(&editor, cx).0, 1, "zM closes the one region it has");
+    cx.simulate_keystrokes("space z");
+    let (lines, markers) = shown(&editor, cx);
+    assert_eq!(lines, 6, "and opening it again shows the whole program");
+    assert!(
+        markers.is_empty(),
+        "with no section marker left behind: {markers:?}"
+    );
+}
+
+/// A body the runner would refuse — two statements in one note — is a refusal as
+/// surely as a body that is not a question. The fold asks the runner's own
+/// question, so the two doors can never disagree about what is worth folding.
+#[gpui::test]
+fn a_query_the_runner_would_refuse_shows_its_source(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.bind_keys(keybindings()));
+    let editor = query_editor(cx, "queries/two.shq", "+++\n+++\nSELECT 1; SELECT 2\n");
+    let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+
+    let (lines, markers) = shown(&editor, cx);
+    assert_eq!(
+        lines, 4,
+        "the source of a refusal is the point of showing it"
+    );
+    assert!(markers.is_empty(), "nothing is folded away");
+}
+
+/// The same rule asked with the keyboard: a fold command on a `#`-looking row
+/// inside a query note folds the program, because there is no section there to
+/// fold. Half a statement left on screen with a marker of its own is the failure
+/// this rules out.
+#[gpui::test]
+fn a_fold_command_folds_the_program_not_a_fake_heading(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.bind_keys(keybindings()));
+    let editor = query_editor(
+        cx,
+        "queries/notes.shq",
+        "+++\n+++\nSELECT 1\n# not a heading\nFROM x\n",
+    );
+    let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+    cx.simulate_keystrokes("space z");
+    assert_eq!(shown(&editor, cx).0, 6, "the program is open");
+
+    // Down to the row that would be a heading in a note, and `za`.
+    cx.simulate_keystrokes("g g j j j");
+    cx.simulate_keystrokes("z a");
+    let (lines, markers) = shown(&editor, cx);
+    assert_eq!(lines, 1, "the whole program folded, not one line of it");
+    assert_eq!(markers, vec![" notes"], "and the marker is the query's");
+}
+
+/// A query note is not markdown: its `#`-looking lines are not sections. The one
+/// region it has is its program, so a fold never leaves half a statement on
+/// screen with a marker of its own.
+#[gpui::test]
+fn a_query_note_has_no_heading_sections(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.bind_keys(keybindings()));
+    let editor = query_editor(
+        cx,
+        "queries/notes.shq",
+        "+++\n+++\nSELECT 1\n# not a heading\nFROM x\n",
+    );
+    let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+
+    let (lines, markers) = shown(&editor, cx);
+    assert_eq!(lines, 1, "one region, the whole file");
+    assert_eq!(markers, vec![" notes"], "one marker, the query's own");
+}
+
 /// The palette is the door for someone who does not remember the word.
 #[gpui::test]
 fn the_palette_offers_a_saved_query(cx: &mut TestAppContext) {

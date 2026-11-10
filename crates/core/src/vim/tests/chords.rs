@@ -111,7 +111,7 @@ fn za_folds_and_unfolds_the_section_the_cursor_is_in() {
     let view = b.fold_view(&mut screen);
     assert_eq!(
         view.marker[2],
-        Some(2),
+        Some(2.into()),
         "the innermost section around the cursor closed"
     );
     assert_eq!(b.row_col(b.cursor()).0, 2);
@@ -127,7 +127,7 @@ fn zc_zo_and_zd_close_and_open_a_fold() {
     let mut screen = ViewSlot::new();
     b.goto_line(0);
     type_keys_in(&mut vim, "zc", &mut b, &mut screen);
-    assert_eq!(b.fold_view(&mut screen).marker[0], Some(4));
+    assert_eq!(b.fold_view(&mut screen).marker[0], Some(4.into()));
     // The cursor sits on the fold's heading row, which is where `zo` and `zd`
     // apply.
     type_keys_in(&mut vim, "zo", &mut b, &mut screen);
@@ -453,12 +453,12 @@ fn zm_and_zr_fold_and_unfold_every_section() {
     b.goto_line(4);
     type_keys_in(&mut vim, "zM", &mut b, &mut screen);
     let view = b.fold_view(&mut screen);
-    assert_eq!(view.marker[0], Some(4));
+    assert_eq!(view.marker[0], Some(4.into()));
     assert_eq!(
         view.marker[2], None,
         "nested folds hide under the outer one"
     );
-    assert_eq!(view.marker[5], Some(2));
+    assert_eq!(view.marker[5], Some(2.into()));
     assert_eq!(b.row_col(b.cursor()).0, 0);
     type_keys_in(&mut vim, "zR", &mut b, &mut screen);
     assert!(!b.has_closed_folds(&screen));

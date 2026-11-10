@@ -108,6 +108,14 @@ impl Render for MarkdownEditor {
         // needs it immutably, which is the same fact the two halves of this view are
         // made of.
         let host_buffer = Rc::clone(&self.note.buffer);
+        // Asked every frame, because the setter no-ops when nothing changed: that
+        // is what makes a mode change (raw shows the program, live folds it) take
+        // effect without a hook of its own, and what keeps the region cache from
+        // answering a query note with a markdown note's headings.
+        let query = self.query_stem();
+        let fold_program = self.view != View::Raw;
+        self.host_slot()
+            .set_query_note(query.as_deref(), fold_program);
         let folds = host_buffer.borrow_mut().fold_view(self.host_slot());
         for (row, hidden) in collapsed.iter_mut().enumerate() {
             if folds.collapsed.get(row).is_some_and(|c| *c) {
@@ -732,7 +740,7 @@ impl Render for MarkdownEditor {
                         let fold = folds
                             .marker
                             .get(dl.row)
-                            .copied()
+                            .cloned()
                             .flatten()
                             .filter(|_| dl.end == self.note.buffer.borrow().line_end(dl.row));
                         // An embedded image makes its display line as tall as the

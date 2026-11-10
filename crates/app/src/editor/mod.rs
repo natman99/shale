@@ -483,6 +483,21 @@ impl MarkdownEditor {
     /// showing, the checker's underlines, the search's matches — and the wrap
     /// cache with them, because `change_id` is per buffer and two notes can share
     /// one id by coincidence.
+    /// The file stem when this view's note is a query note (`.shq`) and the view
+    /// is not raw; `None` otherwise.
+    ///
+    /// Raw is the source, and a fold whose whole job is to hide the program has
+    /// no business in the view whose whole job is to show it — but the file is
+    /// still a program and not a document there, so its `#`-looking lines are
+    /// not sections either. The view decides which of those two facts matters.
+    pub(crate) fn query_stem(&self) -> Option<String> {
+        let path = self.embeds.host()?;
+        if path.extension().and_then(|e| e.to_str()) != Some("shq") {
+            return None;
+        }
+        Some(path.file_stem()?.to_string_lossy().into_owned())
+    }
+
     pub(crate) fn set_note(&mut self, note: Rc<Note>, cx: &mut Context<Self>) {
         self.buffer = Rc::clone(&note.buffer);
         self.note = note;

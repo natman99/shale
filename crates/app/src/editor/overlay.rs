@@ -933,7 +933,7 @@ impl MarkdownEditor {
                                     block
                                         .fold
                                         .as_ref()
-                                        .and_then(|fold| *fold.marker.get(origin.row)?)
+                                        .and_then(|fold| fold.marker.get(origin.row).cloned()?)
                                 })
                                 .flatten();
                             rows.push(
@@ -1041,7 +1041,7 @@ impl MarkdownEditor {
         origin: &shale_core::transclude::Origin,
         painted: &embeds::PaintedRow,
         segment: (usize, usize),
-        fold: Option<usize>,
+        fold: Option<shale_core::fold::FoldMark>,
         char_width: Pixels,
         editor: &gpui::Entity<MarkdownEditor>,
         gutter: &[GutterMark],

@@ -138,6 +138,11 @@ pub enum Outcome {
     /// `space r` was typed: the UI should show the markdown source. The view is
     /// the window's answer, not the engine's — it changes what the frame draws and
     /// whether the buffer takes edits, neither of which the engine is told about.
+    /// `space z`: the fold under the cursor. The only keyboard route to a fold
+    /// in preview, where `za` is swallowed because preview scrolls instead of
+    /// moving — and the route a query note needs, because its fold starts shut
+    /// and the reader has to be able to open it without a mouse.
+    ToggleFold,
     ViewRaw,
     /// `space l` was typed: back to Shale's live view. It is a chord rather than
     /// only `:live` because of preview, which stops the note taking typing: the
@@ -564,6 +569,10 @@ impl Vim {
             // and `e` is the last leader letter that no view, clipboard or graph chord
             // has taken.
             (true, Key::Char('e')) => Some(Outcome::ToggleTree),
+            // The fold. `z` because it is vim's fold letter, and because in
+            // preview `za` is swallowed with every other caret motion: the
+            // leader is the one key route a reading view still has.
+            (true, Key::Char('z')) => Some(Outcome::ToggleFold),
             _ => None,
         };
         if let Some(outcome) = chord.filter(|_| !self.mode.is_visual()) {

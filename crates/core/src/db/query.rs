@@ -167,7 +167,12 @@ fn read_row(row: &Row<'_>, width: usize) -> rusqlite::Result<Vec<Cell>> {
 }
 
 /// Refuse a body that is not one question, before SQLite gets the chance to.
-fn check(sql: &str) -> Result<()> {
+///
+/// This is the one place the shape rule lives: the runner calls it before it
+/// prepares, and the editor asks it (`is_runnable`) whether a query note is worth
+/// folding at all. Two answers to that question would mean a file the view folds
+/// shut and the door refuses to run — a refusal with nothing to read.
+pub fn check(sql: &str) -> Result<()> {
     let Some(word) = first_word(sql) else {
         return Err(anyhow!("a query note's body is empty"));
     };

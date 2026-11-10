@@ -128,6 +128,14 @@ impl MarkdownEditor {
             // travels up from here to the window that handles it, exactly as the
             // key would have.
             Outcome::QuickOpen => window.dispatch_action(QuickOpen.boxed_clone(), cx),
+            // `space z`: the fold under the caret. The editor owns fold state, so
+            // unlike the picker chords this one is answered here. It is the only
+            // keyboard route to a fold in preview, where every caret motion (and so
+            // `za`) is swallowed — and the route a query note needs, because its
+            // fold starts shut.
+            Outcome::ToggleFold => {
+                self.buffer.borrow_mut().fold_toggle(&mut self.slot);
+            }
             // `space s` is the other leader chord: the window owns the search.
             Outcome::SearchVault => window.dispatch_action(SearchVault.boxed_clone(), cx),
             // vim's `K`: the window owns the checker, so the lookup is asked for by

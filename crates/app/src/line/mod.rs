@@ -314,11 +314,13 @@ pub(crate) struct LineElement {
     /// table grid, a callout's box) comes from it, so a theme change is one
     /// assignment on the editor rather than a change here.
     pub(crate) palette: Rc<Palette>,
-    /// Set when this row is a heading whose section is folded shut: how many rows the
-    /// fold hides. The element draws that count after the row's text and a disclosure
-    /// glyph in the gutter, and records both x ranges, so a click on either opens the
-    /// section again.
-    pub(crate) fold: Option<usize>,
+    /// Set when this row opens a closed fold: what its marker says. A heading's
+    /// marker counts the rows it hides; a query note's marker names what the file
+    /// computed, because the rows it hides are a program and the reader did not
+    /// come to count them. The element draws the words after the row's text and a
+    /// disclosure glyph in the gutter, and records both x ranges, so a click on
+    /// either opens the fold again.
+    pub(crate) fold: Option<shale_core::fold::FoldMark>,
     /// Set when a queued agent proposal would take this row away (roadmap P2.5b). The row
     /// is the note's own text — a removal has nothing phantom about it — so what changes
     /// is how it is painted: struck through, in the palette's red, with a bar down its
@@ -631,8 +633,12 @@ impl Element for LineElement {
             let line = text_system.shape_line(self.text.clone(), px(self.size), &runs, None);
             // The fold marker is not buffer text, so it is shaped on its own and
             // painted after the line rather than being spliced into it.
-            let marker = self.fold.map(|hidden| {
-                let label = fold_label(hidden);
+            let marker = self.fold.as_ref().map(|mark| {
+                let label = mark
+                    .title
+                    .as_ref()
+                    .map(|title| format!(" {title}"))
+                    .unwrap_or_else(|| fold_label(mark.hidden));
                 let style = RunStyle {
                     color: self.palette.dim,
                     ..RunStyle::plain(&self.palette)
@@ -649,7 +655,7 @@ impl Element for LineElement {
             // app's existing language rather than inventing a second one. It is shaped
             // at the gutter's size, not the row's: a heading's `▸` would be wider than
             // the column and get cropped at its edge.
-            let fold_glyph = self.fold.map(|_| {
+            let fold_glyph = self.fold.as_ref().map(|_| {
                 let glyph = crate::style::GLYPH_COLLAPSED;
                 let style = RunStyle {
                     color: self.palette.dim,

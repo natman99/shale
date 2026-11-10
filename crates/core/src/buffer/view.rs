@@ -33,7 +33,14 @@ pub struct ViewSlot {
     pub(super) folds: fold::FoldState,
     /// The regions of the text this slot last measured, with the `change_id`
     /// they were measured against — the same invalidation trick as `segments`.
-    pub(super) fold_cache: Option<(u64, Vec<fold::FoldRegion>)>,
+    pub(super) fold_cache: Option<(u64, Option<String>, bool, Vec<fold::FoldRegion>)>,
+    /// The file stem when this view's buffer is a query note (`.shq`), and
+    /// `None` for everything else. What makes [`fold::query_region`] a region at
+    /// all: a `.shq`'s headings are not sections, because the file is not
+    /// markdown, and its program is one fold that starts shut.
+    pub(super) query_note: Option<String>,
+    /// Whether this view folds a query note's program (false in raw mode).
+    pub(super) fold_program: bool,
     /// Whether *this view* refuses edits — preview mode. Motions, the selection,
     /// folding and the undo history keep working; only the text is off limits.
     ///
@@ -67,6 +74,25 @@ impl ViewSlot {
         self.segments.clear();
         self.folds.clear();
         self.fold_cache = None;
+        self.query_note = None;
+        self.fold_program = true;
+    }
+
+    /// Tell this view what kind of buffer it is looking at: a query note titled
+    /// `stem` (or `None` for an ordinary note), and whether this view is allowed
+    /// to fold its program. Raw mode says no — the raw view is the source, so
+    /// there is nothing to fold there, and a `.shq`'s `#`-looking lines are not
+    /// sections either, so it has no regions at all. Setting the same values
+    /// again changes nothing, which is what lets the render loop ask every frame.
+    pub fn set_query_note(&mut self, stem: Option<&str>, fold_program: bool) {
+        if self.query_note.as_deref() == stem && self.fold_program == fold_program {
+            return;
+        }
+        self.query_note = stem.map(str::to_string);
+        self.fold_program = fold_program;
+        // The regions are a different question for a different kind of file, so
+        // the cached answer is not reusable even though the text has not moved.
+        self.fold_cache = None;
     }
 
     // ----- folds ---------------------------------------------------------
@@ -92,16 +118,27 @@ impl ViewSlot {
         self.folds.any_closed()
     }
 
-    /// The foldable regions of `text`, recomputed when the text changed. A
-    /// region is a heading and the rows it owns.
+    /// The foldable regions of `text`, recomputed when the text or the kind of
+    /// file changed. For a note they are headings and the rows they own; for a
+    /// query note they are its program, which is one region and starts shut.
     pub fn fold_regions(&mut self, text: &str, change_id: u64) -> &[fold::FoldRegion] {
-        if self
-            .fold_cache
-            .as_ref()
-            .is_none_or(|(id, _)| *id != change_id)
-        {
-            self.fold_cache = Some((change_id, fold::fold_regions(text)));
+        let query = self.query_note.clone();
+        let fold_program = self.fold_program;
+        if self.fold_cache.as_ref().is_none_or(|(id, kind, fold, _)| {
+            *id != change_id || *kind != query || *fold != fold_program
+        }) {
+            let regions = match query.as_deref() {
+                // A query note's own text is a program, not a document: its
+                // `#`-looking lines are not sections, so the query region is the
+                // only region it has — and in raw mode there are none at all. A
+                // file that does not parse as a query gets no region either, and
+                // so shows its source.
+                Some(stem) if fold_program => fold::query_region(text, stem).into_iter().collect(),
+                Some(_) => Vec::new(),
+                None => fold::fold_regions(text),
+            };
+            self.fold_cache = Some((change_id, query, fold_program, regions));
         }
-        &self.fold_cache.as_ref().expect("just filled").1
+        &self.fold_cache.as_ref().expect("just filled").3
     }
 }

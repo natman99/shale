@@ -622,7 +622,7 @@ fn folding_a_section_hides_its_rows_from_the_display_model() {
         vec![false, false, false, true, true, true],
         "the rows under `## Sub` go, and the heading row stays"
     );
-    assert_eq!(view.marker[2], Some(3));
+    assert_eq!(view.marker[2], Some(3.into()));
     assert_eq!(
         b.row_col(b.cursor()).0,
         2,
@@ -644,7 +644,7 @@ fn a_fold_follows_its_heading_through_an_edit() {
     b.set_cursor(0);
     b.insert(&ViewSlot::new(), "More title.\n");
     let view = b.fold_view(&mut v);
-    assert_eq!(view.marker[3], Some(2), "`## Sub` moved down a row");
+    assert_eq!(view.marker[3], Some(2.into()), "`## Sub` moved down a row");
     assert!(view.collapsed[4], "the body row is still hidden");
 }
 
@@ -660,7 +660,7 @@ fn closing_every_fold_lands_on_a_visible_heading() {
         "the cursor walks out to the outer heading"
     );
     let view = b.fold_view(&mut v);
-    assert_eq!(view.marker[0], Some(4));
+    assert_eq!(view.marker[0], Some(4.into()));
     assert_eq!(
         view.marker[2], None,
         "the nested fold has no visible row to carry a marker"
