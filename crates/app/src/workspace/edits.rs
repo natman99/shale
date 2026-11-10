@@ -309,7 +309,13 @@ impl Workspace {
                 let rewrites = if self.is_dir(&from) {
                     Vec::new()
                 } else {
-                    shale_core::rename::rewrites_for_rename(&self.vault, &self.entries, &from, &to)?
+                    shale_core::rename::rewrites_for_rename(
+                        &self.vault,
+                        &self.entries,
+                        &self.queries,
+                        &from,
+                        &to,
+                    )?
                 };
                 let renamed = self.vault.rename(&from, &to)?;
                 let report = self.apply_rewrites(Some((&from, &renamed)), &rewrites, cx)?;
@@ -835,13 +841,15 @@ fn key_rename_status(old: &str, new: &str, report: &RewriteReport) -> String {
 }
 
 /// The path `target` would have with `name` as its last component: the same
-/// folder, a new name. A note keeps its `.md`, which the user does not type.
+/// folder, a new name. The extension the user does not type is ours to keep — a note
+/// keeps `.md`, a saved query keeps `.shq`. Dropping it would leave a file the vault's
+/// own lists no longer recognise, and a rename that quietly changes what kind of thing
+/// a file is (roadmap P4.3 M4b). A file with no extension stays exactly as typed.
 fn sibling_path(target: &Path, name: &str) -> PathBuf {
     let parent = target.parent().unwrap_or_else(|| Path::new(""));
-    let named = if target.extension().is_some_and(|e| e == "md") && !name.ends_with(".md") {
-        format!("{name}.md")
-    } else {
-        name.to_string()
+    let named = match target.extension().and_then(|e| e.to_str()) {
+        Some(ext) if !name.ends_with(&format!(".{ext}")) => format!("{name}.{ext}"),
+        _ => name.to_string(),
     };
     parent.join(named)
 }

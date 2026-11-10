@@ -581,12 +581,26 @@ impl Db {
     /// path is indexed the same way a created note would be even if the rename also
     /// edited the title or the links inside.
     pub fn note_renamed(&self, vault: &Vault, from: &Path, to: &Path) -> Result<()> {
+        let old = rel_text(from);
+        if !is_markdown(to) {
+            // A saved query has no `notes` row to move, and giving it one would put its
+            // stem in the list of names a link may resolve to — a claim the markdown
+            // scan never made, and one that would colour a dead name as a live one.
+            // The links that point *at* the query are re-filed when the notes holding
+            // them are rewritten and re-indexed, which is exactly what a rename does.
+            let new = rel_text(to);
+            return self.write(move |conn| {
+                drop_note(conn, &old)?;
+                event(conn, &new, EventKind::Rename, Provenance::Rename, &old)?;
+                file_alias_links(conn)?;
+                Ok(())
+            });
+        }
         let notes = vault.list_markdown()?;
         let attachments = vault.list_attachments()?;
         let queries = vault.list_queries()?;
         let decls = Decls::read(vault);
         let note = record(vault, to, &notes, &attachments, &queries, &decls)?;
-        let old = rel_text(from);
         self.write(move |conn| {
             drop_note(conn, &old)?;
             write_record(conn, &note, Provenance::Rename)?;
@@ -1399,6 +1413,36 @@ mod tests {
             // dedup key is (source, target, kind).
             vec!["Lair.md queries/tough.shq:query"],
             "the saved query is a link target, not a ghost"
+        );
+    }
+
+    /// Renaming a saved query records the move without giving the query a row in
+    /// `notes`. A `.shq` is not a note, and a notes row for it would put its stem in the
+    /// list of names a link may resolve to — a claim the markdown scan never made, and
+    /// one that would colour a dead name as a live one (roadmap P4.3 M4b).
+    #[test]
+    fn renaming_a_saved_query_leaves_it_out_of_the_notes_table() {
+        let (_dir, vault, db) = vault_with(&[
+            ("Lair.md", "![[tough]]\n"),
+            ("queries/tough.shq", "+++\n+++\nSELECT 1\n"),
+        ]);
+        db.reconcile(&vault).unwrap();
+        vault
+            .rename(
+                std::path::Path::new("queries/tough.shq"),
+                std::path::Path::new("queries/brutal.shq"),
+            )
+            .unwrap();
+        db.note_renamed(
+            &vault,
+            std::path::Path::new("queries/tough.shq"),
+            std::path::Path::new("queries/brutal.shq"),
+        )
+        .unwrap();
+        assert_eq!(
+            column(&db, "SELECT path FROM notes ORDER BY path"),
+            vec!["Lair.md"],
+            "the query moved, and stayed out of the notes"
         );
     }
 

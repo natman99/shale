@@ -70,6 +70,49 @@ fn a_saved_query_answers_with_rows(cx: &mut TestAppContext) {
     );
 }
 
+/// Renaming a saved query keeps it a query. The file keeps the extension the user did
+/// not type, the note that embeds it is re-filed to ask for the new name, and the index
+/// still counts only the notes — a `notes` row for a `.shq` would put its stem in the
+/// list of names a link resolves to, which is a claim the markdown scan never made.
+#[gpui::test]
+fn renaming_a_saved_query_keeps_it_a_query(cx: &mut TestAppContext) {
+    let (dir, window) = lair(cx, TOUGH, "![[tough]]\n");
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    window
+        .update(cx, |ws, _window, cx| {
+            ws.open_note(&std::path::PathBuf::from("queries/tough.shq"), cx)
+        })
+        .unwrap();
+    cx.run_until_parked();
+
+    cx.simulate_keystrokes("ctrl-shift-r");
+    cx.simulate_keystrokes("backspace backspace backspace backspace backspace");
+    cx.simulate_input("brutal");
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+
+    assert!(
+        dir.path().join("queries/brutal.shq").is_file(),
+        "the query moved"
+    );
+    assert!(
+        !dir.path().join("queries/brutal").exists(),
+        "the extension the user does not type is ours to keep"
+    );
+    let lair = std::fs::read_to_string(dir.path().join("Lair.md")).expect("the note that asked");
+    assert!(
+        lair.contains("![[brutal]]"),
+        "the embed follows the file it names: {lair}"
+    );
+
+    type_command("wordcount", cx);
+    let bar = window.update(cx, |ws, _window, _cx| ws.status()).unwrap();
+    assert!(
+        bar.ends_with("in 3 notes"),
+        "the vault has three notes and one saved query; the count says: {bar}"
+    );
+}
+
 /// The row that asks for a query is a link like any other: the window's name set holds
 /// the saved query, so the row is coloured as resolved, and `gd` follows it into the
 /// `.shq` (ruling 30's condition — the colour, the click and the index move together).

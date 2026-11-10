@@ -30,7 +30,10 @@ pub struct Rewrite {
 ///
 /// `entries` has to be the vault as it was **before** the rename: resolving a
 /// target is what decides whether a link points at the note, and once the file has
-/// moved the old name resolves to nothing.
+/// moved the old name resolves to nothing. `queries` is the vault's saved queries,
+/// consulted the same last-resort way everywhere else: renaming a `.shq` has to
+/// re-file the `![[query]]` rows that name it, or the embed is left pointing at a
+/// file that no longer exists (roadmap P4.3 M4b).
 ///
 /// Only the name part of a target is rewritten (see
 /// [`crate::markdown::WikiLink::stem_start`]), so a link written as a path keeps
@@ -40,6 +43,7 @@ pub struct Rewrite {
 pub fn rewrites_for_rename(
     vault: &Vault,
     entries: &[VaultEntry],
+    queries: &[VaultEntry],
     old: impl AsRef<Path>,
     new: impl AsRef<Path>,
 ) -> Result<Vec<Rewrite>> {
@@ -54,7 +58,7 @@ pub fn rewrites_for_rename(
     let mut out = Vec::new();
     for entry in entries {
         let text = vault.read(&entry.path)?;
-        let (text, changed) = rename_targets(&text, entries, vault, old, &new_stem);
+        let (text, changed) = rename_targets(&text, entries, queries, vault, old, &new_stem);
         if changed > 0 {
             out.push(Rewrite {
                 path: entry.path.clone(),
@@ -158,6 +162,7 @@ fn rename_key_line(line: &str, old: &str, new: &str) -> Option<String> {
 fn rename_targets(
     text: &str,
     entries: &[VaultEntry],
+    queries: &[VaultEntry],
     vault: &Vault,
     old: &Path,
     new_stem: &str,
@@ -165,7 +170,14 @@ fn rename_targets(
     let edits: Vec<(usize, usize)> = extract_wikilinks(text)
         .iter()
         .filter_map(|link| {
-            let resolved = vault.resolve_link(&link.target, entries).ok()??;
+            // Notes first, saved queries last: the order the resolver, the indexer and
+            // the follow path all use, so a rename never re-files a link that meant
+            // something else.
+            let resolved = vault
+                .resolve_link(&link.target, entries)
+                .ok()
+                .flatten()
+                .or_else(|| vault.resolve_link(&link.target, queries).ok().flatten())?;
             (resolved.path == old).then_some((link.stem_start, link.stem_end))
         })
         .collect();
@@ -282,6 +294,51 @@ mod tests {
         Ok(())
     }
 
+    /// Renaming a saved query re-files the rows that name it. A note embedding
+    /// `![[tough]]` has to end up asking for `![[brutal]]`, or the rename leaves the
+    /// embed pointing at a file that no longer exists (roadmap P4.3 M4b).
+    #[test]
+    fn renaming_a_saved_query_rewrites_the_notes_that_embed_it() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let vault = Vault::open(dir.path())?;
+        vault.write("Lair.md", "![[tough]] and [[tough]]\n")?;
+        vault.write("queries/tough.shq", "+++\n+++\nSELECT 1\n")?;
+        let entries = vault.list_markdown()?;
+        let queries = vault.list_queries()?;
+
+        let rewrites = rewrites_for_rename(
+            &vault,
+            &entries,
+            &queries,
+            "queries/tough.shq",
+            "queries/brutal.shq",
+        )?;
+        assert_eq!(rewrites.len(), 1, "one note names the query");
+        assert_eq!(
+            rewrites[0].text, "![[brutal]] and [[brutal]]\n",
+            "the embed keeps its `!`, the link keeps its meaning"
+        );
+        Ok(())
+    }
+
+    /// A note and a query that spell the same name: the rename of the *note* re-files
+    /// the link to the note, not the one that could have meant the query.
+    #[test]
+    fn a_rename_rewrites_the_note_a_name_means_rather_than_the_query_it_could_mean() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let vault = Vault::open(dir.path())?;
+        vault.write("Lair.md", "![[tough]]\n")?;
+        vault.write("tough.md", "a note\n")?;
+        vault.write("queries/tough.shq", "+++\n+++\nSELECT 1\n")?;
+        let entries = vault.list_markdown()?;
+        let queries = vault.list_queries()?;
+
+        let rewrites = rewrites_for_rename(&vault, &entries, &queries, "tough.md", "tougher.md")?;
+        assert_eq!(rewrites.len(), 1);
+        assert_eq!(rewrites[0].text, "![[tougher]]\n");
+        Ok(())
+    }
+
     #[test]
     fn a_key_rename_is_case_significant_and_skips_a_block_it_cannot_read() -> Result<()> {
         let dir = tempfile::tempdir()?;
@@ -308,11 +365,11 @@ mod tests {
     #[test]
     fn a_rename_rewrites_every_link_that_points_at_the_note() -> Result<()> {
         let (_d, vault, entries) = fixture()?;
-        let rewrites = rewrites_for_rename(&vault, &entries, "a.md", "Renamed.md")?;
+        let rewrites = rewrites_for_rename(&vault, &entries, &[], "a.md", "Renamed.md")?;
         // Nothing links to a.md, so there is nothing to rewrite.
         assert!(rewrites.is_empty());
 
-        let rewrites = rewrites_for_rename(&vault, &entries, "Target.md", "Renamed.md")?;
+        let rewrites = rewrites_for_rename(&vault, &entries, &[], "Target.md", "Renamed.md")?;
         let by_path: std::collections::BTreeMap<_, _> = rewrites
             .iter()
             .map(|r| (r.path.clone(), r.text.clone()))
@@ -346,7 +403,7 @@ mod tests {
     #[test]
     fn a_link_that_means_the_other_note_is_left_alone() -> Result<()> {
         let (_d, vault, entries) = fixture()?;
-        let rewrites = rewrites_for_rename(&vault, &entries, "notes/Target.md", "Renamed.md")?;
+        let rewrites = rewrites_for_rename(&vault, &entries, &[], "notes/Target.md", "Renamed.md")?;
         assert!(
             rewrites.iter().all(|r| !r.text.contains("[[Renamed]]")),
             "every bare [[Target]] in the vault means the root note"
@@ -359,7 +416,7 @@ mod tests {
         let (_d, vault, _entries) = fixture()?;
         vault.write("c.md", "Lowercase [[target]] here.\n")?;
         let entries = vault.list_markdown()?;
-        let rewrites = rewrites_for_rename(&vault, &entries, "Target.md", "Renamed.md")?;
+        let rewrites = rewrites_for_rename(&vault, &entries, &[], "Target.md", "Renamed.md")?;
         let c = rewrites
             .iter()
             .find(|r| r.path == Path::new("c.md"))
@@ -373,7 +430,7 @@ mod tests {
     #[test]
     fn a_target_with_no_name_rewrites_nothing() -> Result<()> {
         let (_d, vault, entries) = fixture()?;
-        let rewrites = rewrites_for_rename(&vault, &entries, "Target.md", "")?;
+        let rewrites = rewrites_for_rename(&vault, &entries, &[], "Target.md", "")?;
         assert!(rewrites.is_empty());
         Ok(())
     }

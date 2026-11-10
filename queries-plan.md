@@ -156,11 +156,12 @@ Built ones name their test; the rest name the milestone that owes one.
 - **M4 — `![[query-name]]`.** Landed 2026-11-10 (rulings 25-31): the resolver's third
   branch, the answer's table hung under the row that asked, the badge as the marker row,
   and an errored query showing its reason in the block. EDGE-10, 11.
-- **M4b — the link a query embed asserts.** The index files `![[query]]` as a link to the
-  `.shq`, `resolve_target` and `known_names` learn it in the same step, the badge gets its
-  door, and renaming a `.shq` re-files the embeds that name it (ruling G, EDGE-21). The
-  door and the index move together or the colour lies (ruling 30). What the map says is
-  there to change, surveyed 2026-11-10:
+- **M4b — the link a query embed asserts.** Landed 2026-11-10 (rulings 32-34): the index
+  files `![[query]]` as `target_kind = 'query'`, `known_names` colours it resolved, `gd`
+  and the answer's title row open the `.shq`, and renaming a `.shq` keeps its extension,
+  keeps it out of the `notes` table, and re-files the embeds that name it (ruling G,
+  EDGE-21). The door and the index moved together, as ruling 30 demanded. What the map
+  said was there to change, surveyed 2026-11-10:
   - `db/index.rs` resolves link targets against markdown entries only, so `![[query]]` is
     filed as `target_kind = 'ghost'` today; `target_kind` has three values and no `query`.
   - `known_names`/`note_keys` hold markdown stems and paths (plus aliases), which is why
@@ -325,3 +326,30 @@ Built ones name their test; the rest name the milestone that owes one.
     `![[a]]` where `a.md` embeds a query: the block carries the query's name at depth 2.
     The answer belongs to the row that asked for it, and a row inside someone else's block
     is not that row.
+32. **The badge says the answer's shape; the row above says the name.** The reader's first
+    complaint about an embedded query was the name printed twice: the host's own row
+    renders `![[Creature ratings]]` as that name, and the block's title row said it again.
+    `answer_count` is the one producer of the shape (`2 rows`, `refused`); the query note's
+    own marker row wraps it in the name, because there the fold has hidden the whole
+    program and the marker is the only thing left saying what the file is. EDGE-10's "the
+    badge *is* the marker row" survives as the same *rendering of the answer*, not the same
+    sentence.
+33. **A query embed is a link everywhere the question is asked, or nowhere.** Ruling 30's
+    condition, paid in one step: the index files `![[query]]` as `target_kind = 'query'`
+    (after notes and attachments, before the ghost), `known_names` colours it resolved,
+    `gd` follows it, and the answer's title row is a door onto the `.shq`. `resolve_target`
+    consults saved queries last, after notes and aliases — the same order the resolver and
+    the indexer use, so the four surfaces cannot name four different files.
+34. **Renaming a `.shq` keeps it a `.shq`.** The rename prompt's `sibling_path` keeps
+    whatever extension the file has (a note keeps `.md`, a query keeps `.shq`, a file with
+    no extension stays exactly as typed), and `Db::note_renamed` refuses to write a `notes`
+    row for a non-markdown path: a notes row would put the stem in the list of names a link
+    resolves to, which is a claim the markdown scan never made. `rewrites_for_rename`
+    resolves notes first and saved queries last, so the `![[query]]` rows that name the
+    file move with it.
+35. **The graph is the one surface still out of step.** `graph/index.rs` re-scans text with
+    its own entry lists and never reads `links`, so a query embed is still a ghost *node*
+    in the graph view while the index, the colour and the door agree it is a link. Left for
+    the graph pass rather than patched half-in: teaching the graph a third list is a
+    signature change through `build` and `set_note`, and a half-taught graph is exactly the
+    disagreement ruling 33 refuses.
