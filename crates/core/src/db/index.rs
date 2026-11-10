@@ -763,105 +763,8 @@ impl Db {
     ///   else compares the stored text, which is what makes `prop:due=2026-11-08`
     ///   find a date row.
     pub fn notes_matching(&self, q: &Query) -> Result<Vec<PathBuf>> {
-        use crate::query::{After, Cmp, Op};
-        let mut sql = String::from("SELECT path FROM notes n WHERE 1=1");
-        let mut args: Vec<Value> = Vec::new();
-        // Path operators are refined after the query; see the method comment.
-        let mut paths: Vec<String> = Vec::new();
-
-        for op in &q.ops {
-            match op {
-                Op::Tag(tag) => add(
-                    &mut sql,
-                    &mut args,
-                    " AND EXISTS (SELECT 1 FROM tags t WHERE t.note = n.path \
-                     AND t.tag = ? COLLATE NOCASE)",
-                    &[tag],
-                ),
-                Op::Link(name) => {
-                    // A link is stored as the resolved path, or as the raw `[[name]]`
-                    // when the target does not exist yet. Both are reachable by the
-                    // name the user would type: exactly, at the vault root, nested,
-                    // and as a ghost.
-                    let file = if name.ends_with(".md") {
-                        name.to_string()
-                    } else {
-                        format!("{name}.md")
-                    };
-                    let like = format!("%/{}", escape_like(&file));
-                    add(
-                        &mut sql,
-                        &mut args,
-                        " AND EXISTS (SELECT 1 FROM links l WHERE l.source = n.path AND ( \
-                 l.target = ? COLLATE NOCASE \
-              OR l.target = ? COLLATE NOCASE \
-              OR l.target LIKE ? \
-              OR (l.target_kind = 'ghost' AND l.target = ? COLLATE NOCASE)))",
-                        &[name, &file, &like, name],
-                    );
-                }
-                Op::Prop { key, cmp, value } => match cmp {
-                    Cmp::Has => add(
-                        &mut sql,
-                        &mut args,
-                        " AND EXISTS (SELECT 1 FROM props p WHERE p.note = n.path AND p.key = ?)",
-                        &[key],
-                    ),
-                    Cmp::Ne => {
-                        // "cr is not 5" is a statement about notes that *have* a cr.
-                        // A note with no cr at all is not a note with a different one.
-                        let frag = prop_equality(value.as_deref().unwrap_or(""));
-                        add(
-                            &mut sql,
-                            &mut args,
-                            &format!(
-                                " AND EXISTS (SELECT 1 FROM props p WHERE p.note = n.path AND p.key = ?) \
-                 AND NOT EXISTS (SELECT 1 FROM props p WHERE p.note = n.path AND p.key = ?{frag})"
-                            ),
-                            &[key, key, value.as_deref().unwrap_or("")],
-                        );
-                    }
-                    Cmp::Eq => {
-                        let frag = prop_equality(value.as_deref().unwrap_or(""));
-                        add(
-                            &mut sql,
-                            &mut args,
-                            &format!(
-                                " AND EXISTS (SELECT 1 FROM props p WHERE p.note = n.path AND p.key = ?{frag})"
-                            ),
-                            &[key, value.as_deref().unwrap_or("")],
-                        );
-                    }
-                    other => {
-                        let frag = prop_ordering(*other);
-                        add(
-                            &mut sql,
-                            &mut args,
-                            &format!(
-                                " AND EXISTS (SELECT 1 FROM props p WHERE p.note = n.path AND p.key = ?{frag})"
-                            ),
-                            &[key, value.as_deref().unwrap_or("")],
-                        );
-                    }
-                },
-                Op::Modified(after) => {
-                    // A date counts from midnight UTC of the day typed; a duration
-                    // counts back from this moment.
-                    let from = match after {
-                        After::Since(secs) => now_epoch().saturating_sub(*secs),
-                        After::At(secs) => *secs,
-                    };
-                    add_values(
-                        &mut sql,
-                        &mut args,
-                        " AND n.modified_at >= ?",
-                        &[Value::Integer(from)],
-                    );
-                }
-                Op::Path(pattern) => paths.push(pattern.clone()),
-            }
-        }
-
+        let (conditions, args, paths) = where_clause(q);
+        let sql = format!("SELECT path FROM notes n WHERE 1=1{conditions}");
         let conn = self.read()?;
         let mut stmt = conn.prepare(&sql)?;
         let mut out: Vec<PathBuf> = stmt
@@ -1255,6 +1158,219 @@ fn whole_seconds(stamp: Stamp) -> Stamp {
                         .unwrap_or(0),
                 ),
         },
+    }
+}
+
+/// The conditions the operators mean, the values they carry, and the `path:` patterns.
+///
+/// Two doors read this. The live search binds the values to a statement; `:save-query`
+/// writes them into a `.shq`, because a saved file has no way to be handed an argument.
+/// One builder, or `prop:cr<=5` would mean one thing in the search box and another in the
+/// file it saves to.
+///
+/// The patterns come back uncompiled because `path:` is answered by Shale's own matcher —
+/// see [`Db::notes_matching`] — and [`compile_sql`] refuses that operator rather than
+/// asking SQLite a different question in the saved file.
+fn where_clause(q: &Query) -> (String, Vec<Value>, Vec<String>) {
+    use crate::query::{After, Cmp, Op};
+    let mut sql = String::new();
+    let mut args: Vec<Value> = Vec::new();
+    // Path operators are refined after the query; see the method comment.
+    let mut paths: Vec<String> = Vec::new();
+
+    for op in &q.ops {
+        match op {
+            Op::Tag(tag) => add(
+                &mut sql,
+                &mut args,
+                " AND EXISTS (SELECT 1 FROM tags t WHERE t.note = n.path \
+                     AND t.tag = ? COLLATE NOCASE)",
+                &[tag],
+            ),
+            Op::Link(name) => {
+                // A link is stored as the resolved path, or as the raw `[[name]]`
+                // when the target does not exist yet. Both are reachable by the
+                // name the user would type: exactly, at the vault root, nested,
+                // and as a ghost.
+                let file = if name.ends_with(".md") {
+                    name.to_string()
+                } else {
+                    format!("{name}.md")
+                };
+                let like = format!("%/{}", escape_like(&file));
+                add(
+                    &mut sql,
+                    &mut args,
+                    " AND EXISTS (SELECT 1 FROM links l WHERE l.source = n.path AND ( \
+                 l.target = ? COLLATE NOCASE \
+              OR l.target = ? COLLATE NOCASE \
+              OR l.target LIKE ? ESCAPE '\\' \
+              OR (l.target_kind = 'ghost' AND l.target = ? COLLATE NOCASE)))",
+                    &[name, &file, &like, name],
+                );
+            }
+            Op::Prop { key, cmp, value } => match cmp {
+                Cmp::Has => add(
+                    &mut sql,
+                    &mut args,
+                    " AND EXISTS (SELECT 1 FROM props p WHERE p.note = n.path AND p.key = ?)",
+                    &[key],
+                ),
+                Cmp::Ne => {
+                    // "cr is not 5" is a statement about notes that *have* a cr.
+                    // A note with no cr at all is not a note with a different one.
+                    let frag = prop_equality(value.as_deref().unwrap_or(""));
+                    add(
+                            &mut sql,
+                            &mut args,
+                            &format!(
+                                " AND EXISTS (SELECT 1 FROM props p WHERE p.note = n.path AND p.key = ?) \
+                 AND NOT EXISTS (SELECT 1 FROM props p WHERE p.note = n.path AND p.key = ?{frag})"
+                            ),
+                            &[key, key, value.as_deref().unwrap_or("")],
+                        );
+                }
+                Cmp::Eq => {
+                    let frag = prop_equality(value.as_deref().unwrap_or(""));
+                    add(
+                            &mut sql,
+                            &mut args,
+                            &format!(
+                                " AND EXISTS (SELECT 1 FROM props p WHERE p.note = n.path AND p.key = ?{frag})"
+                            ),
+                            &[key, value.as_deref().unwrap_or("")],
+                        );
+                }
+                other => {
+                    let frag = prop_ordering(*other);
+                    add(
+                            &mut sql,
+                            &mut args,
+                            &format!(
+                                " AND EXISTS (SELECT 1 FROM props p WHERE p.note = n.path AND p.key = ?{frag})"
+                            ),
+                            &[key, value.as_deref().unwrap_or("")],
+                        );
+                }
+            },
+            Op::Modified(after) => {
+                // A date counts from midnight UTC of the day typed; a duration
+                // counts back from this moment.
+                let from = match after {
+                    After::Since(secs) => now_epoch().saturating_sub(*secs),
+                    After::At(secs) => *secs,
+                };
+                add_values(
+                    &mut sql,
+                    &mut args,
+                    " AND n.modified_at >= ?",
+                    &[Value::Integer(from)],
+                );
+            }
+            Op::Path(pattern) => paths.push(pattern.clone()),
+        }
+    }
+
+    (sql, args, paths)
+}
+
+/// A search as the SQL a hand-written `.shq` would hold (P4.3 M6).
+///
+/// This is where "one grammar, one meaning" pays for itself: the operators typed in the
+/// search box compile into the statement the file keeps, so saving a search and writing the
+/// file out by hand are the same act — and the saved query answers what the search did.
+///
+/// Three searches cannot be saved, and each is refused by name rather than compiled into a
+/// statement that answers a different question later:
+///
+/// - **plain text**, which searches the *lines* of notes. The index holds tags, links,
+///   properties and dates, not lines.
+/// - **`path:`**, which Shale answers with [`crate::glob::covers`] — the matcher the ignore
+///   rules already speak — while SQLite's `LIKE` is a different language.
+/// - **`modified:` with a duration** (`7d`), which counts back from the moment it runs.
+///   Written into a file it would freeze that moment and mean "since the day it was saved".
+///   A date (`modified:2026-11-01`) is a fixed point and saves fine.
+pub fn compile_sql(q: &Query) -> Result<String, String> {
+    use crate::query::{After, Op};
+    if !q.unknown.is_empty() {
+        return Err(format!("not an operator: {}", q.unknown.join(", ")));
+    }
+    if q.ops.is_empty() {
+        return Err(
+            "plain text searches the lines of notes, and a saved query asks the index".to_string(),
+        );
+    }
+    if q.ops.iter().any(|op| matches!(op, Op::Path(_))) {
+        return Err(
+            "path: is answered by Shale's own matcher, not by SQL; a saved query would ask              SQLite a different question"
+                .to_string(),
+        );
+    }
+    if q.ops
+        .iter()
+        .any(|op| matches!(op, Op::Modified(After::Since(_))))
+    {
+        return Err(
+            "modified: with a duration counts from the moment it runs; written into a file it              would mean \"since the day it was saved\" — a date (modified:2026-11-01) saves fine"
+                .to_string(),
+        );
+    }
+    let (conditions, args, _) = where_clause(q);
+    Ok(format!(
+        "SELECT path AS note FROM notes n WHERE 1=1{} ORDER BY path",
+        inline(&conditions, &args)
+    ))
+}
+
+/// The statement with its values written in, in the order the fragments asked for them.
+///
+/// Only the `?N` marks [`add_values`] wrote are replaced, and the values are appended
+/// rather than rescanned, so a tag spelled `what?` stays a tag instead of becoming a hole.
+fn inline(sql: &str, args: &[Value]) -> String {
+    let mut out = String::new();
+    let mut values = args.iter();
+    let mut rest = sql;
+    while let Some(at) = rest.find('?') {
+        let mut end = at + 1;
+        while rest[end..]
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_digit())
+        {
+            end += 1;
+        }
+        out.push_str(&rest[..at]);
+        match values.next() {
+            Some(value) => out.push_str(&literal(value)),
+            None => out.push_str(&rest[at..end]),
+        }
+        rest = &rest[end..];
+    }
+    out.push_str(rest);
+    debug_assert!(
+        values.next().is_none(),
+        "every value had a mark waiting for it"
+    );
+    out
+}
+
+/// A value as SQL text: a saved file has no way to be handed an argument.
+///
+/// Doubling the quotes is SQL's only escaping rule, and the only thing that can go wrong
+/// with a value that holds one.
+fn literal(value: &Value) -> String {
+    match value {
+        Value::Null => "NULL".to_string(),
+        Value::Integer(i) => i.to_string(),
+        Value::Real(r) => format!("{r}"),
+        Value::Text(t) => format!("'{}'", t.replace('\'', "''")),
+        Value::Blob(bytes) => format!(
+            "x'{}'",
+            bytes
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>()
+        ),
     }
 }
 
@@ -2308,6 +2424,100 @@ mod tests {
             .iter()
             .map(rel_text)
             .collect()
+    }
+
+    /// The oracle for M6, and the only one worth writing: the file a search saves has to
+    /// answer what the search box answered. Every operator pair here goes through the
+    /// compiler and then through the runner, on the same index, and the two answers are
+    /// compared as sets of notes.
+    #[test]
+    fn a_saved_search_asks_the_index_the_same_question_the_search_box_asks() {
+        let (_dir, db) = query_vault();
+        for input in [
+            "tag:monster",
+            "link:Zhentarim",
+            r#"link:"Ghost Here""#,
+            "prop:cr<=5",
+            "prop:cr=8",
+            r#"prop:"cr"<=5 tag:goblinoid"#,
+            "modified:2000-01-01",
+        ] {
+            let parsed = crate::query::parse(input);
+            assert!(parsed.unknown.is_empty(), "{input} was refused: {parsed:?}");
+            let sql = compile_sql(&parsed).unwrap_or_else(|err| panic!("{input}: {err}"));
+            let rows = db.run(&sql, &[]).unwrap();
+            let mut got: Vec<String> = rows.rows.iter().map(|row| row[0].display()).collect();
+            got.sort();
+            let mut asked = matched(&db, input);
+            asked.sort();
+            assert_eq!(
+                got, asked,
+                "{input} compiled into a different question: {sql}"
+            );
+        }
+    }
+
+    /// A value written into a file has to survive being read back out of one. The quote
+    /// that SQL has to escape is the one a vault can actually contain.
+    #[test]
+    fn a_saved_search_keeps_a_value_that_holds_a_quote() {
+        let (_dir, vault, db) = vault_with(&[(
+            "notes/bob.md",
+            "---\ntags: [Bob's gang]\n---\n# Bob\n\nA quote in a name.\n",
+        )]);
+        db.reconcile(&vault).unwrap();
+        let parsed = crate::query::parse(r#"tag:"Bob's gang""#);
+        let sql = compile_sql(&parsed).expect("a quoted tag");
+        assert!(
+            sql.contains("'Bob''s gang'"),
+            "the quote is doubled, as SQL reads it: {sql}"
+        );
+        assert_eq!(matched(&db, r#"tag:"Bob's gang""#), vec!["notes/bob.md"]);
+        let rows = db.run(&sql, &[]).unwrap();
+        assert_eq!(
+            rows.rows
+                .iter()
+                .map(|row| row[0].display())
+                .collect::<Vec<_>>(),
+            vec!["notes/bob.md"],
+            "and the file answers the same question"
+        );
+    }
+
+    /// Three searches the index cannot be asked later, each refused by name rather than
+    /// compiled into a statement that means something else by then.
+    #[test]
+    fn a_search_that_cannot_be_saved_says_which_part_of_it_cannot() {
+        for (input, why) in [
+            ("goblin", "lines"),
+            ("path:notes/", "path:"),
+            ("modified:7d", "duration"),
+        ] {
+            let err =
+                compile_sql(&crate::query::parse(input)).expect_err("{input} should not save");
+            assert!(
+                err.contains(why),
+                "{input} refused for the wrong reason: {err}"
+            );
+        }
+    }
+
+    /// The link fragment escapes the LIKE wildcards in a name, which only means anything
+    /// if the statement says which character escapes them. A note called `100%` is a note,
+    /// not a pattern — and this is the statement a saved query keeps, so the mistake would
+    /// outlive the search box.
+    #[test]
+    fn a_link_name_holding_a_wildcard_is_a_name_not_a_pattern() {
+        let (_dir, vault, db) = vault_with(&[
+            ("notes/bet.md", "# Bet\n\nA [[100%]] chance.\n"),
+            ("notes/100%.md", "# 100%\n\nAll of it.\n"),
+        ]);
+        db.reconcile(&vault).unwrap();
+        assert_eq!(
+            matched(&db, r#"link:"100%""#),
+            vec!["notes/bet.md"],
+            "the note that links it, found by a name that happens to hold a wildcard"
+        );
     }
 
     #[test]

@@ -41,7 +41,7 @@ mod schema;
 #[cfg(test)]
 mod tests;
 
-pub use index::{target_kind, word_count, Decls, EventKind, SyncReport};
+pub use index::{compile_sql, target_kind, word_count, Decls, EventKind, SyncReport};
 pub use query::{
     check as check_question, one_line, parameters, Binding, Cell, Rows, CURRENT, MAX_ROWS,
 };
