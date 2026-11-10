@@ -153,9 +153,25 @@ Built ones name their test; the rest name the milestone that owes one.
   name a note are doors, the same rule the picker follows. EDGE-16, 22, 23, 24 landed;
   EDGE-19 (a query that takes seconds) waits for the perf review with the virtualization
   the surface cap has made unnecessary so far — see ruling 17.
-- **M4 — `![[query-name]]`.** The transclusion resolver's third branch (note, attachment,
-  query), and the same table with the same marker row. An errored query shows its error in
-  the block (ruling 6). EDGE-10, 11, 21.
+- **M4 — `![[query-name]]`.** Landed 2026-11-10 (rulings 25-31): the resolver's third
+  branch, the answer's table hung under the row that asked, the badge as the marker row,
+  and an errored query showing its reason in the block. EDGE-10, 11.
+- **M4b — the link a query embed asserts.** The index files `![[query]]` as a link to the
+  `.shq`, `resolve_target` and `known_names` learn it in the same step, the badge gets its
+  door, and renaming a `.shq` re-files the embeds that name it (ruling G, EDGE-21). The
+  door and the index move together or the colour lies (ruling 30). What the map says is
+  there to change, surveyed 2026-11-10:
+  - `db/index.rs` resolves link targets against markdown entries only, so `![[query]]` is
+    filed as `target_kind = 'ghost'` today; `target_kind` has three values and no `query`.
+  - `known_names`/`note_keys` hold markdown stems and paths (plus aliases), which is why
+    the embed paints as unresolved — agreeing with the ghost row, which is the pair ruling
+    30 refuses to break.
+  - The graph does not read `links` at all: `graph/index.rs` re-scans text, so a query
+    embed is a ghost node there until its own entry list learns `.shq`.
+  - Renaming a `.shq` is already reachable from the tree (`r`) and `ctrl-shift-r`, and
+    already wrong twice: the prompt's `sibling_path` appends `.md` only for `.md`, so a
+    typed name loses the extension, and `Db::note_renamed` has no markdown filter, so the
+    renamed file gains a `notes` row and its stem starts posing as a note name.
 - **M5 — relative queries.** `:current` is already bound; what is left is the anchor's
   journey from the host note to the runner, and the refusal for a host-less surface.
   EDGE-12, 13, 20.
@@ -274,3 +290,38 @@ Built ones name their test; the rest name the milestone that owes one.
     same shape as ruling 16's fold-inside-an-embed, which lives on the host's editor keyed
     by path. The regions are re-derived from the text, so a note that changed underneath
     still resolves the decisions against the regions it has now.
+
+### Ruled 2026-11-10 (M4: a query embedded in a note)
+
+25. **`![[query]]` resolves in core and answers in the app.** The transclusion resolver
+    gains a third branch — note, attachment, saved query — and it hands over a
+    `QueryBody`: the file, the name the reader knows the query by, and the program as the
+    file wrote it. It does not hand over an *answer*, because a query's content is what
+    its program computes and the index to compute it against belongs to the window. One
+    resolution, two halves: neither half gets to decide alone what `![[Creature
+    ratings]]` names.
+26. **A note beats a query of the same name.** `![[tough]]` is `tough.md` when one exists,
+    even if `queries/tough.shq` does too — the same precedence aliases were given
+    (2026-11-09). Nothing that already means a note gets quietly retargeted at a query.
+27. **An anchor on a query embed is refused in the note branch's own words** — `no section
+    "hp" in tough`. A program has no sections; its `#` lines are SQL comments. Two
+    surfaces must not disagree about what the same mistake costs.
+28. **The program is read through `Sources`, the same door an embedded note's text comes
+    through.** A `.shq` open in a tab with unsaved edits answers with the program the
+    reader is looking at, not the disk's older one; a resolver that read the file itself
+    would quietly disagree with the editor. Pinned in core, where the rule lives — at the
+    app level the fixture needs two live tabs, which is heavier than the rule deserves.
+29. **The badge row carries the answer's shape, and says `refused` rather than `0 rows`.**
+    `tough · 2 rows` is the marker row's sentence (EDGE-10: the badge *is* the marker row),
+    produced by one function both surfaces call. A run-time failure is named, not counted:
+    a badge reading `0 rows` would let the reader believe the query asked and got an
+    answer. An empty answer *does* count zero — that is an answer (ruling 17's shape).
+30. **No door on the badge yet, deliberately.** A door aimed at a `.shq` would resolve in
+    this one surface and nowhere else: `resolve_target` reaches notes and aliases,
+    `known_names` paints link colour from that same list, and the index files no such
+    link. A colour is a claim about the index, so the door waits for M4b — where the index
+    row, the painting and the rename machinery (ruling G, EDGE-21) move in one step.
+31. **A query reached through another note's body is a name, not a second table.**
+    `![[a]]` where `a.md` embeds a query: the block carries the query's name at depth 2.
+    The answer belongs to the row that asked for it, and a row inside someone else's block
+    is not that row.
