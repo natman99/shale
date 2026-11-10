@@ -49,9 +49,13 @@ and live MCP per vault), per-window session slots, and remembered window frames
 exit path was re-measured clean (PROGRESS.md, 2026-11-04). Still unbuilt from
 the original Goals list: Database tables/Obsidian-bases (P4.3 `.shq` — its first
 commit, **P4.3a frontmatter indexing**, landed 2026-11-08, so the props table the whole
-query story was priced against exists; the query notes themselves do not), PDF
+query story was priced against exists, and the query notes themselves have landed through
+M2), PDF
 export, Templates, tree-sitter code highlighting.
-**What is being built next (refreshed 2026-11-09): P4.3a is closed; the next open item is P4.3 (`.shq`).**
+**What is being built next (refreshed 2026-11-09): P4.3a is closed, and P4.3 (`.shq`) is
+under way — M1 (the format and the read-only runner) and M2 (the door: `:query`, the picker
+that lists saved queries and draws their answers) landed 2026-11-09; M3 (the live table in
+the file's own view) is designed and ruled in `queries-plan.md`.**
 P4.0 closed on 2026-11-08 (the hover card was its last owed item; `![[query-name]]` waits
 on P4.3 and block refs on P4.9). **P4.3a's indexing half is closed:** M1 (the parser, the
 `props` table, `:props`) and M2 (the projections — `tags`, `aliases`, and `edges` finally
@@ -1389,6 +1393,34 @@ edges, query nodes, MCP canvas tools) is P6.10.
     supplies is refused by name. The demo vault gained two query notes, and both were run
     against a copy of it to check the demo is not a broken embed waiting to happen.
     Fourteen surface tests, seven of them falsified.
+  - **Ruled 2026-11-09 (M3, designed before it is built).** The file renders as editable SQL
+    with a live table under the body, and the mechanism is **a fold, not a concealment
+    system**: the declaration and the SQL body are folded by default and the fold's
+    *rendering* is the table instead of an ellipsis. Live preview hides spans inside a row;
+    hiding a whole multi-line region is a fold, and folds already own the hard parts —
+    per-view state keyed by path, a marker row, and every motion, ruler and scroll that
+    agrees with them. A second way for text to be invisible would be a second set of bugs to
+    find twice. Three modes, one rule each: raw is the source with no table, live is the
+    table with the SQL folded and *editing opens the fold*, preview is the titled table only.
+    **No pagination** — preview already scrolls instead of moving the caret (`j`/`k` step,
+    `gg`/`G` jump the ends), so a large answer is virtualized (draw the rows intersecting the
+    viewport; height = rows × row height so the scroll extent stays honest) rather than paged
+    into state that would have to keep step with the index. The marker row carries the
+    answer's shape (`▸ Creature ratings · 2 rows`), and a refusal or an empty answer
+    **reveals the source**, because a folded region with no table is a blank page. The line
+    that keeps this from colliding with the properties-block ruling is **hide what computes,
+    never hide what asserts**: there the brackets are the data, here the SQL is a program and
+    the answer is the data. `/` searches the body and never a row (EDGE-23 — a hit is a caret
+    position and phantom rows own no bytes), which is also the reason the picker stays: the
+    picker is the searchable view of a query, the region is the readable one. Unfolding in
+    preview, where `za` is swallowed, is both the clickable marker and a leader chord
+    (EDGE-24). SQL highlighting is split — fences and `--` comments now, keywords at P6.6
+    rather than a second hand-written scanner. An errored `![[query]]` shows its error inside
+    the block: no hidden errors and state. Agents may **run** queries as well as write them,
+    through the same `Db::run` on the same read-only connection — the guarantee stays strong
+    through that door because there is no second runner. Two perf checks are owed rather than
+    decided now: the cost of a query embedded in a query, and an uncapped read (the surface
+    caps what it draws; the core reads what the query answers).
   - **P4.3b Headings index — AFTER P4.3a, and explicitly NOT inside it** (ruled
     2026-11-08). Schema **v4** adds `headings(note, line, text, depth)`, filled in the
     same indexer pass from `mdstyle`/`mdlayout` — derived, not authored, so it cannot
@@ -1672,7 +1704,10 @@ note comes back from the trash with its links intact.
   bindings are fine here** — the user wants the developer-friendly feature; the
   SQLite-style exception now covers tree-sitter (bundled C, build-time).
   Use `tree-sitter` + `tree-sitter-markdown` (or per-language code-block
-  grammars) for fenced-block highlighting.
+  grammars) for fenced-block highlighting. **A consumer already exists (2026-11-09):** the
+  body of a `.shq` query note (P4.3) is a language the editor has no spans for; its fences
+  and `--` comments are painted by the query work itself, and its keywords belong here
+  rather than to a second hand-written scanner.
 - **P6.7 Horizontal scrolling + wide-glyph columns** (parked #7), `K` with
   count (#6), live grammar fixes (#5), hover capability check (#4), status
   jump-chain breadcrumb (`aria ← session-12 ← hook-rats`, ruled 2026-10-29 —

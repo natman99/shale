@@ -58,6 +58,56 @@ written `.shq` would hold; `:save-query` writes that SQL into a new `.shq`. One 
 one meaning for `prop:cr<=5` everywhere, and the file stays inspectable by a reader and
 writable by an agent. §Q1 asks you to confirm or redirect this.
 
+## The M3 view — ruled 2026-11-09
+
+The file renders as **editable SQL with a live table under the body**, which is what
+brainstorm asked for; the shape of it was the debate, and these are the rulings.
+
+- **The mechanism is a fold, not a concealment system.** The declaration and the SQL body
+  are folded by default and the fold's *rendering* is the table rather than an ellipsis.
+  Live preview hides spans inside a row (`is_marker`); hiding a whole multi-line region is
+  a fold, and folds already own the hard parts — per-view state keyed by path, a marker
+  row, and every motion, ruler and scroll that agrees with them. A second way for text to
+  be invisible would be a second set of bugs to find twice (display index ≠ buffer row; a
+  row that paints nothing still has to own a byte).
+- **The declaration folds too**, so the file reads as a titled table.
+- **Three modes, one rule each.** Raw: the source, no table — the file as git sees it.
+  Live: the table, the SQL folded, and *editing opens the fold*. Preview: the titled table
+  only.
+- **No pagination.** Preview already scrolls rather than moving the caret (`j`/`k` step,
+  `gg`/`G` jump the ends, wheel and scrollbar work — `View::Preview`'s doc: "a note that
+  cannot be read from the top is no use"). A large answer is a layout question, answered
+  by virtualizing the region — draw the rows intersecting the viewport, height = row count
+  × row height so the scroll extent stays honest — not by a page key and page state to
+  keep in step with the index.
+- **The marker row carries the answer's shape**: `▸ Creature ratings · 2 rows`. Folded, the
+  file still says what it computed.
+- **A refusal or an empty answer reveals the source.** A folded region with no table is a
+  blank page, which would turn EDGE-1 and EDGE-2 into the silence M2 refused.
+- **The line that keeps this from colliding with the properties-block ruling**
+  (`545fb25`: nothing is hidden inside a properties block, because the brackets *are* the
+  data): **hide what computes, never hide what asserts.** The SQL is a program; the answer
+  is the data.
+- **`/` searches the body, never a row** (EDGE-23): a hit is a caret position and phantom
+  rows own no bytes. The picker is the searchable view of a query; the region is the
+  readable one — which is a reason M2's picker stays rather than becoming scaffolding.
+
+## Perf checks owed
+
+Not decisions — measurements the rulings above deliberately deferred.
+
+- **A query embedded in a query, or in itself** (EDGE-10): the embed chain's nesting cap
+  bounds it, but the *cost* of a nested run inside one frame is unmeasured. Bench before
+  raising the cap.
+- **An uncapped read** (EDGE-9/K): the surface draws 200 rows and says how many it cut; the
+  core reads whatever the query answers. A 100k-row answer is a memory question, not a
+  display one. No cap until a real query makes it one — a cap is a wrong answer the reader
+  cannot see.
+- **A large region** (EDGE-19): layout cost of a tall phantom region, and whether a slow
+  query needs to run off the frame or be cached. The cache's key rule is already written in
+  `db/query.rs` (the anchor path belongs in the key); the choice between cache and
+  off-frame run waits for the measurement.
+
 ## Edge ledger
 
 Built ones name their test; the rest name the milestone that owes one.
@@ -86,16 +136,23 @@ Built ones name their test; the rest name the milestone that owes one.
 | EDGE-20 | `:current` inside an embed chain | the host note, which the resolver already knows (M5) |
 | EDGE-21 | A `.shq` renamed while embedded | the rename machinery re-files the embed target, as a note rename does (M4) |
 | EDGE-22 | The same query asked twice in one window | one run per (file, index change), not one per frame (M3) |
+| EDGE-23 | `/` in a query note | matches the body, never a row — a hit is a caret position and phantom rows own no bytes. The picker is the searchable view (M3) |
+| EDGE-24 | A fold key in preview mode | `za` is swallowed there ("preview scrolls, it does not move"), so the marker row is the affordance and a leader chord is the keyboard route (M3) |
+
+*(EDGE-25 is the roadmap's index-off posture, not this ledger's — the numbers coincide.)*
 
 ## Milestones
 
 - **M1 — the format and the runner.** Landed. No surface.
 - **M2 — the door.** Landed. `:query` and the palette's *Run a saved query*, the rows in
   the picker, the tree and quick-open citizenship settled.
-- **M3 — the results where the query lives.** The declaration's `sort`/`view` start to
-  mean something; rows that name notes behave like links. EDGE-16, 19, 22.
+- **M3 — the results where the query lives.** Designed and ruled (see *The M3 view*): the
+  declaration and body folded by default, the table drawn as the fold's rendering, the
+  region virtualized rather than paged, fences and comments highlighted and keywords left to
+  P6.6. Rows that name notes behave like links. EDGE-16, 19, 22, 23, 24.
 - **M4 — `![[query-name]]`.** The transclusion resolver's third branch (note, attachment,
-  query). EDGE-10, 11, 21.
+  query), and the same table with the same marker row. An errored query shows its error in
+  the block (ruling 6). EDGE-10, 11, 21.
 - **M5 — relative queries.** `:current` is already bound; what is left is the anchor's
   journey from the host note to the runner, and the refusal for a host-less surface.
   EDGE-12, 13, 20.
@@ -122,5 +179,32 @@ Built ones name their test; the rest name the milestone that owes one.
    **Recommend:** `sort` applies from the start (one `ORDER BY` in the surface, no new
    machinery); `view` is parsed and shown, and only `table` is honoured until a second
    view exists.
-6. **`![[query]]` when the query errors:** show the error inside the block (recommended —
-   a broken embed hides the reason) or fall back to a ghost.
+6. **`![[query]]` when the query errors** — **taken**: the error is shown inside the block.
+   No hidden errors and state is the philosophy; a broken embed that hides its reason is the
+   exact failure this item keeps refusing.
+
+### Ruled 2026-11-09 (the M3 view)
+
+7. **Unfolding the SQL in preview**, where `za` is swallowed — **taken: both.** The marker
+   row is clickable (already how a phantom region is entered) and a leader chord is the
+   keyboard route, so reading your own query never costs you the keyboard.
+8. **SQL highlighting** — **taken, split.** The fences and `--` comments are the region's
+   shape and get spans now; keywords wait for **P6.6 (tree-sitter)**, which is the planned
+   home for language highlighting rather than a second hand-written scanner.
+9. **No result cache until a query is measured slow** — stands.
+10. **`view` vocabulary** — only `table` is honoured; an unknown spelling is kept and says
+    nothing on every render. `list`, `kv` and the graph lens arrive as consumers.
+11. **A query embedded in a query, or in itself** — the chain's nesting cap bounds it; the
+    cost is a perf check, not a rule.
+12. **Renaming a `.shq` while it is embedded** — decided at M4, and the decision is whether
+    a query embed is indexed as a link. If it is not, renames silently strand embeds, which
+    is the bug the note-rename pass already fixed.
+13. **Relative queries (M5)** — `relative = "current"` is refused for a host-less surface;
+    `:current` inside an embed chain is the host note (EDGE-20).
+14. **`:save-query` (M6)** — the file holds the SQL the search compiled (one grammar, one
+    meaning), written to `queries/` with a name asked for and never overwritten silently.
+15. **MCP can run queries, not only write them (M7)** — and the read-only guarantee has to
+    stay as strong through that door as through the editor's: the same `Db::run`, the same
+    read-only connection, no second runner invented for agents.
+16. **The runner stays uncapped** — the surface caps what it draws; a perf review is owed
+    before any cap exists.
