@@ -83,9 +83,13 @@ steps: the embed draws the answer's table under the row that asked for it, and t
 filed the link the embed asserts, so the index, the link colour, `gd` and the answer's own
 title row all agree the query is a file (ruling 33: four surfaces, one resolution order, or
 the colour lies). Renaming a `.shq` now keeps its extension, stays out of the `notes` table,
-and re-files the embeds that name it. What is left is the anchor's journey for relative
-queries (M5), `:save-query` (M6) and MCP (M7) — plus the graph, which still draws a query
-embed as a ghost node because it re-scans text with its own entry lists (ruling 35). The
+and re-files the embeds that name it. **M5 — relative queries — landed the same day**:
+`relative = "current"` in the declaration and `:current` in the body are checked against
+each other and against the surface running the query, so the note holding the embed is the
+anchor, a query viewed in its own file has none (a `.shq` is not a note), and a host-less
+surface refuses in one sentence written once (rulings 36-38). What is left is `:save-query`
+(M6) and MCP (M7) — plus the graph, which still draws a query embed as a ghost node because
+it re-scans text with its own entry lists (ruling 35). The
 plan, an edge ledger (EDGE-1…24) and the rulings are in `queries-plan.md`.
 
 **P4.0, transclusion — the editable half (closed 2026-11-08).** P4.0a
