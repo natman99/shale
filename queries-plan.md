@@ -234,7 +234,16 @@ Built ones name their test; the rest name the milestone that owes one.
     columns whole: breaking one mid-cell leaves the continuation lines with nothing to
     align to, and the per-cell clip already bounds each cell. `PhantomKind::Caption` is the
     kind that marks a sentence rather than a cell.
-20. **A database message is flattened where a surface draws it** — `db::one_line`. SQLite
+20. **The answer wears the grid a typed table wears.** Horizontal and vertical rules, the
+    table's own palette roles (`table_line`, `table_header_bg`) rather than new ones, a
+    shaded header, a one-cell gutter inside the outer edges and a rule in the middle of the
+    gap between columns — so a rule never sits against a value. One deliberate divergence:
+    a computed answer draws a rule between **every** row, where a markdown table draws only
+    under its header. A markdown table's rows are lines of a file the reader can already
+    count; an answer's rows are results, and the grid is what says so. Prose rows — a
+    refusal, the admission about rows left out — wear no grid: they are sentences *about*
+    the table, not cells in it.
+21. **A database message is flattened where a surface draws it** — `db::one_line`. SQLite
     quotes the statement it refused, newlines included, and gpui refuses a text run that
     holds a newline. The core keeps the whole message (the MCP tool still reports it); the
     table row and the picker row each flatten it. Cells flatten the same way: a cell may
