@@ -173,9 +173,9 @@ Built ones name their test; the rest name the milestone that owes one.
     already wrong twice: the prompt's `sibling_path` appends `.md` only for `.md`, so a
     typed name loses the extension, and `Db::note_renamed` has no markdown filter, so the
     renamed file gains a `notes` row and its stem starts posing as a note name.
-- **M5 — relative queries.** `:current` is already bound; what is left is the anchor's
-  journey from the host note to the runner, and the refusal for a host-less surface.
-  EDGE-12, 13, 20.
+- **M5 — relative queries.** Landed 2026-11-10 (rulings 36-38): the anchor's journey from
+  the host note to the runner, decided by the query itself in one place, and the refusal for
+  a host-less surface. EDGE-12, 20. EDGE-13 (the anchor in a cache key) waits for a cache.
 - **M6 — save a search.** `:save-query` writes the SQL the search compiled into a new
   `.shq`. This is where "one grammar" pays for itself.
 - **M7 — MCP.** Create/edit/run query notes, so "make me a dashboard of X" writes a
@@ -353,3 +353,25 @@ Built ones name their test; the rest name the milestone that owes one.
     the graph pass rather than patched half-in: teaching the graph a third list is a
     signature change through `build` and `set_note`, and a half-taught graph is exactly the
     disagreement ruling 33 refuses.
+36. **The anchor is the note the reader is standing in, and only a note** (M5). `:current`
+    binds the host of the surface that ran the query: the active note for `:query`, the note
+    holding the embed for a `![[query]]` block. A query note is not a note, so a relative
+    query viewed in its own file has no host — the same nothing a graph tab has — and says so
+    rather than binding its own path and answering about a file the `links` table has no row
+    for. Inside an embed chain the host is unambiguous by construction: a query reached
+    inside another note's body is a name at depth+1 (ruling 31), so a query table never hangs
+    under anyone else's block (EDGE-20).
+37. **The declaration and the body must agree about `:current`.** A body that asks for the
+    anchor while the declaration never said `relative = "current"` is refused by name: the
+    picker labels a query "relative" from the declaration, so a body whose answer changes
+    with where the reader stands while the label says otherwise is hidden state. The other
+    direction costs nothing — a declaration claiming a relativity the body never uses runs,
+    the same way an unknown `view` is kept rather than refused (ruling D).
+38. **A host-less surface refuses in one sentence, written once.** EDGE-12: `QueryNote::
+    anchor` returns `Bound` / `NotAsked` / `Refused(reason)`, and every surface — the picker,
+    an embedded table, the query's own view, and later the MCP verb — reads its refusal from
+    there. The picker draws it as a notice row; the table draws it as a refusal row, which
+    opens the fold (ruling 17's shape: a run-time failure reveals its source). SQLite's "the
+    query asks for `:current`, and nothing supplies it" stays what it is — the message for a
+    body that asks for a parameter nobody ever meant to bind, not the message for standing in
+    the wrong place.
