@@ -19,7 +19,14 @@ import random
 import shutil
 from pathlib import Path
 
-from graph_vault_common import GRAPH_DIR, SENTENCES, paragraph, png_bytes
+from graph_vault_common import (
+    GRAPH_DIR,
+    SENTENCES,
+    frontmatter,
+    paragraph,
+    png_bytes,
+    write_queries,
+)
 
 # ---------------------------------------------------------------------------
 # Vault specs
@@ -333,10 +340,10 @@ def generate(key: str) -> Path:
     rng = random.Random(spec["seed"])
 
     def write(folder: str, title: str, text: str) -> None:
-        """Put one note on disk at `folder`/`title.md`."""
+        """Put one note on disk at `folder`/`title.md`, properties block first."""
         d = out / folder if folder != "." else out
         d.mkdir(parents=True, exist_ok=True)
-        (d / f"{title}.md").write_text(text, encoding="utf-8")
+        (d / f"{title}.md").write_text(frontmatter(title) + text, encoding="utf-8")
 
     # 1. Cluster notes: MOCs and their members.
     for titles in clusters:
@@ -421,4 +428,5 @@ def generate(key: str) -> Path:
                                           tags_of[title] if tagged else [],
                                           ghost_names,
                                           "tagged" if tagged else "bare"))
+    write_queries(out)
     return out

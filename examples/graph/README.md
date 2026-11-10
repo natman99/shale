@@ -80,6 +80,33 @@ for `organic-5k`) because the hub fixtures' folders are internally dense too.
 What separates the shapes is degree spread, component count, and group size, so
 read those columns first.
 
+## Properties and saved queries
+
+Every generated note carries a four-key properties block — `status` (text),
+`effort` (number), `created` (date), `review` (bool) — so the fixtures exercise
+the properties index, the `prop:` search operators, the key census and the
+frontmatter display, none of which existed when these vaults were first written.
+Four keys, four kinds, deliberately: a census with one value per kind is readable,
+and a kind the indexer gets wrong shows up immediately.
+
+The values are hashed from the note's title, **not** drawn from the generator's
+RNG. The RNG stream decides which note links to which, so a fixture whose edges
+moved because a property was added would make the table above lie. Regenerating
+after adding frontmatter left every number in it byte-identical.
+
+Each fixture also gets a `queries/` folder with two saved queries (`.shq`), so
+the in-note answer table has something to draw at fixture scale:
+
+| Query | What it answers | What it exercises |
+|---|---|---|
+| `Busiest notes` | Which notes reach the most others, busiest first | A `GROUP BY` over `links`; 92 rows at `100`, 4 747 at `5k`, so the table draws its 200-row cap and says what it left out; the first column names a note, so every row is a door |
+| `Evergreen notes` | The notes that call themselves evergreen, and the effort they claim | A self-join of `props` on `note` — two facts about one note arriving as two rows of one table |
+
+`crates/core/tests/graph_fixtures.rs` indexes the `100` fixture and runs both
+queries, so a fixture that stops carrying readable properties fails a test rather
+than quietly stopping testing them. It skips when the fixtures have not been
+generated.
+
 ## Ground truth for scoring the layout
 
 Each organic fixture carries `.fixture.json`: a map of planted group → member
@@ -106,6 +133,7 @@ notes to open.
 | Where | What to check |
 |---|---|
 | `Welcome.md` (hub), `Home.md` (organic) | Every wiki-link form resolves: plain, `[[T\|alias]]`, `[[T#Notes]]`. |
+| `queries/` (both shapes) | `:query` lists them; opening one folds the program and draws the answer as a table; `space z` opens the program. |
 | `Self Link.md` (hub); organic notes with a "(yes, that link points back at this note)" line | Self-links produce no edge and no self-loop (`GraphIndex` must ignore them). |
 | `Resolution Probe.md` + `Ambiguous/` (hub); `Home.md` + `books/renovation/` and `areas/home/renovation/` (organic) | Two notes share a stem; a bare link must land on the **shortest path**, and only an exact path reaches the nested twin. |
 | Any note with a `text`/`sh` fence, or `[[…]]` in inline code | Must never become an edge or a ghost node. Organic orphans holding only a decoy stay invisible until the orphan filter is on. |

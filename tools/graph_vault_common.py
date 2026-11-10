@@ -11,6 +11,8 @@ byte-identical.
 import random
 import struct
 import zlib
+import hashlib
+from datetime import date, timedelta
 from pathlib import Path
 
 #: Where the fixture vaults live. Committed only as this tool plus `README.md`;
@@ -42,6 +44,77 @@ SENTENCES = [
 ]
 
 
+#: The lifecycle vocabulary the fixtures declare. Small on purpose: a census with
+#: four values is readable, and `prop:status=evergreen` is a search a person can
+#: remember.
+STATUSES = ("seedling", "growing", "evergreen", "unknown")
+
+#: The frontmatter every generated note carries, so the fixtures exercise the
+#: properties index, the `prop:` operators, the key census and saved queries over
+#: `props` — none of which the graph fixtures had before frontmatter existed.
+#:
+#: Values are hashed from the title, **not** drawn from the generator's RNG. The
+#: RNG stream is what decides which note links to which; a fixture whose edges
+#: moved because a property was added would make `README.md`'s numbers lie, and
+#: "a diff after a sim tweak means something" would stop being true.
+def frontmatter(title: str) -> str:
+    """A properties block for one note, stable across runs and machines."""
+    digest = hashlib.sha256(title.encode("utf-8")).digest()
+    status = STATUSES[digest[0] % len(STATUSES)]
+    effort = 1 + digest[1] % 9
+    day = digest[2] + (digest[3] << 8)
+    created = date(2022, 1, 1) + timedelta(days=day % 1200)
+    review = "true" if digest[4] % 3 == 0 else "false"
+    return (
+        "---\n"
+        f"status: {status}\n"
+        f"effort: {effort}\n"
+        f"created: {created.isoformat()}\n"
+        f"review: {review}\n"
+        "---\n\n"
+    )
+
+
+#: Saved queries, written into every fixture so the table has something to draw at
+#: fixture scale. `.shq` is Shale's own format: a `+++` fence holding a TOML
+#: declaration, then one SQL statement over the vault's index.
+QUERIES = {
+    "Busiest notes": """+++
+name = "Busiest notes"
+sort = "-links_out"
++++
+-- Which notes reach the most others, busiest first. The row is the note: choosing
+-- it opens it. The answer is longer than the table draws, so the table says so and
+-- counts what it left out.
+SELECT source AS note, COUNT(*) AS links_out
+FROM links
+WHERE target_kind = 'note'
+GROUP BY source
+ORDER BY links_out DESC, note
+""",
+    "Evergreen notes": """+++
+name = "Evergreen notes"
+sort = "-effort"
++++
+-- The join the index makes easy: one row per note that calls itself evergreen,
+-- with the effort it claims. `props` holds one row per (note, key), so the two
+-- facts arrive as two rows of the same table.
+SELECT a.note, CAST(a.value AS REAL) AS effort, b.value AS created
+FROM props a JOIN props b ON a.note = b.note
+WHERE a.key = 'effort' AND b.key = 'status' AND b.value = 'evergreen'
+ORDER BY effort DESC, a.note
+""",
+}
+
+
+def write_queries(root: Path) -> None:
+    """Put the fixture's saved queries on disk, so a table can be seen at scale."""
+    folder = root / "queries"
+    folder.mkdir(parents=True, exist_ok=True)
+    for name, text in QUERIES.items():
+        (folder / f"{name}.shq").write_text(text, encoding="utf-8")
+
+
 def paragraph(rng: random.Random, k: int) -> str:
     """A paragraph of `k` distinct sentences from the bank."""
     return " ".join(rng.sample(SENTENCES, k))
@@ -67,7 +140,11 @@ def png_bytes(rgb: tuple[int, int, int]) -> bytes:
 
 
 def write_note(root: Path, folder: str, title: str, text: str) -> None:
-    """Put one note on disk at `folder`/`title.md`, making the folder first."""
+    """Put one note on disk at `folder`/`title.md`, making the folder first.
+
+    Every note arrives with a properties block, because a fixture vault that has
+    none exercises none of the properties machinery.
+    """
     d = root / folder if folder != "." else root
     d.mkdir(parents=True, exist_ok=True)
-    (d / f"{title}.md").write_text(text, encoding="utf-8")
+    (d / f"{title}.md").write_text(frontmatter(title) + text, encoding="utf-8")

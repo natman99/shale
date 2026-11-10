@@ -42,7 +42,13 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
 
-from graph_vault_common import GRAPH_DIR, paragraph, png_bytes, write_note
+from graph_vault_common import (
+    GRAPH_DIR,
+    paragraph,
+    png_bytes,
+    write_note,
+    write_queries,
+)
 
 # ---------------------------------------------------------------------------
 # Vault specs
@@ -572,4 +578,5 @@ def generate(key: str) -> Path:
         {"shape": "organic", "seed": spec["seed"],
          "groups": {g: sorted(p) for g, p in sorted(groups.items())}},
         indent=1, sort_keys=True), encoding="utf-8")
+    write_queries(out)
     return out
