@@ -274,6 +274,7 @@ impl Workspace {
         editor.update(cx, |editor, cx| {
             editor.set_vault(Rc::clone(&self.vault), self.attachments.clone(), cx);
             editor.set_notes(Rc::clone(&self.notes), cx);
+            editor.set_query_db(self.db.clone(), cx);
             // A tab that has no path yet can still hold `![[embeds]]`: they resolve
             // against the vault's notes, with no host for the loop chain until the tab
             // gets a name (roadmap P4.0a).

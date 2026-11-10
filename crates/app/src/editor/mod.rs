@@ -16,6 +16,7 @@ pub(crate) mod embeds;
 pub(crate) mod frontmatter;
 mod input;
 pub(crate) mod overlay;
+pub(crate) mod query_view;
 mod render;
 mod wrap;
 
@@ -144,6 +145,21 @@ impl EventEmitter<EditorEvent> for MarkdownEditor {}
 /// is the one exception, and it is enforced down in
 /// [`shale_core::buffer::Buffer::set_read_only`], because the text is reached by
 /// more than one route.
+/// What a query note's program answers, as one view measured it.
+///
+/// No name: the marker row above the table already names the query, and it is the
+/// fold's own title rather than a second reading of the declaration that could
+/// disagree with it.
+#[derive(Debug)]
+pub(crate) struct Answer {
+    /// The answer itself: column names and cells, in the order the query — and the
+    /// declaration's `sort` — put them in.
+    pub(crate) rows: shale_core::db::Rows,
+    /// The runner's own words, when it refused. A refusal is drawn, not swallowed,
+    /// and it also opens the fold: a folded program with no table is a blank page.
+    pub(crate) error: Option<String>,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum View {
     /// The markdown source, unstyled and unhidden.
@@ -295,6 +311,14 @@ pub struct MarkdownEditor {
     /// against. `None` until the workspace supplies one, which is how the
     /// headless tests run without a vault (and without images).
     vault: Option<Rc<Vault>>,
+    /// The vault index a query note's program runs against. The same `Db` the window
+    /// runs `:query` with, so the file's table and the picker's rows are one answer
+    /// from one read-only door — there is no second runner for agents or views to
+    /// disagree with.
+    db: Option<std::sync::Arc<shale_core::db::Db>>,
+    /// The answer this view last measured, with the buffer's change id it was measured
+    /// from. Re-run when the text moves or the index does; not on every frame.
+    answer: Option<(u64, std::rc::Rc<Answer>)>,
     /// The vault's attachment files (everything that is not a note), for
     /// resolving `![[image.png]]`.
     attachments: Vec<VaultEntry>,
@@ -444,6 +468,8 @@ impl MarkdownEditor {
             quote_cache: None,
             links: Vec::new(),
             vault: None,
+            db: None,
+            answer: None,
             attachments: Vec::new(),
             known: HashSet::new(),
             input_registered: false,
@@ -516,6 +542,9 @@ impl MarkdownEditor {
         // stopped being the one on screen.
         self.style_cache = None;
         self.quote_cache = None;
+        // The answer belongs to the program that was on screen, and that program is
+        // gone: a query note's table must not be the last thing this view remembers.
+        self.answer = None;
         self.vim.enter_normal();
         self.marks.clear();
         self.hits.clear();
@@ -531,6 +560,9 @@ impl MarkdownEditor {
         self.wrap_cache = None;
         self.style_cache = None;
         self.quote_cache = None;
+        // The answer belongs to the program that was on screen, and that program is
+        // gone: a query note's table must not be the last thing this view remembers.
+        self.answer = None;
         self.vim.enter_normal();
         self.marks.clear();
         self.hits.clear();
@@ -893,6 +925,82 @@ impl MarkdownEditor {
         cx.notify();
     }
 
+    /// Hand this view the index a query note's program runs against, or `None` when
+    /// the vault has none (`index.enabled = false`) — which is an answer the table
+    /// says out loud rather than a table that draws nothing.
+    ///
+    /// Every call drops the cached answer, and that is the point: this is what the
+    /// window calls after the index moved, so a note edited in another tab shows up
+    /// in this file's table without the reader touching it.
+    pub(crate) fn set_query_db(
+        &mut self,
+        db: Option<std::sync::Arc<shale_core::db::Db>>,
+        cx: &mut Context<Self>,
+    ) {
+        self.db = db;
+        self.answer = None;
+        cx.notify();
+    }
+
+    /// What the query note in hand answers, as this view last measured it. `None`
+    /// when the note is not a query note, or does not parse as one.
+    ///
+    /// The answer is re-run when the buffer's text moves (the program changed) or
+    /// when `set_query_db` says the index moved. Not per frame: a frame runs on
+    /// every keystroke, hover and scroll, and a query is not that cheap.
+    pub(crate) fn query_answer(&mut self) -> Option<std::rc::Rc<Answer>> {
+        self.query_stem()?;
+        let id = self.note.buffer.borrow().change_id();
+        if self
+            .answer
+            .as_ref()
+            .is_some_and(|(cached, _)| *cached != id)
+        {
+            self.answer = None;
+        }
+        if self.answer.is_none() {
+            let text = self.note.buffer.borrow().text().to_string();
+            let note = shale_core::query_note::QueryNote::parse(&text).ok()?;
+            let answer = match self.db.as_ref() {
+                // EDGE-14 again: with the index off, "nothing answers this" would be
+                // a lie about the vault rather than about the setting.
+                None => Answer {
+                    rows: shale_core::db::Rows::default(),
+                    error: Some("there is no vault index to read (index.enabled = false)".into()),
+                },
+                Some(db) => {
+                    // The anchor is the file the reader is standing in, the same
+                    // binding `:query` makes; a body that never asks for `:current`
+                    // never sees it.
+                    let anchor = self
+                        .embeds
+                        .host()
+                        .map(|path| path.to_string_lossy().into_owned());
+                    let bindings: Vec<shale_core::db::Binding<'_>> = match anchor.as_deref() {
+                        Some(current) => vec![shale_core::db::Binding::new(":current", current)],
+                        None => Vec::new(),
+                    };
+                    match db.run(&note.sql, &bindings) {
+                        Ok(mut rows) => {
+                            if let Some(sort) = note.decl.sort.as_deref() {
+                                rows.sort_by(sort);
+                            }
+                            Answer { rows, error: None }
+                        }
+                        Err(err) => Answer {
+                            rows: shale_core::db::Rows::default(),
+                            error: Some(format!("{err:#}")),
+                        },
+                    }
+                }
+            };
+            self.answer = Some((id, std::rc::Rc::new(answer)));
+        }
+        self.answer
+            .as_ref()
+            .map(|(_, answer)| std::rc::Rc::clone(answer))
+    }
+
     /// The font family from the config. Empty means "choose one"; an unknown
     /// name falls back to the preferred installed monospace families.
     pub fn set_font_family(&mut self, family: &str, cx: &mut Context<Self>) {
@@ -1039,6 +1147,9 @@ impl MarkdownEditor {
         self.style_cache = None;
         self.quote_cache = None;
         self.wrap_cache = None;
+        // A mode change can start or stop the computation: raw draws no table, and
+        // live draws one, so the cached answer goes with the view that made it.
+        self.answer = None;
         cx.notify();
     }
 

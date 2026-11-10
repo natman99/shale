@@ -112,8 +112,13 @@ impl Render for MarkdownEditor {
         // is what makes a mode change (raw shows the program, live folds it) take
         // effect without a hook of its own, and what keeps the region cache from
         // answering a query note with a markdown note's headings.
+        // The query note's answer, measured before the fold is decided: a refusal
+        // opens the program, because a folded region with no table is a blank page,
+        // and a blank page is a refusal the reader cannot read.
+        let answer = self.query_answer();
         let query = self.query_stem();
-        let fold_program = self.view != View::Raw;
+        let fold_program =
+            self.view != View::Raw && answer.as_ref().is_none_or(|answer| answer.error.is_none());
         self.host_slot()
             .set_query_note(query.as_deref(), fold_program);
         let folds = host_buffer.borrow_mut().fold_view(self.host_slot());
@@ -742,7 +747,22 @@ impl Render for MarkdownEditor {
                             .get(dl.row)
                             .cloned()
                             .flatten()
-                            .filter(|_| dl.end == self.note.buffer.borrow().line_end(dl.row));
+                            .filter(|_| dl.end == self.note.buffer.borrow().line_end(dl.row))
+                            // A query note's marker says what the file computed and how
+                            // much of it there is: folded, the file still answers a
+                            // question about itself.
+                            .map(|mut mark| {
+                                if let (Some(title), Some(answer)) =
+                                    (mark.title.as_ref(), answer.as_ref())
+                                {
+                                    let rows = answer.rows.rows.len();
+                                    mark.title = Some(format!(
+                                        "{title} · {rows} {}",
+                                        if rows == 1 { "row" } else { "rows" }
+                                    ));
+                                }
+                                mark
+                            });
                         // An embedded image makes its display line as tall as the
                         // picture; every other line follows its text size.
                         let height = image

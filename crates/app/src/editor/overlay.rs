@@ -357,6 +357,9 @@ pub(crate) enum BlockKind {
     Proposal,
     /// Another note's lines: the note's own colours and markdown, stepped right by depth.
     Embed,
+    /// A query note's answer: its own header, its rows, its refusal. Not markdown —
+    /// the table is what the program computed, and its cells are data, not prose.
+    Query,
 }
 
 /// One row of a phantom block.
@@ -373,6 +376,14 @@ pub(crate) struct BlockLine {
     /// The link a badge row stands for, so the row can be clicked open. `None` for every
     /// other row, which is addressed by `origin` instead.
     pub(crate) door: Option<shale_core::transclude::EmbedRef>,
+    /// Spans over `text` for a row that carries its own styling rather than markdown's:
+    /// a query table colours the cell that names a note the way a link is coloured,
+    /// because that cell is the thing the reader can act on. Empty for every other row.
+    pub(crate) spans: Vec<(usize, usize, shale_core::mdstyle::Style)>,
+    /// This row's own paint kind, when the block's kind does not say it: one query
+    /// block holds a header, answer rows and a refusal, and those are three different
+    /// things wearing one bar.
+    pub(crate) phantom: Option<crate::line::phantom::PhantomKind>,
     /// Which note this row is a line *of*, and which row of it. `None` for a
     /// proposal's rows (they belong to no note until they are accepted) and for a
     /// badge. This is what makes the painted row addressable: a click on it, a
@@ -450,6 +461,8 @@ impl MarkdownEditor {
                                 depth: 0,
                                 badge: false,
                                 door: None,
+                                spans: Vec::new(),
+                                phantom: None,
                                 // A proposed row belongs to no note until the
                                 // proposal is accepted, so it has no address.
                                 origin: None,
@@ -476,7 +489,40 @@ impl MarkdownEditor {
             }
         }
         self.embed_frame(display, &mut frame, &last_of);
+        self.query_frame(display, &mut frame);
         frame
+    }
+
+    /// The query note's answer (roadmap P4.3 M3), hung under the last visible row of
+    /// the program that computed it: the marker row when the fold is shut, the last
+    /// line of the SQL when it is open. One rule, so the answer is always below
+    /// whatever of the program is on screen — and never beside a row it is not about.
+    fn query_frame(&mut self, display: &[DisplayLine], frame: &mut Frame) {
+        // Raw mode is the source: it shows the program and computes nothing on screen.
+        if self.view() == View::Raw || display.is_empty() {
+            return;
+        }
+        let Some(answer) = self.query_answer() else {
+            return;
+        };
+        let entries = self.embeds.entries().to_vec();
+        let lines = super::query_view::answer_lines(&answer, &entries);
+        if lines.is_empty() {
+            return;
+        }
+        frame
+            .after
+            .entry(display.len() - 1)
+            .or_default()
+            .push(Block {
+                lines,
+                badge: None,
+                door: None,
+                current: false,
+                kind: BlockKind::Query,
+                entered: false,
+                fold: None,
+            });
     }
 
     /// The transclusions (roadmap P4.0a): a row that is nothing but `![[…]]` shows the
@@ -635,6 +681,8 @@ impl MarkdownEditor {
                                 depth,
                                 badge: false,
                                 door: None,
+                                spans: Vec::new(),
+                                phantom: None,
                                 origin,
                                 gutter: Vec::new(),
                             },
@@ -643,6 +691,8 @@ impl MarkdownEditor {
                                 depth,
                                 badge: true,
                                 door: Some(badge.embed),
+                                spans: Vec::new(),
+                                phantom: None,
                                 origin: None,
                                 gutter: Vec::new(),
                             },
@@ -832,6 +882,7 @@ impl MarkdownEditor {
                         kind: match block.kind {
                             BlockKind::Proposal => PhantomKind::Badge,
                             BlockKind::Embed => PhantomKind::EmbedBadge,
+                            BlockKind::Query => PhantomKind::Header,
                         },
                         door: block.door.clone(),
                         current: block.current,
@@ -907,7 +958,9 @@ impl MarkdownEditor {
                     }
                     // A stopped embed is a name, not markdown: it keeps the link
                     // colour and nothing else.
-                    _ => (line.text.clone(), Vec::new()),
+                    // A query row keeps the spans the table builder chose; a proposal's
+                    // rows have none, because proposed text is not styled.
+                    _ => (line.text.clone(), line.spans.clone()),
                 };
                 for (part, &(lo, hi)) in ranges[ix].iter().enumerate() {
                     // What belongs to the row belongs to its first display line: the
@@ -962,11 +1015,12 @@ impl MarkdownEditor {
                                 None => self.font_size,
                             },
                             palette: Rc::clone(&self.palette),
-                            kind: match (block.kind, line.badge) {
+                            kind: line.phantom.unwrap_or(match (block.kind, line.badge) {
                                 (BlockKind::Proposal, _) => PhantomKind::Added,
                                 (BlockKind::Embed, true) => PhantomKind::EmbedBadge,
                                 (BlockKind::Embed, false) => PhantomKind::Embed,
-                            },
+                                (BlockKind::Query, _) => PhantomKind::Row,
+                            }),
                             current: block.current,
                             indent: line.depth,
                             spans,

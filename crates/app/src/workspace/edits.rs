@@ -668,6 +668,10 @@ impl Workspace {
                 // note list; `invalidate_embeds` drops the bodies the old list answered.
                 editor.set_embed_context(path.as_deref(), notes, cx);
                 editor.invalidate_embeds(cx);
+                // The index just moved, so a query note's table has to ask again:
+                // handing over the same `Db` clears the cached answer rather than
+                // opening a second door to read the index through.
+                editor.set_query_db(self.db.clone(), cx);
             });
         }
         cx.notify();

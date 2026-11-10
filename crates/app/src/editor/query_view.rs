@@ -1,0 +1,196 @@
+//! The query note's own view: the answer, hung under the program that computed it.
+//!
+//! The fold hides the program (see [`crate::fold`]'s query region); this file draws what
+//! the program was for. The rows are phantom rows — they own no bytes in the buffer, so
+//! `/` never finds one and the caret never lands in one (EDGE-23). They hang under the
+//! last visible row of the program, which is the marker row when the fold is shut and the
+//! last line of the SQL when it is open: one rule, so the answer is always below whatever
+//! of the program is showing.
+//!
+//! The table is the same answer `:query` draws, from the same `Db::run` on the same
+//! read-only connection, sorted by the same declaration. Two surfaces with two answers
+//! would be two files to believe.
+
+use shale_core::db::{Cell, MAX_ROWS};
+use shale_core::mdstyle::Style;
+use shale_core::vault::VaultEntry;
+
+use super::overlay::BlockLine;
+use super::Answer;
+use crate::line::phantom::PhantomKind;
+
+#[cfg(test)]
+impl super::MarkdownEditor {
+    /// What the answer table would paint, one string per row: for the tests, the same
+    /// rows the frame hangs under the program.
+    pub(crate) fn query_shape(&mut self) -> Vec<String> {
+        let Some(answer) = self.query_answer() else {
+            return Vec::new();
+        };
+        let entries = self.embeds.entries().to_vec();
+        super::query_view::answer_lines(&answer, &entries)
+            .into_iter()
+            .map(|line| line.text)
+            .collect()
+    }
+}
+
+/// How wide one cell may be before it is clipped. A table row that runs past the pane
+/// has nowhere to go — phantom rows do not soft-wrap the way the note's own rows do —
+/// and a clipped cell says so with `…` rather than running off the screen unseen.
+const CELL_WIDTH: usize = 60;
+
+/// The gap between columns, in spaces. Two, because the font is monospace and one
+/// would let a narrow column's text sit against the next column's.
+const GAP: usize = 2;
+
+/// The table's rows: a header, one line per answer, and whatever the answer wants to
+/// say about itself (a refusal, an empty result, the rows it did not draw).
+///
+/// `entries` is the vault's file list, and it decides one thing only: whether a cell
+/// *is* a note. The rule is the picker's rule — the cell spelled exactly as a vault
+/// path — so the same answer cannot be a door in one surface and a dead end in the
+/// other.
+pub(crate) fn answer_lines(answer: &Answer, entries: &[VaultEntry]) -> Vec<BlockLine> {
+    let mut out = Vec::new();
+    if let Some(err) = answer.error.as_deref() {
+        out.push(line(
+            format!(
+                "the query could not be answered: {}",
+                shale_core::db::one_line(err)
+            ),
+            PhantomKind::Refusal,
+            Vec::new(),
+            None,
+        ));
+        return out;
+    }
+    if answer.rows.rows.is_empty() {
+        out.push(line(
+            "the query answers nothing".to_string(),
+            PhantomKind::Header,
+            Vec::new(),
+            None,
+        ));
+        return out;
+    }
+
+    let shown: Vec<&Vec<Cell>> = answer.rows.rows.iter().take(MAX_ROWS).collect();
+    // Every cell spelled once, so the widths and the rows are built from one reading.
+    let cells: Vec<Vec<String>> = shown
+        .iter()
+        .map(|row| row.iter().map(spelled).collect())
+        .collect();
+    // One width per column: as wide as its name, as wide as its widest answer cell.
+    let widths: Vec<usize> = answer
+        .rows
+        .columns
+        .iter()
+        .enumerate()
+        .map(|(index, column)| {
+            let answers = cells
+                .iter()
+                .map(|row| row.get(index).map_or(0, |cell| cell.chars().count()));
+            answers.max().unwrap_or(0).max(column.chars().count())
+        })
+        .collect();
+
+    out.push(line(
+        join(&answer.rows.columns, &widths),
+        PhantomKind::Header,
+        Vec::new(),
+        None,
+    ));
+    for cells in &cells {
+        // The first cell is the one the picker treats as the row's identity, so it is
+        // the one that can be a door here too.
+        let door = cells
+            .first()
+            .and_then(|cell| entry_named(entries, cell))
+            .map(|path| shale_core::transclude::EmbedRef {
+                target: path,
+                anchor: None,
+                alias: None,
+            });
+        let spans = door
+            .as_ref()
+            .map(|_| vec![(0, cells[0].len(), Style::WikiLink)])
+            .unwrap_or_default();
+        let text = join(cells, &widths);
+        out.push(line(text, PhantomKind::Row, spans, door));
+    }
+    let hidden = answer.rows.rows.len() - shown.len();
+    if hidden > 0 {
+        out.push(line(
+            format!("…{hidden} more rows not shown"),
+            PhantomKind::Header,
+            Vec::new(),
+            None,
+        ));
+    }
+    out
+}
+
+/// One row of the table as the reader sees it: each cell clipped to the column's
+/// allowance, then padded to the column's width.
+fn join(cells: &[String], widths: &[usize]) -> String {
+    let mut out = String::new();
+    for (index, cell) in cells.iter().enumerate() {
+        if index > 0 {
+            out.push_str(&" ".repeat(GAP));
+        }
+        out.push_str(cell);
+        let width = widths.get(index).copied().unwrap_or(0);
+        let used = cell.chars().count();
+        if used < width {
+            out.push_str(&" ".repeat(width - used));
+        }
+    }
+    out.trim_end().to_string()
+}
+
+/// One cell, spelled the way the picker spells it (a NULL is `∅`, an empty string is
+/// `''`), on one line, and clipped if it is enormous. A cell may hold a newline — an
+/// excerpt, a description — and a table row may not: phantom rows do not soft-wrap the
+/// way the note's own rows do, so the newline becomes a space here.
+fn spelled(cell: &Cell) -> String {
+    let text = shale_core::db::one_line(&cell.display());
+    if text.chars().count() <= CELL_WIDTH {
+        return text;
+    }
+    let clipped: String = text.chars().take(CELL_WIDTH).collect();
+    format!("{clipped}…")
+}
+
+/// The vault path a cell names, exactly as the picker decides it: the cell spelled as
+/// a path this vault holds. Anything else stays text — a row that looks openable and
+/// then is not is the visible plot hole the lens ruling already refused.
+fn entry_named(entries: &[VaultEntry], cell: &str) -> Option<String> {
+    let cell = cell.trim();
+    if cell.is_empty() {
+        return None;
+    }
+    entries
+        .iter()
+        .find(|entry| entry.path.to_string_lossy() == cell)
+        .map(|entry| entry.path.to_string_lossy().into_owned())
+}
+
+/// One phantom row.
+fn line(
+    text: String,
+    kind: PhantomKind,
+    spans: Vec<(usize, usize, Style)>,
+    door: Option<shale_core::transclude::EmbedRef>,
+) -> BlockLine {
+    BlockLine {
+        text,
+        depth: 0,
+        badge: false,
+        door,
+        spans,
+        phantom: Some(kind),
+        origin: None,
+        gutter: Vec::new(),
+    }
+}

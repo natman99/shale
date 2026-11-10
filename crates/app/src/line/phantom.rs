@@ -67,6 +67,15 @@ pub(crate) enum PhantomKind {
     Embed,
     /// An embed that stopped expanding: its name, and nothing else.
     EmbedBadge,
+    /// A row of a query note's answer. Content, like an embed's rows: the table is
+    /// what the file computed, not a change being offered to it.
+    Row,
+    /// The answer's column names, in the palette's dim — the table's header, which
+    /// says what the rows mean without competing with them.
+    Header,
+    /// Why a query did not answer, in the runner's own words and the palette's red.
+    /// A refusal is drawn rather than swallowed: no hidden errors and state.
+    Refusal,
 }
 
 pub(crate) struct PhantomLine {
@@ -143,6 +152,10 @@ impl PhantomLine {
             PhantomKind::Added => self.palette.diff_add,
             PhantomKind::Badge => self.palette.diff_changed,
             PhantomKind::Embed | PhantomKind::EmbedBadge => self.palette.ui_border,
+            // A query's table is content too: its rule says where the computed rows
+            // start and stop, and says nothing about their being right or wrong.
+            PhantomKind::Row | PhantomKind::Header => self.palette.ui_border,
+            PhantomKind::Refusal => self.palette.callout_danger,
         }
     }
 
@@ -197,7 +210,7 @@ impl Element for PhantomLine {
         _cx: &mut App,
     ) -> Self::PrepaintState {
         let base_font = font(self.family.clone());
-        let runs = if self.kind == PhantomKind::Embed {
+        let runs = if matches!(self.kind, PhantomKind::Embed | PhantomKind::Row) {
             // The source note's markdown, in the note's own colours. `build_runs` is the
             // same function the note's own lines go through, which is the point: an
             // embedded heading and a local heading must not be two different renderings
@@ -225,6 +238,9 @@ impl Element for PhantomLine {
                     // link colour rather than a diff colour.
                     PhantomKind::EmbedBadge => self.palette.link,
                     PhantomKind::Embed => self.palette.ui_fg,
+                    PhantomKind::Row => self.palette.ui_fg,
+                    PhantomKind::Header => self.palette.dim,
+                    PhantomKind::Refusal => self.palette.callout_danger,
                 },
                 ..RunStyle::plain(&self.palette)
             };

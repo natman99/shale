@@ -253,6 +253,21 @@ impl Workspace {
             .unwrap_or_default()
     }
 
+    /// The query note in hand, as its table would paint it: one string per row.
+    pub(crate) fn query_shape<C: gpui::AppContext>(&self, cx: &mut C) -> Vec<String> {
+        self.editor()
+            .map(|editor| editor.update(cx, |editor, _cx| editor.query_shape()))
+            .unwrap_or_default()
+    }
+
+    /// How many display lines the editor on screen draws. A folded query note draws
+    /// one; a refusal draws the whole program.
+    pub(crate) fn display_lines<C: gpui::AppContext>(&self, cx: &C) -> usize {
+        self.editor()
+            .map(|editor| editor.read_with(cx, |editor, _cx| editor.display_line_count()))
+            .unwrap_or(0)
+    }
+
     /// Where the entered embed's rows were painted this frame: `(row in the embedded
     /// note, left, top, bottom)`. Empty when no embed is being edited.
     pub(crate) fn embed_rows<C: gpui::AppContext>(&self, cx: &C) -> Vec<(usize, f32, f32, f32)> {

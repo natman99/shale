@@ -45,15 +45,18 @@ impl Cell {
         matches!(self, Cell::Null)
     }
 
-    /// How the cell reads on one line. A NULL is drawn as a gap rather than the word,
-    /// because a query's own `NULL` is a hole in the data and the reader should see the
-    /// hole.
+    /// How the cell reads on one line, spelled so the reader can tell the three
+    /// kinds of nothing apart. A NULL is `∅` and an empty string is `''`, because a
+    /// query's own `NULL` is a hole in the data while `''` is a value the data
+    /// actually holds — and a table that draws both as a gap hides the difference
+    /// the query went to the trouble of making.
     pub fn display(&self) -> String {
         match self {
+            Cell::Text(text) if text.is_empty() => "''".to_string(),
             Cell::Text(text) => text.clone(),
             Cell::Integer(number) => number.to_string(),
             Cell::Real(number) => number.to_string(),
-            Cell::Null => "—".to_string(),
+            Cell::Null => "∅".to_string(),
         }
     }
 }
@@ -82,7 +85,60 @@ impl Rows {
     pub fn column(&self, name: &str) -> Option<usize> {
         self.columns.iter().position(|c| c == name)
     }
+
+    /// Order the answer by a column named in a query note's declaration: `cr`, or
+    /// `-cr` for descending. An unknown column leaves the order alone rather than
+    /// guessing, because a declaration that names a column the query does not return
+    /// is the author's mistake to notice, not a reason to shuffle the answer.
+    ///
+    /// This is the reader's override, applied to what came back rather than spliced
+    /// into the statement: a query that sorts itself and a note that sorts it are one
+    /// sort, and the picker and the in-file table both call this, so they cannot
+    /// disagree about the order of the same answer.
+    pub fn sort_by(&mut self, spec: &str) {
+        let (name, descending) = match spec.strip_prefix('-') {
+            Some(rest) => (rest, true),
+            None => (spec, false),
+        };
+        let Some(column) = self.column(name) else {
+            return;
+        };
+        self.rows.sort_by(|a, b| {
+            let order = compare_cells(a.get(column), b.get(column));
+            if descending {
+                order.reverse()
+            } else {
+                order
+            }
+        });
+    }
 }
+
+/// Order two cells. Numbers order as numbers, so a column of counts does not put 10
+/// before 9; anything else orders as the text the reader can see.
+fn compare_cells(a: Option<&Cell>, b: Option<&Cell>) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    let number = |cell: &Cell| match cell {
+        Cell::Integer(n) => Some(*n as f64),
+        Cell::Real(n) => Some(*n),
+        _ => None,
+    };
+    match (a, b) {
+        (None, None) => Ordering::Equal,
+        (None, _) => Ordering::Less,
+        (_, None) => Ordering::Greater,
+        (Some(x), Some(y)) => match (number(x), number(y)) {
+            (Some(a), Some(b)) => a.total_cmp(&b),
+            _ => x.display().cmp(&y.display()),
+        },
+    }
+}
+
+/// How many answer rows a surface draws. Both doors — the picker and the in-file
+/// table — cut at this number and say how many it left out, so one answer cannot be
+/// two different lengths on two different screens. The runner itself is uncapped: what
+/// the query answers is what the query answers.
+pub const MAX_ROWS: usize = 200;
 
 /// A named binding, spelled as the body spells it (`:current`).
 ///
@@ -323,6 +379,16 @@ fn parameters(sql: &str) -> Vec<String> {
         }
     });
     out
+}
+
+/// One line, whatever the database sent.
+///
+/// A syntax error arrives quoting the statement — newlines and all. Every surface
+/// that shows an answer shows one line per row, so the message is flattened where it
+/// reaches the surface rather than at its source: the MCP tool still reports the whole
+/// thing, and a picker row or a table row never has to wonder whether its text fits.
+pub fn one_line(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// Shorten a quote of the reader's own text to something a status line can carry,

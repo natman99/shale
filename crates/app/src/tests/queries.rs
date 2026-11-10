@@ -304,19 +304,30 @@ fn a_query_note_is_a_tree_row_and_not_a_quick_open_row(cx: &mut TestAppContext) 
 
 // ----- M3: the program folded, the answer where the reader is -----
 
-/// A bare editor showing `text` as the file `path`, focused. The path matters:
-/// it is what makes the view ask whether this is a query note at all.
-fn query_editor(cx: &mut TestAppContext, path: &str, text: &str) -> WindowHandle<MarkdownEditor> {
+/// A bare editor showing `text` as the file `path`, focused, with an empty vault's
+/// index behind it. The path is what makes the view ask whether this is a query note;
+/// the index is what lets it answer, so what a fold test measures is the fold and not
+/// a refusal. The `TempDir` has to outlive the window, so the caller keeps it.
+fn query_editor(
+    cx: &mut TestAppContext,
+    path: &str,
+    text: &str,
+) -> (WindowHandle<MarkdownEditor>, tempfile::TempDir) {
+    let dir = tempfile::tempdir().expect("a vault to hold an index");
+    let db = std::sync::Arc::new(
+        shale_core::db::Db::open(dir.path()).expect("an index the query can read"),
+    );
     let window = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
     window
         .update(cx, |editor, window, cx| {
             editor.set_text(text.to_string(), cx);
             editor.set_embed_context(Some(Path::new(path)), Vec::new(), cx);
+            editor.set_query_db(Some(db), cx);
             let focus = editor.focus_handle(cx);
             window.focus(&focus, cx);
         })
         .unwrap();
-    window
+    (window, dir)
 }
 
 /// The rows on screen and the fold markers painted on them.
@@ -347,7 +358,7 @@ fn shown(
 #[gpui::test]
 fn a_query_note_opens_with_its_program_folded(cx: &mut TestAppContext) {
     cx.update(|cx| cx.bind_keys(keybindings()));
-    let editor = query_editor(cx, "queries/tough.shq", TOUGH);
+    let (editor, _index) = query_editor(cx, "queries/tough.shq", TOUGH);
     let cx = &mut VisualTestContext::from_window(editor.into(), cx);
 
     let (lines, markers) = shown(&editor, cx);
@@ -357,7 +368,7 @@ fn a_query_note_opens_with_its_program_folded(cx: &mut TestAppContext) {
     );
     assert_eq!(
         markers,
-        vec![" tough"],
+        vec![" tough · 0 rows"],
         "the marker names the query (the file's own stem, with no declaration to say otherwise)"
     );
 
@@ -372,7 +383,7 @@ fn a_query_note_opens_with_its_program_folded(cx: &mut TestAppContext) {
 #[gpui::test]
 fn the_declaration_names_the_fold(cx: &mut TestAppContext) {
     cx.update(|cx| cx.bind_keys(keybindings()));
-    let editor = query_editor(
+    let (editor, _index) = query_editor(
         cx,
         "queries/ratings.shq",
         "+++\nname = \"Creature ratings\"\n+++\nSELECT 1\n",
@@ -382,7 +393,7 @@ fn the_declaration_names_the_fold(cx: &mut TestAppContext) {
     let (_lines, markers) = shown(&editor, cx);
     assert_eq!(
         markers,
-        vec![" Creature ratings"],
+        vec![" Creature ratings · 1 row"],
         "the declared name, not the file's"
     );
 }
@@ -393,7 +404,7 @@ fn the_declaration_names_the_fold(cx: &mut TestAppContext) {
 #[gpui::test]
 fn space_z_opens_the_program_and_shuts_it_again(cx: &mut TestAppContext) {
     cx.update(|cx| cx.bind_keys(keybindings()));
-    let editor = query_editor(cx, "queries/tough.shq", TOUGH);
+    let (editor, _index) = query_editor(cx, "queries/tough.shq", TOUGH);
     let cx = &mut VisualTestContext::from_window(editor.into(), cx);
     assert_eq!(shown(&editor, cx).0, 1);
 
@@ -412,7 +423,7 @@ fn space_z_opens_the_program_and_shuts_it_again(cx: &mut TestAppContext) {
 #[gpui::test]
 fn preview_opens_the_program_with_the_leader(cx: &mut TestAppContext) {
     cx.update(|cx| cx.bind_keys(keybindings()));
-    let editor = query_editor(cx, "queries/tough.shq", TOUGH);
+    let (editor, _index) = query_editor(cx, "queries/tough.shq", TOUGH);
     let cx = &mut VisualTestContext::from_window(editor.into(), cx);
     editor
         .update(cx, |editor, _window, cx| {
@@ -437,7 +448,7 @@ fn preview_opens_the_program_with_the_leader(cx: &mut TestAppContext) {
 #[gpui::test]
 fn raw_mode_shows_the_program(cx: &mut TestAppContext) {
     cx.update(|cx| cx.bind_keys(keybindings()));
-    let editor = query_editor(cx, "queries/tough.shq", TOUGH);
+    let (editor, _index) = query_editor(cx, "queries/tough.shq", TOUGH);
     let cx = &mut VisualTestContext::from_window(editor.into(), cx);
     assert_eq!(shown(&editor, cx).0, 1);
 
@@ -466,7 +477,7 @@ fn raw_mode_shows_the_program(cx: &mut TestAppContext) {
 #[gpui::test]
 fn a_file_that_is_not_a_query_shows_its_source(cx: &mut TestAppContext) {
     cx.update(|cx| cx.bind_keys(keybindings()));
-    let editor = query_editor(cx, "queries/bad.shq", "not a question at all\nnope\n");
+    let (editor, _index) = query_editor(cx, "queries/bad.shq", "not a question at all\nnope\n");
     let cx = &mut VisualTestContext::from_window(editor.into(), cx);
 
     let (lines, markers) = shown(&editor, cx);
@@ -479,10 +490,12 @@ fn a_file_that_is_not_a_query_shows_its_source(cx: &mut TestAppContext) {
 #[gpui::test]
 fn raw_mode_folds_nothing_in_a_query_note(cx: &mut TestAppContext) {
     cx.update(|cx| cx.bind_keys(keybindings()));
-    let editor = query_editor(
+    let (editor, _index) = query_editor(
         cx,
         "queries/notes.shq",
-        "+++\n+++\nSELECT 1\n# not a heading\nFROM x\n",
+        // A body that runs, and still has a row beginning with `#`: what is under test
+        // is the `#`, not a statement the runner would refuse.
+        "+++\n+++\nSELECT '\n# not a heading\n' AS x\n",
     );
     let cx = &mut VisualTestContext::from_window(editor.into(), cx);
     editor
@@ -506,10 +519,12 @@ fn raw_mode_folds_nothing_in_a_query_note(cx: &mut TestAppContext) {
 #[gpui::test]
 fn closing_every_section_leaves_no_fake_section_behind(cx: &mut TestAppContext) {
     cx.update(|cx| cx.bind_keys(keybindings()));
-    let editor = query_editor(
+    let (editor, _index) = query_editor(
         cx,
         "queries/notes.shq",
-        "+++\n+++\nSELECT 1\n# not a heading\nFROM x\n",
+        // A body that runs, and still has a row beginning with `#`: what is under test
+        // is the `#`, not a statement the runner would refuse.
+        "+++\n+++\nSELECT '\n# not a heading\n' AS x\n",
     );
     let cx = &mut VisualTestContext::from_window(editor.into(), cx);
 
@@ -532,7 +547,7 @@ fn closing_every_section_leaves_no_fake_section_behind(cx: &mut TestAppContext) 
 #[gpui::test]
 fn a_query_the_runner_would_refuse_shows_its_source(cx: &mut TestAppContext) {
     cx.update(|cx| cx.bind_keys(keybindings()));
-    let editor = query_editor(cx, "queries/two.shq", "+++\n+++\nSELECT 1; SELECT 2\n");
+    let (editor, _index) = query_editor(cx, "queries/two.shq", "+++\n+++\nSELECT 1; SELECT 2\n");
     let cx = &mut VisualTestContext::from_window(editor.into(), cx);
 
     let (lines, markers) = shown(&editor, cx);
@@ -550,10 +565,12 @@ fn a_query_the_runner_would_refuse_shows_its_source(cx: &mut TestAppContext) {
 #[gpui::test]
 fn a_fold_command_folds_the_program_not_a_fake_heading(cx: &mut TestAppContext) {
     cx.update(|cx| cx.bind_keys(keybindings()));
-    let editor = query_editor(
+    let (editor, _index) = query_editor(
         cx,
         "queries/notes.shq",
-        "+++\n+++\nSELECT 1\n# not a heading\nFROM x\n",
+        // A body that runs, and still has a row beginning with `#`: what is under test
+        // is the `#`, not a statement the runner would refuse.
+        "+++\n+++\nSELECT '\n# not a heading\n' AS x\n",
     );
     let cx = &mut VisualTestContext::from_window(editor.into(), cx);
     cx.simulate_keystrokes("space z");
@@ -564,7 +581,11 @@ fn a_fold_command_folds_the_program_not_a_fake_heading(cx: &mut TestAppContext) 
     cx.simulate_keystrokes("z a");
     let (lines, markers) = shown(&editor, cx);
     assert_eq!(lines, 1, "the whole program folded, not one line of it");
-    assert_eq!(markers, vec![" notes"], "and the marker is the query's");
+    assert_eq!(
+        markers,
+        vec![" notes · 1 row"],
+        "and the marker is the query's, with the answer's shape"
+    );
 }
 
 /// A query note is not markdown: its `#`-looking lines are not sections. The one
@@ -573,16 +594,296 @@ fn a_fold_command_folds_the_program_not_a_fake_heading(cx: &mut TestAppContext) 
 #[gpui::test]
 fn a_query_note_has_no_heading_sections(cx: &mut TestAppContext) {
     cx.update(|cx| cx.bind_keys(keybindings()));
-    let editor = query_editor(
+    let (editor, _index) = query_editor(
         cx,
         "queries/notes.shq",
-        "+++\n+++\nSELECT 1\n# not a heading\nFROM x\n",
+        // A body that runs, and still has a row beginning with `#`: what is under test
+        // is the `#`, not a statement the runner would refuse.
+        "+++\n+++\nSELECT '\n# not a heading\n' AS x\n",
     );
     let cx = &mut VisualTestContext::from_window(editor.into(), cx);
 
     let (lines, markers) = shown(&editor, cx);
     assert_eq!(lines, 1, "one region, the whole file");
-    assert_eq!(markers, vec![" notes"], "one marker, the query's own");
+    assert_eq!(
+        markers,
+        vec![" notes · 1 row"],
+        "one marker, the query's own, and no section marker for the `#` row"
+    );
+}
+
+// ----- M3b: the answer, drawn where the program lives -----
+
+/// The table the file draws under its own program.
+fn table(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> Vec<String> {
+    window
+        .update(cx, |ws, _window, cx| ws.query_shape(cx))
+        .unwrap_or_default()
+}
+
+/// How many of the file's rows are on screen.
+fn drawn(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> usize {
+    window
+        .update(cx, |ws, _window, cx| ws.display_lines(cx))
+        .unwrap_or(0)
+}
+
+/// The fold marker the file painted, if any.
+fn marker(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> Vec<String> {
+    window
+        .update(cx, |ws, _window, cx| {
+            ws.editor().map(|editor| {
+                editor.read_with(cx, |editor, _cx| {
+                    editor
+                        .painted_fold_markers()
+                        .into_iter()
+                        .map(|(_line, label)| label)
+                        .collect::<Vec<_>>()
+                })
+            })
+        })
+        .unwrap_or_default()
+        .unwrap_or_default()
+}
+
+/// The file in hand, opened in the editor: the program folded, and its answer drawn
+/// under it. This is the whole point of the milestone — the question and its answer
+/// in one place, the program out of the way.
+#[gpui::test]
+fn the_query_note_draws_its_answer_under_the_program(cx: &mut TestAppContext) {
+    let (_dir, window) = monsters(cx, TOUGH);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "queries/tough.shq");
+    cx.run_until_parked();
+
+    assert_eq!(
+        table(&window, cx),
+        vec!["note       value", "Wisp.md    3", "Goblin.md  5",],
+        "the columns once, then one row per answer, in the order the query asked"
+    );
+    assert_eq!(drawn(&window, cx), 1, "the program itself stays folded");
+}
+
+/// The marker row says what the file computed and how much of it there is, so a
+/// folded file still answers a question about itself.
+#[gpui::test]
+fn the_marker_says_what_the_file_computed(cx: &mut TestAppContext) {
+    let (_dir, window) = monsters(cx, TOUGH);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "queries/tough.shq");
+    cx.run_until_parked();
+
+    assert_eq!(marker(&window, cx), vec![" tough · 2 rows"]);
+}
+
+/// A cell spelled as a vault path *is* that note — the same rule the picker's rows
+/// follow, so the same answer cannot be a door in one surface and a dead end in the
+/// other.
+#[gpui::test]
+fn a_table_row_that_names_a_note_opens_it(cx: &mut TestAppContext) {
+    let (_dir, window) = monsters(cx, TOUGH);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "queries/tough.shq");
+    cx.run_until_parked();
+
+    let band = window
+        .update(cx, |ws, _window, cx| ws.phantom_rows(cx))
+        .unwrap()
+        .into_iter()
+        .find(|(what, ..)| what == "badge:Goblin.md")
+        .expect("the row naming Goblin.md is painted and addressable");
+    let (_, left, top, bottom) = band;
+    cx.simulate_click(
+        gpui::point(gpui::px(left + 4.0), gpui::px((top + bottom) / 2.0)),
+        gpui::Modifiers::default(),
+    );
+    cx.run_until_parked();
+    assert_eq!(
+        window
+            .update(cx, |ws, _window, cx| ws.buffer_text(cx))
+            .unwrap_or_default(),
+        "---\ncr: 5\n---\n# Goblin\n",
+        "the click opened the note the row names"
+    );
+}
+
+/// An answer with no rows says so. A table that draws only its header would read as
+/// a query that worked and a vault with nothing in it.
+#[gpui::test]
+fn an_empty_answer_says_so(cx: &mut TestAppContext) {
+    let (_dir, window) = monsters(cx, "SELECT note FROM props WHERE key = 'no such key'\n");
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "queries/tough.shq");
+    cx.run_until_parked();
+
+    assert_eq!(table(&window, cx), vec!["the query answers nothing"]);
+}
+
+/// A refusal says why, in the runner's own words, **and opens the program**: a
+/// folded region with no table is a blank page, and a blank page is a refusal the
+/// reader cannot read.
+#[gpui::test]
+fn a_refusal_says_why_and_unfolds_the_program(cx: &mut TestAppContext) {
+    // A statement the runner accepts the shape of and refuses at run time: the fold
+    // exists, and the answer is what says it has to open.
+    let (_dir, window) = monsters(cx, "+++\n+++\nSELECT nope FROM props\n");
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "queries/tough.shq");
+    cx.run_until_parked();
+
+    let rows = table(&window, cx);
+    assert_eq!(rows.len(), 1, "one line, the reason");
+    assert!(
+        rows[0].contains("no such column"),
+        "the runner's own words: {rows:?}"
+    );
+    assert_eq!(
+        drawn(&window, cx),
+        4,
+        "and the program is on screen, because the table is not"
+    );
+}
+
+/// The cut is the same number the picker cuts at, and the row that admits it says how
+/// many it left out. The runner is uncapped: what the query answers is what the query
+/// answers — this is a surface running out of screen, not a door running out of rows.
+#[gpui::test]
+fn a_long_answer_in_the_note_is_cut_and_says_so(cx: &mut TestAppContext) {
+    let (_dir, window) = monsters(
+        cx,
+        "WITH RECURSIVE x(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM x WHERE n < 250) \
+         SELECT n FROM x\n",
+    );
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "queries/tough.shq");
+    cx.run_until_parked();
+
+    let rows = table(&window, cx);
+    assert_eq!(
+        rows.len(),
+        shale_core::db::MAX_ROWS + 2,
+        "header, the rows it drew, and the line that admits the rest"
+    );
+    assert_eq!(
+        rows.last().expect("the admission"),
+        "…50 more rows not shown"
+    );
+}
+
+/// The declaration's `sort` orders the table exactly as it orders the picker's rows,
+/// because both call the same rule in the core.
+#[gpui::test]
+fn the_declaration_sorts_the_table(cx: &mut TestAppContext) {
+    let (_dir, window) = monsters(
+        cx,
+        // The statement asks for ascending; the declaration asks for descending. Only
+        // one of them can be what the table shows.
+        "+++\nsort = \"-value\"\n+++\nSELECT note, value FROM props WHERE key = 'cr' \
+         ORDER BY CAST(value AS REAL)\n",
+    );
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "queries/tough.shq");
+    cx.run_until_parked();
+
+    assert_eq!(
+        table(&window, cx),
+        vec!["note       value", "Goblin.md  5", "Wisp.md    3",],
+        "descending on the declared column"
+    );
+}
+
+/// A table row is not a line of the file, so the caret cannot land in one. The rows
+/// that name no note are not addressable at all — they are captions — and a click
+/// beside them belongs to the note, which is the program's row they happen to sit
+/// under.
+#[gpui::test]
+fn clicking_a_row_that_names_no_note_does_not_put_the_caret_in_the_answer(cx: &mut TestAppContext) {
+    let (_dir, window) = monsters(cx, TOUGH);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "queries/tough.shq");
+    cx.run_until_parked();
+
+    // The folded program is one row on screen; the answer hangs below it.
+    let (left, top, bottom) = window
+        .update(cx, |ws, _window, cx| ws.line_band(0, cx))
+        .unwrap()
+        .expect("the marker row is painted");
+    let height = bottom - top;
+    // Half a row down is the table's header: the one row of the answer that names
+    // nothing and therefore opens nothing.
+    let in_the_answer = bottom + height * 0.5;
+
+    assert_eq!(
+        window
+            .update(cx, |ws, _window, cx| ws
+                .origin_at((left + 4.0, in_the_answer), cx))
+            .unwrap(),
+        None,
+        "the answer's rows belong to no note but this one"
+    );
+    cx.simulate_click(
+        gpui::point(gpui::px(left + 4.0), gpui::px(in_the_answer)),
+        gpui::Modifiers::default(),
+    );
+    cx.run_until_parked();
+    assert_eq!(
+        window
+            .update(cx, |ws, _window, cx| ws.buffer_text(cx))
+            .unwrap_or_default(),
+        TOUGH,
+        "the note under the click is still the query note"
+    );
+    let (row, _column) = window
+        .update(cx, |ws, _window, cx| ws.cursor_position(cx))
+        .unwrap_or_default();
+    assert_eq!(row, 0, "the caret landed on the program, not in the answer");
+}
+
+/// The answer follows the program: change the SQL in the note and the table asks
+/// again. The cache is keyed on the buffer, so this is the same invalidation that
+/// keeps the fold honest after an edit.
+#[gpui::test]
+fn editing_the_program_re_runs_the_answer(cx: &mut TestAppContext) {
+    let (_dir, window) = monsters(cx, TOUGH);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "queries/tough.shq");
+    cx.run_until_parked();
+    assert_eq!(table(&window, cx).len(), 3, "header and two rows");
+
+    // Open the fold and break the statement.
+    cx.simulate_keystrokes("space z");
+    cx.simulate_keystrokes("0 f w i f r o m");
+    cx.run_until_parked();
+
+    let rows = table(&window, cx);
+    assert_eq!(rows.len(), 1, "one line, the reason: {rows:?}");
+    assert!(
+        rows[0].starts_with("the query could not be answered"),
+        "{rows:?}"
+    );
+}
+
+/// SQLite quotes the statement it refused, newlines and all, and a table row is one
+/// line: gpui refuses a text run that holds a newline outright. The message arrives
+/// flattened, so the reason survives without taking the row apart.
+#[gpui::test]
+fn a_refusal_that_spans_lines_is_drawn_on_one(cx: &mut TestAppContext) {
+    let (_dir, window) = monsters(
+        cx,
+        // A syntax error, which is the kind SQLite quotes the statement for.
+        "SELECT 1\n# not a heading\nFROM x\n",
+    );
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "queries/tough.shq");
+    cx.run_until_parked();
+
+    let rows = table(&window, cx);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert!(
+        rows[0].starts_with("the query could not be answered"),
+        "{rows:?}"
+    );
+    assert!(!rows[0].contains('\n'), "one line per row: {:?}", rows[0]);
 }
 
 /// The palette is the door for someone who does not remember the word.

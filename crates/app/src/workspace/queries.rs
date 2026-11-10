@@ -30,17 +30,9 @@ use crate::picker::PickerItem;
 use super::open::{notice, PickerTarget};
 use super::Workspace;
 
-/// How many rows one query's answer may draw. Named here so the cut and the row that
-/// admits it are decided by one number.
-const MAX_ROWS: usize = 200;
-
-/// How a NULL is drawn. An empty cell would read as a blank and then as an empty string,
-/// which is the one distinction the runner goes out of its way to keep.
-const NULL_TEXT: &str = "∅";
-
-/// How an empty string is drawn: quoted, so the reader can see that the query answered
-/// something and it happened to be nothing.
-const EMPTY_TEXT: &str = "''";
+/// How many rows one query's answer may draw. Named in the core, because the in-file
+/// table cuts at the same number and says how many it left out: one answer, one length.
+use shale_core::db::MAX_ROWS;
 
 impl Workspace {
     /// `:query` and the palette's **Run a saved query**: the vault's `.shq` files, each
@@ -133,7 +125,7 @@ impl Workspace {
         // that sorts it are one sort.
         let answer = db.run(&note.sql, &bindings).map(|mut rows| {
             if let Some(sort) = note.decl.sort.as_deref() {
-                apply_sort(&mut rows, sort);
+                rows.sort_by(sort);
             }
             rows
         });
@@ -145,7 +137,10 @@ impl Workspace {
         let (label, rows) = match answer {
             Err(err) => (
                 format!("Query {name}"),
-                vec![notice(format!("the query could not be answered: {err:#}"))],
+                vec![notice(format!(
+                    "the query could not be answered: {}",
+                    shale_core::db::one_line(&format!("{err:#}"))
+                ))],
             ),
             Ok(rows) if rows.rows.is_empty() => {
                 // EDGE-1: an answer of nothing is still an answer.
@@ -215,11 +210,11 @@ pub(crate) fn result_rows(
     rows.push(notice(format!("columns: {}", answer.columns.join(" · "))));
 
     for cells in answer.rows.iter().take(MAX_ROWS) {
-        let first = cells.first().map(cell_text).unwrap_or_default();
+        let first = cells.first().map(Cell::display).unwrap_or_default();
         let rest = cells
             .iter()
             .skip(1)
-            .map(cell_text)
+            .map(Cell::display)
             .collect::<Vec<_>>()
             .join(" · ");
         // A cell that names a note in this vault is that note. One that does not is
@@ -249,66 +244,11 @@ pub(crate) fn result_rows(
     rows
 }
 
-/// One cell as text, keeping the difference between nothing and empty.
-fn cell_text(cell: &Cell) -> String {
-    match cell {
-        Cell::Null => NULL_TEXT.to_string(),
-        Cell::Integer(number) => number.to_string(),
-        Cell::Real(number) => format!("{number}"),
-        Cell::Text(text) if text.is_empty() => EMPTY_TEXT.to_string(),
-        Cell::Text(text) => text.clone(),
-    }
-}
-
 /// The folder a vault path sits in, spelled the way a note row spells it. `""` for a
 /// file at the vault root, which the caller folds into its detail.
 fn folder_of(path: &Path) -> String {
     match path.parent() {
         Some(parent) if !parent.as_os_str().is_empty() => parent.display().to_string(),
         _ => "the vault's top level".to_string(),
-    }
-}
-
-/// Apply the declaration's `sort` to an answer. The column is named as the query names
-/// it; a leading `-` means descending.
-///
-/// This is the ruling that a query which sorts itself and a note that sorts it are one
-/// sort: the SQL may already order its rows, and `sort` is the reader's override, applied
-/// to what came back rather than spliced into the statement.
-pub(crate) fn apply_sort(answer: &mut shale_core::db::Rows, sort: &str) {
-    let (name, descending) = match sort.strip_prefix('-') {
-        Some(rest) => (rest, true),
-        None => (sort, false),
-    };
-    let Some(column) = answer.columns.iter().position(|c| c == name) else {
-        return;
-    };
-    answer.rows.sort_by(|a, b| {
-        let order = compare_cells(a.get(column), b.get(column));
-        if descending {
-            order.reverse()
-        } else {
-            order
-        }
-    });
-}
-
-/// Order two cells. Numbers order as numbers, so a column of counts does not put 10
-/// before 9; anything else orders as the text the reader can see.
-fn compare_cells(a: Option<&Cell>, b: Option<&Cell>) -> std::cmp::Ordering {
-    use std::cmp::Ordering;
-    let number = |cell: &Cell| match cell {
-        Cell::Integer(n) => Some(*n as f64),
-        Cell::Real(n) => Some(*n),
-        _ => None,
-    };
-    match (a, b) {
-        (None, None) => Ordering::Equal,
-        (None, _) => Ordering::Less,
-        (_, None) => Ordering::Greater,
-        (Some(x), Some(y)) => match (number(x), number(y)) {
-            (Some(x), Some(y)) => x.total_cmp(&y),
-            _ => cell_text(x).cmp(&cell_text(y)),
-        },
     }
 }
