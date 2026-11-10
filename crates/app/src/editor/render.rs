@@ -757,11 +757,8 @@ impl Render for MarkdownEditor {
                                 if let (Some(title), Some(answer)) =
                                     (mark.title.as_ref(), answer.as_ref())
                                 {
-                                    let rows = answer.rows.rows.len();
-                                    mark.title = Some(format!(
-                                        "{title} · {rows} {}",
-                                        if rows == 1 { "row" } else { "rows" }
-                                    ));
+                                    mark.title =
+                                        Some(super::query_view::answer_shape(title, answer));
                                 }
                                 mark
                             });

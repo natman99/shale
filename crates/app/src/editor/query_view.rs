@@ -20,6 +20,22 @@ use super::Answer;
 use crate::line::phantom::PhantomKind;
 use crate::table_view::GridPaint;
 
+/// What a query's answer is *called*: its name, and how much came back.
+///
+/// The query note's marker row and the badge row of a note that embeds the query both
+/// say this, in one sentence: the same shape of answer, described the same way wherever
+/// it is read. A refusal says *refused* rather than `0 rows`, because a badge that
+/// quietly counts nothing would let the reader believe the query asked and got an
+/// answer. (In the query note itself a run-time refusal opens the fold instead, so the
+/// marker never carries this wording; an embed has no fold to open.)
+pub(crate) fn answer_shape(name: &str, answer: &Answer) -> String {
+    if answer.error.is_some() {
+        return format!("{name} · refused");
+    }
+    let rows = answer.rows.rows.len();
+    format!("{name} · {rows} {}", if rows == 1 { "row" } else { "rows" })
+}
+
 #[cfg(test)]
 impl super::MarkdownEditor {
     /// What the answer table would paint, one string per row: for the tests, the same

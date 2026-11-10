@@ -275,6 +275,9 @@ pub(crate) struct Cache {
     /// table lookup against these; rebuilding the table per embed would cost more than
     /// reading the note.
     entries: Vec<VaultEntry>,
+    /// The vault's saved queries (`.shq`), which is what `![[Creature ratings]]` can
+    /// name when no note of that name exists. The window already holds this list too.
+    queries: Vec<VaultEntry>,
     /// The note holding the embeds, so the resolver's chain catches a self-embed.
     host: PathBuf,
     bodies: HashMap<Key, Body>,
@@ -352,6 +355,7 @@ impl Cache {
     pub(crate) fn new() -> Self {
         Self {
             entries: Vec::new(),
+            queries: Vec::new(),
             host: PathBuf::new(),
             bodies: HashMap::new(),
             stamp: 0,
@@ -366,6 +370,20 @@ impl Cache {
             // so the bodies keyed by the old list are no longer answers.
             self.bodies.clear();
         }
+    }
+
+    /// The vault's saved queries, for the same reason and with the same consequence:
+    /// a query that appeared or went away changes what an embed target names.
+    pub(crate) fn set_queries(&mut self, queries: Vec<VaultEntry>) {
+        if queries != self.queries {
+            self.queries = queries;
+            self.bodies.clear();
+        }
+    }
+
+    /// The vault's saved queries, as the frame's door needs them.
+    pub(crate) fn queries(&self) -> &[VaultEntry] {
+        &self.queries
     }
 
     /// Which note this editor is showing. Its embeds are resolved relative to it, and
@@ -417,7 +435,14 @@ impl Cache {
                 .bodies
                 .entry(key)
                 .or_insert_with(|| {
-                    transclude::resolve_from(vault, &self.entries, &self.host, &embed, sources)
+                    transclude::resolve_from(
+                        vault,
+                        &self.entries,
+                        &self.queries,
+                        &self.host,
+                        &embed,
+                        sources,
+                    )
                 })
                 .clone();
             if body != Body::Nothing {

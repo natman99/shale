@@ -319,6 +319,11 @@ pub struct MarkdownEditor {
     /// The answer this view last measured, with the buffer's change id it was measured
     /// from. Re-run when the text moves or the index does; not on every frame.
     answer: Option<(u64, std::rc::Rc<Answer>)>,
+    /// The answers of queries embedded in *other* notes (`![[query]]`, roadmap P4.3
+    /// M4), keyed by the `.shq` and stamped with the source stamp they were measured
+    /// from. A note's own answer has one slot because it has one program; a host note
+    /// can embed several queries, so these are a map.
+    embed_answers: std::collections::HashMap<std::path::PathBuf, (u64, std::rc::Rc<Answer>)>,
     /// The vault's attachment files (everything that is not a note), for
     /// resolving `![[image.png]]`.
     attachments: Vec<VaultEntry>,
@@ -474,6 +479,7 @@ impl MarkdownEditor {
             vault: None,
             db: None,
             answer: None,
+            embed_answers: HashMap::new(),
             attachments: Vec::new(),
             known: HashSet::new(),
             input_registered: false,
@@ -944,17 +950,22 @@ impl MarkdownEditor {
         &mut self,
         host: Option<&std::path::Path>,
         notes: Vec<shale_core::vault::VaultEntry>,
+        queries: Vec<shale_core::vault::VaultEntry>,
         cx: &mut Context<Self>,
     ) {
         self.embeds
             .set_host(host.unwrap_or(std::path::Path::new("")));
         self.embeds.set_entries(notes);
+        self.embeds.set_queries(queries);
         cx.notify();
     }
 
     /// The vault moved: every cached embed body is now a guess.
     pub(crate) fn invalidate_embeds(&mut self, cx: &mut Context<Self>) {
         self.embeds.invalidate();
+        // An embedded query's program is a file too: if the disk has a different
+        // program in it, the answer measured from the old one is a guess as well.
+        self.embed_answers.clear();
         cx.notify();
     }
 
@@ -983,6 +994,7 @@ impl MarkdownEditor {
     ) {
         self.db = db;
         self.answer = None;
+        self.embed_answers.clear();
         cx.notify();
     }
 
@@ -1005,44 +1017,89 @@ impl MarkdownEditor {
         if self.answer.is_none() {
             let text = self.note.buffer.borrow().text().to_string();
             let note = shale_core::query_note::QueryNote::parse(&text).ok()?;
-            let answer = match self.db.as_ref() {
-                // EDGE-14 again: with the index off, "nothing answers this" would be
-                // a lie about the vault rather than about the setting.
-                None => Answer {
-                    rows: shale_core::db::Rows::default(),
-                    error: Some("there is no vault index to read (index.enabled = false)".into()),
-                },
-                Some(db) => {
-                    // The anchor is the file the reader is standing in, the same
-                    // binding `:query` makes; a body that never asks for `:current`
-                    // never sees it.
-                    let anchor = self
-                        .embeds
-                        .host()
-                        .map(|path| path.to_string_lossy().into_owned());
-                    let bindings: Vec<shale_core::db::Binding<'_>> = match anchor.as_deref() {
-                        Some(current) => vec![shale_core::db::Binding::new(":current", current)],
-                        None => Vec::new(),
-                    };
-                    match db.run(&note.sql, &bindings) {
-                        Ok(mut rows) => {
-                            if let Some(sort) = note.decl.sort.as_deref() {
-                                rows.sort_by(sort);
-                            }
-                            Answer { rows, error: None }
-                        }
-                        Err(err) => Answer {
-                            rows: shale_core::db::Rows::default(),
-                            error: Some(format!("{err:#}")),
-                        },
-                    }
-                }
-            };
+            let answer = self.run_answer(&note);
             self.answer = Some((id, std::rc::Rc::new(answer)));
         }
         self.answer
             .as_ref()
             .map(|(_, answer)| std::rc::Rc::clone(answer))
+    }
+
+    /// The runner, once, for any parsed query note.
+    ///
+    /// The anchor is the file the reader is standing in — the note in hand for a query
+    /// note, the *host* note for an embed — which is what `:current` binds to. One
+    /// runner for the file's table, the picker's rows and an embed's rows: the three
+    /// surfaces cannot answer differently, and the read-only door is one door.
+    fn run_answer(&self, note: &shale_core::query_note::QueryNote) -> Answer {
+        match self.db.as_ref() {
+            // EDGE-14 again: with the index off, "nothing answers this" would be
+            // a lie about the vault rather than about the setting.
+            None => Answer {
+                rows: shale_core::db::Rows::default(),
+                error: Some("there is no vault index to read (index.enabled = false)".into()),
+            },
+            Some(db) => {
+                let anchor = self
+                    .embeds
+                    .host()
+                    .map(|path| path.to_string_lossy().into_owned());
+                let bindings: Vec<shale_core::db::Binding<'_>> = match anchor.as_deref() {
+                    Some(current) => vec![shale_core::db::Binding::new(":current", current)],
+                    None => Vec::new(),
+                };
+                match db.run(&note.sql, &bindings) {
+                    Ok(mut rows) => {
+                        if let Some(sort) = note.decl.sort.as_deref() {
+                            rows.sort_by(sort);
+                        }
+                        Answer { rows, error: None }
+                    }
+                    Err(err) => Answer {
+                        rows: shale_core::db::Rows::default(),
+                        error: Some(format!("{err:#}")),
+                    },
+                }
+            }
+        }
+    }
+
+    /// What a query embedded in this note answers (roadmap P4.3 M4).
+    ///
+    /// The program arrives parsed, read through the same door an embedded note's text
+    /// comes through — so a `.shq` being edited in a tab answers with the program the
+    /// reader is looking at, not the disk's older one. A program the parser refused
+    /// answers with the runner's reason, drawn as a refusal row: an embed has no source
+    /// of its own to unfold, so the reason is the only thing this row can say.
+    pub(crate) fn query_answer_at(
+        &mut self,
+        query: &shale_core::transclude::QueryBody,
+        sources: &dyn shale_core::transclude::Sources,
+    ) -> std::rc::Rc<Answer> {
+        let note = match &query.note {
+            Ok(note) => note,
+            Err(why) => {
+                return std::rc::Rc::new(Answer {
+                    rows: shale_core::db::Rows::default(),
+                    error: Some(format!("this is not a query note: {why}")),
+                });
+            }
+        };
+        let stamp = sources.stamp();
+        if self
+            .embed_answers
+            .get(&query.path)
+            .is_some_and(|(seen, _)| *seen != stamp)
+        {
+            self.embed_answers.remove(&query.path);
+        }
+        if let Some((_, answer)) = self.embed_answers.get(&query.path) {
+            return std::rc::Rc::clone(answer);
+        }
+        let answer = std::rc::Rc::new(self.run_answer(note));
+        self.embed_answers
+            .insert(query.path.clone(), (stamp, std::rc::Rc::clone(&answer)));
+        answer
     }
 
     /// The font family from the config. Empty means "choose one"; an unknown
@@ -2155,6 +2212,7 @@ impl MarkdownEditor {
         let body = shale_core::transclude::resolve_from(
             vault,
             self.embeds.entries(),
+            self.embeds.queries(),
             &host,
             &embed,
             &sources,

@@ -124,6 +124,26 @@ pub struct Badge {
     pub embed: EmbedRef,
 }
 
+/// A saved query an embed points at (roadmap P4.3 M4).
+///
+/// The resolver cannot answer it. A query's content is what its program *computes*, and
+/// the index to compute it against belongs to the window — so the resolver says what the
+/// embed points at (the file, the name the reader knows it by, and the program as the
+/// file wrote it) and the app runs it and draws the answer under the `![[…]]` row. One
+/// resolution, two halves: nobody gets to decide on their own what `![[Creature
+/// ratings]]` names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QueryBody {
+    /// The `.shq` itself, vault-relative.
+    pub path: PathBuf,
+    /// The declaration's `name`, else the file's stem: the name the reader knows the
+    /// query by, which is what the block's title row says.
+    pub name: String,
+    /// The file parsed as a query note, or the reason it is not one. A failure is not a
+    /// ghost and not a silence: the block says it (EDGE-11).
+    pub note: Result<crate::query_note::QueryNote, String>,
+}
+
 /// What one embed contributes to the view.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Body {
@@ -135,6 +155,9 @@ pub enum Body {
     /// The embed stopped expanding: its name, and the door a click opens.
     Badge(Badge),
     Lines(Vec<EmbedLine>),
+    /// The embed names a saved query. The app runs it; the rows it draws are the
+    /// answer, not text the resolver could hand over.
+    Query(QueryBody),
 }
 
 /// Where the resolver reads a note's text.
@@ -168,36 +191,54 @@ impl Sources for Vault {
 /// `host` is the note holding the embed, so a self-embed is caught by the chain
 /// instead of spending the depth budget on itself. `entries` is the vault's
 /// markdown list the caller already holds — resolution is a table lookup, and
-/// building the table per embed would cost more than reading the note.
-pub fn resolve(vault: &Vault, entries: &[VaultEntry], host: &Path, embed: &EmbedRef) -> Body {
-    resolve_from(vault, entries, host, embed, vault)
+/// building the table per embed would cost more than reading the note. `queries` is
+/// the same kind of list for `.shq` files: a target that names no note may still name
+/// a saved query.
+pub fn resolve(
+    vault: &Vault,
+    entries: &[VaultEntry],
+    queries: &[VaultEntry],
+    host: &Path,
+    embed: &EmbedRef,
+) -> Body {
+    resolve_from(vault, entries, queries, host, embed, vault)
 }
 
 /// As [`resolve`], reading each note through `sources`.
+#[allow(clippy::too_many_arguments)]
 pub fn resolve_from(
     vault: &Vault,
     entries: &[VaultEntry],
+    queries: &[VaultEntry],
     host: &Path,
     embed: &EmbedRef,
     sources: &dyn Sources,
 ) -> Body {
     let mut chain = vec![host.to_path_buf()];
-    expand(vault, entries, embed, 1, &mut chain, sources)
+    expand(vault, entries, queries, embed, 1, &mut chain, sources)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn expand(
     vault: &Vault,
     entries: &[VaultEntry],
+    queries: &[VaultEntry],
     embed: &EmbedRef,
     depth: usize,
     chain: &mut Vec<PathBuf>,
     sources: &dyn Sources,
 ) -> Body {
     let Some(entry) = vault.resolve_link(&embed.target, entries).ok().flatten() else {
-        // Not a note. An attachment is the image renderer's row; anything else
+        // Not a note. It may be a saved query — and a note wins when both exist, the
+        // same precedence an alias is given over a note name.
+        if let Some(query) = vault.resolve_link(&embed.target, queries).ok().flatten() {
+            return query_body(&query, embed, sources);
+        }
+        // An attachment is the image renderer's row; anything else
         // is a broken link, and the raw line is the honest rendering of one.
         return Body::Nothing;
     };
+
     let path = entry.path.clone();
     if chain.contains(&path) {
         return Body::Badge(Badge {
@@ -231,7 +272,9 @@ fn expand(
     // `a -> b -> a` only stops at the depth cap, spending the whole budget on
     // two notes instead of saying "you are already here" at the second `a`.
     chain.push(path.clone());
-    let rows = rows_of(vault, entries, &path, &wanted, depth, chain, sources);
+    let rows = rows_of(
+        vault, entries, queries, &path, &wanted, depth, chain, sources,
+    );
     chain.pop();
     if rows.is_empty() {
         return Body::Nothing;
@@ -243,6 +286,7 @@ fn expand(
 fn rows_of(
     vault: &Vault,
     entries: &[VaultEntry],
+    queries: &[VaultEntry],
     note: &Path,
     wanted: &[(usize, &str)],
     depth: usize,
@@ -262,8 +306,19 @@ fn rows_of(
             // the *nested* note's origin, which is the honest one: clicking one
             // of them lands in the note it is a line of.
             Some(inner) if depth < MAX_DEPTH => {
-                match expand(vault, entries, &inner, depth + 1, chain, sources) {
+                match expand(vault, entries, queries, &inner, depth + 1, chain, sources) {
                     Body::Lines(inner_rows) => rows.extend(inner_rows),
+                    // A saved query reached through another note's body: its name and
+                    // its door, not a second table inside this one. The answer belongs
+                    // to the row that asked for it, and a row of a block is not that.
+                    Body::Query(query) => rows.push(EmbedLine {
+                        depth: depth + 1,
+                        origin: None,
+                        row: EmbedRow::Badge(Badge {
+                            label: query.name.clone(),
+                            embed: inner.clone(),
+                        }),
+                    }),
                     Body::Badge(badge) => rows.push(EmbedLine {
                         depth: depth + 1,
                         origin: None,
@@ -293,6 +348,39 @@ fn rows_of(
         }
     }
     rows
+}
+
+/// The body an embed gets when its target names a saved query (roadmap P4.3 M4).
+///
+/// The program is read through `sources` — the same door an embedded note's text comes
+/// through, so a `.shq` open in a tab with unsaved edits is *in hand* and the block
+/// shows the program the reader is looking at, not the disk's older one.
+///
+/// An anchor asks a program for a section. It has none — its `#` lines are SQL comments,
+/// not headings — and the answer is the sentence the note branch already uses for the
+/// same mistake, so the two surfaces cannot disagree about what went wrong.
+fn query_body(query: &VaultEntry, embed: &EmbedRef, sources: &dyn Sources) -> Body {
+    if let Some(anchor) = embed.anchor.as_deref() {
+        return Body::Badge(Badge {
+            label: format!("no section \"{anchor}\" in {}", query.stem()),
+            embed: embed.clone(),
+        });
+    }
+    let Some(text) = sources.text(&query.path) else {
+        // The list says the file is there and the read says it is not: the vault moved
+        // between the frame and now. The raw line is the honest rendering of that.
+        return Body::Nothing;
+    };
+    let note = crate::query_note::QueryNote::parse(&text);
+    let (name, note) = match note {
+        Ok(note) => (note.display_name(query.stem()).to_string(), Ok(note)),
+        Err(why) => (query.stem().to_string(), Err(why.to_string())),
+    };
+    Body::Query(QueryBody {
+        path: query.path.clone(),
+        name,
+        note,
+    })
 }
 
 /// What a stopped embed is called: the alias if the author gave one, else the
@@ -497,7 +585,7 @@ mod tests {
             ("gift.md", "one\ntwo\n"),
         ]);
         let e = line_embed("![[gift]]").unwrap();
-        let body = resolve(&v, &entries, Path::new("host.md"), &e);
+        let body = resolve(&v, &entries, &[], Path::new("host.md"), &e);
         let Body::Lines(rows) = body else {
             panic!("expected lines, got {body:?}");
         };
@@ -525,7 +613,7 @@ mod tests {
             ("gift.md", "# Top\nno\n## Middle\nyes\n## End\nno\n"),
         ]);
         let e = line_embed("![[gift#Middle]]").unwrap();
-        let Body::Lines(rows) = resolve(&v, &entries, Path::new("host.md"), &e) else {
+        let Body::Lines(rows) = resolve(&v, &entries, &[], Path::new("host.md"), &e) else {
             panic!("expected lines");
         };
         assert_eq!(rows.len(), 2);
@@ -545,7 +633,7 @@ mod tests {
             ("b.md", "b-text"),
         ]);
         let e = line_embed("![[a]]").unwrap();
-        let Body::Lines(rows) = resolve(&v, &entries, Path::new("host.md"), &e) else {
+        let Body::Lines(rows) = resolve(&v, &entries, &[], Path::new("host.md"), &e) else {
             panic!("expected lines");
         };
         assert_eq!(
@@ -580,6 +668,7 @@ mod tests {
         let Body::Lines(rows) = resolve(
             &v,
             &entries,
+            &[],
             Path::new("host.md"),
             &line_embed("![[a]]").unwrap(),
         ) else {
@@ -604,6 +693,7 @@ mod tests {
         let Body::Lines(rows) = resolve(
             &v,
             &entries,
+            &[],
             Path::new("host.md"),
             &line_embed("![[a]]").unwrap(),
         ) else {
@@ -627,7 +717,7 @@ mod tests {
     fn a_note_already_on_the_chain_badges_instead_of_looping() {
         let (_d, v, entries) = vault_with(&[("host.md", "![[a]]"), ("a.md", "text\n![[host]]")]);
         let e = line_embed("![[a]]").unwrap();
-        let Body::Lines(rows) = resolve(&v, &entries, Path::new("host.md"), &e) else {
+        let Body::Lines(rows) = resolve(&v, &entries, &[], Path::new("host.md"), &e) else {
             panic!("expected lines");
         };
         assert_eq!(
@@ -657,7 +747,7 @@ mod tests {
         let (_d, v, entries) = vault_with(&[("host.md", "![[host]]")]);
         let e = line_embed("![[host]]").unwrap();
         assert_eq!(
-            resolve(&v, &entries, Path::new("host.md"), &e),
+            resolve(&v, &entries, &[], Path::new("host.md"), &e),
             Body::Badge(Badge {
                 label: "host".into(),
                 embed: e.clone(),
@@ -675,6 +765,7 @@ mod tests {
             resolve(
                 &v,
                 &entries,
+                &[],
                 Path::new("host.md"),
                 &line_embed("![[diagram.png]]").unwrap()
             ),
@@ -685,6 +776,7 @@ mod tests {
             resolve(
                 &v,
                 &entries,
+                &[],
                 Path::new("host.md"),
                 &line_embed("![[nowhere]]").unwrap()
             ),
@@ -700,6 +792,7 @@ mod tests {
             resolve(
                 &v,
                 &entries,
+                &[],
                 Path::new("host.md"),
                 &line_embed("![[gift#Nope]]").unwrap()
             ),
@@ -725,6 +818,7 @@ mod tests {
         let Body::Lines(rows) = resolve(
             &v,
             &entries,
+            &[],
             Path::new("host.md"),
             &line_embed("![[a]]").unwrap(),
         ) else {
@@ -776,5 +870,128 @@ mod tests {
             "a twice is one target; c is inline, not an embed"
         );
         assert!(t.contains("a") && t.contains("b"));
+    }
+
+    /// A saved query is an embed target too: `![[tough]]` names `queries/tough.shq` when
+    /// no note does. The resolver hands over the program, not an answer — the index to
+    /// compute it against belongs to the window (roadmap P4.3 M4).
+    #[test]
+    fn an_embed_of_a_saved_query_carries_its_program() {
+        let (_d, v, entries) = vault_with(&[
+            ("host.md", "![[tough]]"),
+            (
+                "queries/tough.shq",
+                "+++\nname = \"Creature ratings\"\n+++\nSELECT note FROM props\n",
+            ),
+        ]);
+        let queries = v.list_queries().unwrap();
+        let e = line_embed("![[tough]]").unwrap();
+        let Body::Query(query) = resolve(&v, &entries, &queries, Path::new("host.md"), &e) else {
+            panic!("expected a query body");
+        };
+        assert_eq!(query.path, Path::new("queries/tough.shq"));
+        assert_eq!(
+            query.name, "Creature ratings",
+            "the declaration's name, which is what the reader knows it by"
+        );
+        assert_eq!(
+            query.note.as_ref().unwrap().sql.trim(),
+            "SELECT note FROM props"
+        );
+    }
+
+    /// A note wins when a note and a query answer to the same name: the embed is the
+    /// note's body. The same precedence an alias is given over a note name — nothing
+    /// that already means a note gets quietly retargeted at a query.
+    #[test]
+    fn a_note_beats_a_query_of_the_same_name() {
+        let (_d, v, entries) = vault_with(&[
+            ("host.md", "![[tough]]"),
+            ("tough.md", "a note, not a query"),
+            ("queries/tough.shq", "+++\n+++\nSELECT 1\n"),
+        ]);
+        let queries = v.list_queries().unwrap();
+        let e = line_embed("![[tough]]").unwrap();
+        let body = resolve(&v, &entries, &queries, Path::new("host.md"), &e);
+        let Body::Lines(rows) = body else {
+            panic!("the note's body, not the query: {body:?}");
+        };
+        assert_eq!(rows[0].row, EmbedRow::Text("a note, not a query".into()));
+    }
+
+    /// A program that is not a query note is not a ghost and not a silence: the body
+    /// carries the reason, so the block can say it (EDGE-11).
+    #[test]
+    fn an_embedded_file_that_is_not_a_query_note_carries_the_reason() {
+        let (_d, v, entries) = vault_with(&[
+            ("host.md", "![[tough]]"),
+            // A declaration that opens and never closes: the file is not a query note,
+            // whatever its body says. (A body the *runner* would refuse is a different
+            // gate, and parses fine.)
+            ("queries/tough.shq", "+++\nname = \"tough\"\n"),
+        ]);
+        let queries = v.list_queries().unwrap();
+        let e = line_embed("![[tough]]").unwrap();
+        let Body::Query(query) = resolve(&v, &entries, &queries, Path::new("host.md"), &e) else {
+            panic!("expected a query body");
+        };
+        assert_eq!(
+            query.name, "tough",
+            "the stem, since there is no declaration to read"
+        );
+        let Err(why) = query.note else {
+            panic!("the parse should have failed");
+        };
+        assert!(why.contains("+++"), "the reason names the fence: {why}");
+    }
+
+    /// The program is read through `Sources`, not from the disk: a `.shq` open in a tab
+    /// with unsaved edits is answered by the program the reader is looking at. A
+    /// resolver that read the file itself would quietly disagree with the editor.
+    #[test]
+    fn a_query_embed_reads_its_program_through_the_source_door() {
+        struct Edited(&'static str);
+        impl Sources for Edited {
+            fn text(&self, _path: &Path) -> Option<String> {
+                Some(self.0.to_string())
+            }
+        }
+        let (_d, v, entries) = vault_with(&[
+            ("host.md", "![[tough]]"),
+            ("queries/tough.shq", "+++\n+++\nSELECT 1\n"),
+        ]);
+        let queries = v.list_queries().unwrap();
+        let e = line_embed("![[tough]]").unwrap();
+        let Body::Query(query) = resolve_from(
+            &v,
+            &entries,
+            &queries,
+            Path::new("host.md"),
+            &e,
+            &Edited("+++\n+++\nSELECT 2\n"),
+        ) else {
+            panic!("expected a query body");
+        };
+        assert_eq!(
+            query.note.unwrap().sql.trim(),
+            "SELECT 2",
+            "the text in hand, not the disk's older one"
+        );
+    }
+
+    /// A query note has no sections — its `#` lines are SQL comments — so an anchor is
+    /// refused in the same words the note branch uses for a missing section.
+    #[test]
+    fn an_anchor_on_a_query_embed_is_refused() {
+        let (_d, v, entries) = vault_with(&[
+            ("host.md", "![[tough#hp]]"),
+            ("queries/tough.shq", "+++\n+++\nSELECT 1\n"),
+        ]);
+        let queries = v.list_queries().unwrap();
+        let e = line_embed("![[tough#hp]]").unwrap();
+        let Body::Badge(badge) = resolve(&v, &entries, &queries, Path::new("host.md"), &e) else {
+            panic!("expected a stopped embed");
+        };
+        assert_eq!(badge.label, "no section \"hp\" in tough");
     }
 }

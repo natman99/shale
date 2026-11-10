@@ -358,7 +358,7 @@ fn query_editor(
     window
         .update(cx, |editor, window, cx| {
             editor.set_text(text.to_string(), cx);
-            editor.set_embed_context(Some(Path::new(path)), Vec::new(), cx);
+            editor.set_embed_context(Some(Path::new(path)), Vec::new(), Vec::new(), cx);
             editor.set_query_db(Some(db), cx);
             let focus = editor.focus_handle(cx);
             window.focus(&focus, cx);
@@ -1245,4 +1245,207 @@ fn the_palette_offers_a_saved_query(cx: &mut TestAppContext) {
         );
         cx.simulate_keystrokes("escape");
     }
+}
+
+// --- A query embedded in a note (roadmap P4.3 M4) ------------------------------------
+
+/// The vault with its two monsters, its saved query, and a note that asks for it.
+fn lair(
+    cx: &mut TestAppContext,
+    query: &str,
+    ask: &str,
+) -> (tempfile::TempDir, WindowHandle<Workspace>) {
+    indexed_vault(
+        cx,
+        &[
+            ("Goblin.md", "---\ncr: 5\n---\n# Goblin\n"),
+            ("Wisp.md", "---\ncr: 3\n---\n"),
+            ("queries/tough.shq", query),
+            ("Lair.md", ask),
+        ],
+    )
+}
+
+/// The rows the frame hangs under a transclusion row, badge first.
+fn hung(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> Vec<String> {
+    let shape = window
+        .update(cx, |ws, _window, cx| ws.embed_shape(cx))
+        .unwrap();
+    // The row that asked is not part of the answer; the tests read what came back.
+    shape
+        .into_iter()
+        .filter(|line| !line.starts_with("embed row ") || line.contains(": query "))
+        .collect()
+}
+
+/// `![[tough]]` in a note is the same query, answered the same way, drawn under the row
+/// that asked for it (EDGE-10). The program is not copied into the note: the note borrows
+/// the answer.
+#[gpui::test]
+fn a_note_that_embeds_a_query_draws_the_answer(cx: &mut TestAppContext) {
+    let (_dir, window) = lair(cx, TOUGH, "![[tough]]\n");
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "Lair.md");
+    cx.run_until_parked();
+
+    let rows = hung(&window, cx);
+    assert_eq!(
+        rows.first().map(|line| line.trim_end()),
+        Some("embed row 0: query tough · 2 rows"),
+        "the badge is the marker row's sentence, name and answer shape: {rows:?}"
+    );
+    let body = rows.join("\n");
+    assert!(
+        body.contains("Wisp.md") && body.contains("Goblin.md"),
+        "both monsters answer, in the order the query asked: {rows:?}"
+    );
+    assert!(
+        body.find("Wisp.md") < body.find("Goblin.md"),
+        "and the declaration's order survives the embed: {rows:?}"
+    );
+}
+
+/// A row naming a note is that note, in an embed as in the query note's own view: the
+/// door is the rule, not the surface.
+#[gpui::test]
+fn a_row_of_an_embedded_answer_that_names_a_note_opens_it(cx: &mut TestAppContext) {
+    let (_dir, window) = lair(cx, TOUGH, "![[tough]]\n");
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "Lair.md");
+    cx.run_until_parked();
+
+    let bands = window
+        .update(cx, |ws, _window, cx| ws.phantom_bands(cx))
+        .unwrap();
+    let doors = bands.iter().filter(|(opens, ..)| *opens).count();
+    assert_eq!(
+        doors, 2,
+        "the two rows that name a note are doors; the header row is not: {bands:?}"
+    );
+}
+
+/// A query the parser refused has no answer to draw, and an embed has no source of its
+/// own to unfold — so the reason is drawn in its place (EDGE-11). A blank block would
+/// leave the reader guessing whether the query is missing, broken, or empty.
+#[gpui::test]
+fn an_embedded_query_that_does_not_parse_says_so(cx: &mut TestAppContext) {
+    let (_dir, window) = lair(cx, "+++\nname = = 3\n+++\nSELECT 1\n", "![[tough]]\n");
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "Lair.md");
+    cx.run_until_parked();
+
+    let rows = hung(&window, cx);
+    let body = rows.join("\n");
+    assert!(
+        body.contains("this is not a query note"),
+        "the block says what is wrong with the program: {rows:?}"
+    );
+    assert!(
+        body.contains("refused"),
+        "and the badge refuses rather than counting nothing: {rows:?}"
+    );
+}
+
+/// A statement the runner refuses is drawn the same way: the reader sees the database's
+/// own words, which is the only answer this block can give.
+#[gpui::test]
+fn an_embedded_query_the_runner_refuses_shows_the_refusal(cx: &mut TestAppContext) {
+    let (_dir, window) = lair(cx, "+++\n+++\nSELECT nope FROM props\n", "![[tough]]\n");
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "Lair.md");
+    cx.run_until_parked();
+
+    let rows = hung(&window, cx);
+    let body = rows.join("\n");
+    assert!(
+        body.contains("nope"),
+        "the database's own words, quoted: {rows:?}"
+    );
+}
+
+/// An empty answer is not an error: the block draws nothing but the badge, and the badge
+/// counts zero. (Ruling 17's shape, where a query that answers nothing keeps its fold
+/// shut — here there is no fold, so the count is the whole statement.)
+#[gpui::test]
+fn an_embedded_query_that_answers_nothing_counts_zero(cx: &mut TestAppContext) {
+    let (_dir, window) = lair(
+        cx,
+        "+++\n+++\nSELECT note FROM props WHERE key = 'no such key'\n",
+        "![[tough]]\n",
+    );
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "Lair.md");
+    cx.run_until_parked();
+
+    let rows = hung(&window, cx);
+    assert_eq!(
+        rows.first().map(|line| line.trim_end()),
+        Some("embed row 0: query tough · 0 rows"),
+        "the badge says what came back, which is nothing: {rows:?}"
+    );
+}
+
+/// A query note has no sections: its `#` lines are SQL comments. An anchor asks for
+/// something the file cannot have, and the sentence is the one the note branch already
+/// uses for the same mistake.
+#[gpui::test]
+fn an_anchor_on_a_query_embed_says_there_is_no_section(cx: &mut TestAppContext) {
+    let (_dir, window) = lair(cx, TOUGH, "![[tough#hp]]\n");
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "Lair.md");
+    cx.run_until_parked();
+
+    let shape = window
+        .update(cx, |ws, _window, cx| ws.embed_shape(cx))
+        .unwrap();
+    assert_eq!(
+        shape,
+        vec!["embed row 0: badge no section \"hp\" in tough"],
+        "the anchor is refused, in the words the note branch uses: {shape:?}"
+    );
+}
+
+/// A target that names no note and no query is unchanged: the badge it always drew, in
+/// brackets, with no table under it.
+#[gpui::test]
+fn an_embed_of_nothing_is_unchanged(cx: &mut TestAppContext) {
+    let (_dir, window) = lair(cx, TOUGH, "![[nope]]\n");
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "Lair.md");
+    cx.run_until_parked();
+
+    let shape = window
+        .update(cx, |ws, _window, cx| ws.embed_shape(cx))
+        .unwrap();
+    assert!(
+        shape.is_empty(),
+        "no query, no note: nothing is drawn, and the raw line stays as the honest \
+         rendering of a broken link: {shape:?}"
+    );
+}
+
+/// The query note's own view is unchanged by all of this: opening the `.shq` directly
+/// still draws the fold and the table, not an embed of itself.
+#[gpui::test]
+fn a_query_note_opened_directly_is_not_an_embed(cx: &mut TestAppContext) {
+    let (_dir, window) = lair(cx, TOUGH, "![[tough]]\n");
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "queries/tough.shq");
+    cx.run_until_parked();
+
+    let shape = window
+        .update(cx, |ws, _window, cx| ws.embed_shape(cx))
+        .unwrap();
+    assert!(
+        shape.is_empty(),
+        "the program has no transclusion in it: {shape:?}"
+    );
+    let rows = window
+        .update(cx, |ws, _window, cx| ws.query_shape(cx))
+        .unwrap();
+    assert_eq!(
+        rows.len(),
+        3,
+        "and its own table is still there, header and two rows: {rows:?}"
+    );
 }

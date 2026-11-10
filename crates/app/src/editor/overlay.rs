@@ -205,23 +205,40 @@ impl MarkdownEditor {
     /// body it brings, indented by how deep each row sits, a stopped embed in brackets.
     #[cfg(test)]
     pub(crate) fn embed_shape(&mut self) -> Vec<String> {
-        let Some(vault) = self.vault.as_ref() else {
+        let Some(vault) = self.vault.clone() else {
             return Vec::new();
         };
         if self.view == View::Raw {
             return Vec::new();
         }
         let mut out = Vec::new();
-        let sources = embeds::OpenFirst {
-            notes: &self.notes,
-            vault,
+        // Resolved before the loop, as the frame does: the body of the loop asks this
+        // view about answers, and a borrow of its buffer held across that would lock
+        // the body out.
+        let bodies = {
+            let sources = embeds::OpenFirst {
+                notes: &self.notes,
+                vault: &vault,
+            };
+            self.embeds
+                .resolve(&vault, self.note.buffer.borrow().text(), &sources)
         };
-        for (row, body) in self
-            .embeds
-            .resolve(vault, self.note.buffer.borrow().text(), &sources)
-        {
+        for (row, body) in bodies {
             match body {
                 Body::Nothing => {}
+                Body::Query(query) => {
+                    // The block the frame would paint, read rather than re-derived: a
+                    // describe that computed its own badge could disagree with the frame
+                    // and still pass.
+                    let block = self.query_block(&query, &vault);
+                    out.push(format!(
+                        "embed row {row}: query {}",
+                        block.badge.unwrap_or_default()
+                    ));
+                    for line in block.lines {
+                        out.push(format!("    + {}", line.text));
+                    }
+                }
                 Body::Badge(badge) => out.push(format!("embed row {row}: badge {}", badge.label)),
                 Body::Lines(lines) => {
                     out.push(format!("embed row {row}"));
@@ -611,6 +628,46 @@ impl MarkdownEditor {
     ///
     /// Raw mode shows none of it: raw mode is the file as it sits on disk, and an embed's
     /// body is not in this file.
+    /// The block a query embed contributes (roadmap P4.3 M4): the badge sentence and the
+    /// answer's rows, hung under the row that asked for them.
+    ///
+    /// One producer, because the frame paints this and the tests read it: a describe that
+    /// re-derived the badge could pass while the frame said something else.
+    ///
+    /// The program is read through `OpenFirst`, the same door an embedded note's text
+    /// comes through, so a `.shq` being edited in a tab answers with the program the
+    /// reader is looking at; the answer itself is re-run only when that text or the index
+    /// moves.
+    fn query_block(
+        &mut self,
+        query: &shale_core::transclude::QueryBody,
+        vault: &shale_core::vault::Vault,
+    ) -> Block {
+        let notes = std::rc::Rc::clone(&self.notes);
+        let sources = embeds::OpenFirst {
+            notes: &notes,
+            vault,
+        };
+        let answer = self.query_answer_at(query, &sources);
+        // A row naming a note is that note, by the host's list: the same rule the query
+        // note's own table and the picker's rows use.
+        let entries = self.embeds.entries().to_vec();
+        Block {
+            lines: super::query_view::answer_lines(&answer, &entries),
+            // The badge IS the marker row (EDGE-10): the same sentence the query note's
+            // own fold wears, name and answer shape together. No door on it yet: a door
+            // aimed at a `.shq` would resolve in this one surface and nowhere else, and
+            // the index does not hold the link yet. M4b files the link, and the door
+            // arrives with it.
+            badge: Some(super::query_view::answer_shape(&query.name, &answer)),
+            door: None,
+            current: false,
+            kind: BlockKind::Query,
+            entered: false,
+            fold: None,
+        }
+    }
+
     fn embed_frame(
         &mut self,
         _display: &[DisplayLine],
@@ -657,6 +714,7 @@ impl MarkdownEditor {
             };
             let block = match body {
                 Body::Nothing => continue,
+                Body::Query(query) => self.query_block(&query, &vault),
                 Body::Badge(badge) => Block {
                     lines: Vec::new(),
                     badge: Some(badge.label),
