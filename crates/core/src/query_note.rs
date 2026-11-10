@@ -33,6 +33,7 @@
 //! failing the run.
 
 use anyhow::{anyhow, Result};
+use std::path::Path;
 
 /// The fence a query note's declaration opens and closes with.
 pub const FENCE: &str = "+++";
@@ -105,6 +106,55 @@ impl QueryNote {
     pub fn display_name<'a>(&'a self, stem: &'a str) -> &'a str {
         self.decl.name.as_deref().unwrap_or(stem)
     }
+
+    /// What this query needs from the surface that is running it (roadmap P4.3 M5).
+    ///
+    /// `host` is the note the reader is standing in: the active note for `:query`, the
+    /// note holding the embed for a `![[query]]` block. A query note is not a note, so a
+    /// relative query *viewed in its own file* has no host — the same nothing a graph tab
+    /// has — and says so rather than binding its own path and answering a question about
+    /// a file the `links` table has no row for.
+    ///
+    /// The declaration and the body have to agree. The picker labels a query "relative"
+    /// from the declaration, so a body that answers differently depending on where the
+    /// reader stands while the label says otherwise is hidden state, and a declaration
+    /// that claims relativity the body never uses costs nothing and is left alone.
+    pub fn anchor(&self, host: Option<&Path>) -> Anchor {
+        let asked = crate::db::parameters(&self.sql)
+            .iter()
+            .any(|name| name == crate::db::CURRENT);
+        if !asked {
+            return Anchor::NotAsked;
+        }
+        if !self.decl.relative {
+            return Anchor::Refused(format!(
+                "the query asks for `{}` but does not declare `relative = \"current\"`",
+                crate::db::CURRENT
+            ));
+        }
+        match host.filter(|path| path.extension().is_none_or(|ext| ext != EXTENSION)) {
+            Some(note) => Anchor::Bound(note.to_string_lossy().into_owned()),
+            None => Anchor::Refused(
+                "a relative query needs a note to be relative to, and this surface has none"
+                    .to_string(),
+            ),
+        }
+    }
+}
+
+/// What a query needs from the surface running it, decided in one place so every
+/// surface — the picker, a note's embedded table, the query's own view, and later the
+/// MCP verb — asks the same question and refuses the same way (EDGE-12, EDGE-20).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Anchor {
+    /// Bind `:current` to this vault-relative path.
+    Bound(String),
+    /// The body never asked for an anchor; the surface owes it nothing.
+    NotAsked,
+    /// The query needs a note and this surface cannot name one, or the body and the
+    /// declaration disagree about whether one is needed. The string is what the reader
+    /// reads — no surface invents its own wording for this.
+    Refused(String),
 }
 
 /// The byte offset of the closing fence's line start, if there is one.
@@ -178,6 +228,81 @@ fn kind_word(value: &toml::Value) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A relative query: the host note's own outgoing links.
+    const RELATIVE: &str = "+++\nname = \"Where I point\"\nrelative = \"current\"\n+++\nSELECT target FROM links WHERE source = :current ORDER BY target\n";
+
+    /// The anchor's journey (M5): a relative query run from a note gets that note.
+    #[test]
+    fn a_relative_query_asks_for_the_note_the_reader_stands_in() {
+        let note = QueryNote::parse(RELATIVE).unwrap();
+        assert_eq!(
+            note.anchor(Some(Path::new("Lair.md"))),
+            Anchor::Bound("Lair.md".into()),
+            "the host note is the anchor"
+        );
+    }
+
+    /// EDGE-12: a surface with no note under the reader refuses out loud, in words that
+    /// name the missing thing rather than SQLite's missing parameter.
+    #[test]
+    fn a_relative_query_with_no_host_says_what_it_is_missing() {
+        let note = QueryNote::parse(RELATIVE).unwrap();
+        let Anchor::Refused(why) = note.anchor(None) else {
+            panic!("a host-less surface must refuse");
+        };
+        assert!(
+            why.contains("needs a note to be relative to"),
+            "the refusal names the missing note: {why}"
+        );
+    }
+
+    /// A query note is not a note, so viewing a relative query in its own file is the
+    /// same host-less surface as a graph tab. Binding `:current` to the `.shq` would
+    /// answer a question about a file the `links` table has no row for.
+    #[test]
+    fn a_relative_query_viewed_in_its_own_file_has_no_host() {
+        let note = QueryNote::parse(RELATIVE).unwrap();
+        assert!(
+            matches!(
+                note.anchor(Some(Path::new("queries/where.shq"))),
+                Anchor::Refused(_)
+            ),
+            "the query's own path is not a note to be relative to"
+        );
+    }
+
+    /// The declaration and the body have to agree. The picker labels a query "relative"
+    /// from the declaration, so a body that answers differently depending on where the
+    /// reader stands while the label says nothing about it is hidden state.
+    #[test]
+    fn a_body_that_uses_the_anchor_without_declaring_it_is_refused_by_name() {
+        let note = QueryNote::parse("SELECT target FROM links WHERE source = :current\n").unwrap();
+        let Anchor::Refused(why) = note.anchor(Some(Path::new("Lair.md"))) else {
+            panic!("an undeclared anchor is a mismatch, not a silent binding");
+        };
+        assert!(
+            why.contains("relative = \"current\""),
+            "the refusal names the declaration that is missing: {why}"
+        );
+    }
+
+    /// The other direction costs nothing: a declaration that claims relativity a body
+    /// never uses runs, the same way an unknown `view` is kept rather than refused.
+    #[test]
+    fn a_declaration_the_body_never_needs_is_left_alone() {
+        let note =
+            QueryNote::parse("+++\nrelative = \"current\"\n+++\nSELECT note FROM notes\n").unwrap();
+        assert_eq!(note.anchor(None), Anchor::NotAsked);
+    }
+
+    /// The question is asked with the runner's own walker, so an anchor spelled inside a
+    /// string literal or a comment is not a parameter and asks for nothing.
+    #[test]
+    fn an_anchor_spelled_in_a_string_is_not_asked_for() {
+        let note = QueryNote::parse("SELECT ':current' AS literal -- :current too\n").unwrap();
+        assert_eq!(note.anchor(None), Anchor::NotAsked);
+    }
 
     #[test]
     fn a_query_note_without_a_declaration_is_all_body() {

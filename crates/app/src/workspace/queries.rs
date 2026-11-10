@@ -111,13 +111,25 @@ impl Workspace {
             );
             return;
         };
-        // The anchor for a relative query is the note the reader is standing in. M5 is
-        // where the declaration's `relative` decides whether an anchor is *required*;
-        // binding it whenever there is one is the same mechanism, and a body that never
-        // asks for `:current` never sees it.
-        let anchor = self.note().map(|path| path.to_string_lossy().into_owned());
-        let bindings = match anchor.as_deref() {
-            Some(current) => vec![shale_core::db::Binding::new(":current", current)],
+        // The anchor's journey (M5): the note the reader is standing in, with the
+        // question asked the same way the editor's table and the query's own view ask it.
+        // A relative query run from a surface with no note under the reader — a graph tab,
+        // an empty window, or the query open in its own tab — is refused out loud, as a
+        // row, rather than answering zero (EDGE-12).
+        let anchor = note.anchor(self.note().as_deref());
+        if let shale_core::query_note::Anchor::Refused(why) = anchor {
+            self.open_picker(&label, vec![notice(why)], window, cx);
+            return;
+        }
+        let current = match &anchor {
+            shale_core::query_note::Anchor::Bound(path) => Some(path.clone()),
+            _ => None,
+        };
+        let bindings = match current.as_deref() {
+            Some(current) => vec![shale_core::db::Binding::new(
+                shale_core::db::CURRENT,
+                current,
+            )],
             None => Vec::new(),
         };
         // The declaration's `sort` is the reader's override, applied to what came back

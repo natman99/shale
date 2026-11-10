@@ -1349,6 +1349,129 @@ fn the_palette_offers_a_saved_query(cx: &mut TestAppContext) {
     }
 }
 
+// --- A relative query and its anchor (roadmap P4.3 M5) --------------------------------
+
+/// A query whose answer depends on where the reader is standing: the host note's own
+/// outgoing links.
+const WHERE: &str = "+++\nname = \"Where I point\"\nrelative = \"current\"\n+++\n\
+SELECT target FROM links WHERE source = :current ORDER BY target\n";
+
+/// Two notes embed the same relative query and point at different monsters.
+fn two_hosts(cx: &mut TestAppContext) -> (tempfile::TempDir, WindowHandle<Workspace>) {
+    indexed_vault(
+        cx,
+        &[
+            ("Goblin.md", "a monster\n"),
+            ("Wisp.md", "a spirit\n"),
+            ("Lair.md", "![[where]]\n[[Goblin]]\n"),
+            ("Den.md", "![[where]]\n[[Wisp]]\n"),
+            ("queries/where.shq", WHERE),
+        ],
+    )
+}
+
+/// The anchor's journey (EDGE-20): one saved query, two hosts, two answers. The block
+/// answers about the note it hangs under — never about the query file, and never about
+/// whichever note happens to be in another tab.
+#[gpui::test]
+fn one_relative_query_answers_for_the_note_it_is_embedded_in(cx: &mut TestAppContext) {
+    let (_dir, window) = two_hosts(cx);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    open_note(&window, cx, "Lair.md");
+    cx.run_until_parked();
+    let lair = hung(&window, cx).join("\n");
+    assert!(
+        lair.contains("Goblin.md") && !lair.contains("Wisp.md"),
+        "in the lair, the query answers about the lair: {lair}"
+    );
+
+    open_note(&window, cx, "Den.md");
+    cx.run_until_parked();
+    let den = hung(&window, cx).join("\n");
+    assert!(
+        den.contains("Wisp.md") && !den.contains("Goblin.md"),
+        "the same query in the den answers about the den: {den}"
+    );
+}
+
+/// EDGE-12: run from a surface with no note under the reader, a relative query is
+/// refused as a row — not an empty answer, and not SQLite's missing-parameter message.
+#[gpui::test]
+fn a_relative_query_with_no_note_under_the_reader_is_refused(cx: &mut TestAppContext) {
+    let (_dir, window) = two_hosts(cx);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    type_command("query", cx);
+    assert_eq!(offered(&window, cx), vec!["query queries/where.shq"]);
+    cx.simulate_keystrokes("enter");
+    let rows = offered(&window, cx);
+    assert_eq!(rows.len(), 1, "one row, and it is the reason: {rows:?}");
+    assert!(
+        rows[0].contains("needs a note to be relative to"),
+        "the refusal names what is missing: {rows:?}"
+    );
+}
+
+/// The same query, the same moment, with a note in hand: the anchor arrives and the
+/// answer is that note's links.
+#[gpui::test]
+fn the_same_relative_query_answers_once_a_note_is_in_hand(cx: &mut TestAppContext) {
+    let (_dir, window) = two_hosts(cx);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    open_note(&window, cx, "Den.md");
+    cx.run_until_parked();
+    type_command("query", cx);
+    cx.simulate_keystrokes("enter");
+    let rows = offered(&window, cx);
+    assert!(
+        rows.iter().any(|row| row == "Wisp.md"),
+        "the den's one link, answered from the picker: {rows:?}"
+    );
+}
+
+/// Viewed in its own file, a relative query has no host either — a `.shq` is not a note
+/// — and the refusal is drawn where the table would be, with the program unfolded so the
+/// reader can see what was asked (ruling 17's shape).
+#[gpui::test]
+fn a_relative_query_in_its_own_tab_says_why_it_cannot_answer(cx: &mut TestAppContext) {
+    let (_dir, window) = two_hosts(cx);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    open_note(&window, cx, "queries/where.shq");
+    cx.run_until_parked();
+    let rows = window
+        .update(cx, |ws, _window, cx| ws.query_shape(cx))
+        .unwrap();
+    assert!(
+        rows.iter()
+            .any(|row| row.contains("needs a note to be relative to")),
+        "the table's place is taken by the reason: {rows:?}"
+    );
+}
+
+/// The declaration and the body have to agree about the anchor: a body that leans on
+/// where the reader stands while the declaration says nothing is refused by name, because
+/// the picker labels relativity from the declaration and a label that hides a dependency
+/// is the hidden state this app refuses elsewhere.
+#[gpui::test]
+fn a_body_that_uses_the_anchor_without_declaring_it_is_refused_by_name(cx: &mut TestAppContext) {
+    let (_dir, window) = monsters(cx, "SELECT target FROM links WHERE source = :current\n");
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    open_note(&window, cx, "Goblin.md");
+    cx.run_until_parked();
+    type_command("query", cx);
+    cx.simulate_keystrokes("enter");
+    let rows = offered(&window, cx);
+    assert_eq!(rows.len(), 1, "one row, and it is the reason: {rows:?}");
+    assert!(
+        rows[0].contains("relative = \"current\""),
+        "the refusal names the declaration that is missing: {rows:?}"
+    );
+}
+
 // --- A query embedded in a note (roadmap P4.3 M4) ------------------------------------
 
 /// The vault with its two monsters, its saved query, and a note that asks for it.

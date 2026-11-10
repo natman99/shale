@@ -1040,12 +1040,29 @@ impl MarkdownEditor {
                 error: Some("there is no vault index to read (index.enabled = false)".into()),
             },
             Some(db) => {
-                let anchor = self
-                    .embeds
-                    .host()
-                    .map(|path| path.to_string_lossy().into_owned());
-                let bindings: Vec<shale_core::db::Binding<'_>> = match anchor.as_deref() {
-                    Some(current) => vec![shale_core::db::Binding::new(":current", current)],
+                // The query itself decides what the surface owes it (M5): a body that
+                // asks for `:current` gets the host note, and a surface that cannot name
+                // one — a graph tab, or the query's own file, which is not a note — says
+                // so as a refusal row rather than answering about the wrong file
+                // (EDGE-12, EDGE-20).
+                let anchor = note.anchor(self.embeds.host().as_deref());
+                let current = match &anchor {
+                    shale_core::query_note::Anchor::Bound(path) => Some(path.clone()),
+                    _ => None,
+                };
+                if let shale_core::query_note::Anchor::Refused(why) = anchor {
+                    return Answer {
+                        rows: shale_core::db::Rows::default(),
+                        error: Some(why),
+                    };
+                }
+                let bindings: Vec<shale_core::db::Binding<'_>> = match current.as_deref() {
+                    Some(current) => {
+                        vec![shale_core::db::Binding::new(
+                            shale_core::db::CURRENT,
+                            current,
+                        )]
+                    }
                     None => Vec::new(),
                 };
                 match db.run(&note.sql, &bindings) {

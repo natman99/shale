@@ -42,7 +42,9 @@ mod schema;
 mod tests;
 
 pub use index::{target_kind, word_count, Decls, EventKind, SyncReport};
-pub use query::{check as check_question, one_line, Binding, Cell, Rows, MAX_ROWS};
+pub use query::{
+    check as check_question, one_line, parameters, Binding, Cell, Rows, CURRENT, MAX_ROWS,
+};
 pub use schema::SCHEMA_VERSION;
 
 /// The directory Shale keeps its per-vault state in: the config, the themes, the

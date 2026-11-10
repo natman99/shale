@@ -140,6 +140,9 @@ fn compare_cells(a: Option<&Cell>, b: Option<&Cell>) -> std::cmp::Ordering {
 /// the query answers is what the query answers.
 pub const MAX_ROWS: usize = 200;
 
+/// The one parameter the app ever binds: the note the reader is standing in.
+pub const CURRENT: &str = ":current";
+
 /// A named binding, spelled as the body spells it (`:current`).
 ///
 /// Text only for now: the one binding the app makes is the anchor path of a relative
@@ -369,7 +372,12 @@ fn scan<'a>(sql: &'a str, found: &mut impl FnMut(Event<'a>)) {
 }
 
 /// The `:name` parameters the body asks for, in the order they appear, deduplicated.
-fn parameters(sql: &str) -> Vec<String> {
+///
+/// Public because the *declaration* has to be checked against what the body actually
+/// asks for (roadmap P4.3 M5): a query labelled relative in the picker while its body
+/// never asks for the anchor, or a body that leans on the anchor while the label says
+/// nothing, are the same hidden state everywhere else in this app refuses.
+pub fn parameters(sql: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     scan(sql, &mut |event| {
         if let Event::Parameter(name) = event {
