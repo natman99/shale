@@ -1553,6 +1553,62 @@ fn a_row_of_an_embedded_answer_that_names_a_note_opens_it(cx: &mut TestAppContex
     );
 }
 
+/// A row of an answer is a cell, not a stripe across the page. The reader's complaint
+/// (2026-11-10): a click anywhere along the row — even out past the table, over the note
+/// the answer hangs under — opened the link. Inside the cell it still does; outside it,
+/// the note gets the click it was sitting on.
+#[gpui::test]
+fn a_click_beside_the_answer_table_belongs_to_the_note(cx: &mut TestAppContext) {
+    let (_dir, window) = lair(cx, TOUGH, "![[tough]]\n");
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "Lair.md");
+    cx.run_until_parked();
+
+    let bands = window
+        .update(cx, |ws, _window, cx| ws.phantom_bands(cx))
+        .unwrap();
+    let mut doors: Vec<(bool, f32, f32, f32)> =
+        bands.iter().filter(|(opens, ..)| *opens).cloned().collect();
+    doors.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap());
+    // The title row hangs directly under the row that asked; the answer's rows follow.
+    let row = doors[1];
+    let middle = (row.2 + row.3) / 2.;
+
+    // Inside the cell: the link.
+    let at = gpui::point(gpui::px(row.1 + 5.), gpui::px(middle));
+    cx.simulate_mouse_down(at, gpui::MouseButton::Left, gpui::Modifiers::default());
+    cx.simulate_mouse_up(at, gpui::MouseButton::Left, gpui::Modifiers::default());
+    cx.run_until_parked();
+    assert_eq!(
+        window.update(cx, |ws, _, _| ws.active_path()).unwrap(),
+        Some(std::path::PathBuf::from("Wisp.md")),
+        "the cell that names a note is still that note"
+    );
+
+    // Far out along the same row, over the note's own text column: the note's click.
+    open_note(&window, cx, "Lair.md");
+    cx.run_until_parked();
+    let before = window
+        .update(cx, |ws, _window, cx| ws.cursor_position(cx))
+        .unwrap();
+    let at = gpui::point(gpui::px(row.1 + 900.), gpui::px(middle));
+    cx.simulate_mouse_down(at, gpui::MouseButton::Left, gpui::Modifiers::default());
+    cx.simulate_mouse_up(at, gpui::MouseButton::Left, gpui::Modifiers::default());
+    cx.run_until_parked();
+    assert_eq!(
+        window.update(cx, |ws, _, _| ws.active_path()).unwrap(),
+        Some(std::path::PathBuf::from("Lair.md")),
+        "a click past the table did not follow the link"
+    );
+    let after = window
+        .update(cx, |ws, _window, cx| ws.cursor_position(cx))
+        .unwrap();
+    assert_ne!(
+        before, after,
+        "the note took the click the row used to steal"
+    );
+}
+
 /// A query the parser refused has no answer to draw, and an embed has no source of its
 /// own to unfold — so the reason is drawn in its place (EDGE-11). A blank block would
 /// leave the reader guessing whether the query is missing, broken, or empty.

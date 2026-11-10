@@ -188,8 +188,14 @@ pub(crate) fn answer_lines(answer: &Answer, entries: &[VaultEntry]) -> Vec<Block
             .map(|_| vec![(GUT, GUT + cells[0].len(), Style::WikiLink)])
             .unwrap_or_default();
         let text = join(cells, &widths);
+        let grid = grid_paint(&widths);
+        // The door's click belongs to the cell the link is painted in. Bounding it to
+        // the row's band made a click past the table's right edge — over the note the
+        // answer hangs under — open the link instead (the reader's report, 2026-11-10).
+        let door_span = door.as_ref().map(|_| cell_around(&grid, GUT));
         out.push(BlockLine {
-            grid: Some(grid_paint(&widths)),
+            door_span,
+            grid: Some(grid),
             ..line(text, PhantomKind::Row, spans, door)
         });
     }
@@ -203,6 +209,29 @@ pub(crate) fn answer_lines(answer: &Answer, entries: &[VaultEntry]) -> Vec<Block
         ));
     }
     out
+}
+
+/// The grid cell that holds the character cell `at`: the pair of boundaries enclosing
+/// it, in character cells from the grid's left edge. A door's hit box is its cell, so a
+/// click in the padding of a neighbouring column — or past the table entirely — is the
+/// note's, not the answer's.
+fn cell_around(grid: &GridPaint, at: usize) -> (usize, usize) {
+    // The cell is the one whose left edge is the last edge at or before `at`. Past the
+    // grid's right edge that is its last cell, which is what a clipped column's door
+    // should still answer for.
+    let index = grid
+        .boundaries
+        .iter()
+        .position(|&edge| edge > at)
+        .map(|edge| edge.saturating_sub(1))
+        .unwrap_or(grid.boundaries.len().saturating_sub(2));
+    let from = grid.boundaries[index];
+    let to = grid
+        .boundaries
+        .get(index + 1)
+        .copied()
+        .unwrap_or(grid.total);
+    (from, to)
 }
 
 /// The grid over a row: the outer edges, a rule in the middle of each gap between
@@ -308,6 +337,7 @@ fn line(
     door: Option<shale_core::transclude::EmbedRef>,
 ) -> BlockLine {
     BlockLine {
+        door_span: None,
         text,
         depth: 0,
         badge: false,
@@ -317,5 +347,62 @@ fn line(
         grid: None,
         origin: None,
         gutter: Vec::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A door's hit box is its cell, not the row: the boundaries enclosing the first
+    /// column's text, and — for a link in a later column — that column's own cell.
+    #[test]
+    fn a_door_is_bounded_to_the_cell_its_link_is_painted_in() {
+        // Two columns, 8 and 5 wide: the outer edges, and a rule in the middle of the
+        // gap between them.
+        let grid = grid_paint(&[8, 5]);
+        assert_eq!(grid.boundaries, vec![0, 10, 17], "the grid's own edges");
+        assert_eq!(cell_around(&grid, GUT), (0, 10), "the first column's cell");
+        assert_eq!(cell_around(&grid, 12), (10, 17), "the second column's cell");
+        assert_eq!(
+            cell_around(&grid, 99),
+            (10, 17),
+            "past the grid is still its last cell"
+        );
+    }
+
+    /// The row itself carries that cell, not the grid: a click in the next column over
+    /// is a click on a number, and a number does not open a note.
+    #[test]
+    fn a_rows_door_covers_its_own_cell_and_not_the_next_column() {
+        let answer = Answer {
+            rows: shale_core::db::Rows {
+                columns: vec!["note".to_string(), "cr".to_string()],
+                rows: vec![vec![
+                    shale_core::db::Cell::Text("Goblin.md".to_string()),
+                    shale_core::db::Cell::Integer(5),
+                ]],
+            },
+            error: None,
+        };
+        let entries = [shale_core::vault::VaultEntry {
+            path: std::path::PathBuf::from("Goblin.md"),
+        }];
+        let lines = answer_lines(&answer, &entries);
+        let row = lines
+            .iter()
+            .find(|line| line.door.is_some())
+            .expect("the row that names a note is a door");
+        let grid = row.grid.clone().expect("an answer row wears the grid");
+        assert_eq!(
+            row.door_span,
+            Some((0, grid.boundaries[1])),
+            "the door is the first cell, ending at the rule between the columns"
+        );
+        assert!(
+            row.door_span.unwrap().1 < grid.total,
+            "and does not reach across the whole table: {:?}",
+            row.door_span
+        );
     }
 }

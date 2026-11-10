@@ -142,6 +142,12 @@ pub(crate) struct PhantomLine {
     /// The resolved font's character width, which is what turns a grid's character-cell
     /// geometry into pixels. Only read when `grid` is set.
     pub(crate) char_width: Pixels,
+    /// The character-cell range, measured from the grid's left edge, that a door answers
+    /// for: the cell its link is painted in. `None` leaves the row's whole band
+    /// addressable, which is right for a row that *is* the block's width — an embedded
+    /// note's body, a badge — and wrong for a cell inside a table, where the space past
+    /// the table's right edge belongs to the note the answer hangs under.
+    pub(crate) door_span: Option<(usize, usize)>,
     /// The editor's list of painted phantom rows, which this element adds itself to
     /// while painting.
     ///
@@ -381,9 +387,26 @@ impl Element for PhantomLine {
         // A row is addressable if it is a line of another note *or* a door into one:
         // both are things a reader can click, and a badge that records nothing is a
         // caption the reader can only read.
+        // A door inside a grid answers for its cell, not for the row's whole band: the
+        // reader's complaint (2026-11-10) was that a click past the table's right edge
+        // still opened the link, which steals the click from the note the answer hangs
+        // under. A row with no grid — an embedded note's body, a badge — is the block's
+        // width, so its band stays whole.
+        let addressable = match (&self.grid, &self.door, self.door_span) {
+            (Some(grid), Some(_), Some((from, to))) => {
+                let left = self.text_x(bounds);
+                let cells = |n: usize| px(n as f32 * self.char_width.as_f32());
+                let to = to.min(grid.total).max(from + 1);
+                Bounds::from_corners(
+                    gpui::point(left + cells(from), bounds.top()),
+                    gpui::point(left + cells(to), bounds.bottom()),
+                )
+            }
+            _ => bounds,
+        };
         if self.origin.is_some() || self.door.is_some() {
             self.hits.borrow_mut().push(PhantomHit {
-                bounds,
+                bounds: addressable,
                 origin: self.origin.clone(),
                 door: self.door.clone(),
             });
@@ -398,6 +421,7 @@ mod tests {
     /// A row of the kind the query answer draws, and one of the kind an embed's body draws.
     fn row(kind: PhantomKind) -> PhantomLine {
         PhantomLine {
+            door_span: None,
             text: "x".into(),
             family: "monospace".into(),
             size: 16.,

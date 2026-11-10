@@ -405,6 +405,10 @@ pub(crate) struct BlockLine {
     /// and shaded header a table typed into the note gets. `None` for every other block
     /// row — an embedded note's rows and a proposal's are text, not cells.
     pub(crate) grid: Option<crate::table_view::GridPaint>,
+    /// The character-cell range of the cell a door sits in, from the grid's left edge, so
+    /// the click that follows the link has to land on the cell rather than anywhere along
+    /// the row. `None` for a row with no grid, whose band is the block's whole width.
+    pub(crate) door_span: Option<(usize, usize)>,
     /// Which note this row is a line *of*, and which row of it. `None` for a
     /// proposal's rows (they belong to no note until they are accepted) and for a
     /// badge. This is what makes the painted row addressable: a click on it, a
@@ -478,6 +482,7 @@ impl MarkdownEditor {
                         lines
                             .into_iter()
                             .map(|text| BlockLine {
+                                door_span: None,
                                 text,
                                 depth: 0,
                                 badge: false,
@@ -741,6 +746,7 @@ impl MarkdownEditor {
                         .into_iter()
                         .map(|EmbedLine { depth, origin, row }| match row {
                             EmbedRow::Text(text) => BlockLine {
+                                door_span: None,
                                 text,
                                 depth,
                                 badge: false,
@@ -752,6 +758,7 @@ impl MarkdownEditor {
                                 gutter: Vec::new(),
                             },
                             EmbedRow::Badge(badge) => BlockLine {
+                                door_span: None,
                                 text: badge.label,
                                 depth,
                                 badge: true,
@@ -941,6 +948,7 @@ impl MarkdownEditor {
             if let Some(badge) = block.badge.clone() {
                 out.push(
                     PhantomLine {
+                        door_span: None,
                         text: badge.into(),
                         grid: None,
                         char_width,
@@ -1084,6 +1092,9 @@ impl MarkdownEditor {
                     }
                     out.push(
                         PhantomLine {
+                            // A cell's door answers for its cell; a row that is the
+                            // block's whole width keeps its whole band.
+                            door_span: line.door_span,
                             text: full[lo..hi].to_string().into(),
                             family: self.font_family.clone(),
                             // A heading inside an embedded note is sized like a heading of

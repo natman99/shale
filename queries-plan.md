@@ -375,3 +375,13 @@ Built ones name their test; the rest name the milestone that owes one.
     query asks for `:current`, and nothing supplies it" stays what it is — the message for a
     body that asks for a parameter nobody ever meant to bind, not the message for standing in
     the wrong place.
+39. **A door answers for the cell it is painted in** (the reader's report, 2026-11-10). A
+    phantom row's addressable band is the row's whole width when the row *is* the block's
+    width — an embedded note's body, a badge — and the grid **cell** when the row is a cell
+    inside a table: the space past a table's right edge, and the padding of a neighbouring
+    column, belong to the note the answer hangs under. `PhantomLine::door_span` carries the
+    cell in character cells from the grid's left edge, so the rule is stated once in the
+    painter and holds for a later answer whose second or third column names a note. Same
+    class as the hover card's band having to check x, not only y: a hit region is a claim
+    about what is on screen. The badge row keeps its whole band by the P4.0a ruling — it is
+    the block's title, not a cell in it.
