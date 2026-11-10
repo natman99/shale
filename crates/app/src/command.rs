@@ -564,6 +564,15 @@ const ALL: &[Command] = &[
         action: Some(|| Box::new(PropertyKeys)),
     },
     Command {
+        id: "vault.rename-key",
+        label: "Rename a property key across the vault",
+        keys: "",
+        ex: &["rename-key"],
+        args: "[old] [new]",
+        in_palette: true,
+        action: Some(|| Box::new(RenamePropertyKey)),
+    },
+    Command {
         id: "vault.wordcount",
         label: "Count the vault's words",
         keys: "",

@@ -257,6 +257,11 @@ actions!(
         // in the search field rather than opening a second list: the search is the
         // surface that answers "which notes write this", and it can be widened there.
         PropertyKeys,
+        // Rename a property key across the vault (`:rename-key`, P4.3a M5). The
+        // palette row opens the same key list `:keys` shows, in the mood where
+        // choosing a key means renaming it; the command line can skip both steps
+        // with `:rename-key cr challenge`.
+        RenamePropertyKey,
         // Write a properties block at the top of the note, or step into the one it
         // already has. Palette-only: `:props` reads them and `:properties` is its
         // spelling, so a second `:` word for the same noun would be a coin flip.

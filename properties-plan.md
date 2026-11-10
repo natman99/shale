@@ -294,8 +294,10 @@ is the authored text the strip must show and rewrite; the projection is a query 
   disagree with what the index read. A block the parser refused keeps the band — those
   rows *are* the block — and takes `callout_danger` for its boundary. The buffer never
   changes, `:raw` still shows the YAML, and editing a value is still a text edit.
-- **M5 — the vault-wide properties pane:** key list with counts, kind conflicts, and key
-  rename through the link-health machinery.
+- **M5 — the vault-wide properties pane (landed 2026-11-09):** `:keys` is the key list
+  with counts and kind conflicts, and `:rename-key` is the key rename, riding the same
+  rewrite machinery a file rename rides. The rewrite stops at the block, at the top level
+  of it, and at the key span; a note open with unsaved edits is skipped and named.
 
 M1–M3 are the schema decision and belong to P4.3a. M4–M5 are surfaces and can be
 scheduled apart from it.

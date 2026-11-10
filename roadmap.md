@@ -51,7 +51,7 @@ the original Goals list: Database tables/Obsidian-bases (P4.3 `.shq` — its fir
 commit, **P4.3a frontmatter indexing**, landed 2026-11-08, so the props table the whole
 query story was priced against exists; the query notes themselves do not), PDF
 export, Templates, tree-sitter code highlighting.
-**What is being built next (refreshed 2026-11-09): P4.3a's two surfaces, M4 then M5.**
+**What is being built next (refreshed 2026-11-09): P4.3a is closed; the next open item is P4.3 (`.shq`).**
 P4.0 closed on 2026-11-08 (the hover card was its last owed item; `![[query-name]]` waits
 on P4.3 and block refs on P4.9). **P4.3a's indexing half is closed:** M1 (the parser, the
 `props` table, `:props`) and M2 (the projections — `tags`, `aliases`, and `edges` finally
@@ -63,9 +63,11 @@ bodies will read queries the same way, and P4.3's first commit is already behind
 **M4 — live preview of the block — closed 2026-11-09**, and not as the plan wrote it:
 the block's fences and quotes stay visible (they are the data), and the block is shown
 by its **shape** instead — a background band and a hairline boundary in the new
-`frontmatter_block_bg` role. What is left of P4.3a is half of one surface: **M5's key rename**, the vault-wide
-rename of a property key riding the link-health machinery. M5's census half — `:keys`,
-the key list with counts and kind conflicts — landed 2026-11-09.
+`frontmatter_block_bg` role. **M5 — the vault-wide properties pane — closed 2026-11-09**:
+`:keys` lists the vocabulary with counts and kind conflicts, and `:rename-key` renames a
+key across every note that writes it. **P4.3a is closed.** What it leaves behind for
+P4.3: `core::query` is the one grammar, `props` is the table a `.shq` body will read, and
+the key rename is the migration path a saved query's vocabulary can lean on.
 
 **P4.0, transclusion — the editable half (closed 2026-11-08).** P4.0a
 (read-only embeds) shipped on 2026-11-06, and **P4.0b — editing inside an embed — is
@@ -1311,9 +1313,33 @@ edges, query nodes, MCP canvas tools) is P6.10.
       "which notes write this" and can be widened from there; a key with a space or an
       operator character in it is quoted on the way in, or the grammar would read
       `prop:Max HP` as a key and a value. No index and an empty vault are different
-      rows (EDGE-25 again). **What is left of M5 is the rename**: key rename riding the
-      link-health machinery, which is the migration path ruling §1.3 promises for a
-      vocabulary cleanup (`Type` → `type`) rather than a forced rewrite.
+      rows (EDGE-25 again).
+  - **Landed 2026-11-09 (P4.3a M5, second half: the key rename — P4.3a CLOSED).**
+      `:rename-key [old] [new]`, and the palette's **Rename a property key across the
+      vault**. This is the migration path ruling §1.3 promises for a vocabulary cleanup
+      — `Type` becomes `type` because someone asked, not because a tool decided the vault
+      should be lowercase — so it rides the same machinery a file rename rides
+      (`Rewrite` is now one type for both: path, new text, what changed). Three bounds on
+      what gets touched, each a lie it refuses to tell: only the note's **block** (prose
+      reading `cr: 5` is a statblock, not frontmatter, and rewriting it changes what the
+      note *says*), only **top-level** property lines (a nested map's inner keys are
+      indexed and never rewritten, ruling §1.5), and only the **key span** — the span
+      comes from the parser's own `key_span`, the one the editor colours, so the rename
+      and the colour cannot disagree about where a key ends. A block that will not parse
+      is skipped: the index never claimed a key in it, so the note would change without
+      the census having listed it. Keys are case-significant, which is what makes this a
+      migration rather than a forced rewrite. What the window adds on top of core's
+      rewrite: every note that changed is told to the index (Shale's own writes are
+      stamped out of the watcher's view), the link names are re-read in case the key was
+      `aliases`, the graph is refreshed because a link-shaped value moves with the key
+      that held it, and a note open with unsaved edits is **skipped and named** — a check
+      that now runs against the whole per-window buffer registry rather than the active
+      editor alone, so a dirty note in another tab is protected too. `.shale/props.toml`
+      is a hand-kept file and is not rewritten; the status line names the declaration the
+      rename left pointing at nothing. Falsified: nested guard, malformed-block skip,
+      case-significance, the index write, the rename mood of the pane, the dirty-note
+      check (active-only and registry-wide), and the declaration suffix each turn a test
+      red.
   - **P4.3b Headings index — AFTER P4.3a, and explicitly NOT inside it** (ruled
     2026-11-08). Schema **v4** adds `headings(note, line, text, depth)`, filled in the
     same indexer pass from `mdstyle`/`mdlayout` — derived, not authored, so it cannot

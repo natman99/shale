@@ -82,6 +82,11 @@ pub(crate) enum Ex {
     Props,
     /// Every property key the vault writes (`:keys`, P4.3a M5).
     PropertyKeys,
+    /// `rename-key [old] [new]`: rename a property key in every note that writes it
+    /// (P4.3a M5). What is missing is asked for rather than guessed: no key opens the
+    /// key list, no new name opens the prompt. A key with a space in it is reachable
+    /// through the list, not typed here — the command line splits on spaces.
+    RenameKey(String, String),
     /// `review` / `pending`: give the keyboard to the review strip, the list of agent
     /// edits waiting to be accepted or rejected (roadmap P2.5a). The strip appears by
     /// itself whenever there is something in the queue; this is how the user gets to
@@ -163,6 +168,7 @@ impl Ex {
             Ex::WordCount(_) => "vault.wordcount",
             Ex::Props => "vault.props",
             Ex::PropertyKeys => "vault.keys",
+            Ex::RenameKey(..) => "vault.rename-key",
             Ex::Review => "review.focus",
             Ex::TabNew => "tab.new",
             Ex::TabNext => "tab.next",
@@ -336,6 +342,19 @@ pub(crate) fn parse(line: &str) -> Ex {
         // word because the pane is a list of keys, not of properties: `:props` names
         // one note's, and the two words have to stay two words.
         "keys" => Ex::PropertyKeys,
+        "rename-key" => {
+            // Two names, split on the space between them. A third word is not
+            // silently dropped: it is the reader typing a folder or a quote, and
+            // running something they did not mean is worse than running nothing.
+            let mut names = rest.split_whitespace();
+            let old = names.next().unwrap_or("").to_string();
+            let new = names.next().unwrap_or("").to_string();
+            if names.next().is_some() {
+                Ex::Unknown(format!("rename-key {rest}"))
+            } else {
+                Ex::RenameKey(old, new)
+            }
+        }
         // The review strip. `pending` is there because that is the word the queue is
         // named by on disk, and the quit prompt says "agent edits are waiting".
         "review" | "pending" => Ex::Review,

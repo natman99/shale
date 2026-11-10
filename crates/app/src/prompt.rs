@@ -47,7 +47,7 @@ pub(crate) enum PromptEvent {
 
 /// Why a prompt is open. The workspace keeps one of these beside the entity so it
 /// knows what to do with the answer.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub(crate) enum PromptKind {
     /// A name for a new note.
     NewNote,
@@ -57,6 +57,11 @@ pub(crate) enum PromptKind {
     Rename,
     /// A delete, which the user confirms rather than accidentally triggering.
     Delete,
+    /// The new spelling of a property key, with the old one carried along: the
+    /// rename reaches every note that writes it (P4.3a M5). The old key rides in the
+    /// kind because the prompt outlives the picker that chose it, and the answer is
+    /// meaningless without it.
+    RenameKey(String),
     /// vim's command line: one word naming one command, matched exactly. The field
     /// is the same; what the answer *means* is [`crate::ex`]'s business.
     Command,
@@ -106,7 +111,7 @@ impl Prompt {
     }
 
     pub(crate) fn kind(&self) -> PromptKind {
-        self.kind
+        self.kind.clone()
     }
 
     /// What the field holds. Only the tests ask: the workspace reads the answer

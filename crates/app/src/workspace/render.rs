@@ -645,6 +645,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::show_wordcount))
             .on_action(cx.listener(Self::show_props))
             .on_action(cx.listener(Self::show_property_keys))
+            .on_action(cx.listener(Self::show_rename_key))
             // Agent edit review (roadmap P2.5a). Handled here rather than on the strip
             // itself because these commands are reachable from three doors at once: the
             // strip's own keys, `]a`/`[a` in the note, and the palette.

@@ -290,6 +290,18 @@ said rather than a warning on every save. Choosing a key puts `prop:key` in the 
 field: the search is what lists the notes writing it, and the question can be widened
 from there.
 
+The same pane reached from **Rename a property key across the vault** (`:rename-key`)
+renames a key everywhere it is written. With both names typed — `:rename-key cr
+challenge` — it runs at once; with one it asks for the other, and with none it opens
+the key list first, which is the only way to rename a key with a space in it. The
+rewrite touches the key and nothing else on the line: the value, its quotes and a
+trailing comment stay byte for byte. It stops at the block, so a statblock that says
+`cr: 5` in prose is left alone, and it stops at nesting, so an inner key of a map
+under `data:` stays where its author put it. A note that is open with unsaved edits is
+never rewritten behind your back — it is skipped and named in the status line, which
+also says how many notes did change and, if the vault declares the key in
+`.shale/props.toml`, that the declaration still names the old spelling.
+
 To start a block on a note that has none, the palette's **Add frontmatter
 properties** writes one at the top with `aliases:` left empty, and puts the caret
 after the colon so the first thing you type is the alias. The field is empty on

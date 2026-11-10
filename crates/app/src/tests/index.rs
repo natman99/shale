@@ -431,6 +431,247 @@ fn the_palette_offers_the_key_pane(cx: &mut TestAppContext) {
     }
 }
 
+/// A key rename is the one migration a vocabulary cleanup asks for, so it has to
+/// reach every note that writes the key — and stop exactly where a note stops being
+/// frontmatter. The rules of what gets touched are `shale_core::rename`'s tests to
+/// make; what is proved here is that the window's rename actually runs them, writes
+/// the files, and says how far it got.
+#[gpui::test]
+fn a_key_rename_rewrites_every_note_that_writes_the_key(cx: &mut TestAppContext) {
+    let (dir, window) = indexed_vault(
+        cx,
+        &[
+            (
+                "Goblin.md",
+                "---\ncr: 5\ntype: goblin\n---\n# Goblin\n\nThe card reads cr: 5 in prose.\n",
+            ),
+            ("Wisp.md", "---\ncr: low\n---\n# Wisp\n"),
+            ("Nest.md", "---\ndata:\n  cr: 9\n---\n# Nest\n"),
+        ],
+    );
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    type_command("rename-key cr challenge", cx);
+
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("Goblin.md")).unwrap(),
+        "---\nchallenge: 5\ntype: goblin\n---\n# Goblin\n\nThe card reads cr: 5 in prose.\n",
+        "the block's key changes and the prose that merely looks like one does not"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("Wisp.md")).unwrap(),
+        "---\nchallenge: low\n---\n# Wisp\n",
+        "a value the index calls text is still the same value"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("Nest.md")).unwrap(),
+        "---\ndata:\n  cr: 9\n---\n# Nest\n",
+        "a nested map's inner key is indexed but never rewritten"
+    );
+    assert!(
+        status(&window, cx).contains("`cr` is now `challenge` in 2 notes"),
+        "the line says how far it reached: {}",
+        status(&window, cx)
+    );
+}
+
+/// The census the reader chose the key from has to agree afterwards: a rename that
+/// rewrote the notes and left the index holding the old spelling would put `:keys`
+/// out of step with the vault, which is the one thing this pane cannot be.
+#[gpui::test]
+fn a_key_rename_moves_the_census_with_the_notes(cx: &mut TestAppContext) {
+    let (_dir, window) = indexed_vault(
+        cx,
+        &[
+            ("Goblin.md", "---\ncr: 5\n---\n# Goblin\n"),
+            ("Wisp.md", "---\ncr: low\n---\n# Wisp\n"),
+        ],
+    );
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    type_command("rename-key cr challenge", cx);
+
+    type_command("keys", cx);
+    let rows = window
+        .update(cx, |ws, _window, cx| ws.picker_rows(cx))
+        .unwrap();
+    assert_eq!(
+        rows,
+        vec!["prop:challenge"],
+        "the old key is gone from the census, not added to it"
+    );
+}
+
+/// The pane is the door for a key the reader cannot type at `:` — one with a space in
+/// it — and for someone who would rather point at a row than name it. Choosing a row
+/// in this mood opens the prompt rather than the search, and the field starts with
+/// the old spelling so the answer is a correction rather than a retyping.
+#[gpui::test]
+fn the_key_pane_can_be_opened_to_rename(cx: &mut TestAppContext) {
+    let (dir, window) = indexed_vault(
+        cx,
+        &[
+            ("Goblin.md", "---\ncr: 5\n---\n# Goblin\n"),
+            ("Wisp.md", "---\ncr: 3\n---\n"),
+        ],
+    );
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    type_command("rename-key", cx);
+
+    let rows = window
+        .update(cx, |ws, _window, cx| ws.picker_rows(cx))
+        .unwrap();
+    assert_eq!(
+        rows,
+        vec!["rename cr"],
+        "the same census, and choosing a row renames that key rather than searching it"
+    );
+
+    cx.simulate_keystrokes("enter backspace backspace");
+    cx.simulate_input("challenge");
+    cx.simulate_keystrokes("enter");
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("Goblin.md")).unwrap(),
+        "---\nchallenge: 5\n---\n# Goblin\n",
+        "the prompt's answer is the new spelling"
+    );
+}
+
+/// A rename across the vault is the worst place to overwrite a note the author is
+/// mid-edit in, so the open note with unsaved edits is left alone and named — the
+/// same rule the file rename keeps, at a larger scale.
+#[gpui::test]
+fn a_key_rename_leaves_a_dirty_open_note_alone(cx: &mut TestAppContext) {
+    let (dir, window) = indexed_vault(
+        cx,
+        &[
+            ("Goblin.md", "---\ncr: 5\n---\n# Goblin\n"),
+            ("Wisp.md", "---\ncr: 3\n---\n"),
+        ],
+    );
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "Goblin.md");
+    cx.simulate_keystrokes("i x escape");
+
+    type_command("rename-key cr challenge", cx);
+
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("Goblin.md")).unwrap(),
+        "---\ncr: 5\n---\n# Goblin\n",
+        "the note with unsaved edits is not written behind the author's back"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("Wisp.md")).unwrap(),
+        "---\nchallenge: 3\n---\n",
+        "every other note is still updated"
+    );
+    assert!(
+        status(&window, cx).contains("unsaved edits"),
+        "and the unfinished part is named: {}",
+        status(&window, cx)
+    );
+}
+
+/// The note that must not be written blind is not only the one under the caret: a
+/// dirty note sitting in another tab is just as much the author's work, and a
+/// vault-wide rewrite reaching it is the same loss with a longer reach.
+#[gpui::test]
+fn a_key_rename_leaves_a_dirty_note_in_another_tab_alone(cx: &mut TestAppContext) {
+    let (dir, window) = indexed_vault(
+        cx,
+        &[
+            ("Goblin.md", "---\ncr: 5\n---\n# Goblin\n"),
+            ("Wisp.md", "---\ncr: 3\n---\n"),
+        ],
+    );
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "Goblin.md");
+    cx.simulate_keystrokes("i x escape");
+    // A second tab, and the other note goes there: the dirty note stays open, just
+    // not under the caret.
+    cx.simulate_keystrokes("ctrl-t");
+    open_note(&window, cx, "Wisp.md");
+
+    type_command("rename-key cr challenge", cx);
+
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("Goblin.md")).unwrap(),
+        "---\ncr: 5\n---\n# Goblin\n",
+        "a note open with unsaved edits is not rewritten because the caret moved on"
+    );
+    assert!(
+        status(&window, cx).contains("unsaved edits"),
+        "{}",
+        status(&window, cx)
+    );
+}
+
+/// A key is written plain in the block, so a name that cannot be one is refused
+/// rather than written into every note in the vault.
+#[gpui::test]
+fn a_key_rename_refuses_a_name_that_cannot_be_a_key(cx: &mut TestAppContext) {
+    let (dir, window) = indexed_vault(cx, &[("Goblin.md", "---\ncr: 5\n---\n# Goblin\n")]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    type_command("rename-key cr challenge:rating", cx);
+
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("Goblin.md")).unwrap(),
+        "---\ncr: 5\n---\n# Goblin\n",
+        "nothing was written"
+    );
+    assert!(
+        status(&window, cx).contains("cannot be a property key"),
+        "{}",
+        status(&window, cx)
+    );
+}
+
+/// A vault that declares a key keeps that declaration in `.shale/props.toml`, which
+/// a rename of the notes does not move — it is a hand-kept file, and the promise made
+/// here is about notes. The rename therefore says what it left behind, because a
+/// declaration pointing at a key nobody writes means the new key's kind quietly stops
+/// being honoured, and that is a bad thing to discover by inference.
+#[gpui::test]
+fn a_key_rename_names_the_declaration_it_left_behind(cx: &mut TestAppContext) {
+    let (dir, window) = indexed_vault(cx, &[("Goblin.md", "---\ncr: 5\n---\n# Goblin\n")]);
+    std::fs::create_dir_all(dir.path().join(".shale")).unwrap();
+    std::fs::write(dir.path().join(".shale/props.toml"), "cr = \"number\"\n").unwrap();
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    type_command("rename-key cr challenge", cx);
+
+    assert!(
+        status(&window, cx).contains("`.shale/props.toml` still declares `cr`"),
+        "{}",
+        status(&window, cx)
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join(".shale/props.toml")).unwrap(),
+        "cr = \"number\"\n",
+        "the declaration file is left for its author to edit"
+    );
+}
+
+/// The palette reaches the rename too, and the row is findable by the words a reader
+/// would actually type.
+#[gpui::test]
+fn the_palette_offers_the_key_rename(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("Goblin.md", "---\ncr: 5\n---\nbody\n")]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    for query in ["rename key", "rename property", "rename prop key"] {
+        cx.simulate_keystrokes("ctrl-shift-p");
+        cx.simulate_input(query);
+        let offered = window
+            .update(cx, |ws, _window, cx| ws.picker_rows(cx))
+            .unwrap();
+        assert!(
+            offered
+                .iter()
+                .any(|row| row == "Rename a property key across the vault"),
+            "{query} offers: {offered:?}"
+        );
+        cx.simulate_keystrokes("escape");
+    }
+}
+
 /// EDGE-25: with no index, `:props` says there is nothing to read rather than
 /// reporting that the note has no properties. "Zero" and "I cannot look" are
 /// different answers, and this is the posture `:wordcount` and the spellchecker keep.

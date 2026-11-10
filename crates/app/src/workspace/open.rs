@@ -42,6 +42,10 @@ pub(crate) enum PickerTarget {
     /// does not open a new surface: it puts `prop:key` in the search field, which is
     /// the same question the pane is asking and can be refined from there.
     PropKey(String),
+    /// The same census row as [`Self::PropKey`], chosen in the pane's rename mood
+    /// (`:rename-key`, P4.3a M5): the key is not a question to search, it is the
+    /// thing whose spelling is about to change.
+    RenameKey(String),
     /// A row that exists to be read rather than chosen: the query could not be
     /// answered, and the reason *is* the answer. Choosing it repeats the reason in
     /// the status bar. A picker has no other way to say anything, and returning no
@@ -384,6 +388,12 @@ impl Workspace {
                 // list of notes here would be a second surface answering one question.
                 let seed = prop_token(&key);
                 self.search_vault_with(&seed, window, cx);
+            }
+            PickerTarget::RenameKey(key) => {
+                // The pane has said *which* key; the prompt asks for the new
+                // spelling and starts with the old one, so the reader edits a name
+                // rather than retyping it.
+                self.ask_key_rename(&key, window, cx);
             }
             PickerTarget::Notice(reason) => {
                 // The row already says it; this puts the same words where they

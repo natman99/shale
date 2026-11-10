@@ -40,7 +40,7 @@ mod schema;
 #[cfg(test)]
 mod tests;
 
-pub use index::{target_kind, word_count, EventKind, SyncReport};
+pub use index::{target_kind, word_count, Decls, EventKind, SyncReport};
 pub use schema::SCHEMA_VERSION;
 
 /// The directory Shale keeps its per-vault state in: the config, the themes, the

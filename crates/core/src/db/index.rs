@@ -167,6 +167,13 @@ impl Decls {
         )
     }
 
+    /// Whether the vault's declaration file names this key at all. A rename needs the
+    /// yes/no without the kind: the file is hand-kept and a rename of a note does not
+    /// move it, so the reader has to be told which name the file is now pointing at.
+    pub fn declares(&self, key: &str) -> bool {
+        self.0.contains_key(key)
+    }
+
     /// The declared kind of a key, if the vault declares one.
     fn get(&self, key: &str) -> Option<Kind> {
         self.0.get(key).copied()

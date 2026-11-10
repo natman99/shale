@@ -820,6 +820,9 @@ fn render_target(target: &PickerTarget) -> String {
         PickerTarget::Vault(path) => path.display().to_string(),
         PickerTarget::VaultPrompt => "prompt".into(),
         PickerTarget::PropKey(key) => crate::workspace::open::prop_token(key),
+        // The same census row, in the pane's rename mood: what a test needs to see
+        // is that choosing this row renames *this* key rather than searching it.
+        PickerTarget::RenameKey(key) => format!("rename {key}"),
         PickerTarget::Notice(reason) => reason.to_string(),
     }
 }

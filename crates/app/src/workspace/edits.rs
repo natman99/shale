@@ -9,7 +9,7 @@ use std::rc::Rc;
 
 use anyhow::{Context as _, Result};
 use gpui::{prelude::*, Context, Entity, Focusable, Window};
-use shale_core::rename::LinkRewrite;
+use shale_core::rename::Rewrite;
 use shale_core::vault::rel_text;
 
 use crate::acts::*;
@@ -35,8 +35,8 @@ impl Workspace {
         // will become.
         let (family, size) = self.note_font(cx);
         let palette = Rc::clone(&self.palette);
-        let prompt =
-            cx.new(|cx| prompt::Prompt::new(kind, label, initial, palette, family, size, cx));
+        let prompt = cx
+            .new(|cx| prompt::Prompt::new(kind.clone(), label, initial, palette, family, size, cx));
         // A prompt owns the keyboard, so a popup cannot stay up beside it, and a card
         // cannot float over the thing being renamed.
         self.close_popup(window, cx);
@@ -187,6 +187,7 @@ impl Workspace {
                 Err(err) => self.say(format!("{err:#}"), cx),
             },
             ex::Ex::WordCount(folder) => self.wordcount(&folder, cx),
+            ex::Ex::RenameKey(old, new) => self.rename_key_command(&old, &new, window, cx),
             ex::Ex::Props => self.props(cx),
             ex::Ex::ThemeExport(name) => match self.export_theme(&name) {
                 Ok(path) => self.say(format!("wrote {}", rel_text(&path)), cx),
@@ -291,6 +292,9 @@ impl Workspace {
                 self.tree_selection = Some(dir.clone());
                 self.say(format!("created {}/", rel_text(&dir)), cx);
             }
+            prompt::PromptKind::RenameKey(old) => {
+                self.rename_property_key(&old, answer, cx)?;
+            }
             prompt::PromptKind::Rename => {
                 // Re-derived here, not only when the prompt opened: the answer is a
                 // different moment, and the caret may have moved between them.
@@ -307,7 +311,7 @@ impl Workspace {
                     shale_core::rename::rewrites_for_rename(&self.vault, &self.entries, &from, &to)?
                 };
                 let renamed = self.vault.rename(&from, &to)?;
-                let report = self.apply_rewrites(&from, &renamed, &rewrites, cx)?;
+                let report = self.apply_rewrites(Some((&from, &renamed)), &rewrites, cx)?;
                 self.refresh_entries(cx);
                 // The note itself moves in one step, and the notes the rename
                 // rewrote to point at it are re-indexed alongside it: Shale's own
@@ -429,9 +433,8 @@ impl Workspace {
     /// or the next save would put the old links straight back.
     fn apply_rewrites(
         &mut self,
-        from: &Path,
-        renamed: &Path,
-        rewrites: &[LinkRewrite],
+        moved: Option<(&Path, &Path)>,
+        rewrites: &[Rewrite],
         cx: &mut Context<Self>,
     ) -> Result<RewriteReport> {
         let open = self.note();
@@ -444,20 +447,29 @@ impl Workspace {
         let mut report = RewriteReport::default();
         for rewrite in rewrites {
             // The renamed note is the one file that has already moved.
-            let path = if rewrite.path == from {
-                renamed.to_path_buf()
-            } else {
-                rewrite.path.clone()
+            let path = match moved {
+                Some((from, renamed)) if rewrite.path == from => renamed.to_path_buf(),
+                _ => rewrite.path.clone(),
             };
             // `active` is still the old path here — the caller updates it after.
             let is_open = open.as_deref() == Some(rewrite.path.as_path());
-            if is_open && dirty {
-                report.skipped_open = true;
+            // Any tab or split in this window can hold the note, not only the one
+            // with the caret, and a rewrite of a note the author has edited without
+            // saving would throw that edit away. The buffer registry is what knows
+            // the difference, so the check runs against it rather than against the
+            // active editor alone.
+            let dirty_here = is_open && dirty
+                || self
+                    .notes
+                    .get(&rewrite.path)
+                    .is_some_and(|note| note.dirty.get());
+            if dirty_here {
+                report.skipped.push(rewrite.path.clone());
                 continue;
             }
             self.vault.write(&path, &rewrite.text)?;
             report.files += 1;
-            report.links += rewrite.changed;
+            report.changed += rewrite.changed;
             report.written.push(path.clone());
             if is_open {
                 let text = rewrite.text.clone();
@@ -478,6 +490,111 @@ impl Workspace {
             }
         }
         Ok(report)
+    }
+
+    /// `:rename-key [old] [new]`. Each half that is missing is asked for, in the
+    /// order the reader would want to be asked: which key, then what to call it.
+    /// Nothing is renamed until both names are in hand.
+    pub(super) fn rename_key_command(
+        &mut self,
+        old: &str,
+        new: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if old.is_empty() {
+            // No key named: the census pane, in the mood where choosing a key means
+            // renaming it.
+            self.show_keys(true, window, cx);
+            return;
+        }
+        if new.is_empty() {
+            self.ask_key_rename(old, window, cx);
+            return;
+        }
+        if let Err(err) = self.rename_property_key(old, new, cx) {
+            self.say(format!("{err:#}"), cx);
+        }
+    }
+
+    /// Ask for the new spelling of a key the reader has already chosen. The field
+    /// starts with the old spelling, so the answer is a correction rather than a
+    /// retyping, and the old key rides in the prompt's kind because the answer means
+    /// nothing without it.
+    pub(super) fn ask_key_rename(
+        &mut self,
+        old: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_prompt(
+            prompt::PromptKind::RenameKey(old.to_string()),
+            &format!("rename `{old}` to"),
+            old,
+            window,
+            cx,
+        );
+    }
+
+    /// Rename a property key across the vault (roadmap P4.3a M5) — the migration
+    /// path a vocabulary cleanup asks for, rather than a tool deciding that the vault
+    /// should be lowercase.
+    ///
+    /// What the rewrite touches is core's business and written there
+    /// ([`shale_core::rename::rewrites_for_key_rename`]): the key span and nothing
+    /// else, top-level lines of a note's block only, blocks that parse only. What is
+    /// decided here is what a write across many notes has to get right on its own: a
+    /// note open with unsaved edits is left alone rather than overwritten, every note
+    /// that did change is told to the index (Shale's own writes are stamped out of the
+    /// watcher's view, so nothing else would ever notice them), the link names are
+    /// re-read in case the key was `aliases`, and the status line says how far the
+    /// rename reached — including the notes it refused to touch.
+    pub(super) fn rename_property_key(
+        &mut self,
+        old: &str,
+        new: &str,
+        cx: &mut Context<Self>,
+    ) -> Result<()> {
+        // A key is written plain in the block, so a colon would end it where the
+        // author did not mean it to, and a key with room around it is not the key the
+        // census listed.
+        if new.is_empty() || new.contains(':') || new.trim() != new {
+            anyhow::bail!("`{new}` cannot be a property key: no empty, no `:`, no room around it");
+        }
+        if new == old {
+            self.say(format!("`{old}` is already spelled `{new}`"), cx);
+            return Ok(());
+        }
+        let rewrites =
+            shale_core::rename::rewrites_for_key_rename(&self.vault, &self.entries, old, new)?;
+        if rewrites.is_empty() {
+            // Not "renamed nothing": the pane the reader came from lists only keys
+            // some note writes, so an empty answer means the index is ahead of the
+            // notes and the reader should know which of the two it is looking at.
+            self.say(format!("no note writes `{old}`"), cx);
+            return Ok(());
+        }
+        let report = self.apply_rewrites(None, &rewrites, cx)?;
+        self.index_rewrites(&report.written);
+        // The key being renamed may be `aliases`, and the resolver reads aliases out
+        // of the index, so the link names are re-read exactly as a save re-reads them.
+        self.refresh_link_names(cx);
+        // A link-shaped value moves with the key that held it: the edges drawn from
+        // `group: [[Test]]` now come from `party:`, and the graph is the surface that
+        // would otherwise keep showing the old ones.
+        self.refresh_graph(cx);
+        let mut status = key_rename_status(old, new, &report);
+        // Declarations live in `.shale/props.toml`, a hand-kept file with comments in
+        // it, and this rename does not rewrite it: the promise made here is about
+        // notes. So the line names what the rename just left pointing at nothing,
+        // rather than letting the reader find out when the new key's kind quietly
+        // stops being honoured.
+        let decls = shale_core::db::Decls::read(&self.vault);
+        if decls.declares(old) && !decls.declares(new) {
+            status = format!("{status}; `.shale/props.toml` still declares `{old}`");
+        }
+        self.say(status, cx);
+        Ok(())
     }
 
     /// Re-read the aliases the index holds and hand the editor the link names again.
@@ -644,13 +761,15 @@ impl Workspace {
 struct RewriteReport {
     /// Notes whose text was written back.
     files: usize,
-    /// Links rewritten across them.
-    links: usize,
+    /// What changed inside them: links for a file rename, keys for a key rename.
+    changed: usize,
     /// Where those writes went, so the index can be told. Vault-relative, and the
     /// renamed note appears under its new name.
     written: Vec<PathBuf>,
-    /// The open note holds unsaved edits, so its links were left alone.
-    skipped_open: bool,
+    /// Notes left alone because they are open somewhere in this window with
+    /// unsaved edits. Named rather than counted: the author has to know *which*
+    /// note still holds the old spelling.
+    skipped: Vec<PathBuf>,
 }
 
 /// What a rename did. Links that could not be updated because the note holding
@@ -658,14 +777,50 @@ struct RewriteReport {
 /// their next save.
 fn rename_status(renamed: &Path, report: &RewriteReport) -> String {
     let mut status = format!("renamed to {}", rel_text(renamed));
-    if report.links > 0 {
+    if report.changed > 0 {
         status = format!(
             "{status}; {} links in {} updated",
-            report.links, report.files
+            report.changed, report.files
         );
     }
-    if report.skipped_open {
-        status = format!("{status}; the open note has unsaved edits, so its links were left alone");
+    if let Some(note) = skipped_note(report) {
+        status = format!("{status}; {note}");
+    }
+    status
+}
+
+/// The half a rename says when it refused to touch something. Both renames have to
+/// be able to say it, and a rewrite that quietly skipped a note would be the worst
+/// kind of success.
+fn skipped_note(report: &RewriteReport) -> Option<String> {
+    if report.skipped.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "{} open with unsaved edits, so {} left alone",
+        report.skipped.len(),
+        if report.skipped.len() == 1 {
+            "it was"
+        } else {
+            "they were"
+        }
+    ))
+}
+
+/// What a key rename did: how far it reached, and what it refused to touch. The
+/// voice is the file rename's, because from here they are the same act — one name
+/// changed everywhere it was written.
+fn key_rename_status(old: &str, new: &str, report: &RewriteReport) -> String {
+    let mut status = format!(
+        "`{old}` is now `{new}` in {} {}",
+        report.files,
+        if report.files == 1 { "note" } else { "notes" }
+    );
+    if report.changed > report.files {
+        status = format!("{status}, {} lines", report.changed);
+    }
+    if let Some(note) = skipped_note(report) {
+        status = format!("{status}; {note}");
     }
     status
 }

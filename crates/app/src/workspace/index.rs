@@ -24,7 +24,7 @@ use shale_core::watch::VaultChanges;
 
 use super::open::{notice, PickerTarget};
 use super::Workspace;
-use crate::acts::{PropertyKeys, Props, WordCount};
+use crate::acts::{PropertyKeys, Props, RenamePropertyKey, WordCount};
 use crate::picker::PickerItem;
 
 impl Workspace {
@@ -213,7 +213,27 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let label = "Every property key in the vault";
+        self.show_keys(false, window, cx);
+    }
+
+    /// The same pane, in the mood where choosing a key means renaming it. One pane,
+    /// two questions: the census is the same read either way, and a second list of
+    /// keys would be a second surface answering one question.
+    pub(super) fn show_rename_key(
+        &mut self,
+        _: &RenamePropertyKey,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.show_keys(true, window, cx);
+    }
+
+    pub(super) fn show_keys(&mut self, rename: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let label = if rename {
+            "Rename which property key"
+        } else {
+            "Every property key in the vault"
+        };
         let Some(db) = self.db.as_ref() else {
             // "No keys" and "I cannot look" are different answers (EDGE-25).
             self.open_picker(
@@ -248,7 +268,7 @@ impl Workspace {
             );
             return;
         }
-        let rows = census.iter().map(key_row).collect();
+        let rows = census.iter().map(|row| key_row(row, rename)).collect();
         self.open_picker(label, rows, window, cx);
     }
 
@@ -392,7 +412,7 @@ fn row_is_nested(group: &[&Prop]) -> bool {
 ///
 /// One producer for the row and for the test that reads it back, so rewording the
 /// detail cannot quietly make the test answer a different question.
-pub(crate) fn key_row(census: &KeyCensus) -> (PickerItem, PickerTarget) {
+pub(crate) fn key_row(census: &KeyCensus, rename: bool) -> (PickerItem, PickerTarget) {
     let reach = format!(
         "{} {}",
         census.notes,
@@ -425,7 +445,13 @@ pub(crate) fn key_row(census: &KeyCensus) -> (PickerItem, PickerTarget) {
             detail_ranges,
             search: census.key.clone().into(),
         },
-        PickerTarget::PropKey(census.key.clone()),
+        // The two moods of one pane: the row either asks which notes write the key,
+        // or starts the rename of it.
+        if rename {
+            PickerTarget::RenameKey(census.key.clone())
+        } else {
+            PickerTarget::PropKey(census.key.clone())
+        },
     )
 }
 
