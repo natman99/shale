@@ -52,7 +52,7 @@ commit, **P4.3a frontmatter indexing**, landed 2026-11-08, so the props table th
 query story was priced against exists, and the query notes themselves have landed through
 M2), PDF
 export, Templates, tree-sitter code highlighting.
-**What is being built next (refreshed 2026-11-09): P4.3a is closed, and P4.3 (`.shq`) is
+**What is being built next (refreshed 2026-11-10): P4.3a is closed, and P4.3 (`.shq`) is
 under way — M1 (the format and the read-only runner) and M2 (the door: `:query`, the picker
 that lists saved queries and draws their answers) landed 2026-11-09; M3 (the live table in
 the file's own view) is designed and ruled in `queries-plan.md`.**
@@ -78,9 +78,15 @@ itself: the program folded, its answer drawn underneath, the marker row carrying
 file computed) landed 2026-11-10.** A `.shq` opened in a tab now reads as a question and
 its answer rather than as SQL: `▸ Creature ratings · 2 rows` with the table hanging under
 it, a cell spelled as a vault path opening that note, a refusal opening the program so the
-reason is never a blank page. What is left is `![[query-name]]` (M4), the anchor's journey
-for relative queries (M5), `:save-query` (M6) and MCP (M7). The plan, an edge ledger
-(EDGE-1…24) and the rulings are in `queries-plan.md`.
+reason is never a blank page. **M4 — `![[query-name]]` — landed the same day**, in two
+steps: the embed draws the answer's table under the row that asked for it, and then M4b
+filed the link the embed asserts, so the index, the link colour, `gd` and the answer's own
+title row all agree the query is a file (ruling 33: four surfaces, one resolution order, or
+the colour lies). Renaming a `.shq` now keeps its extension, stays out of the `notes` table,
+and re-files the embeds that name it. What is left is the anchor's journey for relative
+queries (M5), `:save-query` (M6) and MCP (M7) — plus the graph, which still draws a query
+embed as a ghost node because it re-scans text with its own entry lists (ruling 35). The
+plan, an edge ledger (EDGE-1…24) and the rulings are in `queries-plan.md`.
 
 **P4.0, transclusion — the editable half (closed 2026-11-08).** P4.0a
 (read-only embeds) shipped on 2026-11-06, and **P4.0b — editing inside an embed — is
