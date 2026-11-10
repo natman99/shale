@@ -1,5 +1,5 @@
 ---
-alias: anon
+aliases: anon
 cr: 3
 ---
 Back to [[Welcome]].
