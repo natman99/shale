@@ -658,7 +658,7 @@ fn the_query_note_draws_its_answer_under_the_program(cx: &mut TestAppContext) {
 
     assert_eq!(
         table(&window, cx),
-        vec!["note       value", "Wisp.md    3", "Goblin.md  5",],
+        vec![" note       value", " Wisp.md    3", " Goblin.md  5",],
         "the columns once, then one row per answer, in the order the query asked"
     );
     assert_eq!(drawn(&window, cx), 1, "the program itself stays folded");
@@ -787,7 +787,7 @@ fn the_declaration_sorts_the_table(cx: &mut TestAppContext) {
 
     assert_eq!(
         table(&window, cx),
-        vec!["note       value", "Goblin.md  5", "Wisp.md    3",],
+        vec![" note       value", " Goblin.md  5", " Wisp.md    3",],
         "descending on the declared column"
     );
 }
@@ -889,6 +889,64 @@ fn a_refusal_that_spans_lines_is_drawn_on_one(cx: &mut TestAppContext) {
 /// A database message that quotes the statement it refused is longer than any pane,
 /// and a block has no viewport of its own — the host scrolls. So the refusal wraps:
 /// the reason arrives in pieces, and every piece of it is on screen.
+#[gpui::test]
+fn the_answer_wears_a_grid_and_no_rule_lands_on_a_letter(cx: &mut TestAppContext) {
+    let (_dir, window) = monsters(cx, TOUGH);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "queries/tough.shq");
+    cx.run_until_parked();
+
+    let grid = window
+        .update(cx, |ws, _window, cx| ws.query_grid(cx))
+        .unwrap();
+    // One grid per cell row: the columns and the two answers. A sentence the answer says
+    // about itself is not a cell, so it wears no grid at all.
+    assert_eq!(grid.len(), 3, "one grid per cell row: {grid:?}");
+    for (text, boundaries, total, _) in &grid {
+        for x in boundaries {
+            let cell = text.chars().nth(*x);
+            assert!(
+                cell.is_none_or(|c| c == ' '),
+                "a rule at column {x} lands on {cell:?} in {text:?}"
+            );
+        }
+        assert!(
+            *total >= text.chars().count(),
+            "the grid holds the row it is drawn over: {text:?} is {} cells, the grid is {total}",
+            text.chars().count()
+        );
+    }
+    assert!(
+        grid[0].3,
+        "the row that names the columns is the shaded one"
+    );
+    assert!(
+        grid[1..].iter().all(|row| !row.3),
+        "an answer is not a header"
+    );
+}
+
+#[gpui::test]
+fn a_refusal_wears_no_grid(cx: &mut TestAppContext) {
+    let (_dir, window) = monsters(cx, "+++\n+++\nSELECT nope FROM props\n");
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "queries/tough.shq");
+    cx.run_until_parked();
+
+    let grid = window
+        .update(cx, |ws, _window, cx| ws.query_grid(cx))
+        .unwrap();
+    assert!(
+        grid.is_empty(),
+        "a refusal is a sentence, not a cell: {grid:?}"
+    );
+    let rows = table(&window, cx);
+    assert!(
+        rows[0].contains("nope"),
+        "and the sentence is still drawn: {rows:?}"
+    );
+}
+
 #[gpui::test]
 fn a_refusal_longer_than_the_pane_wraps(cx: &mut TestAppContext) {
     let long = "SELECT note, value, note AS again, nope, value AS again2, note AS again3 \

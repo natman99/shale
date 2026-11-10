@@ -18,6 +18,7 @@ use shale_core::vault::VaultEntry;
 use super::overlay::BlockLine;
 use super::Answer;
 use crate::line::phantom::PhantomKind;
+use crate::table_view::GridPaint;
 
 #[cfg(test)]
 impl super::MarkdownEditor {
@@ -37,6 +38,22 @@ impl super::MarkdownEditor {
     /// The answer's rows as the frame would break them: one string per **painted
     /// piece**, so a test can see a refusal that runs past the pane arrive in pieces
     /// rather than off the screen. Same `row_ranges` the frame calls.
+    /// The rows that wear a grid: the row's text, the rule positions in character cells,
+    /// the grid's width, and whether the row is the shaded header. A test can put a rule
+    /// and a glyph side by side and see that they never share a cell.
+    pub(crate) fn query_grid(&mut self) -> Vec<(String, Vec<usize>, usize, bool)> {
+        let Some(answer) = self.query_answer() else {
+            return Vec::new();
+        };
+        let entries = self.embeds.entries().to_vec();
+        answer_lines(&answer, &entries)
+            .into_iter()
+            .filter_map(|line| {
+                let grid = line.grid?;
+                Some((line.text, grid.boundaries, grid.total, grid.header))
+            })
+            .collect()
+    }
     pub(crate) fn query_pieces(&mut self, window: &gpui::Window) -> Vec<String> {
         let Some(answer) = self.query_answer() else {
             return Vec::new();
@@ -64,6 +81,10 @@ const CELL_WIDTH: usize = 60;
 /// The gap between columns, in spaces. Two, because the font is monospace and one
 /// would let a narrow column's text sit against the next column's.
 const GAP: usize = 2;
+
+/// A cell's worth of space inside the grid's outer edges, so a vertical rule never sits
+/// against a value. The same gutter a markdown table's grid keeps.
+const GUT: usize = 1;
 
 /// The table's rows: a header, one line per answer, and whatever the answer wants to
 /// say about itself (a refusal, an empty result, the rows it did not draw).
@@ -116,12 +137,18 @@ pub(crate) fn answer_lines(answer: &Answer, entries: &[VaultEntry]) -> Vec<Block
         })
         .collect();
 
-    out.push(line(
-        join(&answer.rows.columns, &widths),
-        PhantomKind::Header,
-        Vec::new(),
-        None,
-    ));
+    out.push(BlockLine {
+        grid: Some(GridPaint {
+            header: true,
+            ..grid_paint(&widths)
+        }),
+        ..line(
+            join(&answer.rows.columns, &widths),
+            PhantomKind::Header,
+            Vec::new(),
+            None,
+        )
+    });
     for cells in &cells {
         // The first cell is the one the picker treats as the row's identity, so it is
         // the one that can be a door here too.
@@ -135,10 +162,13 @@ pub(crate) fn answer_lines(answer: &Answer, entries: &[VaultEntry]) -> Vec<Block
             });
         let spans = door
             .as_ref()
-            .map(|_| vec![(0, cells[0].len(), Style::WikiLink)])
+            .map(|_| vec![(GUT, GUT + cells[0].len(), Style::WikiLink)])
             .unwrap_or_default();
         let text = join(cells, &widths);
-        out.push(line(text, PhantomKind::Row, spans, door));
+        out.push(BlockLine {
+            grid: Some(grid_paint(&widths)),
+            ..line(text, PhantomKind::Row, spans, door)
+        });
     }
     let hidden = answer.rows.rows.len() - shown.len();
     if hidden > 0 {
@@ -150,6 +180,29 @@ pub(crate) fn answer_lines(answer: &Answer, entries: &[VaultEntry]) -> Vec<Block
         ));
     }
     out
+}
+
+/// The grid over a row: the outer edges, a rule in the middle of each gap between
+/// columns, and the row's top and bottom edges. Measured in character cells, which is what
+/// the padded text is measured in, so a rule lands in the gap and never on a value.
+fn grid_paint(widths: &[usize]) -> GridPaint {
+    let mut boundaries = vec![0usize];
+    let mut start = GUT;
+    for (index, width) in widths.iter().enumerate() {
+        if index > 0 {
+            boundaries.push(start - GAP / 2);
+        }
+        start += width + GAP;
+    }
+    let total = start - GAP + GUT;
+    boundaries.push(total);
+    GridPaint {
+        boundaries,
+        total,
+        header: false,
+        top_rule: true,
+        bottom_rule: true,
+    }
 }
 
 /// Whether a row of the answer is prose the pane can run out of room for.
@@ -182,7 +235,7 @@ pub(crate) fn row_ranges(
 /// One row of the table as the reader sees it: each cell clipped to the column's
 /// allowance, then padded to the column's width.
 fn join(cells: &[String], widths: &[usize]) -> String {
-    let mut out = String::new();
+    let mut out = " ".repeat(GUT);
     for (index, cell) in cells.iter().enumerate() {
         if index > 0 {
             out.push_str(&" ".repeat(GAP));
@@ -238,6 +291,7 @@ fn line(
         door,
         spans,
         phantom: Some(kind),
+        grid: None,
         origin: None,
         gutter: Vec::new(),
     }

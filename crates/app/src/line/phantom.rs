@@ -19,8 +19,9 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use gpui::{
-    font, px, relative, App, Bounds, Element, ElementId, GlobalElementId, InspectorElementId,
-    IntoElement, LayoutId, Pixels, ShapedLine, SharedString, Style as ElementStyle, Window,
+    fill, font, px, relative, rgb, App, Bounds, Element, ElementId, GlobalElementId,
+    InspectorElementId, IntoElement, LayoutId, Pixels, ShapedLine, SharedString,
+    Style as ElementStyle, Window,
 };
 use shale_core::theme::Palette;
 use shale_core::transclude::Origin;
@@ -118,6 +119,13 @@ pub(crate) struct PhantomLine {
     /// it names instead of stopping at the caption. `None` for every other row, which is
     /// addressed by `origin` (roadmap P4.0a, leftover #1).
     pub(crate) door: Option<shale_core::transclude::EmbedRef>,
+    /// A grid to draw behind the text: the query note's answer, wearing the same
+    /// column edges and shaded header a table typed into the note gets (see
+    /// [`crate::table_view::GridPaint`]). `None` for every other phantom row.
+    pub(crate) grid: Option<crate::table_view::GridPaint>,
+    /// The resolved font's character width, which is what turns a grid's character-cell
+    /// geometry into pixels. Only read when `grid` is set.
+    pub(crate) char_width: Pixels,
     /// The editor's list of painted phantom rows, which this element adds itself to
     /// while painting.
     ///
@@ -290,6 +298,49 @@ impl Element for PhantomLine {
             self.height(),
             window,
         );
+        // A computed answer wears the grid a typed table wears: the columns' edges and a
+        // shaded header, in the table's own palette roles, so an answer and a table the
+        // reader typed read as the same kind of thing. The row rules are the deliberate
+        // difference — a computed answer draws a line between every row, because its rows
+        // are answers rather than lines of a file the reader can already count.
+        if let Some(grid) = &self.grid {
+            let left = self.text_x(bounds);
+            let cells = |n: usize| px(n as f32 * self.char_width.as_f32());
+            let width = cells(grid.total);
+            if grid.header {
+                window.paint_quad(fill(
+                    Bounds::from_corners(
+                        gpui::point(left, bounds.top()),
+                        gpui::point(left + width, bounds.bottom()),
+                    ),
+                    rgb(self.palette.table_header_bg),
+                ));
+            }
+            for boundary in &grid.boundaries {
+                let x = left + cells(*boundary);
+                window.paint_quad(fill(
+                    Bounds::from_corners(
+                        gpui::point(x - px(0.5), bounds.top()),
+                        gpui::point(x + px(0.5), bounds.bottom()),
+                    ),
+                    rgb(self.palette.table_line),
+                ));
+            }
+            for (y, ruled) in [
+                (bounds.top(), grid.top_rule),
+                (bounds.bottom() - px(1.), grid.bottom_rule),
+            ] {
+                if ruled {
+                    window.paint_quad(fill(
+                        Bounds::from_corners(
+                            gpui::point(left, y),
+                            gpui::point(left + width, y + px(1.)),
+                        ),
+                        rgb(self.palette.table_line),
+                    ));
+                }
+            }
+        }
         if let Err(err) = line.paint(
             gpui::point(self.text_x(bounds), bounds.top()),
             self.height(),

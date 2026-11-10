@@ -73,6 +73,28 @@ impl TablePaint {
     }
 }
 
+/// A grid to paint over a row that is **not** in the buffer: a query note's answer.
+///
+/// The same geometry [`TablePaint`] measures for a markdown table — boundaries in
+/// character cells, multiplied by the resolved font's character width — without the cell
+/// byte ranges, which only a buffer row has. The colours are the table's own roles
+/// (`table_line`, `table_header_bg`), so an answer and a table typed into the note read as
+/// the same kind of thing: columns with edges. What differs is the row rules: a computed
+/// answer draws a line between every row, because its rows are answers rather than lines
+/// of a file the reader can already count by eye.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct GridPaint {
+    /// x positions (character cells) of the vertical lines, the outer edges included.
+    pub(crate) boundaries: Vec<usize>,
+    /// The grid's total width in character cells.
+    pub(crate) total: usize,
+    /// The row that names the columns: shaded, so the grid reads top-down.
+    pub(crate) header: bool,
+    /// A rule along this row's top / bottom edge.
+    pub(crate) top_rule: bool,
+    pub(crate) bottom_rule: bool,
+}
+
 /// The paint plan for every buffer row that belongs to a table, indexed by
 /// buffer row (`None` for ordinary rows). `line_count` is the buffer's line
 /// count, which sizes the result.

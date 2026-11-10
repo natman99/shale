@@ -260,6 +260,16 @@ impl Workspace {
             .unwrap_or_default()
     }
 
+    /// The query note's rows that wear a grid: `(text, rule columns, grid width, header)`.
+    pub(crate) fn query_grid<C: gpui::AppContext>(
+        &self,
+        cx: &mut C,
+    ) -> Vec<(String, Vec<usize>, usize, bool)> {
+        self.editor()
+            .map(|editor| editor.update(cx, |editor, _cx| editor.query_grid()))
+            .unwrap_or_default()
+    }
+
     /// The query note's answer as the frame breaks it: one string per painted piece.
     pub(crate) fn query_pieces<C: gpui::AppContext>(
         &self,

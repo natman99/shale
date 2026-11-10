@@ -384,6 +384,10 @@ pub(crate) struct BlockLine {
     /// block holds a header, answer rows and a refusal, and those are three different
     /// things wearing one bar.
     pub(crate) phantom: Option<crate::line::phantom::PhantomKind>,
+    /// A grid to draw behind this row: the query note's answer, wearing the column edges
+    /// and shaded header a table typed into the note gets. `None` for every other block
+    /// row — an embedded note's rows and a proposal's are text, not cells.
+    pub(crate) grid: Option<crate::table_view::GridPaint>,
     /// Which note this row is a line *of*, and which row of it. `None` for a
     /// proposal's rows (they belong to no note until they are accepted) and for a
     /// badge. This is what makes the painted row addressable: a click on it, a
@@ -463,6 +467,7 @@ impl MarkdownEditor {
                                 door: None,
                                 spans: Vec::new(),
                                 phantom: None,
+                                grid: None,
                                 // A proposed row belongs to no note until the
                                 // proposal is accepted, so it has no address.
                                 origin: None,
@@ -683,6 +688,7 @@ impl MarkdownEditor {
                                 door: None,
                                 spans: Vec::new(),
                                 phantom: None,
+                                grid: None,
                                 origin,
                                 gutter: Vec::new(),
                             },
@@ -693,6 +699,7 @@ impl MarkdownEditor {
                                 door: Some(badge.embed),
                                 spans: Vec::new(),
                                 phantom: None,
+                                grid: None,
                                 origin: None,
                                 gutter: Vec::new(),
                             },
@@ -876,6 +883,8 @@ impl MarkdownEditor {
                 out.push(
                     PhantomLine {
                         text: badge.into(),
+                        grid: None,
+                        char_width,
                         family: self.font_family.clone(),
                         size: self.font_size,
                         palette: Rc::clone(&self.palette),
@@ -1038,6 +1047,8 @@ impl MarkdownEditor {
                             // the on-screen band gets paired back up with it.
                             origin: line.origin.clone(),
                             door: line.door.clone(),
+                            grid: line.grid.clone(),
+                            char_width,
                             gutter: if first {
                                 line.gutter.clone()
                             } else {
