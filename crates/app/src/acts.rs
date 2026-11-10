@@ -120,6 +120,11 @@ actions!(
         // `ctrl-backspace` in insert mode: delete the word before the cursor, the
         // same pair normal-mode `db` makes.
         DeleteWordBack,
+        // `tab` in insert mode writes a tab character — Shale indents notes with
+        // tabs, so the key types the file's own indentation — and `shift-tab`
+        // takes one indent level back off the line.
+        InsertTab,
+        OutdentLine,
         Undo,
         Redo,
         // The one outward copy (`ctrl-shift-c`, `space y`, `:y`/`:yank`/`:clip`/

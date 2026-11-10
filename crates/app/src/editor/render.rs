@@ -567,6 +567,8 @@ impl Render for MarkdownEditor {
             .on_action(cx.listener(Self::on_backspace))
             .on_action(cx.listener(Self::on_delete_forward))
             .on_action(cx.listener(Self::on_delete_word_back))
+            .on_action(cx.listener(Self::on_insert_tab))
+            .on_action(cx.listener(Self::on_outdent_line))
             .on_action(cx.listener(Self::on_move_left))
             .on_action(cx.listener(Self::on_move_right))
             .on_action(cx.listener(Self::on_move_up))

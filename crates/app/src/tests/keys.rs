@@ -330,6 +330,41 @@ fn keymap_matches_the_linux_keystroke_shape() {
         );
     }
 
+    // The arrows in normal mode, and Tab in insert mode, on the shapes Linux
+    // actually reports: the arrow keysyms arrive as "up"/"down"/"left"/"right"
+    // with no `key_char`, and shift+Tab arrives as the ISO_Left_Tab keysym, which
+    // gpui names "tab" with the shift modifier kept (it is dropped only for
+    // single-character keys). A binding spelled any other way matches no real key.
+    for (context, key, shift, action) in [
+        ("vim-normal", "up", false, "shale_editor::MoveUp"),
+        ("vim-normal", "down", false, "shale_editor::MoveDown"),
+        ("vim-normal", "left", false, "shale_editor::MoveLeft"),
+        ("vim-normal", "right", false, "shale_editor::MoveRight"),
+        ("vim-insert", "down", false, "shale_editor::MoveDown"),
+        ("vim-insert", "tab", false, "shale_editor::InsertTab"),
+        ("vim-insert", "tab", true, "shale_editor::OutdentLine"),
+    ] {
+        let contexts = vec![gpui::KeyContext::try_from(context).unwrap()];
+        let typed = gpui::Keystroke {
+            modifiers: gpui::Modifiers {
+                shift,
+                ..Default::default()
+            },
+            key: key.to_string(),
+            key_char: None,
+        };
+        let (bindings, pending) = keymap.bindings_for_input(&[typed], &contexts);
+        assert!(!pending, "{key} should not leave pending input");
+        assert_eq!(
+            bindings
+                .iter()
+                .map(|b| b.action().name())
+                .collect::<Vec<_>>(),
+            vec![action],
+            "typed {key} (shift {shift}) in the {context} context should resolve to {action}"
+        );
+    }
+
     // A picker: the same field keys, plus the arrows for the highlighted row —
     // and nothing else, because every other letter is part of the query being
     // typed. `j`/`k` are letters here, unlike in the popup, which has no field.

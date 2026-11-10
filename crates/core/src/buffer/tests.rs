@@ -5,6 +5,26 @@ fn buf() -> Buffer {
 }
 
 #[test]
+fn one_indent_level_is_a_tab_or_four_spaces() {
+    assert_eq!(indent_cut("\t\tx"), 1, "one tab, not the whole run");
+    assert_eq!(
+        indent_cut("\t    x"),
+        1,
+        "a tab is a level even with spaces after"
+    );
+    assert_eq!(indent_cut("    x"), 4);
+    assert_eq!(
+        indent_cut("      x"),
+        4,
+        "a level is four spaces, never more"
+    );
+    assert_eq!(indent_cut("  x"), 2, "a short run is taken as it stands");
+    assert_eq!(indent_cut("x"), 0);
+    assert_eq!(indent_cut("\nx"), 0, "a blank line has no indent to take");
+    assert_eq!(indent_cut(""), 0);
+}
+
+#[test]
 fn line_bounds() {
     let b = buf();
     assert_eq!(b.line_count(), 3);

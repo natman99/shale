@@ -142,6 +142,10 @@ in hand. `docs/keys.md` is the human map of both halves.
 | `:` | the vim engine takes this key | `VimColon` | — |
 | `[` | the vim engine takes this key | `VimOpenBracket` | — |
 | `]` | the vim engine takes this key | `VimCloseBracket` | — |
+| `left` | move the cursor left | `MoveLeft` | — |
+| `right` | move the cursor right | `MoveRight` | — |
+| `up` | move the cursor up | `MoveUp` | — |
+| `down` | move the cursor down | `MoveDown` | — |
 
 ### while `vim-visual` has the keyboard
 
@@ -218,6 +222,8 @@ in hand. `docs/keys.md` is the human map of both halves.
 | `backspace` | delete the character before the cursor | `Backspace` | — |
 | `ctrl-backspace` | delete the word before the cursor | `DeleteWordBack` | — |
 | `delete` | delete the character under the cursor | `DeleteForward` | — |
+| `tab` | insert a tab character | `InsertTab` | — |
+| `shift-tab` | remove one indent level from the line | `OutdentLine` | — |
 | `left` | move the cursor left | `MoveLeft` | — |
 | `right` | move the cursor right | `MoveRight` | — |
 | `up` | move the cursor up | `MoveUp` | — |

@@ -849,3 +849,116 @@ fn find_repeats_through_the_keymap(cx: &mut TestAppContext) {
         "`d;` takes through the `w` it lands on"
     );
 }
+/// The arrow keys move the caret in normal mode, not only in insert. They are
+/// bound as actions in the `vim-normal` context, so the test is really about the
+/// keymap reaching the window: with the bindings gone the arrows fall through to
+/// the input handler, which refuses non-printable input in normal mode, and the
+/// caret stays where it was.
+#[gpui::test]
+fn arrows_move_the_caret_in_normal_mode(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.bind_keys(keybindings()));
+
+    let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+    let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+    editor
+        .update(cx, |editor, window, cx| {
+            editor.set_text("one\ntwo\nthree\n".to_string(), cx);
+            let focus = editor.focus_handle(cx);
+            window.focus(&focus, cx);
+        })
+        .unwrap();
+    let cursor = |cx: &mut VisualTestContext| {
+        editor
+            .read_with(cx, |editor, _cx| editor.cursor_position())
+            .unwrap()
+    };
+
+    cx.simulate_keystrokes("down down");
+    assert_eq!(cursor(cx), (2, 0), "two `down` went to the third line");
+    cx.simulate_keystrokes("right right");
+    assert_eq!(cursor(cx), (2, 2), "`right` walked into `three`");
+    cx.simulate_keystrokes("up");
+    assert_eq!(cursor(cx), (1, 2), "`up` kept the column, the way `k` does");
+    cx.simulate_keystrokes("left");
+    assert_eq!(cursor(cx), (1, 1), "`left` stepped back one character");
+
+    // The arrows are motions, not a mode change: the vim engine is still the one
+    // answering letters, so `x` still deletes under the caret.
+    cx.simulate_keystrokes("x");
+    assert_eq!(
+        editor.read_with(cx, |editor, _cx| editor.text()).unwrap(),
+        "one\nto\nthree\n",
+        "the engine still owns the letters"
+    );
+
+    // `j`/`k` keep their own meaning, and a count still belongs to them.
+    // Back to the top with the arrows themselves, then the count still belongs
+    // to `j`.
+    cx.simulate_keystrokes("up up");
+    assert_eq!(
+        cursor(cx),
+        (0, 1),
+        "two `up` came back to the first line, keeping the column as `k` does"
+    );
+    cx.simulate_keystrokes("0");
+    cx.simulate_keystrokes("2 j");
+    assert_eq!(cursor(cx), (2, 0), "`2j` still jumps two lines");
+}
+
+/// `tab` in insert mode writes a tab character, and `shift-tab` takes one indent
+/// level back off the line. Both are buffer edits, so the note goes dirty and
+/// `ctrl-z` comes back through them.
+#[gpui::test]
+fn tab_types_a_tab_and_shift_tab_takes_it_back(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.bind_keys(keybindings()));
+
+    let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+    let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+    editor
+        .update(cx, |editor, window, cx| {
+            editor.set_text("one\ntwo\n".to_string(), cx);
+            let focus = editor.focus_handle(cx);
+            window.focus(&focus, cx);
+        })
+        .unwrap();
+    let text =
+        |cx: &mut VisualTestContext| editor.read_with(cx, |editor, _cx| editor.text()).unwrap();
+
+    // Two tabs and a letter on the second line.
+    cx.simulate_keystrokes("j i tab tab x");
+    assert_eq!(
+        text(cx),
+        "one\n\t\txtwo\n",
+        "tab typed a tab character, not spaces"
+    );
+
+    // One `shift-tab` per level, wherever on the line the cursor sits.
+    cx.simulate_keystrokes("right right shift-tab");
+    assert_eq!(text(cx), "one\n\txtwo\n", "one level came off");
+    cx.simulate_keystrokes("shift-tab");
+    assert_eq!(text(cx), "one\nxtwo\n", "and the second level with it");
+    cx.simulate_keystrokes("shift-tab");
+    assert_eq!(
+        text(cx),
+        "one\nxtwo\n",
+        "a line with no indent left is left alone"
+    );
+
+    // A spaces-indented line loses up to four spaces, so the key can undo an
+    // indent the file spelled with spaces.
+    editor
+        .update(cx, |editor, _window, cx| {
+            editor.set_text("      six\n".to_string(), cx);
+        })
+        .unwrap();
+    cx.simulate_keystrokes("i shift-tab");
+    assert_eq!(
+        text(cx),
+        "  six\n",
+        "one level of spaces is four, never more"
+    );
+
+    // Undo comes back through both: the outdent is an edit like any other.
+    cx.simulate_keystrokes("ctrl-z");
+    assert_eq!(text(cx), "      six\n", "ctrl-z put the level back");
+}

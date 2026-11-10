@@ -344,6 +344,18 @@ fn build() -> (Vec<KeyBinding>, Vec<KeymapRow>) {
         // chord as pending input and a literal `[` must still reach `f`/`t`/operators.
         "[" => VimOpenBracket,
         "]" => VimCloseBracket,
+        // The arrow keys move the caret in normal mode as well as in insert. They
+        // are bound as actions rather than left to fall through to the engine,
+        // which is how an unmapped letter reaches it: an arrow is a request to be
+        // somewhere, not a vim motion, and it should answer even with a command
+        // half-typed (`d` then `down` moves the caret and leaves the `d` pending
+        // for `escape` to drop). They dispatch the same actions insert mode uses,
+        // so they step between *display* rows — a wrapped or folded line moves the
+        // way `j`/`k` do.
+        "left" => MoveLeft,
+        "right" => MoveRight,
+        "up" => MoveUp,
+        "down" => MoveDown,
     ]);
     bind!(b, Some("vim-insert"), [
         "escape" => VimEscape,
@@ -354,6 +366,12 @@ fn build() -> (Vec<KeyBinding>, Vec<KeymapRow>) {
         // the window commands (`ctrl-w h`/`ctrl-w l`).
         "ctrl-backspace" => DeleteWordBack,
         "delete" => DeleteForward,
+        // `tab` types a tab character; `shift-tab` removes one indent level from
+        // the line. Nothing else in the app binds `tab`, and gpui ships no default
+        // for it, so the key is free. It stays unbound in normal mode, where Tab
+        // would be a motion and the engine owns motions.
+        "tab" => InsertTab,
+        "shift-tab" => OutdentLine,
         "left" => MoveLeft,
         "right" => MoveRight,
         "up" => MoveUp,
@@ -606,6 +624,8 @@ fn action_note(name: &str) -> Option<&'static str> {
         "Newline" => "break the line here",
         "Backspace" => "delete the character before the cursor",
         "DeleteWordBack" => "delete the word before the cursor",
+        "InsertTab" => "insert a tab character",
+        "OutdentLine" => "remove one indent level from the line",
         "DeleteForward" => "delete the character under the cursor",
         "MoveLeft" => "move the cursor left",
         "MoveRight" => "move the cursor right",

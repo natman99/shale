@@ -376,6 +376,52 @@ impl MarkdownEditor {
         self.insert_edit("", cx);
     }
 
+    /// `tab` in insert mode: a tab character at the cursor. Shale indents notes
+    /// with tabs, so the key writes the file's own indentation rather than spaces.
+    /// It is ordinary insert text, so one `u` takes one tab away and `.` replays it.
+    pub(super) fn on_insert_tab(
+        &mut self,
+        _: &InsertTab,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.vim.mode() != Mode::Insert {
+            return;
+        }
+        self.buffer.borrow_mut().insert(&self.slot, "\t");
+        self.insert_edit("\t", cx);
+    }
+
+    /// `shift-tab` in insert mode: one indent level off the line the cursor is on
+    /// ([`shale_core::buffer::indent_cut`]). It answers wherever on the line the
+    /// cursor sits, and does nothing to a line that has no indent to take.
+    pub(super) fn on_outdent_line(
+        &mut self,
+        _: &OutdentLine,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.vim.mode() != Mode::Insert {
+            return;
+        }
+        // Decide first, edit second: finding the cut borrows the text, and the
+        // delete takes the buffer mutably.
+        let (start, cut) = {
+            let b = self.buffer.borrow();
+            let row = b.row_col(b.cursor()).0;
+            let start = b.line_start(row);
+            let cut = shale_core::buffer::indent_cut(&b.text()[start..b.line_end(row)]);
+            (start, cut)
+        };
+        if cut == 0 {
+            return;
+        }
+        self.buffer
+            .borrow_mut()
+            .delete_range(&self.slot, start, start + cut);
+        self.insert_edit("", cx);
+    }
+
     pub(super) fn on_move_left(
         &mut self,
         _: &MoveLeft,

@@ -60,7 +60,7 @@ mod words;
 /// The word boundary before an offset, shared by the buffer's backward word
 /// motion and by anything outside the buffer that has to agree with it (the
 /// one-line prompt and picker fields).
-pub use words::{big_word_back, word_back};
+pub use words::{big_word_back, indent_cut, word_back};
 
 /// One epoch per buffer, so no two buffers share a `change_id` however many times
 /// each is edited afterwards. 2^32 edits to one buffer is not a thing this editor

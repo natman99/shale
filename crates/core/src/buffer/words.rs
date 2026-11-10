@@ -313,6 +313,20 @@ pub fn big_word_back(text: &str, at: usize) -> usize {
     i
 }
 
+/// How many bytes of a line's leading whitespace count as one indent level, for
+/// `shift-tab` to take away: one tab, or up to four spaces when the line opens
+/// with spaces. Zero when it opens with anything else, including a newline.
+///
+/// Shale indents notes with tabs, so the tab is the level; the spaces arm exists
+/// so the key can undo an indent the file spelled the other way, and it stops at
+/// four because that is the width a spaces-indented file most often uses.
+pub fn indent_cut(line: &str) -> usize {
+    if line.starts_with('\t') {
+        return 1;
+    }
+    line.chars().take_while(|c| *c == ' ').count().min(4)
+}
+
 /// Vim's word classes: keyword runs, punctuation runs, whitespace, and
 /// newlines (tracked separately so motions can reason about line ends).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
