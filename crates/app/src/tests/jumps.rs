@@ -492,3 +492,103 @@ fn a_heading_link_with_no_target_scrolls_within_the_note(cx: &mut TestAppContext
         "the caret moved to that heading"
     );
 }
+
+/// Somewhere over the note, for a mouse press that is not looking for a widget.
+fn middle() -> gpui::Point<gpui::Pixels> {
+    gpui::point(gpui::px(300.), gpui::px(300.))
+}
+
+/// The mouse's side buttons are the jump list, the way a browser's are. The
+/// buttons reach the window as gpui's `Navigate` buttons, which is what
+/// `gpui_linux` reports for `BTN_SIDE`/`BTN_EXTRA` (and X11 buttons 8/9), so the
+/// test presses exactly what a real mouse sends.
+#[gpui::test]
+fn the_mouse_side_buttons_walk_the_jump_list(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = two_notes(cx);
+    let cx = &mut cx;
+
+    cx.simulate_keystrokes("g x");
+    assert_eq!(active(&window, cx), "b.md", "`g x` followed the link");
+
+    cx.simulate_mouse_down(
+        middle(),
+        gpui::MouseButton::Navigate(gpui::NavigationDirection::Back),
+        gpui::Modifiers::none(),
+    );
+    cx.simulate_mouse_up(
+        middle(),
+        gpui::MouseButton::Navigate(gpui::NavigationDirection::Back),
+        gpui::Modifiers::none(),
+    );
+    assert_eq!(
+        active(&window, cx),
+        "a.md",
+        "the back button came back to the note the link was read in"
+    );
+    assert_eq!(
+        cursor(&window, cx),
+        LINK,
+        "and landed on the byte of the link that was being read"
+    );
+
+    cx.simulate_mouse_down(
+        middle(),
+        gpui::MouseButton::Navigate(gpui::NavigationDirection::Forward),
+        gpui::Modifiers::none(),
+    );
+    cx.simulate_mouse_up(
+        middle(),
+        gpui::MouseButton::Navigate(gpui::NavigationDirection::Forward),
+        gpui::Modifiers::none(),
+    );
+    assert_eq!(
+        active(&window, cx),
+        "b.md",
+        "the forward button walked the same chain the other way"
+    );
+}
+
+/// A picker's rows are answers about the note as it is now. Jumping underneath an
+/// open picker would leave the list describing a note that is no longer on screen,
+/// so the side buttons wait until the field lets go of the keyboard.
+#[gpui::test]
+fn the_side_buttons_wait_while_a_picker_is_open(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = two_notes(cx);
+    let cx = &mut cx;
+
+    cx.simulate_keystrokes("g x");
+    assert_eq!(active(&window, cx), "b.md");
+    cx.simulate_keystrokes("space s");
+    assert!(
+        picker_rows(&window, cx).is_some(),
+        "the vault search picker is open"
+    );
+
+    cx.simulate_mouse_down(
+        middle(),
+        gpui::MouseButton::Navigate(gpui::NavigationDirection::Back),
+        gpui::Modifiers::none(),
+    );
+    assert_eq!(
+        active(&window, cx),
+        "b.md",
+        "the note under the picker did not move"
+    );
+    assert!(
+        picker_rows(&window, cx).is_some(),
+        "and the picker is still the thing being read"
+    );
+
+    // Let go of the field, and the same button answers.
+    cx.simulate_keystrokes("escape");
+    cx.simulate_mouse_down(
+        middle(),
+        gpui::MouseButton::Navigate(gpui::NavigationDirection::Back),
+        gpui::Modifiers::none(),
+    );
+    assert_eq!(
+        active(&window, cx),
+        "a.md",
+        "with the field closed, it walks back"
+    );
+}

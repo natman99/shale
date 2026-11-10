@@ -17,7 +17,7 @@
 
 use std::path::{Path, PathBuf};
 
-use gpui::{Context, Window};
+use gpui::{Context, NavigationDirection, Window};
 
 use crate::acts::{EnterEmbed, JumpBack, JumpForward};
 
@@ -206,6 +206,34 @@ impl Workspace {
             return;
         }
         self.step_jump(true, cx);
+    }
+
+    /// The mouse's side buttons are the jump list, the way a browser's are.
+    /// `gpui_linux` already names them: `BTN_SIDE`/`BTN_BACK` (and X11 button 8)
+    /// arrive as `Navigate(Back)`, `BTN_EXTRA`/`BTN_FORWARD` (button 9) as
+    /// `Navigate(Forward)`, so this is `ctrl-o` and `ctrl-i` asked with the other
+    /// hand — same chain, same rules about what counts as a place.
+    ///
+    /// A prompt, picker or popup that holds the keyboard is the one case the button
+    /// stays quiet in: the rows on screen belong to the note as it is now, and
+    /// moving that note out from under them would leave a list answering a question
+    /// that is no longer on screen. The press is swallowed either way, by the
+    /// capture handler in `render.rs` — a focusable element takes the keyboard on a
+    /// mouse-down for *any* button, so a side-button press over the note would
+    /// otherwise pull it out of the field that had it.
+    pub(super) fn side_button(
+        &mut self,
+        direction: NavigationDirection,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.overlay_owns_keys() {
+            return;
+        }
+        match direction {
+            NavigationDirection::Back => self.jump_back(&JumpBack, window, cx),
+            NavigationDirection::Forward => self.jump_forward(&JumpForward, window, cx),
+        }
     }
 
     /// The place on screen, as the chain records it: a note and the cursor in it, or

@@ -117,15 +117,25 @@ milestones in the order they land.
 - **EDGE-21 — the jump list is what it already is.** The buttons call the same verbs as
   `ctrl-o`/`ctrl-i`, so per-pane scope, the graph tab's exemption, and the "opening a note
   pushes a jump" rule are unchanged — no new list, no new semantics.
+- **EDGE-22 — a mouse-down takes the keyboard, whatever the button.** gpui's focusable
+  elements transfer focus on a mouse-down for *any* button (`div.rs:2776`), so a side-button
+  press over the note pulled the keyboard out of an open picker and left the field stranded
+  with no way to cancel it. The handler is therefore `capture_any_mouse_down` on the window's
+  root — capture runs root-first, so it answers before anything deeper sees the press — and
+  it calls `cx.stop_propagation()` in both arms, answered and refused. Falsified by removing
+  the stop: the picker test goes red.
 
 ## 4. Milestones (dependency order, one commit each)
 
-- **M1 — arrows in normal mode.** Four bindings in `vim-normal` + a test that the caret moves
-  and that `j`/`k` are untouched. Smallest, zero risk, unblocks nothing else.
-- **M2 — Tab / shift-Tab in insert mode.** Two actions (`InsertTab`, `OutdentLine`), the
-  buffer edit for each, bindings in `vim-insert`, tests.
-- **M3 — side buttons → jump list.** `on_mouse_down` for both `Navigate` buttons on the root
-  div, the modal-field guard, a test that drives the button and reads the note that came up.
+- **M1 — arrows in normal mode.** **Landed** (`489ac63`). Four bindings in `vim-normal`, a
+  keystroke test, and the Linux keysym shape pinned in `keymap_matches_the_linux_keystroke_shape`.
+- **M2 — Tab / shift-Tab in insert mode.** **Landed** (`489ac63`, same commit as M1 — both
+  live in the binding table, so splitting them would have meant splitting a file by hunk).
+  `InsertTab`/`OutdentLine`, `indent_cut` in core with its own test, wording in the keymap's
+  `action_note` table (the docs gate refuses a binding that says nothing).
+- **M3 — side buttons → jump list.** **Landed.** `capture_any_mouse_down` on the window's
+  root (see EDGE-22), the modal-field guard, two tests: the buttons walk the chain and land on
+  the byte the link was read at; and a picker keeps its keyboard, its rows and its focus.
 - **M4 — graph `escape`.** A `GraphClearSelection` action, the view's `clear_selection`, the
   context binding replacing `FocusEditor` for bare `escape`, tests for both halves (chosen
   node cleared; filter strip still closes).

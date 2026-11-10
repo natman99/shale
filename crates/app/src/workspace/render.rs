@@ -620,6 +620,22 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::quick_open))
             .on_action(cx.listener(Self::jump_back))
             .on_action(cx.listener(Self::jump_forward))
+            // The mouse's side buttons walk the same chain `ctrl-o`/`ctrl-i` do.
+            // This is the *capture* phase on the window's root, and that is the
+            // whole point: a focusable element transfers the keyboard on a mouse-down
+            // for any button, so a side-button press over the note would pull it out
+            // of a picker that is open. Answering here and stopping propagation keeps
+            // the press from reaching anything below — including the focus rules.
+            .capture_any_mouse_down(cx.listener(
+                |this, event: &gpui::MouseDownEvent, window, cx| {
+                    let direction = match event.button {
+                        gpui::MouseButton::Navigate(direction) => direction,
+                        _ => return,
+                    };
+                    cx.stop_propagation();
+                    this.side_button(direction, window, cx);
+                },
+            ))
             .on_action(cx.listener(Self::search_vault))
             .on_action(cx.listener(Self::search_buffer))
             .on_action(cx.listener(Self::search_next))

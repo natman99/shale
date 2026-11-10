@@ -36,6 +36,7 @@ authority on ids and `:` spellings.
 | `ctrl-shift-n` | new folder |
 | `ctrl-t` | new tab holding the note in hand |
 | `ctrl-o` / `ctrl-i` | jump back / forward through the notes you came from |
+| mouse back / forward button | the same jump list, browser-style (quiet while a picker or prompt holds the keyboard) |
 | `ctrl-s` | save (`:w`) |
 | `ctrl-q` | quit (`:q`) |
 | `ctrl-w h` / `ctrl-w l` | keyboard to the file tree / back to the note |
@@ -72,7 +73,8 @@ named register also fills the unnamed one, so `"ayw` then a plain `p` still past
 `code.rs` are one step rather than three), `0` `^` `$`, `gg` / `G`, `f` `t` `F` `T`
 (and their shifted forms), `;` and `,` to repeat the last find forwards or backwards,
 with the same semantics including the way `t` stops short, and `enter` to the next line's
-first non-blank. Counts work on motions and operators: `3w`, `2dd`, `5j`.
+first non-blank — and the arrow keys do the same four, for when the hands are not on
+`hjkl`. Counts work on motions and operators: `3w`, `2dd`, `5j`.
 
 **Operators.** `d` (delete), `c` (change), `y` (yank), each with a motion or a
 text object; `dd`, `cc`, `yy` for the whole line; `x` to delete the character
@@ -179,7 +181,9 @@ rather than the marked one.
 `escape` out. `enter` is a newline, and it continues a list, task or quote by copying the
 marker. `ctrl-backspace` deletes the word before the cursor; vim's own
 key for that, `ctrl-w`, is left to the window commands. Arrows move the caret;
-`delete` deletes forward.
+`delete` deletes forward. `tab` writes a tab character (Shale indents notes with tabs)
+and `shift-tab` takes one indent level back off the line — a tab, or up to four spaces
+when the line has no tab.
 
 ## The file tree
 
