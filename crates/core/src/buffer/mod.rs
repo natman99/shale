@@ -30,7 +30,15 @@ pub struct Buffer {
     /// True while insert-mode edits are being coalesced into one undo step.
     group_open: bool,
     /// Bumped on every mutation, so the UI can cache per-text computations
-    /// (like soft-wrap boundaries) across frames.
+    /// (like soft-wrap, styles and quote substitution) across frames.
+    ///
+    /// The high bits are an epoch unique to *this* buffer, so the id is a safe key
+    /// for those caches across a note switch. Counting edits from zero — which this
+    /// used to do — hands every note nobody has edited the same id, and a cache
+    /// keyed on it then answers for a note that is not the one on screen: the
+    /// spans of a long note applied to a short one hide bytes that belong to other
+    /// words, and a span past the short note's end indexes a row that does not
+    /// exist. The low bits still move with this buffer's edits.
     change_id: u64,
 }
 
@@ -54,6 +62,11 @@ mod words;
 /// one-line prompt and picker fields).
 pub use words::{big_word_back, word_back};
 
+/// One epoch per buffer, so no two buffers share a `change_id` however many times
+/// each is edited afterwards. 2^32 edits to one buffer is not a thing this editor
+/// will see.
+static EPOCH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
 impl Buffer {
     pub fn new(text: String) -> Self {
         Self {
@@ -64,7 +77,7 @@ impl Buffer {
             redo: Vec::new(),
             desired_col: None,
             group_open: false,
-            change_id: 0,
+            change_id: EPOCH.fetch_add(1, std::sync::atomic::Ordering::Relaxed) << 32,
         }
     }
     pub fn text(&self) -> &str {
@@ -129,7 +142,9 @@ impl Buffer {
     }
 
     // ----- line helpers -------------------------------------------------
-    /// Changes to the buffer text, for caching UI-side derived data.
+    /// Changes to the buffer text, for caching UI-side derived data. Unique to
+    /// this buffer for as long as the process lives: two notes nobody has edited
+    /// still answer with different ids.
     pub fn change_id(&self) -> u64 {
         self.change_id
     }

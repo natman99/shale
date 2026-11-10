@@ -779,3 +779,33 @@ fn a_read_only_view_refuses_every_edit_and_nothing_else() {
         "a preview view cannot lock out a live one"
     );
 }
+
+/// The id a view keys its derived data on — styles, wrap points, quote
+/// substitutions, fold state — has to belong to one buffer. Counting edits from
+/// zero gave every note nobody has edited the same id, so switching notes could
+/// keep showing the note that was there before: another note's hidden markers cut
+/// bytes out of this note's words, and a span past this note's end indexes a row
+/// that does not exist.
+#[test]
+fn two_buffers_never_share_the_id_their_caches_are_keyed_on() {
+    let a = Buffer::new("first\n".to_string());
+    let b = Buffer::new("second\n".to_string());
+    assert_ne!(
+        a.change_id(),
+        b.change_id(),
+        "two fresh buffers are not one buffer"
+    );
+
+    let mut c = Buffer::new("third\n".to_string());
+    assert_ne!(c.change_id(), a.change_id());
+    assert_ne!(c.change_id(), b.change_id());
+    let before = c.change_id();
+    c.insert_at(&ViewSlot::new(), 0, "x");
+    let after = c.change_id();
+    assert!(after > before, "an edit still moves the id");
+    assert_eq!(
+        after >> 32,
+        before >> 32,
+        "and the id stays inside this buffer's own epoch"
+    );
+}

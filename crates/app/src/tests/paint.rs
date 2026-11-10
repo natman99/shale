@@ -201,6 +201,67 @@ fn wrap_stays_accurate_for_tabs_and_unicode(cx: &mut TestAppContext) {
     });
 }
 
+/// Switching notes must not keep showing the note that was there before. The view
+/// caches its style spans against the buffer's change id, and when that id counted
+/// edits from zero, two notes nobody had edited shared one — so the short note was
+/// painted with the long note's spans: markers that belong to nothing in it hid
+/// bytes out of its words, and a span past its end indexed a row that does not
+/// exist, which is the panic.
+#[gpui::test]
+fn switching_notes_recomputes_what_the_styles_say(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.bind_keys(keybindings()));
+    let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+    let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+
+    // A long note whose fenced block sits far past the short note's last byte.
+    let long = crate::note::Note::from_text(format!(
+        "# Long\n\n{}\n```rust\nlet x = 1;\n```\n",
+        "prose prose prose\n".repeat(40)
+    ));
+    editor
+        .update(cx, |editor, _window, cx| {
+            editor.set_note(std::rc::Rc::clone(&long), cx)
+        })
+        .unwrap();
+    for _ in 0..2 {
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+    }
+
+    // Then the short note: fresh, unedited, and with fenced lines of its own.
+    let short_text = "before\n\n```\nhidden\n```\n\nafter\n".to_string();
+    let short = crate::note::Note::from_text(short_text.clone());
+    editor
+        .update(cx, |editor, _window, cx| {
+            editor.set_note(std::rc::Rc::clone(&short), cx)
+        })
+        .unwrap();
+    // Used to panic here: the long note's two fence spans both start past this
+    // note's end, so the walk ran off the row table.
+    for _ in 0..2 {
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+    }
+
+    let painted = editor
+        .read_with(cx, |editor, _cx| editor.painted_lines())
+        .unwrap();
+    // What this note says should be painted: every row but its two fence rows.
+    // `lines()` would drop the empty row the trailing newline leaves at the end of
+    // the buffer, which is a row the frame paints like any other.
+    let want: Vec<String> = short_text
+        .split('\n')
+        .filter(|line| !line.starts_with("```"))
+        .map(|line| line.to_string())
+        .collect();
+    let got: Vec<String> = painted
+        .iter()
+        .map(|(start, end, _)| short_text[*start..*end].to_string())
+        .collect();
+    assert_eq!(
+        got, want,
+        "the short note is painted from its own text, with its own fences collapsed"
+    );
+}
+
 /// A table is painted as a grid: one display line per row (never soft-wrapped,
 /// however wide it is) and one painted piece per cell, so the buffer's display
 /// model and the paint stay in step. The cursor is on the header row, which

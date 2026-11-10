@@ -275,6 +275,14 @@ impl MarkdownEditor {
             while row < line_count && self.note.buffer.borrow().line_end(row) <= span.start {
                 row += 1;
             }
+            if row >= line_count {
+                // A span that starts past the last row is not a span of this text:
+                // the cache is answering for a note that is not the one on screen.
+                // Spans are in offset order, so nothing after it is either, and
+                // there is nothing past the end of the note to hide — what there
+                // used to be was an index one row too far.
+                break;
+            }
             if span.style != Style::CodeFence {
                 continue;
             }

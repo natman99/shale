@@ -494,6 +494,13 @@ impl MarkdownEditor {
         self.touched.clear();
         self.slot.clear();
         self.wrap_cache = None;
+        // The styles and the curly quotes are keyed on the buffer's change id, and
+        // that id belongs to a buffer that is no longer under this view. Clearing
+        // them is not the only thing that keeps them honest (the id is unique per
+        // buffer now) — it is also the end of the work of measuring a note that
+        // stopped being the one on screen.
+        self.style_cache = None;
+        self.quote_cache = None;
         self.vim.enter_normal();
         self.marks.clear();
         self.hits.clear();
@@ -507,6 +514,8 @@ impl MarkdownEditor {
     pub(crate) fn note_reloaded(&mut self, cx: &mut Context<Self>) {
         self.slot.clear();
         self.wrap_cache = None;
+        self.style_cache = None;
+        self.quote_cache = None;
         self.vim.enter_normal();
         self.marks.clear();
         self.hits.clear();

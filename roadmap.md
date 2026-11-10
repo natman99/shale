@@ -1183,6 +1183,20 @@ edges, query nodes, MCP canvas tools) is P6.10.
       inside an embed it writes the embedded note. Palette-only, deliberately —
       `:props`/`:properties` already read them, and a second `:` word for the same
       noun is a coin flip of its own.
+    - **Landed 2026-11-09 (opening a note could paint it with the note that was there
+      before).** `Buffer::change_id` counted edits from zero, so every note nobody had
+      edited shared one id — and the view keys its style spans, its quote substitutions
+      and its wrap points on that id. `set_note` already said in its own comment that
+      `change_id` is per buffer and two notes can share one by coincidence, and cleared
+      the wrap cache for exactly that reason; the styles and the quotes were not
+      cleared. So switching from a long note to a short one applied the long note's
+      spans: hidden markers cut bytes out of the middle of words (the garbled first
+      frame), and a span starting past the short note's end ran the fence walk off the
+      row table and indexed a row that does not exist (the panic). Two fixes, one
+      behaviour test and one invariant test: the caches are cleared wherever the buffer
+      under the view changes, and `change_id` now carries a per-buffer epoch in its high
+      bits, so the next cache that forgets to clear cannot collide. The fence walk also
+      refuses to index past the last row — a stale cache should mispaint, not crash.
     - **Landed 2026-11-09 (aliases as link targets).** The deferred ruling above, taken.
       `aliases:` is a **fourth rule** in `LinkResolver`, consulted only after the three
       file rules find nothing — so an alias can never steal `[[Test]]` from `Test.md`,
