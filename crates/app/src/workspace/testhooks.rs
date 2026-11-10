@@ -498,6 +498,14 @@ impl Workspace {
     pub(crate) fn stop_graph_beat(&mut self) {
         self.graph_beat = None;
     }
+    /// Whether the editor would paint `[[name]]` as a link that reaches a note. The
+    /// alias rule lives in the index, but the *colour* lives in this window, and the two
+    /// have to agree — which is the claim this answers without painting a frame.
+    #[cfg(test)]
+    pub(crate) fn knows_link(&self, name: &str) -> bool {
+        self.known.contains(name)
+    }
+
     /// The colours the graph paints with: a note's dot, a tag's, and a ghost's. A paint
     /// test counts the dots it expects by the colour they were drawn in, which is the
     /// only way to tell a graph's nodes from the rest of the window's quads.

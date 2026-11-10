@@ -1183,6 +1183,21 @@ edges, query nodes, MCP canvas tools) is P6.10.
       inside an embed it writes the embedded note. Palette-only, deliberately —
       `:props`/`:properties` already read them, and a second `:` word for the same
       noun is a coin flip of its own.
+    - **Landed 2026-11-09 (aliases as link targets).** The deferred ruling above, taken.
+      `aliases:` is a **fourth rule** in `LinkResolver`, consulted only after the three
+      file rules find nothing — so an alias can never steal `[[Test]]` from `Test.md`,
+      which is the collision the ruling was waiting on. Two notes claiming one alias
+      tie-break the way a stem tie does: shortest path, then alphabetical. There is still
+      no `aliases` table: the rows are ordinary `props` rows and `Db::aliases()` is the
+      one reader, because a second table is a second answer to keep in step. Ghost edges
+      filed *before* an alias existed are re-filed by a pass over the `links` table — the
+      shape `rename.rs` already uses — which is why no full-text rescan was needed. Two
+      things the index owns that a window has to agree with: the set links are coloured
+      from now includes alias names, re-read after every index write, and the startup
+      reconcile pass runs *after* a window computes that set, so its report now fans a
+      refresh out to the open windows. Tested at three layers: the resolver rule and its
+      shadowing, the sweep and its refusal to re-file a link a file already answers, and
+      `gd` on `[[anon]]` landing on the note that declares the alias.
     - **M3 landed 2026-11-08 (the kind census).** `Db::kinds_for_keys` reads the
       vault-wide kind set for the keys a note writes, and `:props` badges a key the vault
       holds a kind for *elsewhere* — `cr=5 (number, vault also text)`. The clean note is
@@ -1191,8 +1206,8 @@ edges, query nodes, MCP canvas tools) is P6.10.
       `.shq`" are not buildable inside P4.3a — there is no query language and no `.shq`
       note type in the tree (`core::search` is body-text search); they are **P4.3's first
       commit**, and P4.3a's job was to have the columns and the `props_key (key, kind)`
-      index ready when it lands. Done. What is left of P4.3a is `aliases` (its own commit,
-      ruling above) and the M4/M5 surfaces.
+      index ready when it lands. Done. What is left of P4.3a is the M4/M5 surfaces —
+      `aliases` landed the same day, its own commit, ruling above.
     - **Landed 2026-11-09 (the block says whether it is being read).** A user could not
       tell a properties block from a divider: live preview draws a leading `---` as a rule
       across the editor and hides the dashes, so a block the index is reading, a block the

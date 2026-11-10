@@ -11,7 +11,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use gpui::{Context, Window};
-use shale_core::vault::rel_text;
+use shale_core::vault::{rel_text, LinkResolver};
 
 use crate::acts::{AddProperties, Save};
 use crate::editor::frontmatter::Frontmatter;
@@ -297,6 +297,21 @@ impl Workspace {
     ///
     /// An anchor that names no heading does not cancel the jump: the note is almost
     /// certainly the right destination, so the reader gets the note at the top and a
+    /// Resolve a wiki-link target the way the index does: the three file rules, then
+    /// the vault's aliases.
+    ///
+    /// The tables are built per call — O(notes), which is what the
+    /// `Vault::resolve_link(target, entries)` convenience this replaces already cost on
+    /// this path. What changes is that the resolver is taught the aliases, so `Enter` on
+    /// `[[anon]]` lands on the note that declares it, exactly as the backlinks panel, the
+    /// graph and the editor's own resolved-link colouring already claim.
+    pub(super) fn resolve_target(&self, target: &str) -> Option<PathBuf> {
+        LinkResolver::new(&self.entries)
+            .with_aliases(&self.aliases)
+            .resolve_link(target)
+            .map(|entry| entry.path.clone())
+    }
+
     /// status line saying which heading was missing. Refusing would leave them with
     /// nothing for a link one rename away from working.
     pub(super) fn follow_link(
@@ -313,9 +328,8 @@ impl Workspace {
             }
             return;
         }
-        match self.vault.resolve_link(target, &self.entries) {
-            Ok(Some(entry)) => {
-                let path = entry.path.clone();
+        match self.resolve_target(target) {
+            Some(path) => {
                 tracing::debug!(target, path = %path.display(), "following wiki-link");
                 self.open_note(&path, cx);
                 if let Some(anchor) = anchor {
@@ -323,15 +337,10 @@ impl Workspace {
                 }
             }
             // `gD`: the note the link asks for, made and then followed.
-            Ok(None) if create => self.make_link_note(target, cx),
-            Ok(None) => {
+            None if create => self.make_link_note(target, cx),
+            None => {
                 tracing::debug!(target, "unresolved wiki-link");
                 self.say(format!("no note named {target}"), cx);
-                cx.notify();
-            }
-            Err(err) => {
-                tracing::warn!(target, "failed to resolve link: {err:#}");
-                self.say(format!("{err:#}"), cx);
                 cx.notify();
             }
         }
@@ -373,6 +382,7 @@ impl Workspace {
                 // follows it so the tree is not left pointing at nothing.
                 self.refresh_entries(cx);
                 self.index_created(&created);
+                self.refresh_link_names(cx);
                 self.tree_selection = Some(created.clone());
                 // The message goes after the open, as `:new` does it: opening a note
                 // says the note's name, and the creation is the thing worth saying.
@@ -554,6 +564,7 @@ impl Workspace {
                 self.resign();
                 // ...and the index has to be told, for the same reason.
                 self.index_saved(&path);
+                self.refresh_link_names(cx);
                 // ...and the graph, for the same reason: the watcher never sees our
                 // own write.
                 self.graph_note_saved(&path, &text);
@@ -601,6 +612,7 @@ impl Workspace {
                     note.dirty.set(false);
                     self.resign();
                     self.index_saved(&path);
+                    self.refresh_link_names(cx);
                     self.graph_note_saved(&path, &text);
                     if quiet {
                         tracing::debug!(path = %path.display(), "autosaved embed");
@@ -720,6 +732,7 @@ impl Workspace {
                 // Our own write must not come back as somebody else's edit.
                 self.resign();
                 self.index_saved(&path);
+                self.refresh_link_names(cx);
                 self.graph_note_saved(&path, &text);
                 self.refresh_graph(cx);
                 // The session rides the same beat (roadmap P1.8): the pause that

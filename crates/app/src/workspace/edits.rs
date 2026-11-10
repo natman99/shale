@@ -16,7 +16,7 @@ use crate::acts::*;
 use crate::ex;
 use crate::prompt;
 
-use super::note_keys;
+use super::known_names;
 use super::tabs::TabContent;
 use super::Workspace;
 
@@ -277,6 +277,7 @@ impl Workspace {
                 let created = self.vault.create_note(self.target_dir().join(answer))?;
                 self.refresh_entries(cx);
                 self.index_created(&created);
+                self.refresh_link_names(cx);
                 self.tree_selection = Some(created.clone());
                 self.open_note(&created, cx);
                 self.say(format!("created {}", rel_text(&created)), cx);
@@ -313,6 +314,7 @@ impl Workspace {
                 // would ever notice them.
                 self.index_renamed(&from, &renamed);
                 self.index_rewrites(&report.written);
+                self.refresh_link_names(cx);
                 // The graph moves with the file: the old path is gone, and the new one
                 // has to be re-scanned for the links inside it.
                 self.graph_note_removed(&from);
@@ -385,6 +387,7 @@ impl Workspace {
                 // And every jump that named it.
                 self.jumps.forget(&target);
                 self.index_deleted(&target);
+                self.refresh_link_names(cx);
                 self.graph_note_removed(&target);
                 self.refresh_graph(cx);
                 self.tree_selection = None;
@@ -476,6 +479,36 @@ impl Workspace {
         Ok(report)
     }
 
+    /// Re-read the aliases the index holds and hand the editor the link names again.
+    ///
+    /// This belongs **after** an index write rather than with the disk refresh: the
+    /// watcher lists the files before it updates the index, so an alias added a moment
+    /// ago is not in the database yet when [`Workspace::refresh_entries`] looks. Reading
+    /// it only there would leave `[[anon]]` painted as a dead end in a vault where the
+    /// index, the graph and `gd` all reach the note — the colour disagreeing with the
+    /// resolution, which is the one disagreement this feature cannot have.
+    pub(super) fn refresh_link_names(&mut self, cx: &mut Context<Self>) {
+        let aliases = self
+            .db
+            .as_ref()
+            .and_then(|db| db.aliases().ok())
+            .unwrap_or_default();
+        if aliases == self.aliases {
+            return;
+        }
+        self.aliases = aliases;
+        self.known = known_names(&self.entries, &self.aliases);
+        for tab in self.pane().tabs.iter() {
+            let Some(editor) = tab.editor() else {
+                continue;
+            };
+            editor.update(cx, |editor, cx| {
+                editor.set_known_links(self.known.clone(), cx)
+            });
+        }
+        cx.notify();
+    }
+
     /// Re-read the vault's listings after the disk moved — one of Shale's own
     /// edits or a change made outside it — and hand the editor the new
     /// attachments and link targets so wiki-links resolve against what is on disk
@@ -483,7 +516,14 @@ impl Workspace {
     pub(super) fn refresh_entries(&mut self, cx: &mut Context<Self>) {
         self.entries = self.vault.list_markdown().unwrap_or_default();
         self.dirs = self.vault.list_dirs().unwrap_or_default();
-        self.known = note_keys(&self.entries);
+        // The aliases come from the index rather than from the files, because the index
+        // is what already read them, and it has been updated before this runs.
+        self.aliases = self
+            .db
+            .as_ref()
+            .and_then(|db| db.aliases().ok())
+            .unwrap_or_default();
+        self.known = known_names(&self.entries, &self.aliases);
         self.attachments = self.vault.list_attachments().unwrap_or_default();
         let vault = Rc::clone(&self.vault);
         // Every tab, not only the one on screen: a wiki-link in a tab nobody is

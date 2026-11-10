@@ -232,6 +232,20 @@ impl VaultServices {
                         // vault's index, so it is named and the pass stands.
                         tracing::warn!("could not index {}: {why}", path.display());
                     }
+                    if !report.is_empty() {
+                        // The pass just filed what these notes declare, and one of the
+                        // things a note declares is its aliases — the names a wiki-link
+                        // can reach with no file behind it. A window computes its link
+                        // names at startup, when this pass had not run yet, so without
+                        // this word every `[[alias]]` in the vault would be painted as a
+                        // dead end until the disk moved for some other reason.
+                        if let Some(services) = watched.upgrade() {
+                            let windows = services.read_with(cx, |s, _| s.windows.clone());
+                            for ws in windows {
+                                let _ = ws.update(cx, |ws, cx| ws.refresh_link_names(cx));
+                            }
+                        }
+                    }
                 }
                 Err(err) => {
                     // The index keeps working — a failed pass is not a failed

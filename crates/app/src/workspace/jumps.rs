@@ -185,14 +185,13 @@ impl Workspace {
             self.say("no embed on this line", cx);
             return;
         };
-        match self.vault.resolve_link(&target, &self.entries) {
-            Ok(Some(entry)) => {
-                let path = entry.path.clone();
+        match self.resolve_target(&target) {
+            Some(path) => {
                 let tab = self.pane().active;
                 let _ = anchor;
                 self.enter_embed_at(tab, &path, 0, cx);
             }
-            _ => self.say(format!("no note \"{target}\""), cx),
+            None => self.say(format!("no note \"{target}\""), cx),
         }
     }
 

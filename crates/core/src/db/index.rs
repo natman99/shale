@@ -459,6 +459,18 @@ fn like_prefix(prefix: &str) -> String {
 }
 
 impl Db {
+    /// Every alias the vault declares, as `(alias, vault-relative path of the note
+    /// that declares it)`, in note order and then list order.
+    ///
+    /// There is no `aliases` table on purpose: an alias is a property like any other,
+    /// and a second table holding the same values would be a second answer to keep in
+    /// step. This is the one reader, used by the link pass below and by anything that
+    /// wants an alias-aware [`crate::vault::LinkResolver`].
+    pub fn aliases(&self) -> Result<Vec<(String, String)>> {
+        let conn = self.read()?;
+        alias_pairs(&conn)
+    }
+
     /// Bring the index up to date with the whole vault, then stop.
     ///
     /// This is the startup pass roadmap P1.3 asks for. The index is turned back into
@@ -537,6 +549,9 @@ impl Db {
         self.write(move |conn| {
             drop_note(conn, &path)?;
             event(conn, &path, EventKind::Delete, provenance, "")?;
+            // A note going away can un-shadow an alias: `[[Zork]]` was `Zork.md`'s
+            // while it existed, and belongs to whichever note calls it an alias now.
+            file_alias_links(conn)?;
             Ok(())
         })
     }
@@ -562,6 +577,9 @@ impl Db {
                 Provenance::Rename,
                 &old,
             )?;
+            // The rename moved a name, which is exactly the event that can hand a
+            // ghost to an alias — or take one back.
+            file_alias_links(conn)?;
             Ok(())
         })
     }
@@ -884,6 +902,11 @@ impl Db {
                     event(conn, path, EventKind::Delete, provenance, "")?;
                 }
             }
+            // A note this pass wrote may declare an alias that explains a ghost an
+            // older note left behind — and neither note's text changed, so nothing
+            // else would ever revisit that row. Same transaction: the index is never
+            // observable with the alias filed and the link still a ghost.
+            file_alias_links(conn)?;
             Ok(())
         })?;
         Ok(report)
@@ -918,6 +941,198 @@ impl Db {
         }
         Ok(out)
     }
+}
+
+/// The `aliases:` values the index holds, as `(alias, note)` pairs, in note order and
+/// then list order.
+fn alias_pairs(conn: &Connection) -> Result<Vec<(String, String)>> {
+    let mut stmt = conn
+        .prepare("SELECT note, value FROM props WHERE key = 'aliases' ORDER BY note, ordinal")
+        .context("reading the vault index's aliases")?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(1)?, row.get::<_, String>(0)?))
+        })
+        .context("reading the vault index's aliases")?;
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row.context("reading the vault index's aliases")?);
+    }
+    Ok(out)
+}
+
+/// The names the three file rules already answer, lowercased — a vault-relative path,
+/// that path without its `.md`, and the file stem — each mapped to the note it answers,
+/// shortest path winning a tie exactly as `LinkResolver::by_stem` does.
+///
+/// This does double duty. An alias whose name is in this set is not an alias for
+/// resolution purposes, which is what keeps the fourth rule additive. And a ghost whose
+/// text is in this set has a note behind it *now*, whether or not the note existed when
+/// the link was indexed — which is the same staleness, one step earlier in the list.
+fn answered_paths(conn: &Connection) -> Result<BTreeMap<String, String>> {
+    let mut stmt = conn
+        .prepare("SELECT path FROM notes ORDER BY path")
+        .context("reading the vault index's note names")?;
+    let rows = stmt
+        .query_map([], |row| row.get::<_, String>(0))
+        .context("reading the vault index's note names")?;
+    let mut out: BTreeMap<String, String> = BTreeMap::new();
+    for row in rows {
+        let path = row.context("reading the vault index's note names")?;
+        let depth = Path::new(&path).components().count();
+        let lower = path.to_lowercase();
+        let mut keys = vec![lower.clone()];
+        if let Some(stripped) = lower.strip_suffix(".md") {
+            keys.push(stripped.to_string());
+        }
+        if let Some(stem) = Path::new(&path).file_stem().and_then(|s| s.to_str()) {
+            keys.push(stem.to_lowercase());
+        }
+        for key in keys {
+            match out.get(&key) {
+                Some(current) if Path::new(current).components().count() <= depth => {}
+                _ => {
+                    out.insert(key, path.clone());
+                }
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// File the links an alias explains.
+///
+/// A `links` row holds its target as it resolved **when the note was indexed**. An
+/// alias declared afterwards — later in the same pass, in a later one, or by a note
+/// that did not exist when the link was written — changes nothing on disk, so nothing
+/// would re-index the linking note, and the row goes on reading as a ghost: unresolved
+/// in the editor, missing from the graph, and absent from the aliased note's backlinks.
+/// The fix is a DB edit rather than a re-read: the ghosts are already rows, and the
+/// aliases are already in `props`.
+///
+/// The rule is `LinkResolver`'s, and the shadow check is the half that matters: an
+/// alias is consulted only when the three file rules find nothing, so a ghost that a
+/// note name answers stays that note's business. `[[Zork]]` written before `Zork.md`
+/// existed is re-filed to `Zork.md`, not to whichever note lists `Zork` as an alias —
+/// and that re-filing is a second thing this pass fixes for free, since a note created
+/// after a link was indexed left the link a ghost until someone edited it.
+///
+/// A vault that declares no aliases pays nothing here: the scan is gated on there being
+/// an alias to consult, so the notes-without-frontmatter majority of a vault never sees
+/// the extra query on every save.
+///
+/// Matching happens in Rust rather than in SQL because the resolver lowercases with
+/// Unicode rules while SQLite's `NOCASE` folds ASCII only — an alias differing from its
+/// ghost by a non-ASCII letter would be filed by the editor and not by the index, and
+/// the whole point of this pass is that the two never disagree.
+///
+/// One direction this does **not** undo: an alias *removed* leaves the rows it filed
+/// pointing at the note. The row holds the resolved path, not what the author typed, so
+/// there is nothing to restore it to; the link becomes honest again when the linking
+/// note is next edited, or the index is rebuilt. Storing the authored target next to the
+/// resolved one is the schema change that would make removal exact, and it is the same
+/// door the per-match offsets would open.
+fn file_alias_links(conn: &Connection) -> Result<()> {
+    let pairs = alias_pairs(conn)?;
+    if pairs.is_empty() {
+        return Ok(());
+    }
+    // The alias table, with the resolver's tie-break: shortest path wins, and a tie
+    // goes to whoever came first in note order.
+    let mut by_alias: BTreeMap<String, String> = BTreeMap::new();
+    for (alias, owner) in pairs {
+        let key = alias.trim().to_lowercase();
+        if key.is_empty() {
+            continue;
+        }
+        match by_alias.get(&key) {
+            Some(current)
+                if Path::new(current).components().count()
+                    <= Path::new(&owner).components().count() => {}
+            _ => {
+                by_alias.insert(key, owner);
+            }
+        }
+    }
+    let answered = answered_paths(conn)?;
+    by_alias.retain(|alias, _| !answered.contains_key(alias));
+    if by_alias.is_empty() && answered.is_empty() {
+        return Ok(());
+    }
+
+    let ghosts: Vec<(String, String)> = {
+        let mut stmt = conn
+            .prepare("SELECT source, target FROM links WHERE target_kind = 'ghost'")
+            .context("reading the vault index's unresolved links")?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .context("reading the vault index's unresolved links")?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    for (source, target) in ghosts {
+        let key = target.trim().to_lowercase();
+        // The file rules first, then the alias — the resolver's order, so a ghost that
+        // a note name answers belongs to that note even if some other note has been
+        // calling it an alias all along.
+        let Some(owner) = answered.get(&key).or_else(|| by_alias.get(&key)).cloned() else {
+            continue;
+        };
+        // `OR IGNORE`, then the delete: the source may already link to the owner under
+        // its real name, and two rows for one link would be a lie about the vault. When
+        // the update changes nothing, this ghost *is* that duplicate, so it goes away.
+        // `target_kind` moves with it: the row is no longer an unresolved name, it is
+        // a link to a note, and every reader that filters on the kind has to see that.
+        let changed = conn.execute(
+            "UPDATE OR IGNORE links SET target = ?1, target_kind = 'note' WHERE source = ?2 AND target = ?3 AND target_kind = 'ghost'",
+            params![owner, source, target],
+        )?;
+        if changed == 0 {
+            conn.execute(
+                "DELETE FROM links WHERE source = ?1 AND target = ?2 AND target_kind = 'ghost'",
+                params![source, target],
+            )?;
+        }
+    }
+
+    // The same for the edges a property wrote: `ally: "[[Hobgoblin]]"` is a link like
+    // any other, resolved by the same rules at the same moment.
+    let edges: Vec<(String, String, String)> = {
+        let mut stmt = conn
+            .prepare("SELECT src, kind, dst FROM edges")
+            .context("reading the vault index's property edges")?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })
+            .context("reading the vault index's property edges")?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    for (src, kind, dst) in edges {
+        let key = dst.trim().to_lowercase();
+        let Some(owner) = by_alias.get(&key).cloned() else {
+            continue;
+        };
+        if owner == dst {
+            continue;
+        }
+        let changed = conn.execute(
+            "UPDATE OR IGNORE edges SET dst = ?1 WHERE src = ?2 AND kind = ?3 AND dst = ?4",
+            params![owner, src, kind, dst],
+        )?;
+        if changed == 0 {
+            conn.execute(
+                "DELETE FROM edges WHERE src = ?1 AND kind = ?2 AND dst = ?3",
+                params![src, kind, dst],
+            )?;
+        }
+    }
+    Ok(())
 }
 
 /// Say so when a note's frontmatter block would not parse.
@@ -1637,6 +1852,132 @@ mod tests {
             column(&db, "SELECT value || ':' || kind FROM props"),
             vec!["[[Waterdeep#Government]]:link".to_string()],
             "the row still holds what the author typed"
+        );
+    }
+
+    /// The alias rule end to end: a link written before the name behind it existed
+    /// stops being a ghost the moment an `aliases:` list explains it — no file re-read,
+    /// no text scan, one DB edit in the same transaction that filed the alias.
+    #[test]
+    fn an_alias_filed_later_re_files_the_link_that_named_it() {
+        let (_dir, vault, db) = vault_with(&[
+            ("notes/hero.md", "Met [[Hobgoblin]] in the dark.\n"),
+            ("notes/plain.md", "Nothing here.\n"),
+        ]);
+        db.reconcile(&vault).unwrap();
+        assert_eq!(
+            column(
+                &db,
+                "SELECT source || ' ' || target || ':' || target_kind FROM links"
+            ),
+            vec!["notes/hero.md Hobgoblin:ghost".to_string()],
+            "before the alias exists, a ghost is the honest answer"
+        );
+
+        // The alias arrives in a note that was already indexed. Nothing about `hero.md`
+        // changed, so nothing else would ever revisit its row.
+        vault
+            .write(
+                "notes/goblin.md",
+                "---\naliases:\n  - Hobgoblin\n---\n# Goblin\n",
+            )
+            .unwrap();
+        db.note_created(&vault, Path::new("notes/goblin.md"), Provenance::External)
+            .unwrap();
+        assert_eq!(
+            column(
+                &db,
+                "SELECT source || ' ' || target || ':' || target_kind FROM links"
+            ),
+            vec!["notes/hero.md notes/goblin.md:note".to_string()],
+            "the ghost is filed as an edge instead of rotting until someone edits hero.md"
+        );
+    }
+
+    /// The fourth rule stays fourth, and a property's edge is filed by the same sweep as
+    /// a body link.
+    #[test]
+    fn an_alias_never_steals_a_name_and_files_property_edges_too() {
+        let (_dir, vault, db) = vault_with(&[(
+            "notes/hero.md",
+            "---\nally: \"[[Hobgoblin]]\"\n---\nSaw [[Zork]].\n",
+        )]);
+        db.reconcile(&vault).unwrap();
+        // Both names are ghosts: the body link and the property link, which the body
+        // scanner also sees because the block is part of the text.
+        assert_eq!(
+            column(&db, "SELECT target || ':' || target_kind FROM links"),
+            vec!["Hobgoblin:ghost".to_string(), "Zork:ghost".to_string()]
+        );
+        assert_eq!(
+            column(&db, "SELECT kind || '=' || dst FROM edges"),
+            vec!["ally=Hobgoblin".to_string()]
+        );
+
+        // Two notes arrive at once: one that *is* called Zork, one that calls both names
+        // an alias. The file rule wins the first and the alias takes the second.
+        vault.write("notes/zork.md", "The tower.\n").unwrap();
+        vault
+            .write(
+                "notes/b.md",
+                "---\naliases:\n  - Zork\n  - Hobgoblin\n---\n",
+            )
+            .unwrap();
+        db.reconcile(&vault).unwrap();
+        assert_eq!(
+            column(
+                &db,
+                "SELECT source || ' ' || target || ':' || target_kind FROM links WHERE source = 'notes/hero.md'"
+            ),
+            vec![
+                "notes/hero.md notes/b.md:note".to_string(),
+                "notes/hero.md notes/zork.md:note".to_string(),
+            ],
+            "a note actually called Zork owns `[[Zork]]`; b.md's alias takes only the name nothing else answers"
+        );
+        assert_eq!(
+            column(&db, "SELECT kind || '=' || dst FROM edges"),
+            vec!["ally=notes/b.md".to_string()],
+            "the property's edge is filed by the same sweep"
+        );
+    }
+
+    /// Two notes claiming one alias are settled the way a stem tie is: shortest path,
+    /// so the answer is stable across passes rather than whatever SQLite read last.
+    #[test]
+    fn two_notes_claiming_one_alias_tie_break_like_a_stem() {
+        let (_dir, vault, db) = vault_with(&[
+            ("notes/hero.md", "Met [[Hobgoblin]].\n"),
+            (
+                "deep/deeper/goblin.md",
+                "---\naliases:\n  - Hobgoblin\n---\n",
+            ),
+            ("goblin.md", "---\naliases:\n  - Hobgoblin\n---\n"),
+        ]);
+        db.reconcile(&vault).unwrap();
+        assert_eq!(
+            column(
+                &db,
+                "SELECT target FROM links WHERE source = 'notes/hero.md'"
+            ),
+            vec!["goblin.md".to_string()]
+        );
+    }
+
+    /// The one reader both the sweep and an alias-aware resolver go through.
+    #[test]
+    fn the_index_reads_its_aliases_in_note_and_list_order() {
+        let (_dir, vault, db) = vault_with(&[(
+            "notes/goblin.md",
+            "---\naliases:\n  - Hobgoblin\n  - Yapper\n---\n",
+        )]);
+        db.reconcile(&vault).unwrap();
+        assert_eq!(
+            db.aliases().unwrap(),
+            vec![
+                ("Hobgoblin".to_string(), "notes/goblin.md".to_string()),
+                ("Yapper".to_string(), "notes/goblin.md".to_string()),
+            ]
         );
     }
 

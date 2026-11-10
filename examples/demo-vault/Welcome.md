@@ -1,6 +1,7 @@
 # Welcome
 
-This is [[Another Note]] and an [[alias|aliased link]].
+This is [[Another Note]] and an [[alias|aliased link]]. The same note answers to
+[[anon]], which exists only as an `aliases:` entry in it.
 
 - [ ] a task
 

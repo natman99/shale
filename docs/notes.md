@@ -60,6 +60,32 @@ The command line will not clone or move a note by accident. Moving is `:rename`
 (`r` in the tree, `ctrl-shift-r`), which also rewrites the links that point at the old
 name. That difference is the whole reason the two are separate commands.
 
+### Other names the same note answers to
+
+A wiki-link is matched against the vault in this order: the exact path, the path with
+`.md` added, and a file whose name matches ignoring case. A fourth name belongs to the
+note itself: what its `aliases:` property declares.
+
+```markdown
+---
+aliases:
+  - anon
+  - the masked one
+---
+```
+
+`[[anon]]` opens that note, its backlinks list counts the link, and the link is tinted
+as resolved rather than as a dead end. The rule is **additive** — it is consulted only
+when the three file rules have found nothing — so a note called `Test.md` keeps its own
+`[[Test]]` even if some other note declares `Test` as an alias. Two notes declaring the
+same alias tie-break the way a case-insensitive stem tie does: shortest path, then
+alphabetical.
+
+Obsidian deliberately writes `[[Real name|alias]]` when you complete an alias, so its
+links keep working in other tools. Shale resolves the short form too, which lets a link
+stay short and lets it survive a rename: the alias travels with the note, and the next
+index pass re-files every link that named it.
+
 ## Saving
 
 Autosave is on by default and writes a note:
@@ -91,7 +117,8 @@ Resolution tries the exact path, then the exact path with `.md` added, then the
 stem case-insensitively. An alias and a `#heading` anchor are cut from the target
 before that happens, so both resolve to the note.
 
-Resolved links are tinted, unresolved ones are dimmed. `gd` follows the link under
+Resolved links are tinted, unresolved ones are dimmed — and a note's `aliases:` count
+as its name, so a link to one is resolved (see *Naming a note*). `gd` follows the link under
 the cursor (`gx` is the older spelling of the same thing), `ctrl`+click is the
 mouse door, and `gD` makes the note first when the link resolves to nothing. A
 note `gD` creates lands **beside the note you are in**, on the assumption that a link

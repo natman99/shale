@@ -73,6 +73,50 @@ fn open_a(cx: &mut VisualTestContext, window: &WindowHandle<Workspace>) {
     );
 }
 
+/// A link to an **alias** is a link to the note that declares it. The vault has no
+/// `anon.md`: the name only exists inside `masked.md`'s `aliases:` list, and the index
+/// is what knows that.
+#[gpui::test]
+fn a_link_to_an_alias_opens_the_note_that_declares_it(cx: &mut TestAppContext) {
+    // Indexed on purpose: the alias rule reads the index, so this is the first test
+    // that asks whether the window's link colouring and the index agree at all.
+    let (_dir, window) = indexed_vault(
+        cx,
+        &[
+            ("host.md", "Met [[anon]] in the dark.\n"),
+            (
+                "masked.md",
+                "---\naliases:\n  - anon\n---\nThe masked one.\n",
+            ),
+        ],
+    );
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    cx.simulate_keystrokes("space f enter");
+    assert_eq!(active(&window, &mut cx), "host.md");
+    // The colour first: the window has to believe the link reaches a note before it
+    // paints it as anything but a dead end.
+    assert!(
+        window
+            .update(&mut cx, |ws, _, _| ws.knows_link("anon"))
+            .unwrap(),
+        "the alias is in the set the editor styles links with"
+    );
+    assert!(
+        !window
+            .update(&mut cx, |ws, _, _| ws.knows_link("nobody"))
+            .unwrap(),
+        "and a name nothing declares is still a dead end"
+    );
+    // Then the jump: `f a` onto the link's text, vim's follow.
+    cx.simulate_keystrokes("f a");
+    cx.simulate_keystrokes("g d");
+    assert_eq!(
+        active(&window, &mut cx),
+        "masked.md",
+        "`gd` on `[[anon]]` landed on the note that declares the alias"
+    );
+}
+
 /// Following a wiki-link is a jump, and `ctrl-o` returns to the exact byte of the
 /// link the user was reading. `ctrl-i` walks back out along the same path.
 #[gpui::test]

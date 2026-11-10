@@ -190,6 +190,9 @@ pub(crate) struct Workspace {
     /// once to one editor, because a tab opened at any point in the session has to
     /// resolve links exactly as the first one did.
     known: HashSet<String>,
+    /// The aliases the index holds, as `(alias, note path)`: the fourth link rule, kept
+    /// next to `known` so the styling and the resolution answer the same question.
+    aliases: Vec<(String, String)>,
     /// The files that are not notes, for the same reason: `![[image.png]]` resolves
     /// against these.
     attachments: Vec<VaultEntry>,
@@ -426,7 +429,15 @@ impl Workspace {
         // remembered in the session, so this default is only what a fresh vault (or a
         // vault where they closed everything) looks like.
         let expanded = HashSet::new();
-        let every_name = note_keys(&entries);
+        // The aliases the index holds, and the names they add to the set the editor
+        // styles links with: `[[anon]]` is a resolved link when some note declares
+        // `aliases: [anon]`, and the editor would otherwise paint it as a dead end the
+        // index disagrees with. Re-read whenever the disk moves.
+        let aliases = db
+            .as_ref()
+            .and_then(|db| db.aliases().ok())
+            .unwrap_or_default();
+        let every_name = known_names(&entries, &aliases);
         // The files that are not notes, which is what `![[image.png]]` resolves
         // against. Both this and the link names live on the window rather than being
         // handed to one editor, because every tab opened later has to see the vault
@@ -543,6 +554,7 @@ impl Workspace {
             entries,
             dirs,
             known: every_name,
+            aliases,
             attachments,
             // Not built at startup: the graph reads every note, and most windows never
             // ask for it (see [`Workspace::open_graph`]).
@@ -853,11 +865,14 @@ impl Workspace {
             "the vault changed on disk"
         );
         self.signature = after;
-        self.refresh_entries(cx);
-        // The index follows the disk as surely as the tree does, and gets the same
-        // change list. Everything in it is best-effort: a failed index is a log
-        // line, never a reason the window stops showing the vault.
+        // The index first, then the listings: the link names the editor styles with
+        // include the aliases the index holds, so reading them before the index has
+        // caught up would paint a link the vault answers as a dead end.
+        //
+        // Everything in the index pass is best-effort: a failed index is a log line,
+        // never a reason the window stops showing the vault.
         self.index_changes(&changes, Provenance::External);
+        self.refresh_entries(cx);
         // The graph follows the disk as well, when it has been built at all.
         self.graph_changes(&changes);
         self.refresh_graph(cx);
@@ -968,6 +983,22 @@ impl Workspace {
 
 /// Lowercased link targets that resolve to an existing note: file stems and
 /// vault-relative paths (with and without the `.md` extension).
+/// Every name a wiki-link could answer, including the ones that only an alias answers.
+///
+/// The alias keys go in because this set is what the editor paints resolved links with.
+/// Leaving them out would draw `[[anon]]` as a dead end in a vault where the index, the
+/// graph and `Enter` all agree it reaches a note.
+fn known_names(entries: &[VaultEntry], aliases: &[(String, String)]) -> HashSet<String> {
+    let mut keys = note_keys(entries);
+    for (alias, _) in aliases {
+        let key = alias.trim().to_lowercase();
+        if !key.is_empty() {
+            keys.insert(key);
+        }
+    }
+    keys
+}
+
 fn note_keys(entries: &[VaultEntry]) -> HashSet<String> {
     let mut keys = HashSet::new();
     for entry in entries {

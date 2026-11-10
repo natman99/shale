@@ -79,6 +79,15 @@ pub struct LinkResolver {
     /// file name is not valid UTF-8 are skipped; the old scan bailed out
     /// of the whole resolution on one, which this table does not.
     by_name: HashMap<String, u32>,
+    /// Lowercased alias -> entry index: the **fourth** rule, and empty unless a
+    /// caller hands the vault's aliases to [`LinkResolver::with_aliases`].
+    ///
+    /// It is consulted only after the three file rules have found nothing, which is
+    /// the ruling that makes alias-awareness safe: a note actually called `anon.md`
+    /// keeps `[[anon]]` even when another note lists `anon` among its aliases, so
+    /// adding an alias can connect a link but can never steal one. Aliases are never
+    /// consulted for attachments — an image is not aliased.
+    by_alias: HashMap<String, u32>,
 }
 
 impl LinkResolver {
@@ -118,7 +127,39 @@ impl LinkResolver {
             by_stem,
             by_lower_path,
             by_name,
+            by_alias: HashMap::new(),
         }
+    }
+
+    /// Teach the resolver the aliases the vault declares, as
+    /// `(alias, vault-relative path of the note that declares it)` pairs — which is
+    /// what the `props` table already holds under the `aliases` key, so there is one
+    /// source for them rather than a second table to keep in step.
+    ///
+    /// Two rules the caller does not have to think about: an alias whose owner is not
+    /// among the entries is skipped (a name declared by a note that is not there is
+    /// not a name anything can be found by), and two notes claiming one alias are
+    /// settled the way the stem table settles a tie — shortest path, then scan order
+    /// — so the answer is stable across passes instead of depending on which row
+    /// SQLite happened to read last.
+    #[must_use]
+    pub fn with_aliases(mut self, aliases: &[(String, String)]) -> Self {
+        for (alias, owner) in aliases {
+            let key = alias.trim().to_lowercase();
+            if key.is_empty() {
+                continue;
+            }
+            let owner = PathBuf::from(owner);
+            let index = match self.exact.get(&owner) {
+                Some(&index) => index,
+                None => match self.by_stem.get(&rel_text(&owner).to_lowercase()) {
+                    Some(&index) => index,
+                    None => continue,
+                },
+            };
+            insert_shortest(&mut self.by_alias, key, index, &self.entries);
+        }
+        self
     }
 
     /// The entry a table's index points at.
@@ -141,7 +182,10 @@ impl LinkResolver {
         if let Some(&index) = self.exact.get(&as_path.with_extension("md")) {
             return Some(self.entry(index));
         }
-        self.by_stem
+        if let Some(&index) = self.by_stem.get(&target.to_lowercase()) {
+            return Some(self.entry(index));
+        }
+        self.by_alias
             .get(&target.to_lowercase())
             .map(|&index| self.entry(index))
     }
@@ -775,6 +819,58 @@ mod tests {
 
         assert!(vault.resolve_link("missing", &entries)?.is_none());
         Ok(())
+    }
+
+    /// The alias rule is fourth, not first: it answers a link nothing else answers, and
+    /// it never takes one a file already answers.
+    #[test]
+    fn an_alias_resolves_only_when_no_file_rule_answers_it() {
+        let entries: Vec<VaultEntry> = [
+            "notes/Another Note.md",
+            "notes/anon.md",
+            "deep/deeper/Goblin.md",
+            "Goblin.md",
+        ]
+        .iter()
+        .map(|p| VaultEntry {
+            path: PathBuf::from(p),
+        })
+        .collect();
+        let aliases = vec![
+            ("Anon".to_string(), "notes/Another Note.md".to_string()),
+            ("Hobgoblin".to_string(), "deep/deeper/Goblin.md".to_string()),
+            ("Goblin".to_string(), "notes/Another Note.md".to_string()),
+            ("Ghost".to_string(), "notes/Gone.md".to_string()),
+        ];
+        let r = LinkResolver::new(&entries).with_aliases(&aliases);
+
+        // Nothing else answers `Hobgoblin`, so the alias does, case-insensitively.
+        assert_eq!(
+            r.resolve_link("Hobgoblin").unwrap().path,
+            PathBuf::from("deep/deeper/Goblin.md")
+        );
+        assert_eq!(
+            r.resolve_link("  hobgoblin ").unwrap().path,
+            PathBuf::from("deep/deeper/Goblin.md")
+        );
+        // A note actually called `anon.md` keeps `[[anon]]`, and a declared alias that
+        // equals a real stem loses to that stem. An alias connects; it never steals.
+        assert_eq!(
+            r.resolve_link("anon").unwrap().path,
+            PathBuf::from("notes/anon.md")
+        );
+        assert_eq!(
+            r.resolve_link("Goblin").unwrap().path,
+            PathBuf::from("Goblin.md")
+        );
+        // An alias declared by a note that is not in the vault names nothing.
+        assert!(r.resolve_link("Ghost").is_none());
+        // An attachment is never aliased.
+        assert!(r.resolve_attachment("Hobgoblin").is_none());
+        // And without the aliases the same resolver says nothing about `Hobgoblin`.
+        assert!(LinkResolver::new(&entries)
+            .resolve_link("Hobgoblin")
+            .is_none());
     }
 
     /// The table-based resolver must keep the scan's exact tie and

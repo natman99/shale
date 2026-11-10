@@ -509,6 +509,9 @@ impl Workspace {
                 // disk is unchanged.
                 return (0, stale);
             }
+            // A note written by an accepted proposal can declare an alias, and the
+            // watcher will never report Shale's own write.
+            self.refresh_link_names(cx);
             self.refresh_graph(cx);
         }
 
