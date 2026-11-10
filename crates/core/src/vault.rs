@@ -295,11 +295,24 @@ impl Vault {
         self.walk(|name| name.ends_with(".md"))
     }
 
-    /// Every file in the vault that is not a markdown note — images and other
-    /// attachments — sorted by relative path, with the same directories skipped
-    /// as for notes.
+    /// Every file in the vault that is not a markdown note and not a query note —
+    /// images and other attachments — sorted by relative path, with the same
+    /// directories skipped as for notes.
+    ///
+    /// A `.shq` is excluded rather than listed, because an attachment is something an
+    /// embed can *show*: leaving a query note in this list would let `![[my-query]]`
+    /// resolve to it and then paint it as a broken image. Left out, the embed is a
+    /// ghost until P4.3's query-embed branch lands, which is the honest answer.
     pub fn list_attachments(&self) -> Result<Vec<VaultEntry>> {
-        self.walk(|name| !name.ends_with(".md"))
+        self.walk(|name| !name.ends_with(".md") && !name.ends_with(".shq"))
+    }
+
+    /// Every query note in the vault (`.shq`), sorted by relative path. These are not
+    /// notes and not attachments: they are saved questions, and the surfaces that list
+    /// them — the query picker, the embed resolver's third branch — read this list
+    /// rather than filtering the attachment list, so "is this a query?" is one answer.
+    pub fn list_queries(&self) -> Result<Vec<VaultEntry>> {
+        self.walk(|name| name.ends_with(".shq"))
     }
 
     /// Every directory in the vault, sorted by relative path, with the same
@@ -715,6 +728,37 @@ mod tests {
                 PathBuf::from("notes/ignored.txt")
             ],
             "everything that is not a note, and no dot directories"
+        );
+        Ok(())
+    }
+
+    /// A query note is its own kind of file: not a note, and not an attachment. The
+    /// attachment half is the load-bearing one — a `.shq` left in that list would let
+    /// `![[my-query]]` resolve to it and then paint it as a broken image, which is a
+    /// colour disagreeing with a resolution. Left out, the embed is a ghost until
+    /// P4.3's query branch lands, and a ghost is the honest answer.
+    #[test]
+    fn a_query_note_is_neither_a_note_nor_an_attachment() -> Result<()> {
+        let (_dir, vault) = fixture()?;
+        vault.write("queries/Party.shq", "SELECT note FROM props\n")?;
+        let queries: Vec<_> = vault
+            .list_queries()?
+            .iter()
+            .map(|e| e.path.clone())
+            .collect();
+        assert_eq!(queries, vec![PathBuf::from("queries/Party.shq")]);
+        for listed in [vault.list_attachments()?, vault.list_markdown()?] {
+            assert!(
+                !listed
+                    .iter()
+                    .any(|e| e.path.extension().is_some_and(|x| x == "shq")),
+                "a query note showed up in a list it is not part of"
+            );
+        }
+        let entries = vault.list_attachments()?;
+        assert!(
+            vault.resolve_attachment("Party", &entries).is_none(),
+            "an embed of a query must not resolve as an attachment yet"
         );
         Ok(())
     }

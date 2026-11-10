@@ -1,0 +1,430 @@
+//! Running a saved query's SQL against the index (roadmap P4.3).
+//!
+//! This is the one place the app hands SQL to SQLite on the user's behalf, so it owns
+//! both halves of the safety story:
+//!
+//! - **The connection is read-only.** [`Db::read`] sets `query_only`, so a body that
+//!   tries to write fails inside SQLite. That is the enforcement the plan asks for —
+//!   the connection refusing, not the text being sanitized first. A query note can
+//!   break a report; it cannot break a vault.
+//! - **The body is one question.** It must start with `SELECT` or `WITH`, and it may
+//!   not hold a second statement. Not because a second statement could do damage — it
+//!   could not, the connection would refuse it — but because a note that silently runs
+//!   two statements answers a different question than the one the reader wrote, and
+//!   SQLite's own message for the case names neither.
+//!
+//! ## No cache yet, on purpose
+//!
+//! The plan wrote "results cached by query-hash + vault mtime" before the index existed
+//! and before any query had been measured. A `GROUP BY` over `props` in a 5k-note vault
+//! is a single indexed scan, and a cache is a second answer to keep in step — with the
+//! anchor path in its key once relative queries land, or a query cached for one session
+//! answers for the next. Measure a slow query, then cache that query; the key rule is
+//! written here so the cache knows what it owes when it arrives.
+
+use super::Db;
+use anyhow::{anyhow, Context, Result};
+use rusqlite::types::ValueRef;
+use rusqlite::Row;
+
+/// One cell of a result.
+///
+/// SQLite has four storage classes and the surface has to tell them apart: a NULL is
+/// not an empty string, and a number is not the text that spells it — a column of
+/// counts should not sort as text because it was read as one.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Cell {
+    Text(String),
+    Integer(i64),
+    Real(f64),
+    Null,
+}
+
+impl Cell {
+    pub fn is_null(&self) -> bool {
+        matches!(self, Cell::Null)
+    }
+
+    /// How the cell reads on one line. A NULL is drawn as a gap rather than the word,
+    /// because a query's own `NULL` is a hole in the data and the reader should see the
+    /// hole.
+    pub fn display(&self) -> String {
+        match self {
+            Cell::Text(text) => text.clone(),
+            Cell::Integer(number) => number.to_string(),
+            Cell::Real(number) => number.to_string(),
+            Cell::Null => "—".to_string(),
+        }
+    }
+}
+
+/// A result set: the column names as SQLite reports them, and the rows.
+///
+/// Every row carries one cell per column, so a surface laying out a table never has to
+/// wonder whether a short row means a missing value.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Rows {
+    pub columns: Vec<String>,
+    pub rows: Vec<Vec<Cell>>,
+}
+
+impl Rows {
+    pub fn len(&self) -> usize {
+        self.rows.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.rows.is_empty()
+    }
+
+    /// The column's index by name, for a surface that wants one named column (a lens
+    /// reads the note-path column, a ledger reads the amount).
+    pub fn column(&self, name: &str) -> Option<usize> {
+        self.columns.iter().position(|c| c == name)
+    }
+}
+
+/// A named binding, spelled as the body spells it (`:current`).
+///
+/// Text only for now: the one binding the app makes is the anchor path of a relative
+/// query, and a body that wants a number can write it. Adding a typed binding is a
+/// wider door than it looks — a value bound from a note's frontmatter is a value the
+/// index already decided the kind of, and this is not the place to re-decide it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Binding<'a> {
+    pub name: &'a str,
+    pub text: &'a str,
+}
+
+impl<'a> Binding<'a> {
+    pub fn new(name: &'a str, text: &'a str) -> Self {
+        Self { name, text }
+    }
+}
+
+impl Db {
+    /// Run one query against the index on a read-only connection.
+    pub fn run(&self, sql: &str, bindings: &[Binding<'_>]) -> Result<Rows> {
+        check(sql)?;
+        let conn = self.read()?;
+        let mut stmt = conn
+            .prepare(sql)
+            .with_context(|| format!("the query could not be prepared: {sql}"))?;
+        let columns: Vec<String> = stmt.column_names().map(str::to_string).collect();
+        let width = columns.len();
+        let named: Vec<(&str, &str)> = bindings.iter().map(|b| (b.name, b.text)).collect();
+        let mut out = Rows {
+            columns,
+            rows: Vec::new(),
+        };
+        let mapped = stmt
+            .query_map(named.as_slice(), |row| read_row(row, width))
+            .with_context(|| format!("the query failed to run: {sql}"))?;
+        for row in mapped {
+            out.rows
+                .push(row.context("a result row could not be read")?);
+        }
+        Ok(out)
+    }
+}
+
+/// One row's cells, in column order. The width comes from the statement's columns, so
+/// a row is always as wide as the header even if SQLite hands back something odd.
+fn read_row(row: &Row<'_>, width: usize) -> rusqlite::Result<Vec<Cell>> {
+    let mut out = Vec::with_capacity(width);
+    for index in 0..width {
+        out.push(match row.get_ref(index)? {
+            ValueRef::Null => Cell::Null,
+            ValueRef::Integer(number) => Cell::Integer(number),
+            ValueRef::Real(number) => Cell::Real(number),
+            ValueRef::Text(text) => Cell::Text(String::from_utf8_lossy(text).into_owned()),
+            // The index holds no blobs, but `CAST(x AS BLOB)` can produce one. Say what
+            // it is rather than pass it off as text.
+            ValueRef::Blob(bytes) => Cell::Text(format!("<{} bytes>", bytes.len())),
+        });
+    }
+    Ok(out)
+}
+
+/// Refuse a body that is not one question, before SQLite gets the chance to.
+fn check(sql: &str) -> Result<()> {
+    let Some(word) = first_word(sql) else {
+        return Err(anyhow!("a query note's body is empty"));
+    };
+    if !matches!(word.as_str(), "select" | "with") {
+        return Err(anyhow!(
+            "a query note asks a question: this body starts with `{word}`, \
+             not `SELECT` or `WITH`"
+        ));
+    }
+    if let Some(after) = second_statement(sql) {
+        return Err(anyhow!(
+            "a query note holds one statement; this one continues after a `;` \
+             with `{after}`"
+        ));
+    }
+    Ok(())
+}
+
+/// The first word of the body, lowercased, skipping whitespace and comments.
+fn first_word(sql: &str) -> Option<String> {
+    let bytes = sql.as_bytes();
+    let mut at = 0;
+    loop {
+        while at < bytes.len() && bytes[at].is_ascii_whitespace() {
+            at += 1;
+        }
+        if bytes.get(at..at + 2) == Some(b"--") {
+            at += 2;
+            while at < bytes.len() && bytes[at] != b'\n' {
+                at += 1;
+            }
+            continue;
+        }
+        if bytes.get(at..at + 2) == Some(b"/*") {
+            at += 2;
+            while at < bytes.len() && bytes.get(at..at + 2) != Some(b"*/") {
+                at += 1;
+            }
+            at = (at + 2).min(bytes.len());
+            continue;
+        }
+        break;
+    }
+    let start = at;
+    while at < bytes.len() && (bytes[at].is_ascii_alphanumeric() || bytes[at] == b'_') {
+        at += 1;
+    }
+    (at > start).then(|| sql[start..at].to_ascii_lowercase())
+}
+
+/// The text after a `;` that ends a statement, if the body holds one.
+///
+/// Quoted text and comments are walked through rather than searched, because `;` is
+/// ordinary inside a string (`'a; b'`), inside a quoted identifier, and inside a
+/// comment — and a refusal that fires on those is a rule that rejects valid queries.
+fn second_statement(sql: &str) -> Option<String> {
+    let bytes = sql.as_bytes();
+    let mut at = 0;
+    while at < bytes.len() {
+        match bytes[at] {
+            b'\'' | b'"' | b'`' => {
+                let quote = bytes[at];
+                at += 1;
+                while at < bytes.len() {
+                    if bytes[at] == quote {
+                        // Doubled is an escape, not the end.
+                        if bytes.get(at + 1) == Some(&quote) {
+                            at += 2;
+                            continue;
+                        }
+                        break;
+                    }
+                    at += 1;
+                }
+                at += 1;
+            }
+            b'[' => {
+                at += 1;
+                while at < bytes.len() && bytes[at] != b']' {
+                    at += 1;
+                }
+                at += 1;
+            }
+            b'-' if bytes.get(at + 1) == Some(&b'-') => {
+                while at < bytes.len() && bytes[at] != b'\n' {
+                    at += 1;
+                }
+            }
+            b'/' if bytes.get(at + 1) == Some(&b'*') => {
+                at += 2;
+                while at < bytes.len() && bytes.get(at..at + 2) != Some(b"*/") {
+                    at += 1;
+                }
+                at = (at + 2).min(bytes.len());
+            }
+            b';' => {
+                let rest = sql[at + 1..].trim();
+                if !rest.is_empty() {
+                    // Named up to the next statement break, so the message quotes the
+                    // reader's own text rather than the whole file.
+                    let end = rest.find(';').unwrap_or(rest.len());
+                    let shown = rest[..end].trim();
+                    return Some(clipped(shown));
+                }
+                at += 1;
+            }
+            _ => at += 1,
+        }
+    }
+    None
+}
+
+/// Shorten a quote of the reader's own text to something a status line can carry,
+/// cutting on a character boundary — the text is theirs and may hold `—` or `[[…]]`.
+fn clipped(text: &str) -> String {
+    if text.len() <= 40 {
+        return text.to_string();
+    }
+    let mut at = 40;
+    while !text.is_char_boundary(at) {
+        at -= 1;
+    }
+    format!("{}…", &text[..at])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::vault::Vault;
+
+    /// A vault with three notes and the properties a monster vault would have.
+    fn vault() -> Result<(tempfile::TempDir, Vault, Db)> {
+        let dir = tempfile::tempdir()?;
+        let vault = Vault::open(dir.path())?;
+        vault.write("Goblin.md", "---\ncr: 5\ntype: monster\n---\n# Goblin\n")?;
+        vault.write("Wisp.md", "---\ncr: 2\ntype: monster\n---\n# Wisp\n")?;
+        vault.write("Session 15.md", "---\ntype: session\n---\n# Session 15\n")?;
+        let db = Db::open(dir.path())?;
+        db.reconcile(&vault)?;
+        Ok((dir, vault, db))
+    }
+
+    /// One column, as text, in the order the query returned it.
+    fn column(db: &Db, sql: &str) -> Result<Vec<String>> {
+        Ok(db
+            .run(sql, &[])?
+            .rows
+            .into_iter()
+            .map(|row| row[0].display())
+            .collect())
+    }
+
+    #[test]
+    fn a_query_answers_from_the_index() -> Result<()> {
+        let (_d, _v, db) = vault()?;
+        assert_eq!(
+            column(&db, "SELECT path FROM notes ORDER BY path")?,
+            ["Goblin.md", "Session 15.md", "Wisp.md"],
+            "the order the query asked for is the order the rows arrive in"
+        );
+        assert_eq!(
+            column(
+                &db,
+                "SELECT value FROM props WHERE key = 'cr' ORDER BY CAST(value AS REAL)"
+            )?
+            .len(),
+            2
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_result_keeps_its_columns_and_its_kinds() -> Result<()> {
+        let (_d, _v, db) = vault()?;
+        let rows = db.run(
+            "SELECT note, COUNT(*) AS n FROM props WHERE key = 'type' GROUP BY note",
+            &[],
+        )?;
+        assert_eq!(rows.columns, ["note", "n"]);
+        assert_eq!(rows.len(), 3);
+        let counts: Vec<&Cell> = rows.rows.iter().map(|row| &row[1]).collect();
+        assert!(
+            counts.iter().all(|cell| matches!(cell, Cell::Integer(1))),
+            "a count comes back as a number, not as the text of a number: {counts:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_null_is_a_null_and_not_an_empty_string() -> Result<()> {
+        let (_d, _v, db) = vault()?;
+        let rows = db.run("SELECT NULL AS missing, '' AS empty", &[])?;
+        assert!(rows.rows[0][0].is_null());
+        assert_eq!(rows.rows[0][1], Cell::Text(String::new()));
+        Ok(())
+    }
+
+    #[test]
+    fn a_relative_query_gets_its_anchor_bound() -> Result<()> {
+        let (_d, _v, db) = vault()?;
+        let rows = db.run(
+            "SELECT path FROM notes WHERE path <> :current ORDER BY path",
+            &[Binding::new(":current", "Wisp.md")],
+        )?;
+        assert_eq!(
+            rows.rows
+                .iter()
+                .map(|row| row[0].display())
+                .collect::<Vec<_>>(),
+            ["Goblin.md", "Session 15.md"],
+            "the anchor is a value the body compares against, not text spliced into it"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_body_that_is_not_a_question_is_refused_before_it_runs() -> Result<()> {
+        let (_d, _v, db) = vault()?;
+        for body in [
+            "UPDATE notes SET note = 'x'",
+            "DELETE FROM notes",
+            "INSERT INTO tags (note, tag) VALUES ('a.md', 'x')",
+            "PRAGMA table_info(notes)",
+            "DROP TABLE props",
+            "  -- a comment first\nUPDATE notes SET note = 'x'",
+            "",
+            "   \n",
+        ] {
+            let err = db.run(body, &[]).unwrap_err().to_string();
+            assert!(
+                err.contains("asks a question") || err.contains("body is empty"),
+                "{body} was accepted: {err}"
+            );
+        }
+        // A `WITH` is a question too, and the shape check must not refuse it.
+        assert!(db.run("WITH x AS (SELECT 1) SELECT * FROM x", &[]).is_ok());
+        Ok(())
+    }
+
+    #[test]
+    fn a_second_statement_in_the_body_is_named_rather_than_run() -> Result<()> {
+        let (_d, _v, db) = vault()?;
+        let err = db
+            .run("SELECT path FROM notes; SELECT 1", &[])
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("one statement") && err.contains("SELECT 1"),
+            "{err}"
+        );
+        // A trailing semicolon is punctuation, not a second statement.
+        assert!(db.run("SELECT path FROM notes;\n", &[]).is_ok());
+        // A semicolon inside text, a quoted identifier or a comment is not a break.
+        for body in [
+            "SELECT 'a; b' AS x",
+            "SELECT \"path;\" FROM notes LIMIT 0",
+            "SELECT path FROM notes -- ends here; not a break\n",
+            "SELECT path FROM notes /* ; not a break */ LIMIT 1",
+        ] {
+            assert!(db.run(body, &[]).is_ok(), "{body} was refused");
+        }
+        Ok(())
+    }
+
+    /// The connection is the enforcement, not the shape check: a body that gets past
+    /// the check still cannot write.
+    #[test]
+    fn the_read_connection_refuses_to_write_even_past_the_shape_check() -> Result<()> {
+        let (_d, _v, db) = vault()?;
+        let conn = db.read()?;
+        let err = conn
+            .execute("INSERT INTO tags (note, tag) VALUES ('a.md', 'nope')", [])
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("readonly database"),
+            "the read connection is not a courtesy: {err}"
+        );
+        Ok(())
+    }
+}

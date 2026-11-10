@@ -36,11 +36,13 @@ use rusqlite::Connection;
 
 mod backup;
 mod index;
+mod query;
 mod schema;
 #[cfg(test)]
 mod tests;
 
 pub use index::{target_kind, word_count, Decls, EventKind, SyncReport};
+pub use query::{Binding, Cell, Rows};
 pub use schema::SCHEMA_VERSION;
 
 /// The directory Shale keeps its per-vault state in: the config, the themes, the
