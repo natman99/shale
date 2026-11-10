@@ -885,6 +885,7 @@ fn render_target(target: &PickerTarget) -> String {
         // is that choosing this row renames *this* key rather than searching it.
         PickerTarget::RenameKey(key) => format!("rename {key}"),
         PickerTarget::RunQuery(path) => format!("query {}", path.display()),
+        PickerTarget::SaveQuery(search) => format!("save {search}"),
         PickerTarget::Notice(reason) => reason.to_string(),
     }
 }

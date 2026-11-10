@@ -1734,3 +1734,193 @@ fn a_query_note_opened_directly_is_not_an_embed(cx: &mut TestAppContext) {
         "and its own table is still there, header and two rows: {rows:?}"
     );
 }
+
+// --- keeping a search as a query (P4.3 M6) --------------------------------------
+
+/// Two notes the index can answer a question about.
+fn tagged(cx: &mut TestAppContext) -> (tempfile::TempDir, WindowHandle<Workspace>) {
+    indexed_vault(
+        cx,
+        &[
+            ("Goblin.md", "---\ncr: 5\ntags: [monster]\n---\n# Goblin\n"),
+            ("Wisp.md", "---\ncr: 3\ntags: [monster]\n---\n# Wisp\n"),
+        ],
+    )
+}
+
+/// A search the index can answer again is a search worth keeping, so the last row of its
+/// results is the offer to keep it. A plain-text search reads lines and the index holds no
+/// lines, so it gets no offer rather than a dead row on every search.
+#[gpui::test]
+fn an_operators_search_offers_to_keep_itself(cx: &mut TestAppContext) {
+    let (_dir, window) = tagged(cx);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    cx.simulate_keystrokes("ctrl-shift-f");
+    cx.simulate_input("tag:monster");
+    assert_eq!(
+        offered(&window, cx),
+        vec!["Goblin.md", "Wisp.md", "save tag:monster"],
+        "the answer's rows, then the offer to keep the question"
+    );
+
+    cx.simulate_keystrokes("escape ctrl-shift-f");
+    cx.simulate_input("goblin");
+    let rows = offered(&window, cx);
+    assert!(
+        !rows.iter().any(|row| row.starts_with("save")),
+        "a search that reads lines has nothing to keep: {rows:?}"
+    );
+}
+
+/// The point of M6, end to end: the file a search saves asks the index the same question,
+/// and the reader lands in it with the answer on screen.
+#[gpui::test]
+fn a_kept_search_answers_what_the_search_asked(cx: &mut TestAppContext) {
+    let (dir, window) = tagged(cx);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    cx.simulate_keystrokes("ctrl-shift-f");
+    cx.simulate_input("tag:monster");
+    // Two rows of answer, then the offer.
+    cx.simulate_keystrokes("down down enter");
+
+    assert_eq!(
+        window
+            .update(cx, |ws, _window, cx| ws.prompt_text(cx))
+            .unwrap(),
+        Some("monster".to_string()),
+        "the prompt starts with a name made from the search, so the reader edits one"
+    );
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+
+    let text =
+        std::fs::read_to_string(dir.path().join("queries/monster.shq")).expect("the saved query");
+    assert!(text.contains(r#"name = "monster""#), "{text}");
+    assert!(
+        text.contains("-- Saved from the search: tag:monster"),
+        "the file says the question in the words it was typed: {text}"
+    );
+    assert!(
+        text.contains("SELECT path AS note FROM notes n WHERE 1=1 AND EXISTS"),
+        "and holds the statement those words compile to: {text}"
+    );
+    assert!(
+        window
+            .update(cx, |ws, _, _| ws.status())
+            .unwrap()
+            .contains("saved queries/monster.shq"),
+        "the reader is told where it went"
+    );
+
+    // The same question, now asked of the file, answers the same notes.
+    type_command("query", cx);
+    assert_eq!(offered(&window, cx), vec!["query queries/monster.shq"]);
+    cx.simulate_keystrokes("enter");
+    let rows = offered(&window, cx);
+    assert!(rows.contains(&"Goblin.md".to_string()), "{rows:?}");
+    assert!(rows.contains(&"Wisp.md".to_string()), "{rows:?}");
+}
+
+/// Ruling I: never overwrite silently. The file a reader wrote is worth more than the
+/// search they just typed, so the second save refuses and the first file stands.
+#[gpui::test]
+fn a_saved_query_is_never_written_over(cx: &mut TestAppContext) {
+    let (dir, window) = tagged(cx);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    type_command("save-query tag:monster", cx);
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+    let file = dir.path().join("queries/monster.shq");
+    let first = std::fs::read_to_string(&file).expect("the first save");
+
+    type_command("save-query tag:monster", cx);
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+    assert!(
+        window
+            .update(cx, |ws, _, _| ws.status())
+            .unwrap()
+            .contains("will not overwrite"),
+        "the second save says what it refused to do"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        first,
+        "and the file the reader already had stands"
+    );
+}
+
+/// A name is one name. An answer holding a path is the reader reaching for the tree, and a
+/// path spliced together out of a prompt is how a file lands somewhere nobody meant to
+/// write to.
+#[gpui::test]
+fn a_query_name_is_one_name(cx: &mut TestAppContext) {
+    let (dir, window) = tagged(cx);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    type_command("save-query tag:monster", cx);
+    cx.simulate_keystrokes("backspace backspace backspace backspace backspace backspace backspace");
+    cx.simulate_input("deep/monster");
+    cx.simulate_keystrokes("enter escape");
+    cx.run_until_parked();
+    assert!(
+        window
+            .update(cx, |ws, _, _| ws.status())
+            .unwrap()
+            .contains("one name"),
+        "the refusal says what a name may hold"
+    );
+    assert!(
+        !dir.path().join("queries/deep/monster.shq").exists(),
+        "nothing was written"
+    );
+    assert!(
+        !dir.path().join("queries/deep").exists(),
+        "and no folder appeared on the way"
+    );
+}
+
+/// A search that cannot become a file is refused by the part of it that cannot, before the
+/// reader has spent a name on it — and no prompt opens to be cancelled.
+#[gpui::test]
+fn save_query_says_which_part_of_a_search_it_cannot_keep(cx: &mut TestAppContext) {
+    let (_dir, window) = tagged(cx);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    for (search, why) in [
+        ("goblin", "lines"),
+        ("path:notes/", "path:"),
+        ("modified:7d", "duration"),
+    ] {
+        type_command(&format!("save-query {search}"), cx);
+        cx.run_until_parked();
+        let status = window.update(cx, |ws, _, _| ws.status()).unwrap();
+        assert!(
+            status.contains(why),
+            "{search} refused for the wrong reason: {status}"
+        );
+        assert!(
+            window
+                .update(cx, |ws, _window, cx| ws.prompt_text(cx))
+                .unwrap()
+                .is_none(),
+            "no name is asked for a search that cannot be kept"
+        );
+    }
+}
+
+/// The palette row has no search in hand, and inventing one would answer a question nobody
+/// asked. It says where the two doors that do carry one are.
+#[gpui::test]
+fn the_save_query_row_without_a_search_says_so(cx: &mut TestAppContext) {
+    let (_dir, window) = tagged(cx);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    type_command("save-query", cx);
+    cx.run_until_parked();
+    let status = window.update(cx, |ws, _, _| ws.status()).unwrap();
+    assert!(status.contains("needs the search"), "{status}");
+}

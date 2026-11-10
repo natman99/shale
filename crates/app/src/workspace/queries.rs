@@ -19,13 +19,15 @@
 
 use std::path::Path;
 
+use anyhow::anyhow;
 use gpui::{Context, Window};
 use shale_core::db::Cell;
-use shale_core::vault::VaultEntry;
+use shale_core::vault::{rel_text, VaultEntry};
 use shale_core::QueryNote;
 
 use crate::acts::*;
 use crate::picker::PickerItem;
+use crate::prompt;
 
 use super::open::{notice, PickerTarget};
 use super::Workspace;
@@ -33,6 +35,10 @@ use super::Workspace;
 /// How many rows one query's answer may draw. Named in the core, because the in-file
 /// table cuts at the same number and says how many it left out: one answer, one length.
 use shale_core::db::MAX_ROWS;
+
+/// Where a saved query lives (ruling I). One folder, named for what is in it, so a
+/// reader who finds one note finds the rest, and the tree shows them together.
+const QUERIES_DIR: &str = "queries";
 
 impl Workspace {
     /// `:query` and the palette's **Run a saved query**: the vault's `.shq` files, each
@@ -167,6 +173,121 @@ impl Workspace {
             ),
         };
         self.open_picker(&label, rows, window, cx);
+    }
+
+    /// The palette row and the bare `:save-query`: neither has a search in hand, and
+    /// inventing one would answer a question nobody asked. The two doors that do carry
+    /// one — the row at the end of a search, and `:save-query tag:monster` — say so.
+    pub(super) fn save_query_action(
+        &mut self,
+        _: &SaveQuery,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.ask_save_query("", window, cx);
+    }
+
+    /// Ask for a name for a search the index can answer again (P4.3 M6).
+    pub(super) fn ask_save_query(
+        &mut self,
+        search: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if search.trim().is_empty() {
+            self.say(
+                "save-query needs the search to keep: `:save-query tag:monster` — or run a \
+                 search and choose \"save this search as a query\" at the end of its rows",
+                cx,
+            );
+            return;
+        }
+        // Asked before the name is typed rather than after: a search that cannot be kept
+        // should say which part of it cannot before the reader has spent a name on it.
+        // The compiler is asked again when the name arrives — it is the authority on what
+        // the file will hold, and the answer is what gets written.
+        if let Err(reason) = shale_core::db::compile_sql(&shale_core::query::parse(search)) {
+            self.say(reason, cx);
+            return;
+        }
+        self.open_prompt(
+            prompt::PromptKind::SaveQuery(search.to_string()),
+            "name this query",
+            &Self::query_name(search),
+            window,
+            cx,
+        );
+    }
+
+    /// Write the file: the name is the reader's, the SQL is the search's.
+    pub(super) fn write_query(
+        &mut self,
+        search: &str,
+        name: &str,
+        cx: &mut Context<Self>,
+    ) -> anyhow::Result<()> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(anyhow!("a saved query needs a name"));
+        }
+        // One name, in one folder. A name holding a separator is the reader reaching for
+        // the tree, and a path spliced together out of a prompt is how a file ends up
+        // somewhere nobody meant to write to.
+        if name.contains('/') || name.contains('\\') || name == "." || name == ".." {
+            return Err(anyhow!(
+                "a query name is one name — move it into a folder with the tree afterwards"
+            ));
+        }
+        let sql = shale_core::db::compile_sql(&shale_core::query::parse(search))
+            .map_err(anyhow::Error::msg)?;
+        let path =
+            Path::new(QUERIES_DIR).join(format!("{name}.{}", shale_core::query_note::EXTENSION));
+        if self.vault.exists(&path) {
+            // Ruling I: never overwrite silently. And not loudly either — the file a
+            // reader already wrote is worth more than the search they just typed.
+            return Err(anyhow!(
+                "{} already holds a query — Shale will not overwrite it",
+                rel_text(&path)
+            ));
+        }
+        // The search is kept above the SQL as a comment: the file says the question in the
+        // words the reader typed, and the statement below is what those words mean.
+        let text = format!(
+            "+++\nname = \"{}\"\n+++\n-- Saved from the search: {search}\n{sql}\n",
+            name.replace('"', "\\\"")
+        );
+        self.vault.write(&path, &text)?;
+        self.refresh_entries(cx);
+        self.tree_selection = Some(path.clone());
+        // Open what was just written: the reader asked what the search means, and the
+        // file's own table is that answer, drawn from the statement they can now read.
+        self.open_note(&path, cx);
+        self.say(format!("saved {}", rel_text(&path)), cx);
+        Ok(())
+    }
+
+    /// A name to start the prompt with, from what the search asks for:
+    /// `tag:monster prop:cr<=5` becomes `monster-cr`. The reader edits it — this is a
+    /// starting point, not a decision about what their question is called.
+    fn query_name(search: &str) -> String {
+        let mut parts: Vec<String> = Vec::new();
+        for token in search.split_whitespace() {
+            // The operator is the question's shape, not its name, and the comparison is
+            // not part of the thing being named.
+            let value = token.split_once(':').map_or(token, |(_, value)| value);
+            let value = value
+                .split(['<', '>', '='])
+                .next()
+                .unwrap_or("")
+                .trim_matches('"');
+            if !value.is_empty() {
+                parts.push(value.to_lowercase());
+            }
+        }
+        if parts.is_empty() {
+            return "query".to_string();
+        }
+        parts.join("-").chars().take(40).collect()
     }
 }
 

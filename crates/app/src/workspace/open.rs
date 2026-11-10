@@ -50,6 +50,11 @@ pub(crate) enum PickerTarget {
     /// file, not a note: the answer's rows are the surface, and a row that names a note
     /// becomes a [`Self::Note`] target on its own.
     RunQuery(std::path::PathBuf),
+    /// A search worth keeping (P4.3 M6): the row at the end of a search that the index
+    /// can answer again. It carries the search as the reader typed it, not the SQL —
+    /// the compiler is the authority on what a search can become, and it is asked again
+    /// when the name arrives, so the file cannot drift from the question.
+    SaveQuery(String),
     /// A row that exists to be read rather than chosen: the query could not be
     /// answered, and the reason *is* the answer. Choosing it repeats the reason in
     /// the status bar. A picker has no other way to say anything, and returning no
@@ -225,7 +230,7 @@ impl Workspace {
                     // the line of the note that answers, or a row would name a note
                     // with no way to see why it is there.
                     let ops = q.ops.clone();
-                    return selected
+                    let mut rows: Vec<(PickerItem, PickerTarget)> = selected
                         .unwrap_or_default()
                         .into_iter()
                         .take(MAX_SEARCH_HITS)
@@ -247,6 +252,24 @@ impl Workspace {
                             )
                         })
                         .collect();
+                    // A search the index can answer again is a search worth keeping, so
+                    // the last row of its results is the offer to keep it (P4.3 M6). The
+                    // row appears only where the compiler agrees it can be kept: the
+                    // refusals name what cannot, and a dead row on every search would be
+                    // noise. The SQL is the detail because it is what the file will hold —
+                    // the reader sees the question they typed become a statement.
+                    if let Ok(sql) = shale_core::db::compile_sql(&q) {
+                        rows.push((
+                            PickerItem {
+                                label: "save this search as a query".into(),
+                                detail: clip(&sql, ROW_TEXT).into(),
+                                detail_ranges: Vec::new(),
+                                search: query.into(),
+                            },
+                            PickerTarget::SaveQuery(query.to_string()),
+                        ));
+                    }
+                    return rows;
                 }
                 Some(text) => text,
             };
@@ -394,6 +417,7 @@ impl Workspace {
                 self.search_vault_with(&seed, window, cx);
             }
             PickerTarget::RunQuery(path) => self.run_query(&path, window, cx),
+            PickerTarget::SaveQuery(search) => self.ask_save_query(&search, window, cx),
             PickerTarget::RenameKey(key) => {
                 // The pane has said *which* key; the prompt asks for the new
                 // spelling and starts with the old one, so the reader edits a name

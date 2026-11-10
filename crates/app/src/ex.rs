@@ -91,6 +91,11 @@ pub(crate) enum Ex {
     /// the command opens the list of `.shq` files, because the file's *name* is what a
     /// reader remembers and the picker is the surface that matches against it.
     Query,
+    /// `save-query <search>`: keep a search as a `.shq` (P4.3 M6). The rest of the line
+    /// is the search **verbatim** — `tag:monster prop:cr<=5` is one question with a space
+    /// in it, not two arguments, and the name is asked for afterwards because the reader
+    /// gives it, not the command line.
+    SaveQuery(String),
     /// `review` / `pending`: give the keyboard to the review strip, the list of agent
     /// edits waiting to be accepted or rejected (roadmap P2.5a). The strip appears by
     /// itself whenever there is something in the queue; this is how the user gets to
@@ -174,6 +179,7 @@ impl Ex {
             Ex::PropertyKeys => "vault.keys",
             Ex::RenameKey(..) => "vault.rename-key",
             Ex::Query => "vault.query",
+            Ex::SaveQuery(..) => "vault.save-query",
             Ex::Review => "review.focus",
             Ex::TabNew => "tab.new",
             Ex::TabNext => "tab.next",
@@ -351,6 +357,7 @@ pub(crate) fn parse(line: &str) -> Ex {
         // A saved question, run rather than read: the picker lists the vault's `.shq`
         // files and the answer comes back as rows.
         "query" => Ex::Query,
+        "save-query" => Ex::SaveQuery(rest.to_string()),
         "rename-key" => {
             // Two names, split on the space between them. A third word is not
             // silently dropped: it is the reader typing a folder or a quote, and
@@ -612,6 +619,7 @@ mod tests {
             Ex::Theme("catppuccin-mocha".into()),
             Ex::FocusScope("heading".into()),
             Ex::WordCount("notes".into()),
+            Ex::SaveQuery("tag:monster".into()),
             Ex::Unknown("xyzzy".into()),
         ] {
             assert!(

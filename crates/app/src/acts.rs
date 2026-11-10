@@ -265,6 +265,10 @@ actions!(
         // Run a saved query: choose a `.shq`, run it against the index, read the rows
         // (`:query`, P4.3 M2).
         RunQuery,
+        // Keep the search that is on screen as a `.shq` (`:save-query`, P4.3 M6). The
+        // palette row can only say "I need a search": the search arrives from the row at
+        // the end of a search picker, or as the argument of the command.
+        SaveQuery,
         // Write a properties block at the top of the note, or step into the one it
         // already has. Palette-only: `:props` reads them and `:properties` is its
         // spelling, so a second `:` word for the same noun would be a coin flip.

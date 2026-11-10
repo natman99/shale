@@ -723,8 +723,9 @@ fn an_operator_query_answers_with_notes_not_lines(cx: &mut TestAppContext) {
     cx.simulate_input("tag:monster");
     assert_eq!(
         rows(&window, cx),
-        vec!["notes/goblin.md", "notes/snare.md"],
-        "a frontmatter list and a bare scalar are the same tag"
+        vec!["notes/goblin.md", "notes/snare.md", "save tag:monster"],
+        "a frontmatter list and a bare scalar are the same tag, and the last row is the \
+         offer to keep the question (P4.3 M6)"
     );
 
     cx.simulate_keystrokes("enter");
@@ -776,7 +777,10 @@ fn a_number_question_does_not_answer_a_note_that_wrote_prose(cx: &mut TestAppCon
 
     cx.simulate_keystrokes("ctrl-shift-f");
     cx.simulate_input("prop:cr<=5");
-    assert_eq!(rows(&window, cx), vec!["notes/goblin.md"]);
+    assert_eq!(
+        rows(&window, cx),
+        vec!["notes/goblin.md", "save prop:cr<=5"]
+    );
 }
 
 /// The prose row is not invisible; it answers a different question. Splitting the
@@ -789,7 +793,10 @@ fn a_text_question_answers_the_note_that_wrote_prose(cx: &mut TestAppContext) {
 
     cx.simulate_keystrokes("ctrl-shift-f");
     cx.simulate_input("prop:cr=low");
-    assert_eq!(rows(&window, cx), vec!["notes/snare.md"]);
+    assert_eq!(
+        rows(&window, cx),
+        vec!["notes/snare.md", "save prop:cr=low"]
+    );
 }
 
 /// A near-miss operator is said out loud. Searched as prose it would answer "0 of
@@ -904,7 +911,11 @@ fn a_prop_row_forwards_the_value_the_note_wrote(cx: &mut TestAppContext) {
     ask("prop:cr<=5", cx);
 
     let rows = shown(&window, cx);
-    assert_eq!(rows.len(), 1, "snare's cr is prose, not a number");
+    assert_eq!(
+        rows.len(),
+        2,
+        "snare's cr is prose, not a number; the other row is the offer to keep the search"
+    );
     assert_eq!(marked(&rows[0].1, &rows[0].2), "cr: [5] · notes");
 }
 
@@ -955,8 +966,13 @@ fn a_path_row_and_a_modified_row_still_say_something(cx: &mut TestAppContext) {
 
     cx.simulate_keystrokes("escape");
     ask("modified:2020-01-01", cx);
-    let rows = shown(&window, cx);
-    for (label, detail, runs) in &rows {
+    // The offer to keep the search (P4.3 M6) is a row about the question rather than an
+    // answer about a note, so it is not this loop's business; `tests/queries.rs` tests it.
+    let answers: Vec<_> = shown(&window, cx)
+        .into_iter()
+        .filter(|(label, ..)| !label.starts_with("save "))
+        .collect();
+    for (label, detail, runs) in &answers {
         assert!(
             detail.starts_with("modified ") && detail.ends_with(" · notes"),
             "{label}: {detail}"

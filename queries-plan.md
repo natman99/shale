@@ -176,8 +176,10 @@ Built ones name their test; the rest name the milestone that owes one.
 - **M5 — relative queries.** Landed 2026-11-10 (rulings 36-38): the anchor's journey from
   the host note to the runner, decided by the query itself in one place, and the refusal for
   a host-less surface. EDGE-12, 20. EDGE-13 (the anchor in a cache key) waits for a cache.
-- **M6 — save a search.** `:save-query` writes the SQL the search compiled into a new
-  `.shq`. This is where "one grammar" pays for itself.
+- **M6 — save a search.** Landed 2026-11-10 (ruling 40): `where_clause` is the one builder
+  the search box and the saved file both read, `compile_sql` writes its values as literals,
+  and the offer to keep a search is the last row of an operators-only search. Three searches
+  cannot be saved and each is refused by name.
 - **M7 — MCP.** Create/edit/run query notes, so "make me a dashboard of X" writes a
   file rather than a session. EDGE-18.
 - **Not here:** the graph lens (P4.16) and the GM screen (P7.4) consume this item.
@@ -385,3 +387,22 @@ Built ones name their test; the rest name the milestone that owes one.
     class as the hover card's band having to check x, not only y: a hit region is a claim
     about what is on screen. The badge row keeps its whole band by the P4.0a ruling — it is
     the block's title, not a cell in it.
+40. **A saved search is the SQL the search box compiled, not a re-spelling of it**
+    (P4.3 M6). `db::where_clause` builds the conditions and their values once: the live
+    search binds them, `db::compile_sql` writes them into the file, because a `.shq` has no
+    way to be handed an argument. The oracle is the only test worth writing for that claim —
+    compile a search, run the statement through the runner, compare it note for note with
+    what the search selected. Three searches cannot be kept and each is refused **by name**
+    rather than compiled into a statement that means something else later: plain text (it
+    reads lines, and the index holds no lines), `path:` (Shale's own matcher, not SQLite's
+    `LIKE`), and `modified:` with a duration (it counts from the moment it runs, so a file
+    would freeze the day it was saved — a date saves fine). The offer appears only where it
+    can be taken, as the last row of an operators-only search; `:save-query` states the
+    reason before the reader has spent a name on a search that cannot be kept. A name is one
+    name — no separators, no folders spliced out of a prompt — and an existing file is never
+    overwritten. Found on the way and fixed: the link fragment escapes the `LIKE` wildcards
+    in a name without saying which character escapes them, so `link:"100%"` found nothing —
+    and this is the statement a saved file keeps, so the mistake would have outlived the
+    search box. One gap left open on purpose: creating a file that explains an existing ghost
+    link does not re-file that ghost in the index, and the same is true of a created *note*,
+    so it is one fix for both doors rather than an M6 special case.

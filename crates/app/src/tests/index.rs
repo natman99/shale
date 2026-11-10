@@ -370,8 +370,9 @@ fn a_key_row_hands_the_key_to_the_search(cx: &mut TestAppContext) {
         .unwrap();
     assert_eq!(
         rows,
-        vec!["Goblin.md", "Wisp.md"],
-        "the notes that write `cr`, and not the one that writes nothing"
+        vec!["Goblin.md", "Wisp.md", "save prop:cr"],
+        "the notes that write `cr`, and not the one that writes nothing; then the offer to \
+         keep the search the key row started"
     );
 }
 

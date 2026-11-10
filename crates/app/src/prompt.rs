@@ -62,6 +62,10 @@ pub(crate) enum PromptKind {
     /// kind because the prompt outlives the picker that chose it, and the answer is
     /// meaningless without it.
     RenameKey(String),
+    /// The name for a search being kept as a `.shq` (P4.3 M6). The search rides along
+    /// because the prompt outlives the picker that offered the row, and a name without
+    /// the question it names is nothing to write.
+    SaveQuery(String),
     /// vim's command line: one word naming one command, matched exactly. The field
     /// is the same; what the answer *means* is [`crate::ex`]'s business.
     Command,

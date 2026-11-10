@@ -47,6 +47,7 @@ as you would type it.
 | `vault.props` | Show the open note's properties | — | `:props`, `:properties` | — |
 | `vault.keys` | List the vault's property keys | — | `:keys` | — |
 | `vault.query` | Run a saved query | — | `:query` | — |
+| `vault.save-query` | Save a search as a query | — | `:save-query [search]` | `[search]` |
 | `vault.rename-key` | Rename a property key across the vault | — | `:rename-key [old] [new]` | `[old] [new]` |
 | `vault.wordcount` | Count the vault's words | — | `:wordcount [folder]`, `:wc [folder]` | `[folder]` |
 | `review.focus` | Review the agent edits that are waiting | — | `:review`, `:pending` | — |

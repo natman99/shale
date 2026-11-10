@@ -188,6 +188,9 @@ impl Workspace {
             },
             ex::Ex::WordCount(folder) => self.wordcount(&folder, cx),
             ex::Ex::RenameKey(old, new) => self.rename_key_command(&old, &new, window, cx),
+            // The search arrives on the command line; the name is asked for after, because
+            // the reader gives it and the command line does not (`:save-query`, P4.3 M6).
+            ex::Ex::SaveQuery(search) => self.ask_save_query(&search, window, cx),
             ex::Ex::Props => self.props(cx),
             ex::Ex::ThemeExport(name) => match self.export_theme(&name) {
                 Ok(path) => self.say(format!("wrote {}", rel_text(&path)), cx),
@@ -292,6 +295,9 @@ impl Workspace {
                 self.expanded.insert(dir.clone());
                 self.tree_selection = Some(dir.clone());
                 self.say(format!("created {}/", rel_text(&dir)), cx);
+            }
+            prompt::PromptKind::SaveQuery(search) => {
+                self.write_query(&search, answer, cx)?;
             }
             prompt::PromptKind::RenameKey(old) => {
                 self.rename_property_key(&old, answer, cx)?;

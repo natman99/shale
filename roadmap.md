@@ -87,9 +87,14 @@ and re-files the embeds that name it. **M5 — relative queries — landed the s
 `relative = "current"` in the declaration and `:current` in the body are checked against
 each other and against the surface running the query, so the note holding the embed is the
 anchor, a query viewed in its own file has none (a `.shq` is not a note), and a host-less
-surface refuses in one sentence written once (rulings 36-38). What is left is `:save-query`
-(M6) and MCP (M7) — plus the graph, which still draws a query embed as a ghost node because
-it re-scans text with its own entry lists (ruling 35). The
+surface refuses in one sentence written once (rulings 36-38). **M6 — keep a search — landed
+the same day**: the operators in the search box compile into the statement a `.shq` holds,
+from the one builder the live search also reads, so saving a search and writing the file out
+are the same act and the file answers what the search answered (ruling 40). The offer is the
+last row of an operators-only search, `:save-query <search>` is the keyboard route, a name is
+one name, and an existing query is never overwritten. What is left is MCP (M7) — plus the
+graph, which still draws a query embed as a ghost node because it re-scans text with its own
+entry lists (ruling 35). The
 plan, an edge ledger (EDGE-1…24) and the rulings are in `queries-plan.md`.
 
 **P4.0, transclusion — the editable half (closed 2026-11-08).** P4.0a
