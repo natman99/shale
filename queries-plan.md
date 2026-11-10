@@ -248,3 +248,29 @@ Built ones name their test; the rest name the milestone that owes one.
     holds a newline. The core keeps the whole message (the MCP tool still reports it); the
     table row and the picker row each flatten it. Cells flatten the same way: a cell may
     hold a newline, a table row may not.
+
+### Ruled 2026-11-10 (the first reader bug round)
+
+22. **The caret never comes to rest in a row the view refuses to paint.** `G` on a folded
+    program asks for the last row of the file, and that row is inside the fold; `5G` can
+    land in a closed section the same way. The caret goes to the row the fold is drawn on —
+    the only row of it a reader can see, and what vim does with a closed fold. The rule
+    already ran when a fold *closed over* the caret (`clamp_cursor_out_of_folds`, in
+    `buffer/folds.rs`); the bug was that the other door — a *motion* reaching for a hidden
+    row — never asked. One rule, both doors, called from the keymap after the engine moves
+    the caret. Without it the status bar names a row the screen does not show and the next
+    `j` leaves from somewhere out of sight.
+23. **Preview's `G` is a motion of the view, not of the caret.** It goes to the end of what
+    the view *shows*. A query note hangs its answer below the program, and the rows of an
+    answer belong to no line of the file — so the last row of the file is not the last row
+    on screen, and no caret position can reach it. The scroller does (`scroll_to_bottom`);
+    the caret still goes to the end of the text, so what `/` repeats and `g f` follows
+    afterwards are at the end the reader is looking at. `gg` needed nothing: the top of the
+    file and the top of the view are the same row.
+24. **A fold decision belongs to the note, not to the view's attention.** Clicking a row of
+    an answer replaces the query note in the same tab, and `ctrl-o` brings it back; the
+    reader did not ask to be told the program is folded again. The workspace keeps each
+    note's fold state while the note is off screen and hands it back when it returns — the
+    same shape as ruling 16's fold-inside-an-embed, which lives on the host's editor keyed
+    by path. The regions are re-derived from the text, so a note that changed underneath
+    still resolves the decisions against the regions it has now.
