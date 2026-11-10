@@ -455,16 +455,18 @@ impl Workspace {
             .as_ref()
             .and_then(|db| db.aliases().ok())
             .unwrap_or_default();
-        let every_name = known_names(&entries, &aliases);
+        // The saved questions, and the list the sidebar is drawn from. Refreshed
+        // wherever `entries` is refreshed, so a `.shq` written by an agent shows up in
+        // the tree the same way a note does. Read before the name set, because a link
+        // to a saved query is a resolved link and colouring it as a dead end is the
+        // same disagreement the aliases rule exists to prevent.
+        let queries = vault.list_queries().unwrap_or_default();
+        let every_name = known_names(&entries, &queries, &aliases);
         // The files that are not notes, which is what `![[image.png]]` resolves
         // against. Both this and the link names live on the window rather than being
         // handed to one editor, because every tab opened later has to see the vault
         // exactly as the first one does.
         let attachments = vault.list_attachments().unwrap_or_default();
-        // The saved questions, and the list the sidebar is drawn from. Refreshed
-        // wherever `entries` is refreshed, so a `.shq` written by an agent shows up in
-        // the tree the same way a note does.
-        let queries = vault.list_queries().unwrap_or_default();
         let tree_files = tree_files(&entries, &queries);
         // The palette comes from `appearance.theme`: a built-in name or a
         // `<vault>/.shale/themes/<name>.toml` file. A theme that cannot be found
@@ -1025,8 +1027,17 @@ fn tree_files(entries: &[VaultEntry], queries: &[VaultEntry]) -> Vec<VaultEntry>
     files
 }
 
-fn known_names(entries: &[VaultEntry], aliases: &[(String, String)]) -> HashSet<String> {
+/// Every name a link can be written for: the notes, the saved queries, and the aliases
+/// notes declare. This is the set the editor colours with, so it has to be the set the
+/// resolver follows and the set the indexer files links against — a link painted live
+/// while the index calls it a ghost is the same lie in two places.
+fn known_names(
+    entries: &[VaultEntry],
+    queries: &[VaultEntry],
+    aliases: &[(String, String)],
+) -> HashSet<String> {
     let mut keys = note_keys(entries);
+    keys.extend(note_keys(queries));
     for (alias, _) in aliases {
         let key = alias.trim().to_lowercase();
         if !key.is_empty() {
@@ -1043,8 +1054,12 @@ fn note_keys(entries: &[VaultEntry]) -> HashSet<String> {
         if let Some(s) = entry.path.to_str() {
             let lower = s.to_lowercase();
             keys.insert(lower.clone());
-            if let Some(stripped) = lower.strip_suffix(".md") {
-                keys.insert(stripped.to_string());
+            // The path without its extension is what a reader would type, for a note
+            // (`notes/hero`) and for a saved query (`queries/tough`) alike.
+            for ext in [".md", ".shq"] {
+                if let Some(stripped) = lower.strip_suffix(ext) {
+                    keys.insert(stripped.to_string());
+                }
             }
         }
     }

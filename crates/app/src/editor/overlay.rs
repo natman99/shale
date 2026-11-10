@@ -654,13 +654,14 @@ impl MarkdownEditor {
         let entries = self.embeds.entries().to_vec();
         Block {
             lines: super::query_view::answer_lines(&answer, &entries),
-            // The badge IS the marker row (EDGE-10): the same sentence the query note's
-            // own fold wears, name and answer shape together. No door on it yet: a door
-            // aimed at a `.shq` would resolve in this one surface and nowhere else, and
-            // the index does not hold the link yet. M4b files the link, and the door
-            // arrives with it.
-            badge: Some(super::query_view::answer_shape(&query.name, &answer)),
-            door: None,
+            // The badge is the marker row's answer shape (EDGE-10) — but the shape
+            // alone. The host's own row above already names the query, so a name here
+            // would be printed twice (the reader's first complaint, 2026-11-10).
+            badge: Some(super::query_view::answer_count(&answer)),
+            // The title row opens the file that computed the answer. It is a door
+            // because the index files this embed as a link and the same list colours
+            // it: the colour, the click and the row all mean the same thing (M4b).
+            door: Some(query.embed.clone()),
             current: false,
             kind: BlockKind::Query,
             entered: false,

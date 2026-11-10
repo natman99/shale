@@ -616,7 +616,7 @@ impl Workspace {
             return;
         }
         self.aliases = aliases;
-        self.known = known_names(&self.entries, &self.aliases);
+        self.known = known_names(&self.entries, &self.queries, &self.aliases);
         for tab in self.pane().tabs.iter() {
             let Some(editor) = tab.editor() else {
                 continue;
@@ -642,7 +642,7 @@ impl Workspace {
             .as_ref()
             .and_then(|db| db.aliases().ok())
             .unwrap_or_default();
-        self.known = known_names(&self.entries, &self.aliases);
+        self.known = known_names(&self.entries, &self.queries, &self.aliases);
         self.attachments = self.vault.list_attachments().unwrap_or_default();
         // The saved queries ride the same refresh, so a `.shq` an agent just wrote is a
         // tree row and a `:query` candidate without a restart.

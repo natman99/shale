@@ -70,6 +70,65 @@ fn a_saved_query_answers_with_rows(cx: &mut TestAppContext) {
     );
 }
 
+/// The row that asks for a query is a link like any other: the window's name set holds
+/// the saved query, so the row is coloured as resolved, and `gd` follows it into the
+/// `.shq` (ruling 30's condition — the colour, the click and the index move together).
+#[gpui::test]
+fn a_query_embed_is_a_link_the_window_can_follow(cx: &mut TestAppContext) {
+    let (_dir, window) = lair(cx, TOUGH, "![[tough]]\n");
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "Lair.md");
+    cx.run_until_parked();
+
+    assert!(
+        window
+            .update(cx, |ws, _, _| ws.knows_link("tough"))
+            .unwrap(),
+        "the saved query is in the set the editor styles links with"
+    );
+    assert!(
+        window
+            .update(cx, |ws, _, _| ws.knows_link("queries/tough"))
+            .unwrap(),
+        "and so is the path a reader would type with the extension left off"
+    );
+
+    // Onto the embed's own text, then vim's follow.
+    cx.simulate_keystrokes("0 l l");
+    cx.simulate_keystrokes("g d");
+    cx.run_until_parked();
+    assert_eq!(
+        window.update(cx, |ws, _, _| ws.active_path()).unwrap(),
+        Some(std::path::PathBuf::from("queries/tough.shq")),
+        "`gd` on `![[tough]]` opened the file that computes the answer"
+    );
+}
+
+/// The answer's title row is a door too: a reader who does not like an answer goes to
+/// the file that computed it — the same rule the query picker's first row follows.
+#[gpui::test]
+fn an_embedded_answers_title_row_opens_the_query(cx: &mut TestAppContext) {
+    let (_dir, window) = lair(cx, TOUGH, "![[tough]]\n");
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "Lair.md");
+    cx.run_until_parked();
+
+    let bands = window
+        .update(cx, |ws, _window, cx| ws.phantom_bands(cx))
+        .unwrap();
+    // The title row hangs directly under the row that asked: the first door there is.
+    let title = bands.iter().find(|(opens, ..)| *opens).expect("a door row");
+    let at = gpui::point(gpui::px(title.1 + 5.), gpui::px((title.2 + title.3) / 2.));
+    cx.simulate_mouse_down(at, gpui::MouseButton::Left, gpui::Modifiers::default());
+    cx.simulate_mouse_up(at, gpui::MouseButton::Left, gpui::Modifiers::default());
+    cx.run_until_parked();
+    assert_eq!(
+        window.update(cx, |ws, _, _| ws.active_path()).unwrap(),
+        Some(std::path::PathBuf::from("queries/tough.shq")),
+        "clicking the answer's title opened the query"
+    );
+}
+
 /// A query note with no declaration at all is still a query: the fence is optional, and
 /// so is the ceremony.
 #[gpui::test]
@@ -1291,8 +1350,12 @@ fn a_note_that_embeds_a_query_draws_the_answer(cx: &mut TestAppContext) {
     let rows = hung(&window, cx);
     assert_eq!(
         rows.first().map(|line| line.trim_end()),
-        Some("embed row 0: query tough · 2 rows"),
-        "the badge is the marker row's sentence, name and answer shape: {rows:?}"
+        Some("embed row 0: query 2 rows"),
+        "the badge carries the answer's shape: {rows:?}"
+    );
+    assert!(
+        !rows[0].contains("tough"),
+        "the row above the block already names the query; the badge does not say it twice: {rows:?}"
     );
     let body = rows.join("\n");
     assert!(
@@ -1319,8 +1382,8 @@ fn a_row_of_an_embedded_answer_that_names_a_note_opens_it(cx: &mut TestAppContex
         .unwrap();
     let doors = bands.iter().filter(|(opens, ..)| *opens).count();
     assert_eq!(
-        doors, 2,
-        "the two rows that name a note are doors; the header row is not: {bands:?}"
+        doors, 3,
+        "the two rows that name a note, and the title row that opens the query itself: {bands:?}"
     );
 }
 
@@ -1380,7 +1443,7 @@ fn an_embedded_query_that_answers_nothing_counts_zero(cx: &mut TestAppContext) {
     let rows = hung(&window, cx);
     assert_eq!(
         rows.first().map(|line| line.trim_end()),
-        Some("embed row 0: query tough · 0 rows"),
+        Some("embed row 0: query 0 rows"),
         "the badge says what came back, which is nothing: {rows:?}"
     );
 }

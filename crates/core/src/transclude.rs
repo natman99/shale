@@ -136,6 +136,9 @@ pub struct Badge {
 pub struct QueryBody {
     /// The `.shq` itself, vault-relative.
     pub path: PathBuf,
+    /// The embed as the author wrote it, so the block's title row can be the door a
+    /// click opens — the same `EmbedRef` a stopped embed's badge carries.
+    pub embed: EmbedRef,
     /// The declaration's `name`, else the file's stem: the name the reader knows the
     /// query by, which is what the block's title row says.
     pub name: String,
@@ -378,6 +381,7 @@ fn query_body(query: &VaultEntry, embed: &EmbedRef, sources: &dyn Sources) -> Bo
     };
     Body::Query(QueryBody {
         path: query.path.clone(),
+        embed: embed.clone(),
         name,
         note,
     })

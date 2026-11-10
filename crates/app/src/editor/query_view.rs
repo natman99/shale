@@ -20,20 +20,27 @@ use super::Answer;
 use crate::line::phantom::PhantomKind;
 use crate::table_view::GridPaint;
 
-/// What a query's answer is *called*: its name, and how much came back.
+/// How much a query's answer came back with, with no name in front of it.
 ///
-/// The query note's marker row and the badge row of a note that embeds the query both
-/// say this, in one sentence: the same shape of answer, described the same way wherever
-/// it is read. A refusal says *refused* rather than `0 rows`, because a badge that
-/// quietly counts nothing would let the reader believe the query asked and got an
-/// answer. (In the query note itself a run-time refusal opens the fold instead, so the
-/// marker never carries this wording; an embed has no fold to open.)
-pub(crate) fn answer_shape(name: &str, answer: &Answer) -> String {
+/// A refusal says *refused* rather than `0 rows`, because a count that quietly reads
+/// zero would let the reader believe the query asked and got an answer. (In the query
+/// note itself a run-time refusal opens the fold instead, so a marker never carries this
+/// wording; an embed has no fold to open.)
+pub(crate) fn answer_count(answer: &Answer) -> String {
     if answer.error.is_some() {
-        return format!("{name} · refused");
+        return "refused".into();
     }
     let rows = answer.rows.rows.len();
-    format!("{name} · {rows} {}", if rows == 1 { "row" } else { "rows" })
+    format!("{rows} {}", if rows == 1 { "row" } else { "rows" })
+}
+
+/// What a query's answer is *called*: its name, and how much came back. The query note's
+/// marker row says this — there, the fold has hidden the whole program, so the marker is
+/// the only thing left saying what the file is. A note that *embeds* the query says only
+/// [`answer_count`]: the row above the block already names the query, and a name printed
+/// twice is one name too many.
+pub(crate) fn answer_shape(name: &str, answer: &Answer) -> String {
+    format!("{name} · {}", answer_count(answer))
 }
 
 #[cfg(test)]

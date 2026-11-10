@@ -1,7 +1,7 @@
 ---
 aliases: anon
 cr: 3
-group: 
+groups: 
  - [[Test]]
  - [[Markdown Tour]]
 ---

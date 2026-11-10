@@ -329,10 +329,15 @@ impl Workspace {
     /// `[[anon]]` lands on the note that declares it, exactly as the backlinks panel, the
     /// graph and the editor's own resolved-link colouring already claim.
     pub(super) fn resolve_target(&self, target: &str) -> Option<PathBuf> {
-        LinkResolver::new(&self.entries)
-            .with_aliases(&self.aliases)
-            .resolve_link(target)
-            .map(|entry| entry.path.clone())
+        let notes = LinkResolver::new(&self.entries).with_aliases(&self.aliases);
+        let found = notes.resolve_link(target);
+        // A saved query is a last resort, not a first: a name that already means a note
+        // (or an alias for one) keeps meaning that. The transclusion resolver and the
+        // indexer order targets the same way, so `gd`, the colour and the `links` row
+        // cannot name three different files.
+        let queries = LinkResolver::new(&self.queries);
+        let chosen = found.or_else(|| queries.resolve_link(target));
+        chosen.map(|entry| entry.path.clone())
     }
 
     /// status line saying which heading was missing. Refusing would leave them with

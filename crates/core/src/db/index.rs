@@ -40,6 +40,10 @@ pub mod target_kind {
     pub const NOTE: &str = "note";
     /// An image or other file that is not a note. Also a path.
     pub const ATTACHMENT: &str = "attachment";
+    /// A saved query (`.shq`): the row a `![[query]]` embed or a `[[query]]` link
+    /// asserts. Also a path. Filed last, after notes and attachments, so a name that
+    /// already means a note keeps meaning that (roadmap P4.3 M4b, ruling 26).
+    pub const QUERY: &str = "query";
     /// A target that resolves to nothing. The `target` column holds what the author
     /// wrote, which is exactly what an unresolved-link list needs.
     pub const GHOST: &str = "ghost";
@@ -189,6 +193,7 @@ fn record(
     rel: &Path,
     notes: &[VaultEntry],
     attachments: &[VaultEntry],
+    queries: &[VaultEntry],
     decls: &Decls,
 ) -> Result<Record> {
     let abs = vault.resolve(rel)?;
@@ -217,7 +222,14 @@ fn record(
             // so the author still sees it in an unresolved-link list.
             _ => match vault.resolve_attachment(target, attachments) {
                 Some(entry) => (rel_text(&entry.path), target_kind::ATTACHMENT),
-                None => (target.to_string(), target_kind::GHOST),
+                // Last before the ghost: a saved query is a file the author owns, and
+                // `![[query]]` asserts a link to it. The transclusion resolver and the
+                // window's follow path order targets the same way, so the row, the
+                // colour and the click cannot name three different files.
+                None => match vault.resolve_link(target, queries).ok().flatten() {
+                    Some(entry) => (rel_text(&entry.path), target_kind::QUERY),
+                    None => (target.to_string(), target_kind::GHOST),
+                },
             },
         };
         // One row per (source, target, kind): a note that links to the same note
@@ -571,8 +583,9 @@ impl Db {
     pub fn note_renamed(&self, vault: &Vault, from: &Path, to: &Path) -> Result<()> {
         let notes = vault.list_markdown()?;
         let attachments = vault.list_attachments()?;
+        let queries = vault.list_queries()?;
         let decls = Decls::read(vault);
-        let note = record(vault, to, &notes, &attachments, &decls)?;
+        let note = record(vault, to, &notes, &attachments, &queries, &decls)?;
         let old = rel_text(from);
         self.write(move |conn| {
             drop_note(conn, &old)?;
@@ -872,6 +885,7 @@ impl Db {
         // One walk each, shared by every note in the pass.
         let notes = vault.list_markdown()?;
         let attachments = vault.list_attachments()?;
+        let queries = vault.list_queries()?;
         // And one read of the vault's key declarations, shared the same way.
         let decls = Decls::read(vault);
 
@@ -883,7 +897,7 @@ impl Db {
             if !is_markdown(path) {
                 continue;
             }
-            match record(vault, path, &notes, &attachments, &decls) {
+            match record(vault, path, &notes, &attachments, &queries, &decls) {
                 Ok(note) => {
                     report_frontmatter(&mut report, path, &note);
                     if events {
@@ -898,7 +912,7 @@ impl Db {
             if !is_markdown(path) {
                 continue;
             }
-            match record(vault, path, &notes, &attachments, &decls) {
+            match record(vault, path, &notes, &attachments, &queries, &decls) {
                 Ok(note) => {
                     report_frontmatter(&mut report, path, &note);
                     // Only a writer that is not the user typing is worth the log:
@@ -1364,6 +1378,48 @@ mod tests {
             .unwrap()
             .map(|row| row.unwrap())
             .collect()
+    }
+
+    /// A `![[query]]` embed asserts a link to the saved query, filed as its own kind: an
+    /// unresolved-link list can still tell a dead name from a live one, and the backlink
+    /// list gets a path to point at (roadmap P4.3 M4b).
+    #[test]
+    fn a_query_embed_is_indexed_as_a_link_to_the_query() {
+        let (_dir, vault, db) = vault_with(&[
+            ("Lair.md", "![[tough]]\nand [[tough]] too\n"),
+            ("queries/tough.shq", "+++\n+++\nSELECT 1\n"),
+        ]);
+        db.reconcile(&vault).unwrap();
+        assert_eq!(
+            column(
+                &db,
+                "SELECT source || ' ' || target || ':' || target_kind FROM links"
+            ),
+            // One row, not two: the embed and the plain link name one file, and the
+            // dedup key is (source, target, kind).
+            vec!["Lair.md queries/tough.shq:query"],
+            "the saved query is a link target, not a ghost"
+        );
+    }
+
+    /// The index orders targets the way the resolver and the follow path do: a name that
+    /// already means a note keeps meaning that, even when a `.shq` spells it too.
+    #[test]
+    fn a_note_beats_a_query_in_the_index_as_well() {
+        let (_dir, vault, db) = vault_with(&[
+            ("Lair.md", "![[tough]]\n"),
+            ("tough.md", "a note\n"),
+            ("queries/tough.shq", "+++\n+++\nSELECT 1\n"),
+        ]);
+        db.reconcile(&vault).unwrap();
+        assert_eq!(
+            column(
+                &db,
+                "SELECT source || ' ' || target || ':' || target_kind FROM links"
+            ),
+            vec!["Lair.md tough.md:note"],
+            "the note wins, in the index as in the embed"
+        );
     }
 
     #[test]

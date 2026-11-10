@@ -6,14 +6,32 @@ Contrast is kind of low on labels in 3d, it gets really hard to read them with a
 
 Can we also have the side mouse buttons (mouse 4/5 I think), bind to the jump list like browsers do?
 
-We should eventually make Shale look in .config/ (and whatever it is on Windows) for its config file. **be sure to update docs**
-
 make `:e` take file paths
 
-Docs mistake: says `space` is vim's move right motion when it is only used for chords
+Docs mistake: says `space` is vim's move right motion when it is only used for chords.
 
 Let's change the default theme to match the system theme, else fallback to dark, instead of being mocha which is just my own preference.
 
 Why does pressing escape in the graph view move to a different tab?
 
 Update docs about the DB being safely removable once it's storing more valuable information
+
+Do a cargo deny pass later
+
+Commands to insert callouts and tables at the cursor and props at the note head.
+
+Test multiple search operators again manually
+
+Update project to Rust 2024
+
+Tab key doesn't work?
+
+Make :q close a pane/tab, not the whole app. Add :wqall + related `all` commands and logic following neovim.
+
+Add rendering for images in the vault as a note. We already have image preview inside of notes but we can't see them in the file tree and can't view them outside of an embed.
+
+Top `---` of properties doesn't render colored, bottom does.
+
+Make arrow keys move the cursor.
+
+What is `ctrl-t` even bound to? It duplicates the current note in a new tab.
