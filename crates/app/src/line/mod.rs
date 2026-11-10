@@ -77,6 +77,17 @@ pub(crate) struct HitSegment {
     pub(crate) map: PieceMap,
 }
 
+/// The row sits inside a properties block: paint the band across it.
+pub(crate) const FM_BAND: u8 = 1;
+/// The block's first row: the boundary hairline goes on its top edge.
+pub(crate) const FM_TOP: u8 = 2;
+/// The block's last row: the boundary hairline goes on its bottom edge.
+pub(crate) const FM_BOTTOM: u8 = 4;
+/// The block the parser refused, or a `---` that never closes: the boundary takes
+/// the error colour, because the note has no properties and the block is the fact
+/// the reader has to be told about.
+pub(crate) const FM_BROKEN: u8 = 8;
+
 /// A display line captured during paint, for hit-testing and IME placement.
 #[derive(Clone)]
 pub(crate) struct HitLine {
@@ -268,6 +279,12 @@ pub(crate) struct LineElement {
     /// Whether the row belongs to a fenced code block, whose background spans
     /// the full width of the editor rather than just its text.
     pub(crate) block: bool,
+    /// Which of the [`FM_*`] bits apply to this row: the line element paints a
+    /// background band across a properties block's rows and a hairline at its outer
+    /// edges, the way [`Self::block`]'s background says "these lines are one thing".
+    /// Nothing inside the block is hidden — it is the note's data, and it shows what
+    /// the file says — so the band is what makes it read as a block at a glance.
+    pub(crate) frontmatter: u8,
     /// Whether the row is a thematic break whose dashes live preview hid: the
     /// element draws a rule across its width in their place.
     pub(crate) rule: bool,
@@ -778,6 +795,43 @@ impl Element for LineElement {
             // `danger`/`bug` share one outright ([`marks`]). With live preview hiding the
             // `[!type]` header there is nothing else left saying which kind it is, so the
             // shape is the second channel `design-language.md` §8 asks for.
+        }
+
+        // A properties block is a region, not a run: a band across every row of it,
+        // and a hairline along its outer edges. The band is the same claim a fenced
+        // block's background makes — these rows are one thing — and it is drawn from
+        // the parser's own range, so it cannot cover rows the index does not read as
+        // properties. A block the parser refused keeps the band (those rows *are* the
+        // block) and takes the error colour for its boundary, which is what tells the
+        // two apart without a second mark anywhere.
+        if self.frontmatter & FM_BAND != 0 {
+            window.paint_quad(fill(
+                bounds,
+                rgb(fade(
+                    self.palette.frontmatter_block_bg,
+                    self.palette.bg,
+                    self.dim,
+                )),
+            ));
+            let edge = if self.frontmatter & FM_BROKEN != 0 {
+                self.palette.callout_danger
+            } else {
+                self.palette.frontmatter
+            };
+            for (bit, at) in [
+                (FM_TOP, bounds.top()),
+                (FM_BOTTOM, bounds.bottom() - px(1.)),
+            ] {
+                if self.frontmatter & bit != 0 {
+                    window.paint_quad(fill(
+                        Bounds::from_corners(
+                            gpui::point(bounds.left(), at),
+                            gpui::point(bounds.right(), at + px(1.)),
+                        ),
+                        rgb(fade(edge, self.palette.bg, self.dim)),
+                    ));
+                }
+            }
         }
 
         // A thematic break is a rule across the editor, not the dashes the file

@@ -270,7 +270,11 @@ vault index: one row per value, with the kind worked out from the value itself. 
 a number, `died: 2024-01-31` a date, `ally: "[[Zhentarim]]"` a link.
 `:props` prints what the index holds for the note your cursor is in.
 
-You can see which case you are in. A block's fences keep the dashes the file holds —
+You can see which case you are in. The block sits on a band of its own, with a hairline
+along its top and bottom edges, in the palette's `frontmatter_block_bg`: the same claim
+a fenced code block's background makes, that these rows are one thing. Nothing inside
+the block is hidden — the dashes, the quotes and the brackets are all still there,
+because they are the data, not syntax. A block's fences keep the dashes the file holds —
 they are not drawn as a rule across the page — and the fences and the keys are drawn in
 the palette's `frontmatter` colour. A block the parser refuses, and a `---` at the top
 of a note that never closes, are drawn in the colour of an error, because in both cases

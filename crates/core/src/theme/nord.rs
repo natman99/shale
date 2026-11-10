@@ -21,9 +21,10 @@ pub const PALETTE: Palette = Palette {
     cursor_line_bg: 0x3c424e, // nord4 barely into nord0: a band, not a surface
     selection: 0x4c566a,
     link: 0x81a1c1,
-    link_unresolved: 0x767f90, // nord4 #d8dee9 at 30% over #4c566a
-    dim: 0x7d8696,             // nord4 #d8dee9 at 35% over #4c566a
-    frontmatter: 0x82a0b0,     // dim toward accent
+    link_unresolved: 0x767f90,      // nord4 #d8dee9 at 30% over #4c566a
+    dim: 0x7d8696,                  // nord4 #d8dee9 at 35% over #4c566a
+    frontmatter: 0x82a0b0,          // dim toward accent
+    frontmatter_block_bg: 0x393f4b, // bg toward fg at 6%: a band, not a surface
     heading: 0xeceff4,
     quote: 0x8b93a3, // nord3 lifted 45% toward nord4: too faint alone for a paragraph
     accent: 0x88c0d0,

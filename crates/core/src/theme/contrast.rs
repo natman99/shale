@@ -86,7 +86,7 @@ impl std::fmt::Display for Flag {
                 floor,
             } => write!(
                 f,
-                "{what} is too faint on {on} ({ratio:.1}:1, needs {floor:.1}:1)"
+                "{what} is too faint on {on} ({ratio:.2}:1, needs {floor:.2}:1)"
             ),
             Flag::SameColour { a, b } => write!(f, "{a} and {b} are the same colour"),
             Flag::DisabledTooLoud { ratio, label } => write!(
@@ -440,6 +440,19 @@ pub fn audit(palette: &Palette) -> Vec<Flag> {
             what: "the cursor's line",
             on: "the note background",
             ratio: band,
+            floor: 1.05,
+        });
+    }
+    // A properties block's band is the only thing saying "these rows are one region"
+    // without hiding a byte of them, so a band that cannot be seen is the role doing
+    // nothing. Held to the cursor line's bar: visible, and never louder than the text
+    // it sits behind.
+    let fm_band = contrast(palette.bg, palette.frontmatter_block_bg);
+    if fm_band <= 1.05 {
+        flags.push(Flag::TooFaint {
+            what: "a properties block's band",
+            on: "the note background",
+            ratio: fm_band,
             floor: 1.05,
         });
     }

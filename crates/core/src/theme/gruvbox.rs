@@ -24,7 +24,8 @@ pub const DARK: Palette = Palette {
     link: 0x83a598,
     link_unresolved: 0x7c6f64,
     dim: 0x7c6f64,
-    frontmatter: 0xa3797d, // dim toward accent
+    frontmatter: 0xa3797d,          // dim toward accent
+    frontmatter_block_bg: 0x383633, // bg toward fg at 8%: a band, not a surface
     heading: 0xfbf1c7,
     quote: 0x928374,
     accent: 0xd3869b,
@@ -93,7 +94,8 @@ pub const LIGHT: Palette = Palette {
     link: 0x076678,
     link_unresolved: 0xa89984,
     dim: 0xa89984,
-    frontmatter: 0x9d707b, // dim toward accent
+    frontmatter: 0x9d707b,          // dim toward accent
+    frontmatter_block_bg: 0xeae0ba, // bg toward fg at 9%: a band, not a surface
     heading: 0x282828,
     quote: 0x928374,
     accent: 0x8f3f71,

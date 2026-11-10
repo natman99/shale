@@ -113,6 +113,14 @@ pub struct Palette {
     /// cleared. Naming the same derivation in 21 places was not worth it; naming the
     /// result is what `design-language.md` §1 asks for.
     pub frontmatter: u32,
+    /// The background band drawn across the rows of a properties block, and across
+    /// nothing else. It is the block's shape rather than its colour: the fences and
+    /// keys wear [`Self::frontmatter`], while this says "these rows are one region"
+    /// the way [`Self::code_block_bg`] does for a fenced block. Nothing inside the
+    /// block is hidden, so the band is the only thing distinguishing it from prose at
+    /// a glance — and a block the parser refused keeps the band and takes
+    /// [`Self::callout_danger`] for its boundary, which is how the two are told apart.
+    pub frontmatter_block_bg: u32,
     /// Heading text.
     pub heading: u32,
     /// Blockquote text.
@@ -308,6 +316,7 @@ impl Palette {
             link_unresolved,
             dim,
             frontmatter,
+            frontmatter_block_bg,
             heading,
             quote,
             accent,
@@ -373,6 +382,7 @@ impl Palette {
             (&mut out.link_unresolved, link_unresolved),
             (&mut out.dim, dim),
             (&mut out.frontmatter, frontmatter),
+            (&mut out.frontmatter_block_bg, frontmatter_block_bg),
             (&mut out.heading, heading),
             (&mut out.quote, quote),
             (&mut out.accent, accent),
@@ -489,6 +499,7 @@ impl Palette {
             link_unresolved: Some(self.link_unresolved),
             dim: Some(self.dim),
             frontmatter: Some(self.frontmatter),
+            frontmatter_block_bg: Some(self.frontmatter_block_bg),
             heading: Some(self.heading),
             quote: Some(self.quote),
             accent: Some(self.accent),
@@ -639,6 +650,13 @@ pub struct ThemeFile {
         serialize_with = "serialize_color"
     )]
     pub frontmatter: Option<u32>,
+    /// Background band across a properties block's rows.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
+    pub frontmatter_block_bg: Option<u32>,
     /// Heading text.
     #[serde(
         default,

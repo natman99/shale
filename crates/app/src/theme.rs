@@ -188,6 +188,10 @@ impl RunStyle {
             // The box itself is painted by the line element (a background quad
             // and an accent bar), so its text stays ordinary.
             Style::Callout { .. } => {}
+            // A properties block's band is painted the same way — a quad across the
+            // row — so the region span colours no text at all. What is coloured
+            // inside the block is its fences and keys, and nothing else.
+            Style::FrontmatterBlock => {}
             Style::CalloutTitle { kind } => {
                 run.color = palette.callout_accent(kind);
                 run.bold = true;

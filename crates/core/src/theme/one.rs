@@ -20,18 +20,19 @@ use super::Palette;
 /// `@syntax-cursor-color` names as the caret. The callout accents are the
 /// theme's own git colours: renamed, added, modified and removed.
 pub const DARK: Palette = Palette {
-    bg: 0x282c34,              // hsl(220, 13%, 18%)
-    fg: 0xabb2bf,              // mono-1: hsl(220, 14%, 71%)
-    cursor: 0x528bff,          // @syntax-accent, the theme's caret colour
-    cursor_line_bg: 0x353b45,  // the note background one step off: a band
-    selection: 0x3e4451,       // the selection shade the theme derives
-    link: 0x61afef,            // blue
-    link_unresolved: 0x636d83, // @syntax-gutter
-    dim: 0x5c6370,             // mono-3, the comment colour
-    frontmatter: 0x5875b0,     // dim toward accent
-    heading: 0xe5e7eb,         // @text-color-highlight
-    quote: 0x828997,           // mono-2
-    accent: 0x528bff,          // the theme's accent, which it also uses as the caret
+    bg: 0x282c34,                   // hsl(220, 13%, 18%)
+    fg: 0xabb2bf,                   // mono-1: hsl(220, 14%, 71%)
+    cursor: 0x528bff,               // @syntax-accent, the theme's caret colour
+    cursor_line_bg: 0x353b45,       // the note background one step off: a band
+    selection: 0x3e4451,            // the selection shade the theme derives
+    link: 0x61afef,                 // blue
+    link_unresolved: 0x636d83,      // @syntax-gutter
+    dim: 0x5c6370,                  // mono-3, the comment colour
+    frontmatter: 0x5875b0,          // dim toward accent
+    frontmatter_block_bg: 0x2e323a, // bg toward fg at 4%: a band, not a surface
+    heading: 0xe5e7eb,              // @text-color-highlight
+    quote: 0x828997,                // mono-2
+    accent: 0x528bff,               // the theme's accent, which it also uses as the caret
     // the theme's accent
     agent: 0x528bff,
     tag: 0x98c379,             // green
@@ -93,18 +94,19 @@ pub const DARK: Palette = Palette {
 /// LESS cannot lighten a 98%-light background, so where the dark UI lifts a
 /// surface the light one lowers it; every other value is the formula.
 pub const LIGHT: Palette = Palette {
-    bg: 0xfafafa,              // hsl(230, 1%, 98%)
-    fg: 0x383a42,              // mono-1: hsl(230, 8%, 24%)
-    cursor: 0x526eff,          // @syntax-accent, the theme's caret colour
-    cursor_line_bg: 0xededed,  // the note background one step off: a band
-    selection: 0xe5e5e6,       // the selection shade the theme derives
-    link: 0x4078f2,            // blue
-    link_unresolved: 0x9d9d9f, // @syntax-gutter
-    dim: 0xa0a1a7,             // mono-3, the comment colour
-    frontmatter: 0x7d8acf,     // dim toward accent
-    heading: 0x1c1d21,         // @text-color-highlight
-    quote: 0x696c77,           // mono-2
-    accent: 0x526eff,          // the theme's accent, which it also uses as the caret
+    bg: 0xfafafa,                   // hsl(230, 1%, 98%)
+    fg: 0x383a42,                   // mono-1: hsl(230, 8%, 24%)
+    cursor: 0x526eff,               // @syntax-accent, the theme's caret colour
+    cursor_line_bg: 0xededed,       // the note background one step off: a band
+    selection: 0xe5e5e6,            // the selection shade the theme derives
+    link: 0x4078f2,                 // blue
+    link_unresolved: 0x9d9d9f,      // @syntax-gutter
+    dim: 0xa0a1a7,                  // mono-3, the comment colour
+    frontmatter: 0x7d8acf,          // dim toward accent
+    frontmatter_block_bg: 0xefeff0, // bg toward fg at 6%: a band, not a surface
+    heading: 0x1c1d21,              // @text-color-highlight
+    quote: 0x696c77,                // mono-2
+    accent: 0x526eff,               // the theme's accent, which it also uses as the caret
     // the theme's accent
     agent: 0x526eff,
     tag: 0x50a14f,             // green

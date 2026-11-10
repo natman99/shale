@@ -201,6 +201,73 @@ fn wrap_stays_accurate_for_tabs_and_unicode(cx: &mut TestAppContext) {
     });
 }
 
+/// The band is the block's shape, and the shape has to answer for the parser's block:
+/// it covers the fences and the blank row between the keys, and stops at the block's
+/// edge. A thematic break further down the note — the same three dashes, painted the
+/// same punctuation colour — gets no band, because it is not a block.
+#[gpui::test]
+fn the_properties_band_covers_the_block_and_nothing_else(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.bind_keys(keybindings()));
+    let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+    let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+    let note = crate::note::Note::from_text(
+        "---\ncr: 3\n\ntags: [a]\n---\n# Goblin\n\nA rule:\n\n---\n\nBody\n".to_string(),
+    );
+    editor
+        .update(cx, |editor, _window, cx| editor.set_note(note, cx))
+        .unwrap();
+    for _ in 0..2 {
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+    }
+    let rows = editor
+        .read_with(cx, |editor, _cx| editor.frontmatter_rows())
+        .unwrap();
+    let banded: Vec<usize> = rows
+        .iter()
+        .filter(|(_, band, ..)| *band)
+        .map(|(row, ..)| *row)
+        .collect();
+    assert_eq!(
+        banded,
+        vec![0, 1, 2, 3, 4],
+        "the band covers both fences and the blank row between the keys"
+    );
+    assert!(
+        rows[0].2,
+        "the boundary's top edge goes on the block's first row"
+    );
+    assert!(
+        rows[4].3,
+        "and its bottom edge on the block's last row, not the last key row"
+    );
+    assert!(
+        rows.iter().skip(5).all(|(_, band, ..)| !*band),
+        "the thematic break further down is not a block"
+    );
+}
+
+/// A block that was never closed is the most important fact on the page: the note has
+/// no properties, and the reader has to be told. The band stays — those rows are the
+/// block the author opened — and the boundary takes the error colour.
+#[gpui::test]
+fn a_block_that_never_closes_keeps_its_band_and_takes_the_error_colour(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.bind_keys(keybindings()));
+    let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+    let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+    let note = crate::note::Note::from_text("---\ncr: 3\nno closing fence\n".to_string());
+    editor
+        .update(cx, |editor, _window, cx| editor.set_note(note, cx))
+        .unwrap();
+    for _ in 0..2 {
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+    }
+    let rows = editor
+        .read_with(cx, |editor, _cx| editor.frontmatter_rows())
+        .unwrap();
+    assert!(rows[0].1, "the rows opened as a block are still banded");
+    assert!(rows[0].4, "and the band says which block it is");
+}
+
 /// Switching notes must not keep showing the note that was there before. The view
 /// caches its style spans against the buffer's change id, and when that id counted
 /// edits from zero, two notes nobody had edited shared one — so the short note was

@@ -96,6 +96,14 @@ pub enum Style {
     /// the author hoped meant something. The range comes from the parser the index
     /// runs, so the colour cannot promise properties the note does not have.
     FrontmatterFence,
+    /// The whole properties block — both fences and every line between them — as one
+    /// region span. It colours nothing: the line element paints a background band and
+    /// a hairline boundary across the rows it covers, which is what makes the block
+    /// read as one unit at a glance the way a fenced code block's background does.
+    /// It is emitted by the same scan as the fences and the keys, so the band cannot
+    /// cover rows the parser does not call a block, and a thematic break — which has
+    /// no block — never gets one.
+    FrontmatterBlock,
     /// The `key:` of a line inside a properties block. The value stays ordinary text:
     /// colouring it as though the editor understood it would be a claim about its type
     /// that the block alone does not support.
@@ -180,6 +188,16 @@ pub fn style_spans(text: &str) -> Vec<StyleSpan> {
     let front = frontmatter(text, &lines);
 
     let mut out: Vec<StyleSpan> = Vec::new();
+    // The block's region goes in first: it starts at or before everything else the
+    // block owns, and it colours nothing, so the row walk can mark every row of the
+    // block — including a blank one inside it, which carries no other span.
+    if let Some(front) = &front {
+        out.push(StyleSpan {
+            start: front.whole.0,
+            end: front.whole.1,
+            style: Style::FrontmatterBlock,
+        });
+    }
     // A block's keys go in before the line walk, so an inline style inside a value
     // still wins over them the way every other block/inline pair does.
     if let Some(front) = &front {
@@ -281,6 +299,10 @@ struct Frontmatter {
     /// The byte offset each fence line starts at. Two of them, unless the block is
     /// broken, in which case the fences are covered by `broken`.
     fences: Vec<usize>,
+    /// The whole block, first fence to the end of the last one (or the range the
+    /// parser refused). The band the editor draws is asked of this, so the band and
+    /// the parser cannot disagree about where the block is.
+    whole: (usize, usize),
     /// Each `key:` inside the block, as the author wrote it.
     keys: Vec<(usize, usize)>,
     /// The whole block when the parser refused it, or the lone `---` when the note
@@ -371,6 +393,7 @@ fn frontmatter(text: &str, lines: &[(usize, &str)]) -> Option<Frontmatter> {
         if block.malformed.is_some() {
             return Some(Frontmatter {
                 fences: Vec::new(),
+                whole: block.bytes,
                 keys: Vec::new(),
                 broken: Some(block.bytes),
                 inner: block.bytes,
@@ -391,8 +414,13 @@ fn frontmatter(text: &str, lines: &[(usize, &str)]) -> Option<Frontmatter> {
                 }
             }
         }
+        let close_end = lines
+            .get(block.lines.1)
+            .map(|(start, content)| *start + content.len())
+            .unwrap_or(close);
         return Some(Frontmatter {
             fences: vec![open, close],
+            whole: (open, close_end),
             keys,
             broken: None,
             inner,
@@ -426,6 +454,7 @@ fn frontmatter(text: &str, lines: &[(usize, &str)]) -> Option<Frontmatter> {
     }
     Some(Frontmatter {
         fences: Vec::new(),
+        whole: (start, start + content.len()),
         keys: Vec::new(),
         broken: Some((start, start + content.len())),
         inner: (start, start + content.len()),
@@ -534,6 +563,44 @@ mod tests {
             .filter(|s| s.style == style)
             .map(|s| &text[s.start..s.end])
             .collect()
+    }
+
+    /// The band the editor draws is asked of ONE region span, so it cannot cover a row
+    /// the parser does not call part of the block, and a note whose only `---` is a
+    /// thematic break has no region to draw at all.
+    #[test]
+    fn the_band_region_is_exactly_what_the_parser_calls_the_block() {
+        let text = "---\ncr: 3\n\ntags: [a, b]\n---\n# Goblin\n\nA rule:\n\n---\n";
+        let block = crate::frontmatter::block(text).unwrap();
+        assert_eq!(
+            spans(text, Style::FrontmatterBlock),
+            vec![(block.bytes.0, block.bytes.1)],
+            "the region is the parser's block range, not a second opinion on it"
+        );
+        // The blank line inside the block carries no key and no fence. The band is
+        // asked of the region rather than of the spans, so it is still covered.
+        let blank = text.find("\n\n").unwrap() + 1;
+        let (from, to) = spans(text, Style::FrontmatterBlock)[0];
+        assert!(
+            from <= blank && blank < to,
+            "the blank row inside a block sits inside its band"
+        );
+        // And the rule further down the note is not part of it.
+        assert_eq!(spans(text, Style::FrontmatterBlock).len(), 1);
+        assert!(spans("# Title\n\n---\n\nbody\n", Style::FrontmatterBlock).is_empty());
+    }
+
+    /// A block that never closes is still the block's rows, and the region is where
+    /// the editor says so: the fence the author opened, which is what the broken
+    /// colour already marks.
+    #[test]
+    fn an_unclosed_block_still_has_a_region() {
+        let text = "---\ncr: 3\nno closing fence\n";
+        assert_eq!(
+            texts(text, Style::FrontmatterBlock),
+            texts(text, Style::FrontmatterBroken),
+            "the band and the error colour answer for the same rows"
+        );
     }
 
     /// A properties block is not a divider, and the difference is the whole point:

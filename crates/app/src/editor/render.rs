@@ -696,6 +696,13 @@ impl Render for MarkdownEditor {
                         // A fenced block's background spans the full width, so
                         // the element paints it as a quad rather than a run.
                         let block = row_styles.get(dl.row).copied().unwrap_or_default().block;
+                        // A properties block's band and boundary, from the same row
+                        // facts the wrap model measured with.
+                        let frontmatter = row_styles
+                            .get(dl.row)
+                            .copied()
+                            .unwrap_or_default()
+                            .frontmatter;
                         // A thematic break is drawn as a rule across the line in
                         // place of its dashes — but only when live preview hid
                         // them, which is exactly when the row is neither the
@@ -794,6 +801,7 @@ impl Render for MarkdownEditor {
                                 size: dl.size,
                                 dim,
                                 block,
+                                frontmatter,
                                 rule,
                                 callout,
                                 callout_mark,

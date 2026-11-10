@@ -31,7 +31,8 @@ pub const NIGHT: Palette = Palette {
     link: 0x6183bb,           // `textLink.foreground` of the official theme
     link_unresolved: 0x545c7e,
     dim: 0x565f89,
-    frontmatter: 0x837aba, // dim toward accent
+    frontmatter: 0x837aba,          // dim toward accent
+    frontmatter_block_bg: 0x21222e, // bg toward fg at 4%: a band, not a surface
     heading: 0xc0caf5,
     quote: 0xa9b1d6,
     accent: 0xbb9af7,
@@ -105,7 +106,8 @@ pub const STORM: Palette = Palette {
     link: 0x6183bb,           // `textLink.foreground` of the official theme
     link_unresolved: 0x545c7e,
     dim: 0x565f89,
-    frontmatter: 0x837aba, // dim toward accent
+    frontmatter: 0x837aba,          // dim toward accent
+    frontmatter_block_bg: 0x292e42, // bg toward fg at 4%: a band, not a surface
     heading: 0xc0caf5,
     quote: 0xa9b1d6,
     accent: 0xbb9af7,
@@ -180,7 +182,8 @@ pub const LIGHT: Palette = Palette {
     link: 0x2959aa,
     link_unresolved: 0x707280,
     dim: 0x888b94,
-    frontmatter: 0x786498, // dim toward accent
+    frontmatter: 0x786498,          // dim toward accent
+    frontmatter_block_bg: 0xdedfe6, // bg toward fg at 4%: a band, not a surface
     heading: 0x363c4d,
     quote: 0x4e5579,
     accent: 0x65359d,

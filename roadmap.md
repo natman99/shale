@@ -60,10 +60,11 @@ with a writer) landed 2026-11-08, M3's kind census the same day, and the deferre
 `prop:`/`tag:`/`path:` operators and the "why did this match" evidence early**, and its
 grammar is one parser (`core::query`) that says nothing about SQL — so P4.3's `.shq`
 bodies will read queries the same way, and P4.3's first commit is already behind it.
-What is left of P4.3a is the two surfaces its own plan named and allowed to be scheduled
-apart: **M4, live preview of the block** (display segments and hidden ranges; the buffer
-never changes; `:raw` shows the YAML; editing a value is a text edit), and **M5, the
-vault-wide properties pane** (key list with counts, kind conflicts, key rename riding the
+**M4 — live preview of the block — closed 2026-11-09**, and not as the plan wrote it:
+the block's fences and quotes stay visible (they are the data), and the block is shown
+by its **shape** instead — a background band and a hairline boundary in the new
+`frontmatter_block_bg` role. What is left of P4.3a is one surface: **M5, the vault-wide
+properties pane** (key list with counts, kind conflicts, key rename riding the
 link-health machinery).
 
 **P4.0, transclusion — the editable half (closed 2026-11-08).** P4.0a
@@ -1273,6 +1274,29 @@ edges, query nodes, MCP canvas tools) is P6.10.
       `the_link_colour_and_the_index_agree_on_every_shape` is the drift guard: it counts
       the values the parser files as links against the regions the painter covers, so the
       two cannot disagree quietly.
+  - **Landed 2026-11-09 (P4.3a M4: the block's shape, not a second reading of it).**
+      The plan wrote this milestone as "display segments / hidden ranges", and the
+      `545fb25` ruling had already made that impossible: inside a properties block live
+      preview hides **nothing**, because the dashes and quotes there are the data — a
+      value's quotes are the difference between `cr: 3` and `cr: "3"`, which is a kind
+      question, and the fences are the only place the file says where the block ends.
+      What shipped is the block's shape: a background band across every row of the block
+      and a hairline along its top and bottom edges, in a new palette role
+      `frontmatter_block_bg`. §1 of `design-language.md` refuses a computed colour, so
+      all 20 built-ins name it, and the auditor flags a band fainter than 1.05:1 against
+      the page — `the_auditor_flags_a_properties_block_with_no_band` is the
+      falsification, and painting nord's band in nord's background fails both it and
+      `every_built_in_can_draw_a_properties_block`. The region is **one span**
+      (`Style::FrontmatterBlock`) emitted from the parser's own block range, so the band
+      cannot cover a row the index does not read as properties, and a thematic break —
+      the same three dashes in the same punctuation colour — gets none at all. A block
+      that never closes keeps its band (those rows *are* the block) and takes
+      `callout_danger` for its boundary. The bits ride `RowStyle.frontmatter` into the
+      line element, and an embedded note's block gets its band from the same scan
+      (`embeds::paint_body`), so the same text does not read two ways depending on how
+      it was reached. `the_properties_band_covers_the_block_and_nothing_else` pins the
+      region to the parser's range; `a_block_that_never_closes_keeps_its_band_and_takes_the_error_colour`
+      pins the error case.
   - **P4.3b Headings index — AFTER P4.3a, and explicitly NOT inside it** (ruled
     2026-11-08). Schema **v4** adds `headings(note, line, text, depth)`, filled in the
     same indexer pass from `mdstyle`/`mdlayout` — derived, not authored, so it cannot

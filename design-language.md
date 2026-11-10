@@ -30,6 +30,7 @@ added to the Palette, never inlined at the paint site.
 | `ui_disabled` | unavailable controls: dimmed keybinds, inactive chips |
 | `graph_ghost` / `graph_tag` / `graph_attachment` | node kinds named, not derived from neighbors' colors |
 | `frontmatter` (added 2026-11-09) | a note's properties block: its `---` fences and its `key:`s. A block of properties and a divider someone drew were the same three dashes in the same `dim`; the block now reads as a block. A block the parser **refuses** takes `callout_danger` — no new role, because an unreadable block is an error and the palette already says that |
+| `frontmatter_block_bg` (added 2026-11-09) | the band behind a properties block's rows, and the hairline along its top and bottom edges. Live preview hides nothing inside the block, so the band is the only thing saying "these rows are one region" — the same claim a fenced block's background makes. It is **not** `code_block_bg`: a code block is a surface you read differently, and reusing that colour would make properties look like preformatted text. It is not computed from `bg` either (§1): a blend would move whenever a theme's `dim` moves, and the auditor could not tell a band from the page it sits on |
 
 **✅ Rule: roles are additive.** A new role is *optional* in TOML themes, so the 20 built-ins
 and every user theme keep loading untouched, and **the built-ins name them explicitly in the

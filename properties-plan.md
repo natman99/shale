@@ -282,8 +282,18 @@ is the authored text the strip must show and rewrite; the projection is a query 
     are P4.3's first commit, and P4.3a's job is to have the columns ready when it lands,
     which it now does. What P4.3a owes and has: the `props` table, the kinds, the census,
     and the `props_key (key, kind)` index a `prop:` filter would ride.
-- **M4 — in-place live preview of the block** (display segments / hidden ranges; the
-  buffer never changes; `:raw` shows the YAML). Editing a value is a text edit.
+- **M4 — in-place live preview of the block. CLOSED 2026-11-09.**
+  **Scope correction, made while implementing:** the plan's "display segments / hidden
+  ranges" is not what shipped, and the earlier ruling that live preview hides nothing
+  inside a properties block (`545fb25`) is what decided it. Hiding the `---` fences or a
+  value's quotes would hide **data**: the quotes are the difference between `cr: 3` and
+  `cr: "3"`, which is a kind question, and the fences are the only place the file says
+  where the block ends. What M4 is instead: a **background band across the block's rows
+  with a hairline along its top and bottom edges**, in the new palette role
+  `frontmatter_block_bg`, drawn from the parser's own block range so the shape cannot
+  disagree with what the index read. A block the parser refused keeps the band — those
+  rows *are* the block — and takes `callout_danger` for its boundary. The buffer never
+  changes, `:raw` still shows the YAML, and editing a value is still a text edit.
 - **M5 — the vault-wide properties pane:** key list with counts, kind conflicts, and key
   rename through the link-health machinery.
 

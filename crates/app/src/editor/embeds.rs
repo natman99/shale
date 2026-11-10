@@ -25,6 +25,7 @@ use shale_core::theme::Palette;
 use shale_core::transclude::{self, Body, Sources};
 use shale_core::vault::{Vault, VaultEntry};
 
+use crate::line::{FM_BAND, FM_BOTTOM, FM_BROKEN, FM_TOP};
 use crate::preview::PieceMap;
 use crate::theme;
 
@@ -101,6 +102,11 @@ pub(crate) struct PaintedRow {
     /// notes, when the embed has embeds of its own.
     pub(crate) map: PieceMap,
     pub(crate) buffer_spans: Vec<(usize, usize, Style)>,
+    /// Which of the properties band's three facts this row carries, from the same
+    /// scan that dressed the row: an embedded note's block gets the same shape as
+    /// the note's own rows, or the same text reads two ways depending on how it was
+    /// reached.
+    pub(crate) frontmatter: u8,
 }
 
 /// Dress an embed body the way live preview dresses the note's own rows.
@@ -192,7 +198,30 @@ pub(crate) fn paint_body(lines: &[String], starts: &[usize], reveal: Reveal) -> 
             Style::Heading { level } if span.start >= start && span.start < end => Some(level),
             _ => None,
         });
+        // The band, from the same scan that dressed the row. The region is asked of
+        // one span, so a row is inside it or it is not; the boundary goes on the row
+        // the region starts and ends on.
+        let mut frontmatter = 0u8;
+        for region in spans
+            .iter()
+            .filter(|s| s.style == Style::FrontmatterBlock || s.style == Style::FrontmatterBroken)
+        {
+            if region.start >= end || region.end <= start {
+                continue;
+            }
+            frontmatter |= FM_BAND;
+            if region.start >= start {
+                frontmatter |= FM_TOP;
+            }
+            if region.end <= end {
+                frontmatter |= FM_BOTTOM;
+            }
+            if region.style == Style::FrontmatterBroken {
+                frontmatter |= FM_BROKEN;
+            }
+        }
         out.push(PaintedRow {
+            frontmatter,
             // The pieces name offsets into `joined`, so the painted string is read
             // from the same string — and holds only this row, because only this
             // row's pieces are in the map.

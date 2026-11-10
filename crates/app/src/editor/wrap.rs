@@ -11,7 +11,7 @@ use shale_core::mdlayout;
 use shale_core::mdstyle::{CalloutKind, Style, StyleSpan};
 use shale_core::table::Table;
 
-use crate::line::DisplayLine;
+use crate::line::{DisplayLine, FM_BAND, FM_BOTTOM, FM_BROKEN, FM_TOP};
 use crate::preview::PieceMap;
 use crate::theme;
 
@@ -40,6 +40,11 @@ pub(super) struct RowStyle {
     /// marks with `Style::CalloutTitle`. The callout mark is drawn once, here, rather
     /// than on every row of the box, or the gutter would become a stripe of glyphs.
     pub(super) callout_head: bool,
+    /// The row is inside a properties block. Bits: `FM_BAND` — paint the band;
+    /// `FM_TOP`/`FM_BOTTOM` — this row is the block's first/last, so the boundary
+    /// hairline is drawn on its top/bottom edge; `FM_BROKEN` — the parser refused
+    /// this block, which turns the boundary to the error colour.
+    pub(super) frontmatter: u8,
 }
 
 /// Which line wrapper a row needs: one per heading level, regular and wide face.
@@ -208,6 +213,11 @@ impl MarkdownEditor {
             // type name and any custom title are `CalloutTitle`, so a row carrying that
             // span is the one row the callout mark belongs to.
             let callout_head = matches!(span.style, Style::CalloutTitle { .. });
+            let band = span.style == Style::FrontmatterBlock;
+            let broken = span.style == Style::FrontmatterBroken;
+            // The first row this span touches. `row` is shadowed inside the walk
+            // below, so the answer is taken before it is.
+            let first_row = row;
             let mut r = row;
             while r < line_count && self.note.buffer.borrow().line_start(r) < span.end {
                 let row = &mut rows[r];
@@ -219,6 +229,22 @@ impl MarkdownEditor {
                     row.callout = callout;
                 }
                 row.callout_head |= callout_head;
+                if band {
+                    row.frontmatter |= FM_BAND;
+                    if r == first_row {
+                        row.frontmatter |= FM_TOP;
+                    }
+                    // The last row the span touches, decided by peeking: the walk
+                    // does not know it is the last one until it looks past itself.
+                    if !(r + 1 < line_count
+                        && self.note.buffer.borrow().line_start(r + 1) < span.end)
+                    {
+                        row.frontmatter |= FM_BOTTOM;
+                    }
+                }
+                if broken {
+                    row.frontmatter |= FM_BROKEN;
+                }
                 r += 1;
             }
         }

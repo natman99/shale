@@ -239,7 +239,35 @@ fn every_built_in_can_draw_a_properties_block() {
             contrast::contrast(block, palette.bg) >= contrast::contrast(palette.dim, palette.bg),
             "{name}: the block reads worse than the rule it replaces"
         );
+        // The band is the block's shape now, and it carries the whole distinction:
+        // nothing inside the block is hidden, so a family whose band cannot be seen
+        // has a properties block that looks like prose with coloured keys.
+        let band = palette.frontmatter_block_bg;
+        assert_ne!(
+            band, palette.bg,
+            "{name}: a band painted in the note's own background is not a band"
+        );
+        assert!(
+            contrast::contrast(band, palette.bg) > 1.05,
+            "{name}: the block's band is too faint to read as a region"
+        );
     }
+}
+
+/// The band is the only thing saying "these rows are one region" — the block hides
+/// nothing — so a theme that paints it in the note's own background gets told, the
+/// same way a callout whose bar matches its box does.
+#[test]
+fn the_auditor_flags_a_properties_block_with_no_band() {
+    let mut palette = Palette::DARK;
+    palette.frontmatter_block_bg = palette.bg;
+    let flags = contrast::audit(&palette);
+    assert!(
+        flags
+            .iter()
+            .any(|flag| format!("{flag:?}").contains("a properties block's band")),
+        "a band painted in the note's own colour should be flagged, got {flags:?}"
+    );
 }
 
 #[test]

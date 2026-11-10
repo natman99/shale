@@ -103,7 +103,8 @@ pub const LATTE: Palette = Palette {
     link: 0x1e66f5,
     link_unresolved: 0x9ca0b0,
     dim: 0x8c8fa1,
-    frontmatter: 0x8a68c4, // dim toward accent
+    frontmatter: 0x8a68c4,          // dim toward accent
+    frontmatter_block_bg: 0xe6e8ed, // bg toward fg at 6%: a band, not a surface
     heading: 0x4c4f69,
     quote: 0x6c6f85,
     accent: 0x8839ef,
@@ -186,7 +187,8 @@ pub const FRAPPE: Palette = Palette {
     link: 0x8caaee,
     link_unresolved: 0x737994,
     dim: 0x838ba7,
-    frontmatter: 0xa394c3, // dim toward accent
+    frontmatter: 0xa394c3,          // dim toward accent
+    frontmatter_block_bg: 0x373b4e, // bg toward fg at 4%: a band, not a surface
     heading: 0xc6d0f5,
     quote: 0xa5adce,
     accent: 0xca9ee6,
@@ -261,7 +263,8 @@ pub const MACCHIATO: Palette = Palette {
     link: 0x8aadf4,
     link_unresolved: 0x6e738d,
     dim: 0x8087a2,
-    frontmatter: 0xa092c8, // dim toward accent
+    frontmatter: 0xa092c8,          // dim toward accent
+    frontmatter_block_bg: 0x2a2d41, // bg toward fg at 4%: a band, not a surface
     heading: 0xcad3f5,
     quote: 0xa5adcb,
     accent: 0xc6a0f6,
@@ -335,7 +338,8 @@ pub const MOCHA: Palette = Palette {
     link: 0x89b4fa,
     link_unresolved: 0x6c7086,
     dim: 0x7f849c,
-    frontmatter: 0xa193c5, // dim toward accent
+    frontmatter: 0xa193c5,          // dim toward accent
+    frontmatter_block_bg: 0x242435, // bg toward fg at 4%: a band, not a surface
     heading: 0xcdd6f4,
     quote: 0xa6adc8,
     accent: 0xcba6f7,

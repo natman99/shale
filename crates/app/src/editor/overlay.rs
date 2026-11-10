@@ -1148,6 +1148,8 @@ impl MarkdownEditor {
             // typing into that does nothing is a hole in the block, not in the note.
             links,
             spans: painted.buffer_spans.clone(),
+            // The band, from the same scan that dressed the row.
+            frontmatter: painted.frontmatter,
             // The checker's notes for this note, clipped to the row: the server holds
             // this buffer while the caret is inside it.
             marks,

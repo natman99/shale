@@ -1251,6 +1251,27 @@ impl MarkdownEditor {
             .collect()
     }
 
+    /// Which rows the frame draws a properties band across, and where the boundary
+    /// hairlines go: `(row, band, top, bottom, broken)` for every buffer row. The
+    /// paint reads these same row facts, so this answers for what is drawn rather
+    /// than being a second calculation of it.
+    #[cfg(test)]
+    pub fn frontmatter_rows(&self) -> Vec<(usize, bool, bool, bool, bool)> {
+        self.row_styles()
+            .iter()
+            .enumerate()
+            .map(|(row, style)| {
+                (
+                    row,
+                    style.frontmatter & crate::line::FM_BAND != 0,
+                    style.frontmatter & crate::line::FM_TOP != 0,
+                    style.frontmatter & crate::line::FM_BOTTOM != 0,
+                    style.frontmatter & crate::line::FM_BROKEN != 0,
+                )
+            })
+            .collect()
+    }
+
     /// How many painted pieces each display line has: one for ordinary text, one
     /// per cell for a table row. Diagnostic aid for the grid paint path.
     #[cfg(test)]
