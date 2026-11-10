@@ -68,6 +68,9 @@ by its **shape** instead — a background band and a hairline boundary in the ne
 key across every note that writes it. **P4.3a is closed.** What it leaves behind for
 P4.3: `core::query` is the one grammar, `props` is the table a `.shq` body will read, and
 the key rename is the migration path a saved query's vocabulary can lean on.
+**P4.3 has started: M1 — the `.shq` file format and the read-only runner — landed
+2026-11-09.** The plan, an edge ledger (EDGE-1…22) and the six rulings the surface needs
+are in `queries-plan.md`.
 
 **P4.0, transclusion — the editable half (closed 2026-11-08).** P4.0a
 (read-only embeds) shipped on 2026-11-06, and **P4.0b — editing inside an embed — is
@@ -1340,6 +1343,25 @@ edges, query nodes, MCP canvas tools) is P6.10.
       case-significance, the index write, the rename mood of the pane, the dirty-note
       check (active-only and registry-wide), and the declaration suffix each turn a test
       red.
+  - **Landed 2026-11-09 (P4.3 M1: the `.shq` format and the runner).**
+    `query_note::QueryNote` reads the file — an optional TOML declaration between `+++`
+    fences, then the SQL body — and `Db::run` answers it: one statement, a read-only
+    connection, cells that keep SQLite's storage classes, and `:current` bound as a named
+    parameter. The fence is `+++` and not `---` because a note's `---` block is YAML owned
+    by `frontmatter` and SQL's line comments start with `--`, so a `---` above SQL would be
+    read as a comment by the language below it. The declaration is optional — a saved search
+    wants none — and a declaration key this version does not know is kept out of the struct
+    rather than out of the file. A second statement is refused with the reader's own text
+    quoted back: not because it could do damage on a read-only connection, but because a
+    note that silently runs two statements answers a different question than the one the
+    reader wrote. No result cache yet, deliberately — the plan wrote "cached by query-hash +
+    vault mtime" before the index existed and before any query had been measured, and the key
+    rule a cache owes (the anchor path belongs in the key, or a query cached for one session
+    answers for the next) is written in `db/query.rs` so it knows what it owes. `.shq` is its
+    own kind of file: `Vault::list_queries`, and out of `list_attachments`, because left in
+    that list `![[my-query]]` would resolve to a query note and paint it as a broken image.
+    Each rule falsified individually. Plan, edge ledger and six open rulings in
+    `queries-plan.md`.
   - **P4.3b Headings index — AFTER P4.3a, and explicitly NOT inside it** (ruled
     2026-11-08). Schema **v4** adds `headings(note, line, text, depth)`, filled in the
     same indexer pass from `mdstyle`/`mdlayout` — derived, not authored, so it cannot
