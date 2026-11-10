@@ -174,10 +174,14 @@ impl<T: Clone + 'static> Picker<T> {
     }
 
     /// A picker whose rows are built from the query, for a list too expensive to
-    /// produce before anything has been typed.
+    /// produce before anything has been typed. `seed` is what the field starts
+    /// holding — empty for a search the user types from scratch, and `prop:key` when
+    /// the properties pane hands a key over so the reader can widen the question
+    /// instead of retyping it.
     pub(crate) fn sourced(
         label: impl Into<SharedString>,
         source: RowSource<T>,
+        seed: &str,
         palette: Rc<Palette>,
         family: SharedString,
         size: f32,
@@ -186,7 +190,7 @@ impl<T: Clone + 'static> Picker<T> {
         let mut picker = Self {
             focus_handle: cx.focus_handle(),
             label: label.into(),
-            field: Field::new(""),
+            field: Field::new(seed),
             items: Vec::new(),
             source: Some(source),
             ranked: Vec::new(),

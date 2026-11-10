@@ -555,6 +555,15 @@ const ALL: &[Command] = &[
         action: Some(|| Box::new(Props)),
     },
     Command {
+        id: "vault.keys",
+        label: "List the vault's property keys",
+        keys: "",
+        ex: &["keys"],
+        args: "",
+        in_palette: true,
+        action: Some(|| Box::new(PropertyKeys)),
+    },
+    Command {
         id: "vault.wordcount",
         label: "Count the vault's words",
         keys: "",

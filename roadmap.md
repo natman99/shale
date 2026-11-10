@@ -63,9 +63,9 @@ bodies will read queries the same way, and P4.3's first commit is already behind
 **M4 — live preview of the block — closed 2026-11-09**, and not as the plan wrote it:
 the block's fences and quotes stay visible (they are the data), and the block is shown
 by its **shape** instead — a background band and a hairline boundary in the new
-`frontmatter_block_bg` role. What is left of P4.3a is one surface: **M5, the vault-wide
-properties pane** (key list with counts, kind conflicts, key rename riding the
-link-health machinery).
+`frontmatter_block_bg` role. What is left of P4.3a is half of one surface: **M5's key rename**, the vault-wide
+rename of a property key riding the link-health machinery. M5's census half — `:keys`,
+the key list with counts and kind conflicts — landed 2026-11-09.
 
 **P4.0, transclusion — the editable half (closed 2026-11-08).** P4.0a
 (read-only embeds) shipped on 2026-11-06, and **P4.0b — editing inside an embed — is
@@ -1297,6 +1297,23 @@ edges, query nodes, MCP canvas tools) is P6.10.
       it was reached. `the_properties_band_covers_the_block_and_nothing_else` pins the
       region to the parser's range; `a_block_that_never_closes_keeps_its_band_and_takes_the_error_colour`
       pins the error case.
+  - **Landed 2026-11-09 (P4.3a M5, first half: the vault-wide key census).** `:keys`
+      and the palette's **List the vault's property keys** put the vault's vocabulary on
+      one screen: one row per key, the keys that reach furthest first, each saying how
+      many notes write it, how many values it holds, and every kind those values come
+      as. The read is one statement (`Db::key_census`, a `GROUP BY key` over `props`)
+      rather than one query per key, and the kinds are sorted by the spelling the reader
+      is shown, because `GROUP_CONCAT` promises no order. A key whose values disagree is
+      shown with **both** kinds, brought forward in the row — ruling §8.4's "the panel
+      lists keys whose values disagree in kind, with counts", with no modal and no
+      warning on save. Choosing a row does not open a second list: it puts `prop:key` in
+      the search field (`Picker::sourced_seeded`), because the search already answers
+      "which notes write this" and can be widened from there; a key with a space or an
+      operator character in it is quoted on the way in, or the grammar would read
+      `prop:Max HP` as a key and a value. No index and an empty vault are different
+      rows (EDGE-25 again). **What is left of M5 is the rename**: key rename riding the
+      link-health machinery, which is the migration path ruling §1.3 promises for a
+      vocabulary cleanup (`Type` → `type`) rather than a forced rewrite.
   - **P4.3b Headings index — AFTER P4.3a, and explicitly NOT inside it** (ruled
     2026-11-08). Schema **v4** adds `headings(note, line, text, depth)`, filled in the
     same indexer pass from `mdstyle`/`mdlayout` — derived, not authored, so it cannot

@@ -88,6 +88,25 @@ impl Kind {
     }
 }
 
+/// One key as the whole vault writes it. The census is what makes a kind
+/// disagreement something a person can see: the index keeps each value's own kind
+/// rather than smoothing a key into one type, so the answer to "what is `cr`?" is a
+/// list, and a list longer than one is the typo.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KeyCensus {
+    /// The key as authored, case and spaces kept.
+    pub key: String,
+    /// How many notes write it. Not the same as `values`: one note can write a key
+    /// twice, and a reader deciding whether a key is worth renaming cares about
+    /// notes.
+    pub notes: usize,
+    /// How many values the vault holds under it, counting repeats within a note.
+    pub values: usize,
+    /// Every kind those values come in, in `Kind`'s own order. More than one is a
+    /// disagreement, not a mixture the index has reconciled.
+    pub kinds: Vec<Kind>,
+}
+
 /// One authored property, as its row in `props` will hold it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Prop {

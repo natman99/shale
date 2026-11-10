@@ -19,11 +19,13 @@ use std::path::{Path, PathBuf};
 
 use gpui::{Context, Window};
 use shale_core::db::Provenance;
-use shale_core::frontmatter::{Kind, Prop};
+use shale_core::frontmatter::{KeyCensus, Kind, Prop};
 use shale_core::watch::VaultChanges;
 
+use super::open::{notice, PickerTarget};
 use super::Workspace;
-use crate::acts::{Props, WordCount};
+use crate::acts::{PropertyKeys, Props, WordCount};
+use crate::picker::PickerItem;
 
 impl Workspace {
     pub(super) fn flush_index(&self) {
@@ -197,6 +199,59 @@ impl Workspace {
         cx.notify();
     }
 
+    /// `:keys`: every property key the vault writes, how far each one reaches, and
+    /// every kind its values come in (P4.3a M5).
+    ///
+    /// The census is the index's, not a re-parse of the notes: the same table `:props`
+    /// reads for one note answers for the whole vault here. A key whose values
+    /// disagree in kind is shown with **both** kinds rather than smoothed into one
+    /// (ruling §8.4) — the disagreement is the thing the reader needs to see, and the
+    /// pane is where it is shown rather than a warning on every save.
+    pub(super) fn show_property_keys(
+        &mut self,
+        _: &PropertyKeys,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let label = "Every property key in the vault";
+        let Some(db) = self.db.as_ref() else {
+            // "No keys" and "I cannot look" are different answers (EDGE-25).
+            self.open_picker(
+                label,
+                vec![notice(
+                    "there is no vault index to read (index.enabled = false)",
+                )],
+                window,
+                cx,
+            );
+            return;
+        };
+        let census = match db.key_census() {
+            Ok(census) => census,
+            Err(err) => {
+                tracing::warn!("could not read the key census: {err:#}");
+                self.open_picker(
+                    label,
+                    vec![notice(format!("the vault index could not answer: {err:#}"))],
+                    window,
+                    cx,
+                );
+                return;
+            }
+        };
+        if census.is_empty() {
+            self.open_picker(
+                label,
+                vec![notice("no note in this vault writes a property")],
+                window,
+                cx,
+            );
+            return;
+        }
+        let rows = census.iter().map(key_row).collect();
+        self.open_picker(label, rows, window, cx);
+    }
+
     /// The palette row's `:wordcount`: the whole vault, because a palette row has
     /// nowhere to type a folder.
     pub(super) fn show_wordcount(
@@ -328,6 +383,50 @@ fn describe_props(note: &Path, rows: &[Prop], census: &BTreeMap<String, Vec<Kind
 /// Whether a key's value is structure Shale indexes but does not read.
 fn row_is_nested(group: &[&Prop]) -> bool {
     group.iter().any(|row| row.kind == Kind::Nested)
+}
+
+/// One census key as the pane draws it: the key leads, and the dim text after it says
+/// how far it reaches and what its values come as. The kinds are brought forward only
+/// when they disagree — that is the one case where the detail is a warning rather than
+/// a caption, and it is the reason the pane exists (ruling §8.4).
+///
+/// One producer for the row and for the test that reads it back, so rewording the
+/// detail cannot quietly make the test answer a different question.
+pub(crate) fn key_row(census: &KeyCensus) -> (PickerItem, PickerTarget) {
+    let reach = format!(
+        "{} {}",
+        census.notes,
+        if census.notes == 1 { "note" } else { "notes" }
+    );
+    // A key written twice in one note is one note and two values. The pane is
+    // scanning a vocabulary, so notes is the number that leads; the difference is
+    // only said when it is real.
+    let reach = if census.values == census.notes {
+        reach
+    } else {
+        format!("{reach}, {} values", census.values)
+    };
+    let kinds = census
+        .kinds
+        .iter()
+        .map(|kind| kind.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let detail = format!("{reach} · {kinds}");
+    let detail_ranges = if census.kinds.len() > 1 {
+        vec![(detail.len() - kinds.len(), detail.len())]
+    } else {
+        Vec::new()
+    };
+    (
+        PickerItem {
+            label: census.key.clone().into(),
+            detail: detail.into(),
+            detail_ranges,
+            search: census.key.clone().into(),
+        },
+        PickerTarget::PropKey(census.key.clone()),
+    )
 }
 
 /// A value as it fits on one line: a nested block collapses, and anything long gets

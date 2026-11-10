@@ -38,6 +38,10 @@ pub(crate) enum PickerTarget {
     Vault(std::path::PathBuf),
     /// The file dialog that adds a vault the app has never seen.
     VaultPrompt,
+    /// A property key from the vault-wide census (`:keys`, P4.3a M5). Choosing it
+    /// does not open a new surface: it puts `prop:key` in the search field, which is
+    /// the same question the pane is asking and can be refined from there.
+    PropKey(String),
     /// A row that exists to be read rather than chosen: the query could not be
     /// answered, and the reason *is* the answer. Choosing it repeats the reason in
     /// the status bar. A picker has no other way to say anything, and returning no
@@ -135,6 +139,18 @@ impl Workspace {
     pub(super) fn search_vault(
         &mut self,
         _: &SearchVault,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.search_vault_with("", window, cx);
+    }
+
+    /// The vault search with the field already holding a query. The properties pane
+    /// reaches it this way: a key row is a question about the index, and the search
+    /// is where that question can be answered and then widened.
+    pub(super) fn search_vault_with(
+        &mut self,
+        seed: &str,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -260,7 +276,7 @@ impl Workspace {
                 })
                 .collect()
         });
-        self.open_sourced_picker("Search every note", source, window, cx);
+        self.open_sourced_picker("Search every note", source, seed, window, cx);
     }
 
     /// Open a picker over rows that already exist.
@@ -276,16 +292,19 @@ impl Workspace {
         self.show_picker(picker, window, cx);
     }
 
-    /// Open a picker whose rows come from the query.
+    /// Open a picker whose rows come from the query, with the field starting at
+    /// `seed`.
     pub(super) fn open_sourced_picker(
         &mut self,
         label: &str,
         source: RowSource<PickerTarget>,
+        seed: &str,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let (palette, family, size) = self.picker_style(cx);
-        let picker = cx.new(|cx| picker::Picker::sourced(label, source, palette, family, size, cx));
+        let picker =
+            cx.new(|cx| picker::Picker::sourced(label, source, seed, palette, family, size, cx));
         self.show_picker(picker, window, cx);
     }
 
@@ -358,6 +377,14 @@ impl Workspace {
         }
         self.close_picker(window, cx);
         match chosen {
+            PickerTarget::PropKey(key) => {
+                // The pane's row asks "which notes write this key?" — the search is
+                // the surface that answers that, and the key arrives in its field so
+                // the reader can widen the question instead of retyping it. A second
+                // list of notes here would be a second surface answering one question.
+                let seed = prop_token(&key);
+                self.search_vault_with(&seed, window, cx);
+            }
             PickerTarget::Notice(reason) => {
                 // The row already says it; this puts the same words where they
                 // outlive the picker.
@@ -458,8 +485,24 @@ impl Workspace {
 
 /// Shorten to `max` characters, marking that something was left off. Never cuts
 /// through the middle of a character.
+/// The `prop:` token meaning "this note writes this key at all". A key holding a
+/// space or an operator character has to be quoted, because the grammar splits
+/// tokens on whitespace and reads `<`, `>`, `=`, `!` as a comparison: `prop:Max HP`
+/// would ask for a key called `Max` and a value `HP`, and `prop:cr<5` for a key
+/// called `cr<5`... which is to say it would ask for nothing at all.
+pub(crate) fn prop_token(key: &str) -> String {
+    let quote = key
+        .chars()
+        .any(|c| c.is_whitespace() || matches!(c, ':' | '<' | '>' | '=' | '!' | '"'));
+    if quote {
+        format!("prop:\"{key}\"")
+    } else {
+        format!("prop:{key}")
+    }
+}
+
 /// A row whose whole job is to be read. See [`PickerTarget::Notice`].
-fn notice(reason: impl Into<SharedString>) -> (PickerItem, PickerTarget) {
+pub(crate) fn notice(reason: impl Into<SharedString>) -> (PickerItem, PickerTarget) {
     let reason: SharedString = reason.into();
     (
         PickerItem {

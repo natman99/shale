@@ -819,6 +819,7 @@ fn render_target(target: &PickerTarget) -> String {
         PickerTarget::Theme(name) => name.clone(),
         PickerTarget::Vault(path) => path.display().to_string(),
         PickerTarget::VaultPrompt => "prompt".into(),
+        PickerTarget::PropKey(key) => crate::workspace::open::prop_token(key),
         PickerTarget::Notice(reason) => reason.to_string(),
     }
 }

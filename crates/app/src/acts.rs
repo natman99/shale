@@ -250,8 +250,13 @@ actions!(
         WordCount,
         // What the index knows about the note the caret is in: its frontmatter
         // properties, read from the `props` table rather than re-parsed from the
-        // buffer (`:props`, P4.3a). The vault-wide census is a later surface.
+        // buffer (`:props`, P4.3a).
         Props,
+        // Every property key the vault writes, with how far each reaches and every
+        // kind its values come as (`:keys`, P4.3a M5). Choosing a key puts `prop:key`
+        // in the search field rather than opening a second list: the search is the
+        // surface that answers "which notes write this", and it can be widened there.
+        PropertyKeys,
         // Write a properties block at the top of the note, or step into the one it
         // already has. Palette-only: `:props` reads them and `:properties` is its
         // spelling, so a second `:` word for the same noun would be a coin flip.

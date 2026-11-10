@@ -223,6 +223,7 @@ impl Workspace {
             | ex::Ex::YankClipboard
             | ex::Ex::PasteClipboard
             | ex::Ex::Review
+            | ex::Ex::PropertyKeys
             | ex::Ex::TabNew
             | ex::Ex::TabNext
             | ex::Ex::TabPrev

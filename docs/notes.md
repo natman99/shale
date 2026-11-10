@@ -281,6 +281,15 @@ of a note that never closes, are drawn in the colour of an error, because in bot
 the note has **no** properties at all. A `---` at the top followed by prose is still a
 thematic break: the line after the fence decides whether someone meant a block.
 
+To see the vault's whole vocabulary at once, `:keys` (the palette's **List the vault's
+property keys**) lists every key any note writes: how many notes write it, how many
+values it holds, and every kind those values come as. A key whose values disagree —
+`cr: 5` in one note and `cr: low` in another — is shown with **both** kinds brought
+forward, because the disagreement is the thing worth seeing, and this is where it is
+said rather than a warning on every save. Choosing a key puts `prop:key` in the search
+field: the search is what lists the notes writing it, and the question can be widened
+from there.
+
 To start a block on a note that has none, the palette's **Add frontmatter
 properties** writes an empty one at the top and puts the caret between the fences,
 where the first key goes. It is one undo step, and `u` takes the whole block away. On a

@@ -290,6 +290,147 @@ fn a_note_without_frontmatter_says_so(cx: &mut TestAppContext) {
     assert_eq!(status(&window, cx), "Plain.md has no properties");
 }
 
+// ---- `:keys`: the vault-wide census (P4.3a M5) ----
+
+/// The pane is the vault's vocabulary on one screen: one row per key, the keys that
+/// reach furthest first, and each row saying how far it reaches and what its values
+/// come as. A key whose values disagree is shown with **both** kinds, brought
+/// forward — the pane is where a kind conflict is surfaced (ruling §8.4), not a
+/// warning on every save.
+#[gpui::test]
+fn the_key_pane_lists_every_key_with_its_reach_and_kinds(cx: &mut TestAppContext) {
+    let (_dir, window) = indexed_vault(
+        cx,
+        &[
+            ("Goblin.md", "---\ncr: 5\ntype: goblin\n---\n# Goblin\n"),
+            (
+                "Wisp.md",
+                "---\ncr: low\ntype: wisp\nMax HP: 4\n---\n# Wisp\n",
+            ),
+        ],
+    );
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    type_command("keys", cx);
+
+    let rows = window
+        .update(cx, |ws, _window, cx| ws.picker_rows(cx))
+        .unwrap();
+    assert_eq!(
+        rows,
+        vec![r#"prop:cr"#, r#"prop:type"#, r#"prop:"Max HP""#],
+        "the two keys every note writes first, ties alphabetical, and a key with a
+         space comes back quoted so the search can read it"
+    );
+
+    let shown = window
+        .update(cx, |ws, _window, cx| ws.picker_shown(cx))
+        .unwrap();
+    assert_eq!(shown[0].0, "cr");
+    assert_eq!(
+        shown[0].1, "2 notes · number, text",
+        "the disagreement is in the row itself"
+    );
+    assert_eq!(
+        shown[0].2,
+        vec![
+            (shown[0].1.len() - "number, text".len(), false),
+            ("number, text".len(), true)
+        ],
+        "the kinds are the part brought forward, because that is the warning"
+    );
+    assert_eq!(
+        shown[1].1, "2 notes · text",
+        "a clean key gets a caption, not a warning"
+    );
+    assert!(
+        shown[1].2.iter().all(|(_, lit)| !*lit),
+        "nothing is brought forward on a key with nothing to flag"
+    );
+}
+
+/// Choosing a key does not open a second list of notes: it puts `prop:key` in the
+/// search field, which is the surface that answers "which notes write this" and can
+/// be widened from there.
+#[gpui::test]
+fn a_key_row_hands_the_key_to_the_search(cx: &mut TestAppContext) {
+    let (_dir, window) = indexed_vault(
+        cx,
+        &[
+            ("Goblin.md", "---\ncr: 5\n---\n# Goblin\n"),
+            ("Wisp.md", "---\ncr: low\n---\n# Wisp\n"),
+            ("Plain.md", "# Plain\n"),
+        ],
+    );
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    type_command("keys", cx);
+    cx.simulate_keystrokes("enter");
+
+    let rows = window
+        .update(cx, |ws, _window, cx| ws.picker_rows(cx))
+        .unwrap();
+    assert_eq!(
+        rows,
+        vec!["Goblin.md", "Wisp.md"],
+        "the notes that write `cr`, and not the one that writes nothing"
+    );
+}
+
+/// A vault with no properties at all is an answer, not an empty pane.
+#[gpui::test]
+fn the_key_pane_says_when_no_note_writes_a_property(cx: &mut TestAppContext) {
+    let (_dir, window) = indexed_vault(cx, &[("Plain.md", "# Plain\n")]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    type_command("keys", cx);
+    let rows = window
+        .update(cx, |ws, _window, cx| ws.picker_rows(cx))
+        .unwrap();
+    assert_eq!(
+        rows,
+        vec!["no note in this vault writes a property"],
+        "an empty census says so rather than showing a blank pane"
+    );
+}
+
+/// EDGE-25 again, one surface over: with no index the pane cannot answer, and it
+/// says that rather than reporting a vault with no keys.
+#[gpui::test]
+fn the_key_pane_says_when_there_is_no_index(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("Goblin.md", "---\ncr: 5\n---\nbody\n")]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    type_command("keys", cx);
+    let rows = window
+        .update(cx, |ws, _window, cx| ws.picker_rows(cx))
+        .unwrap();
+    assert_eq!(
+        rows,
+        vec!["there is no vault index to read (index.enabled = false)"],
+        "\"zero keys\" and \"I cannot look\" are different answers"
+    );
+}
+
+/// The palette reaches the pane from the words a person would type. Membership, not
+/// ranking: being offered is the contract.
+#[gpui::test]
+fn the_palette_offers_the_key_pane(cx: &mut TestAppContext) {
+    // The palette's rows are the command registry, which does not need an index.
+    let (_dir, window) = vault_with(cx, &[("Goblin.md", "---\ncr: 5\n---\nbody\n")]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    for query in ["keys", "property keys", "vault keys"] {
+        cx.simulate_keystrokes("ctrl-shift-p");
+        cx.simulate_input(query);
+        let offered = window
+            .update(cx, |ws, _window, cx| ws.picker_rows(cx))
+            .unwrap();
+        assert!(
+            offered
+                .iter()
+                .any(|row| row == "List the vault's property keys"),
+            "{query} offers: {offered:?}"
+        );
+        cx.simulate_keystrokes("escape");
+    }
+}
+
 /// EDGE-25: with no index, `:props` says there is nothing to read rather than
 /// reporting that the note has no properties. "Zero" and "I cannot look" are
 /// different answers, and this is the posture `:wordcount` and the spellchecker keep.

@@ -25,7 +25,7 @@ use anyhow::{Context as _, Result};
 use rusqlite::types::Value;
 use rusqlite::{params, Connection};
 
-use crate::frontmatter::{self, Kind, Prop};
+use crate::frontmatter::{self, KeyCensus, Kind, Prop};
 use crate::graph::extract_tags;
 use crate::markdown::extract_wikilinks;
 use crate::query::Query;
@@ -633,6 +633,47 @@ impl Db {
                 out.insert((*key).to_string(), kinds);
             }
         }
+        Ok(out)
+    }
+
+    /// Every key the vault writes, with how far it reaches: the census behind the
+    /// vault-wide properties pane (P4.3a M5). Ordered by how many notes write the key
+    /// and then by the key, which is the order a person scanning a vocabulary wants —
+    /// the keys that matter most are at the top, and a tie is alphabetical rather than
+    /// whatever the group-by happened to visit.
+    ///
+    /// One statement over the whole table rather than one read per key: the pane
+    /// asks for every key at once, and `kinds_for_keys` — narrowed to keys a note
+    /// already named — is the wrong shape for that question.
+    pub fn key_census(&self) -> Result<Vec<KeyCensus>> {
+        let conn = self.read()?;
+        let mut stmt = conn.prepare_cached(
+            "SELECT key, COUNT(DISTINCT note), COUNT(*), GROUP_CONCAT(DISTINCT kind) \
+             FROM props GROUP BY key \
+             ORDER BY COUNT(DISTINCT note) DESC, key ASC",
+        )?;
+        let out = stmt
+            .query_map([], |row| {
+                let key: String = row.get(0)?;
+                let notes: i64 = row.get(1)?;
+                let values: i64 = row.get(2)?;
+                let kinds: String = row.get(3).unwrap_or_default();
+                let mut kinds: Vec<Kind> = kinds.split(',').filter_map(Kind::parse).collect();
+                // `GROUP_CONCAT` makes no promise about order, so the answer's order
+                // is decided here rather than inherited from the scan — and it is
+                // sorted by the spelling the reader is shown, because this list is
+                // displayed as it is and `Kind`'s own order is the enum's, not the
+                // alphabet's.
+                kinds.sort_by_key(|kind| kind.as_str());
+                Ok(KeyCensus {
+                    key,
+                    notes: notes as usize,
+                    values: values as usize,
+                    kinds,
+                })
+            })?
+            .flatten()
+            .collect();
         Ok(out)
     }
 
@@ -1775,6 +1816,43 @@ mod tests {
             "no note of that name in this vault, so a ghost — as before props existed"
         );
         assert!(column(&db, "SELECT value FROM props").is_empty());
+    }
+
+    /// The census the vault-wide pane reads: one row per key, how far each reaches,
+    /// and every kind its values come in. `notes` and `values` are different numbers
+    /// on purpose — one note writing `cr:` twice is one note and two values — and a
+    /// key whose values disagree keeps **both** kinds rather than picking one, which
+    /// is the whole reason the census exists.
+    #[test]
+    fn the_census_says_how_far_each_key_reaches_and_what_kinds_it_wears() {
+        let (_dir, vault, db) = vault_with(&[
+            ("a.md", "---\ncr: 3\ncr: 4\nname: Goblin\nMax HP: 5\n---\n"),
+            ("b.md", "---\ncr: low\nname: Hobgoblin\n---\n"),
+        ]);
+        db.reconcile(&vault).unwrap();
+        let rows: Vec<(String, usize, usize, Vec<&str>)> = db
+            .key_census()
+            .unwrap()
+            .iter()
+            .map(|c| {
+                (
+                    c.key.clone(),
+                    c.notes,
+                    c.values,
+                    c.kinds.iter().map(|k| k.as_str()).collect(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            rows,
+            vec![
+                ("cr".to_string(), 2, 3, vec!["number", "text"]),
+                ("name".to_string(), 2, 2, vec!["text"]),
+                ("Max HP".to_string(), 1, 1, vec!["number"]),
+            ],
+            "the keys that reach furthest come first, ties are alphabetical, and a \
+             key's own case and spaces survive the group-by"
+        );
     }
 
     /// The read side `:props` uses: the note's own rows, in order, kinds decoded.
