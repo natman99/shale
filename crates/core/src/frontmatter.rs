@@ -469,7 +469,7 @@ pub(crate) fn key_span(line: &str) -> Option<(usize, usize)> {
 
 /// `[a, b]` as its items. Flow lists are read for compatibility; Obsidian writes block
 /// lists, so nothing here needs to write this shape back (EDGE-12).
-fn flow_list(value: &str) -> Option<Vec<String>> {
+pub(crate) fn flow_list(value: &str) -> Option<Vec<String>> {
     let inner = value.trim().strip_prefix('[')?.strip_suffix(']')?;
     if inner.trim().is_empty() {
         return Some(Vec::new());
@@ -504,7 +504,7 @@ fn flow_list(value: &str) -> Option<Vec<String>> {
 /// A `#` only starts a comment outside quotes and when it opens the value or follows
 /// whitespace, so `tags: "#draft"` keeps its hash and `status: draft # note` does not
 /// carry the note.
-fn strip_comment(value: &str) -> &str {
+pub(crate) fn strip_comment(value: &str) -> &str {
     let mut in_single = false;
     let mut in_double = false;
     let bytes = value.as_bytes();
@@ -528,7 +528,7 @@ fn is_quoted(value: &str) -> bool {
 }
 
 /// Strip the quotes and undo the escapes a double-quoted scalar can carry.
-fn unquote(value: &str) -> String {
+pub(crate) fn unquote(value: &str) -> String {
     let value = value.trim();
     let inner = if value.starts_with('"') && value.ends_with('"') && value.len() > 1 {
         &value[1..value.len() - 1]

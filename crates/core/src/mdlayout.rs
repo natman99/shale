@@ -177,6 +177,28 @@ mod tests {
         assert_eq!(shown("![[diagram.png]]"), "diagram.png");
     }
 
+    /// A properties block is the note's data, so live preview shows the value exactly
+    /// as the file holds it: brackets, an aliased link's target, a URL. Hiding them
+    /// would leave `ally: the Zhents` on screen over a file that says otherwise, and the
+    /// brackets are the whole difference between a link and a string.
+    #[test]
+    fn a_properties_block_hides_nothing() {
+        let text = "---\nally: \"[[Zhentarim|the Zhents]]\"\nweb: [the web](https://x.com)\n---\nsee [[Zhentarim]]\n";
+        let spans = style_spans(text);
+        let row = |needle: &str| {
+            let start = text.find(needle).unwrap();
+            let end = start + text[start..].find('\n').unwrap();
+            row_pieces(text, &spans, start, end)
+                .iter()
+                .map(|&(s, e)| &text[s..e])
+                .collect::<String>()
+        };
+        assert_eq!(row("ally:"), "ally: \"[[Zhentarim|the Zhents]]\"");
+        assert_eq!(row("web:"), "web: [the web](https://x.com)");
+        // Prose two lines down still gets the live-preview treatment.
+        assert_eq!(row("see [[Zhentarim]]"), "see Zhentarim");
+    }
+
     #[test]
     fn structure_stays_visible() {
         assert_eq!(shown("- a bullet"), "- a bullet");

@@ -223,6 +223,17 @@ pub fn style_spans(text: &str) -> Vec<StyleSpan> {
             });
             continue;
         }
+        // Inside the block, a link is painted only where it *is* one: the whole value,
+        // which is the only shape the indexer turns into an edge.
+        let in_block = front
+            .as_ref()
+            .is_some_and(|f| *line_start >= f.inner.0 && *line_start < f.inner.1);
+        let allowed = if in_block {
+            link_regions(*line_start, content)
+        } else {
+            Vec::new()
+        };
+        let mark = out.len();
         scan_line(
             *line_start,
             content,
@@ -231,6 +242,30 @@ pub fn style_spans(text: &str) -> Vec<StyleSpan> {
             table_rows[index],
             &mut out,
         );
+        if in_block {
+            // Two rules, one reason: the block is the note's data, so it shows what the
+            // file says and claims nothing the index does not hold.
+            //
+            // * Nothing here is hidden. Live preview hides a link's brackets, an aliased
+            //   link's target and a markdown link's URL — which in prose is the point, and
+            //   in a properties block is a value that reads as `ally: the Zhents` when the
+            //   file says `ally: "[[Zhentarim|the Zhents]]"`. The brackets are exactly the
+            //   difference between a link and a string, which is the question the block is
+            //   drawn to answer.
+            // * A link is painted only where it *is* one: the whole value, the only shape
+            //   the indexer turns into an edge (see [`link_regions`]).
+            let kept: Vec<StyleSpan> = out
+                .drain(mark..)
+                .filter(|s| {
+                    !crate::mdlayout::is_marker(s.style)
+                        && (!is_link_style(s.style)
+                            || allowed
+                                .iter()
+                                .any(|(from, to)| *from <= s.start && s.end <= *to))
+                })
+                .collect();
+            out.extend(kept);
+        }
     }
     out.sort_by_key(|s| (s.start, s.end));
     out
@@ -251,6 +286,84 @@ struct Frontmatter {
     /// The whole block when the parser refused it, or the lone `---` when the note
     /// opens a block and never closes it.
     broken: Option<(usize, usize)>,
+    /// The lines *between* the fences, as byte offsets: from the first line after the
+    /// opening fence up to the closing one. A line inside it holds a property value,
+    /// and a value gets a stricter link rule than the rest of the note (see
+    /// [`link_regions`]).
+    inner: (usize, usize),
+}
+
+/// The parts of a property line that the indexer would read as *one link*.
+///
+/// Everywhere else in a note, `[[X]]` is painted as a link because it is one: the body
+/// scanner turns it into an edge. Inside a properties block that is no longer true —
+/// the indexer asks one question about the whole value, `frontmatter::wikilink`, and a
+/// value only becomes an edge when it *is* a single link. So `ally: "[[Zhentarim]]"`
+/// paints as a link, and `group: see [[Zhentarim]] for details`, or
+/// `group: [[Federation]] [[Empire]]`, paints as the text it is. A link colour there
+/// would be the editor claiming an edge the index does not hold, which is the same
+/// mistake as colouring a divider as a block.
+///
+/// The *meaning* comes from the parser — `wikilink`, `flow_list`, `unquote`,
+/// `strip_comment` are the same functions `block` calls — so the only thing computed
+/// here is where the value sits on the line.
+fn link_regions(line_start: usize, content: &str) -> Vec<(usize, usize)> {
+    let trimmed = content.trim_start();
+    let indent = line_start + (content.len() - trimmed.len());
+    // A list item's value is what follows its dash; a key's value is what follows its
+    // colon. Anything else inside the block — an indented continuation, a nested map —
+    // is structure the index files as inert, so nothing on it is a link.
+    let value_at = if let Some(rest) = trimmed.strip_prefix("- ").or_else(|| {
+        trimmed
+            .strip_prefix("* ")
+            .or_else(|| trimmed.strip_prefix("+ "))
+    }) {
+        (indent + 2, rest)
+    } else if let Some((_, key_end)) = crate::frontmatter::key_span(content) {
+        let after = &content[key_end..];
+        (
+            line_start + key_end + (after.len() - after.trim_start().len()),
+            after.trim_start(),
+        )
+    } else {
+        return Vec::new();
+    };
+    let authored = crate::frontmatter::strip_comment(value_at.1).trim_end();
+    if authored.is_empty() {
+        return Vec::new();
+    }
+    let value = crate::frontmatter::unquote(authored);
+    if crate::frontmatter::wikilink(&value).is_some() {
+        return vec![(value_at.0, value_at.0 + authored.len())];
+    }
+    // A flow list carries one value per item, so each item decides for itself. The
+    // parser hands back the items in order and each is a substring of what was written,
+    // so walking forward through the line finds where each one sits.
+    if let Some(items) = crate::frontmatter::flow_list(authored) {
+        let mut regions = Vec::new();
+        let mut cursor = 0usize;
+        for item in items {
+            if crate::frontmatter::wikilink(&item).is_none() {
+                continue;
+            }
+            let Some(offset) = authored[cursor..].find(&item) else {
+                continue;
+            };
+            let start = value_at.0 + cursor + offset;
+            regions.push((start, start + item.len()));
+            cursor += offset + item.len();
+        }
+        return regions;
+    }
+    Vec::new()
+}
+
+/// A style that tells the reader "this is a link".
+fn is_link_style(style: Style) -> bool {
+    matches!(
+        style,
+        Style::WikiLink | Style::WikiEmbed | Style::LinkTarget | Style::LinkText | Style::LinkUrl
+    )
 }
 
 fn frontmatter(text: &str, lines: &[(usize, &str)]) -> Option<Frontmatter> {
@@ -260,25 +373,29 @@ fn frontmatter(text: &str, lines: &[(usize, &str)]) -> Option<Frontmatter> {
                 fences: Vec::new(),
                 keys: Vec::new(),
                 broken: Some(block.bytes),
+                inner: block.bytes,
             });
-        }
-        let mut keys = Vec::new();
-        for index in (block.lines.0 + 1)..block.lines.1 {
-            if let Some((start, content)) = lines.get(index) {
-                if let Some((key_start, key_end)) = crate::frontmatter::key_span(content) {
-                    keys.push((start + key_start, start + key_end));
-                }
-            }
         }
         let line_start = |index: usize| lines.get(index).map(|(start, _)| *start);
         let (Some(open), Some(close)) = (line_start(block.lines.0), line_start(block.lines.1))
         else {
             return None;
         };
+        let mut keys = Vec::new();
+        let mut inner = (close, close);
+        for index in (block.lines.0 + 1)..block.lines.1 {
+            if let Some((start, content)) = lines.get(index) {
+                inner = (inner.0.min(*start), inner.1.max(*start + content.len()));
+                if let Some((key_start, key_end)) = crate::frontmatter::key_span(content) {
+                    keys.push((start + key_start, start + key_end));
+                }
+            }
+        }
         return Some(Frontmatter {
             fences: vec![open, close],
             keys,
             broken: None,
+            inner,
         });
     }
     // An opening fence that never closes. `block` answers `None` both for "this is not
@@ -311,6 +428,7 @@ fn frontmatter(text: &str, lines: &[(usize, &str)]) -> Option<Frontmatter> {
         fences: Vec::new(),
         keys: Vec::new(),
         broken: Some((start, start + content.len())),
+        inner: (start, start + content.len()),
     })
 }
 
@@ -439,6 +557,107 @@ mod tests {
         let text = "---\nally: [[Goblin]]\n---\n";
         assert_eq!(texts(text, Style::WikiLink), vec!["Goblin"]);
         assert_eq!(texts(text, Style::FrontmatterKey), vec!["ally:"]);
+    }
+
+    /// Inside a block the link colour is a claim about the index: it goes where the
+    /// indexer files an edge, and nowhere the indexer does not.
+    #[test]
+    fn a_property_is_painted_as_a_link_only_where_it_is_one() {
+        // The whole value is the link: painted.
+        assert_eq!(
+            texts("---\nally: \"[[Zhentarim]]\"\n---\n", Style::WikiLink),
+            vec!["Zhentarim"]
+        );
+        // A link *inside* a value that is not a link: no edge, so no colour.
+        assert!(spans(
+            "---\nnotes: see [[Zhentarim]] for details\n---\n",
+            Style::WikiLink
+        )
+        .is_empty());
+        // Two links in one value is not one link either — the parser calls it `text`.
+        assert!(spans(
+            "---\ngroup: [[Federation]] [[Empire]]\n---\n",
+            Style::WikiLink
+        )
+        .is_empty());
+        // A link to a section of this note names no note.
+        assert!(spans("---\nsee: [[#Government]]\n---\n", Style::WikiLink).is_empty());
+        // A markdown link in a property makes no edge either: the indexer only asks
+        // `frontmatter::wikilink` about the value.
+        let web = "---\nweb: [the web](https://example.com)\n---\n";
+        assert!(spans(web, Style::LinkText).is_empty());
+        assert!(spans(web, Style::LinkUrl).is_empty());
+        // And the body is untouched by any of this.
+        assert_eq!(
+            texts("see [[Zhentarim]] for details", Style::WikiLink),
+            vec!["Zhentarim"]
+        );
+    }
+
+    /// Every value the index files as a link is painted as one, including the shapes
+    /// that carry more than one value on a line.
+    #[test]
+    fn every_property_the_index_files_as_a_link_is_painted_as_one() {
+        assert_eq!(
+            texts(
+                "---\ngroup:\n  - \"[[Federation]]\"\n  - [[Empire]]\n  - plain\n---\n",
+                Style::WikiLink
+            ),
+            vec!["Federation", "Empire"]
+        );
+        assert_eq!(
+            texts(
+                "---\ngroup: [\"[[Federation]]\", \"[[Empire]]\", plain]\n---\n",
+                Style::WikiLink
+            ),
+            vec!["Federation", "Empire"]
+        );
+        // An aliased link keeps its link colour on the alias, but unlike prose its
+        // target and brackets are not marker spans: nothing in the block is hidden.
+        let aliased = "---\nally: \"[[Zhentarim|the Zhents]]\"\n---\n";
+        assert_eq!(texts(aliased, Style::WikiLink), vec!["the Zhents"]);
+        assert!(spans(aliased, Style::LinkTarget).is_empty());
+        assert!(spans(aliased, Style::Punctuation).is_empty());
+        let web = "---\nweb: \"[the web](https://example.com)\"\n---\n";
+        assert!(spans(web, Style::LinkUrl).is_empty());
+        // An anchored link is still a link to the note, anchor and all.
+        assert!(!spans(
+            "---\nregion: \"[[Waterdeep#Government]]\"\n---\n",
+            Style::WikiLink
+        )
+        .is_empty());
+    }
+
+    /// The drift guard: the painter's idea of "this value is a link" and the parser's
+    /// are the same idea. If `block` starts filing a value as a link the colour does not
+    /// cover — or the other way round — this fails rather than the vault quietly lying.
+    #[test]
+    fn the_link_colour_and_the_index_agree_on_every_shape() {
+        for shape in [
+            "ally: \"[[Zhentarim]]\"",
+            "ally: [[Zhentarim]]",
+            "ally: [[Zhentarim|the Zhents]]",
+            "ally: [[Zhentarim#A heading]]",
+            "ally: see [[Zhentarim]] for details",
+            "ally: [[Federation]] [[Empire]]",
+            "ally: [\"[[Federation]]\", \"[[Empire]]\"]",
+            "ally: [\"[[Federation]]\", plain]",
+            "ally: ![[map.png]]",
+            "ally: [[#a heading]]",
+            "ally: Zhentarim",
+            "ally:",
+            "web: [the web](https://example.com)",
+        ] {
+            let text = format!("---\n{shape}\n---\nbody\n");
+            let block = crate::frontmatter::block(&text).unwrap_or_else(|| panic!("{shape}"));
+            let filed = block
+                .props
+                .iter()
+                .filter(|p| p.kind == crate::frontmatter::Kind::Link)
+                .count();
+            let painted = link_regions(4, shape.trim()).len();
+            assert_eq!(painted, filed, "{shape}: the colour and the index disagree");
+        }
     }
 
     /// A block the parser refuses indexes nothing, so it is drawn as the error it is

@@ -1220,6 +1220,20 @@ edges, query nodes, MCP canvas tools) is P6.10.
       per item — which is also the only shape strict YAML, and therefore Obsidian, reads:
       to a YAML parser an unquoted `[[A]]` is a nested flow sequence, and
       `[[A]] [[B]]` is a parse error that costs the note its whole block.
+    - **Landed 2026-11-09 (the block's link colour is a claim about the index).** The
+      inline scanner ran over block lines the same way it runs over prose, so
+      `group: see [[Federation]] for details` wore a link colour while the indexer filed
+      no edge for it — the same lie in miniature as colouring a divider as a block. Inside
+      a block a link span survives only when it sits in a value `frontmatter::wikilink`
+      accepts, which is the one shape the indexer turns into an edge; the meaning comes
+      from the parser's own `wikilink`/`flow_list`/`unquote`/`strip_comment`, and only the
+      value's position on the line is computed in `mdstyle`. The same pass drops *marker*
+      spans inside the block, so live preview hides nothing there: an aliased property
+      showed `ally: the Zhents` over a file saying `ally: "[[Zhentarim|the Zhents]]"`, and
+      the brackets are exactly what tells a reader whether a value is a link at all.
+      `the_link_colour_and_the_index_agree_on_every_shape` is the drift guard: it counts
+      the values the parser files as links against the regions the painter covers, so the
+      two cannot disagree quietly.
   - **P4.3b Headings index — AFTER P4.3a, and explicitly NOT inside it** (ruled
     2026-11-08). Schema **v4** adds `headings(note, line, text, depth)`, filled in the
     same indexer pass from `mdstyle`/`mdlayout` — derived, not authored, so it cannot
