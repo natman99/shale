@@ -83,6 +83,22 @@ pub(crate) enum PhantomKind {
     Caption,
 }
 
+impl PhantomKind {
+    /// Whether a row of this kind draws its own box, and so hangs from no gutter bar.
+    ///
+    /// A query note's answer is the case: the grid's outer edge *is* the block's left
+    /// edge, and a bar a gutter to the left of that edge is the second line the box was
+    /// drawn to replace. The prose rows of the same block go without too — a refusal under
+    /// a table that kept a bar would sit a gutter left of the box it belongs to. Its red
+    /// text is still its own news.
+    pub(crate) fn draws_own_box(self) -> bool {
+        matches!(
+            self,
+            Self::Row | Self::Header | Self::Refusal | Self::Caption
+        )
+    }
+}
+
 pub(crate) struct PhantomLine {
     /// The line the proposal would put there, the count a collapsed hunk shows, or a
     /// line of an embedded note.
@@ -140,10 +156,16 @@ impl PhantomLine {
     /// stops, and it is derived from the row's kind rather than handed in — then whatever
     /// the caller added.
     fn gutter_marks(&self) -> Vec<marks::GutterMark> {
-        let mut out = vec![marks::GutterMark::Bar {
-            width: if self.current { px(3.) } else { px(2.) },
-            color: self.bar(),
-        }];
+        let mut out = Vec::new();
+        // A block that draws its own box hangs from no bar: the box's left edge *is* the
+        // block's left edge, and a bar a gutter to the left of it is the second line the
+        // box was drawn to replace.
+        if !self.kind.draws_own_box() {
+            out.push(marks::GutterMark::Bar {
+                width: if self.current { px(3.) } else { px(2.) },
+                color: self.bar(),
+            });
+        }
         out.extend(self.gutter.iter().copied());
         out
     }
@@ -366,5 +388,73 @@ impl Element for PhantomLine {
                 door: self.door.clone(),
             });
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A row of the kind the query answer draws, and one of the kind an embed's body draws.
+    fn row(kind: PhantomKind) -> PhantomLine {
+        PhantomLine {
+            text: "x".into(),
+            family: "monospace".into(),
+            size: 16.,
+            palette: Rc::new(Palette::built_in("nord").expect("a built-in palette")),
+            kind,
+            current: false,
+            indent: 0,
+            spans: Vec::new(),
+            gutter: Vec::new(),
+            origin: None,
+            door: None,
+            grid: None,
+            char_width: px(9.),
+            hits: Rc::new(RefCell::new(Vec::new())),
+        }
+    }
+
+    #[test]
+    fn a_block_that_draws_its_own_box_hangs_from_no_bar() {
+        // The grid's left edge is the block's left edge; a bar beside it is a second line.
+        for kind in [
+            PhantomKind::Row,
+            PhantomKind::Header,
+            PhantomKind::Refusal,
+            PhantomKind::Caption,
+        ] {
+            assert!(
+                row(kind).gutter_marks().is_empty(),
+                "a {kind:?} row wears a gutter bar next to its own box"
+            );
+        }
+        // Every other block has no edge of its own, so the bar is what says where it is.
+        for kind in [
+            PhantomKind::Added,
+            PhantomKind::Badge,
+            PhantomKind::Embed,
+            PhantomKind::EmbedBadge,
+        ] {
+            assert!(
+                matches!(
+                    row(kind).gutter_marks().first(),
+                    Some(marks::GutterMark::Bar { .. })
+                ),
+                "a {kind:?} row lost the only edge its block has"
+            );
+        }
+    }
+
+    #[test]
+    fn a_row_keeps_what_the_frame_handed_its_gutter() {
+        // Dropping the bar is not dropping the column: the unsaved-work dot for an
+        // embedded note arrives here whatever the block's own rule does.
+        let mut line = row(PhantomKind::Row);
+        line.gutter.push(marks::GutterMark::Glyph {
+            mark: marks::Mark::Dot,
+            color: 0x00_00_00,
+        });
+        assert_eq!(line.gutter_marks().len(), 1, "the frame's mark survives");
     }
 }
