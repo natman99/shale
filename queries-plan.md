@@ -226,7 +226,15 @@ Built ones name their test; the rest name the milestone that owes one.
     out is bounded and comparable to an embed block. Virtualizing it (draw only the rows
     that intersect the viewport, height = rows × row height) is a perf-review item next to
     EDGE-19, not a correctness one. Say so if the 200-row frame measures slow.
-19. **A database message is flattened where a surface draws it** — `db::one_line`. SQLite
+19. **Prose wraps; a table row does not.** A block has no viewport of its own — the host
+    scrolls — so a row longer than the pane simply leaves the frame with no way back. The
+    sentences an answer says about itself (a refusal, the empty-answer line, the admission
+    about rows left out) are prose and break at the pane's width, measured with the note's
+    own wrappers so the break lands where the paint has glyphs. A **data** row keeps its
+    columns whole: breaking one mid-cell leaves the continuation lines with nothing to
+    align to, and the per-cell clip already bounds each cell. `PhantomKind::Caption` is the
+    kind that marks a sentence rather than a cell.
+20. **A database message is flattened where a surface draws it** — `db::one_line`. SQLite
     quotes the statement it refused, newlines included, and gpui refuses a text run that
     holds a newline. The core keeps the whole message (the MCP tool still reports it); the
     table row and the picker row each flatten it. Cells flatten the same way: a cell may
