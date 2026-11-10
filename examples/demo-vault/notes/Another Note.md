@@ -1,6 +1,9 @@
 ---
 aliases: anon
 cr: 3
+group: 
+ - [[Test]]
+ - [[Markdown Tour]]
 ---
 Back to [[Welcome]].
 
