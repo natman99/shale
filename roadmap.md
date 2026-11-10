@@ -51,10 +51,20 @@ the original Goals list: Database tables/Obsidian-bases (P4.3 `.shq` — its fir
 commit, **P4.3a frontmatter indexing**, landed 2026-11-08, so the props table the whole
 query story was priced against exists; the query notes themselves do not), PDF
 export, Templates, tree-sitter code highlighting.
-**What is being built now (2026-11-08): P4.3a, properties — the indexing half.** P4.0
-closed on 2026-11-08 (the hover card was its last owed item; `![[query-name]]` waits on
-P4.3 and block refs on P4.9), and P4.3a's M1 — the frontmatter parser, the `props`
-table and `:props` — landed the same day. The open half of P4.3a is M2/M3.
+**What is being built next (refreshed 2026-11-09): P4.3a's two surfaces, M4 then M5.**
+P4.0 closed on 2026-11-08 (the hover card was its last owed item; `![[query-name]]` waits
+on P4.3 and block refs on P4.9). **P4.3a's indexing half is closed:** M1 (the parser, the
+`props` table, `:props`) and M2 (the projections — `tags`, `aliases`, and `edges` finally
+with a writer) landed 2026-11-08, M3's kind census the same day, and the deferred
+`aliases`-as-link-target ruling landed 2026-11-09 as its own commit. **P4.14 landed the
+`prop:`/`tag:`/`path:` operators and the "why did this match" evidence early**, and its
+grammar is one parser (`core::query`) that says nothing about SQL — so P4.3's `.shq`
+bodies will read queries the same way, and P4.3's first commit is already behind it.
+What is left of P4.3a is the two surfaces its own plan named and allowed to be scheduled
+apart: **M4, live preview of the block** (display segments and hidden ranges; the buffer
+never changes; `:raw` shows the YAML; editing a value is a text edit), and **M5, the
+vault-wide properties pane** (key list with counts, kind conflicts, key rename riding the
+link-health machinery).
 
 **P4.0, transclusion — the editable half (closed 2026-11-08).** P4.0a
 (read-only embeds) shipped on 2026-11-06, and **P4.0b — editing inside an embed — is
