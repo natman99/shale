@@ -604,15 +604,42 @@ pub fn value_kind(value: &str) -> Kind {
     Kind::Text
 }
 
-/// A value that is a wikilink. Obsidian requires the quotes (`"[[Target]]"`); an
-/// unquoted `[[Target]]` is, in strict YAML, a nested flow sequence, which would index
-/// as inert structure. Reading it as a link instead is the one place this parser is
-/// wider than YAML on purpose: it is what the author means, it cannot lose data, and it
-/// is what feeds `edges` (EDGE-16).
+/// A value that is *one* wikilink, and the note it names.
+///
+/// Obsidian requires the quotes (`"[[Target]]"`); an unquoted `[[Target]]` is, in
+/// strict YAML, a nested flow sequence, which would index as inert structure. Reading
+/// it as a link instead is the one place this parser is wider than YAML on purpose: it
+/// is what the author means, it cannot lose data, and it is what feeds `edges`
+/// (EDGE-16).
+///
+/// Two things the shape has to survive:
+///
+/// * A heading anchor names a *section* of a note, not part of its name. The body
+///   scanner has always stripped it (`markdown.rs`); this function used to keep it, so
+///   `region: "[[Waterdeep#Government]]"` resolved as the literal
+///   `Waterdeep#Government`, missed, and was filed as a ghost — the same link meaning
+///   two different things depending on which side of the fence it was written on. The
+///   anchor is dropped for resolution; `props.value` keeps the text as authored, so
+///   `prop:region="[[Waterdeep#Government]]"` still matches and the reader still sees
+///   where in the note the link lands.
+/// * A value holding more than one link is not one link. `group: [[A]] [[B]]` starts
+///   with `[[` and ends with `]]`, so the old shape test called it a link to
+///   `A]] [[B` — a ghost nobody wrote. It is a value with links *in* it, which is what
+///   `Kind::Text` says. The way to write several links is a list, one per item, which
+///   is also the only shape strict YAML (and therefore Obsidian) can read.
 pub fn wikilink(value: &str) -> Option<&str> {
     let value = value.trim();
     let inner = value.strip_prefix("[[")?.strip_suffix("]]")?;
-    Some(inner.split('|').next().unwrap_or(inner).trim())
+    if inner.contains("[[") || inner.contains("]]") {
+        return None;
+    }
+    let target = inner.split('|').next().unwrap_or(inner);
+    let target = target.split('#').next().unwrap_or(target).trim();
+    if target.is_empty() {
+        // `[[#a heading in this note]]` names a section and no note.
+        return None;
+    }
+    Some(target)
 }
 
 fn is_number(value: &str) -> bool {
@@ -985,6 +1012,49 @@ mod tests {
             kinds("---\nally: [[Zhentarim]]\n---\n"),
             vec![Kind::Link],
             "unquoted is what authors actually write"
+        );
+    }
+
+    /// The anchor names a section of the note, not part of its name — which is what the
+    /// body scanner has always done, and what this function used not to.
+    #[test]
+    fn a_link_to_a_heading_is_a_link_to_the_note() {
+        assert_eq!(wikilink("[[Waterdeep#Government]]"), Some("Waterdeep"));
+        assert_eq!(
+            wikilink("[[Waterdeep#The Fall|its end]]"),
+            Some("Waterdeep")
+        );
+        assert_eq!(
+            props("---\nregion: \"[[Waterdeep#Government]]\"\n---\n"),
+            vec![(
+                "region".into(),
+                "[[Waterdeep#Government]]".into(),
+                Kind::Link,
+                None
+            )],
+            "the row keeps the anchor the author wrote; only the resolution drops it"
+        );
+        assert_eq!(
+            wikilink("[[#a heading in this note]]"),
+            None,
+            "a link to a section of this note names no note"
+        );
+    }
+
+    /// Several links in one value is not one link, and inventing a shape for it would
+    /// be inventing a dialect strict YAML — and therefore Obsidian — cannot read.
+    #[test]
+    fn a_value_holding_two_links_is_not_one_link() {
+        assert_eq!(wikilink("[[Federation]] [[Empire]]"), None);
+        assert_eq!(
+            kinds("---\ngroup: [[Federation]] [[Empire]]\n---\n"),
+            vec![Kind::Text],
+            "the old shape test called this one link to `Federation]] [[Empire`"
+        );
+        assert_eq!(
+            kinds("---\ngroup: [\"[[Federation]]\", \"[[Empire]]\"]\n---\n"),
+            vec![Kind::Link, Kind::Link],
+            "the list is how a value carries more than one link"
         );
     }
 

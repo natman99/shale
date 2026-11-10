@@ -1207,6 +1207,19 @@ edges, query nodes, MCP canvas tools) is P6.10.
       additive and named in the same pass, not derived); the readability auditor now floors
       it at 2.5 and flags it when a theme paints it in `dim` or in `accent`. A `---` at the
       top followed by prose stays a rule — the line after the fence decides.
+    - **Landed 2026-11-09 (a property link means the same thing as a body link).**
+      `frontmatter::wikilink` decided "is this value a link" from the first two and last
+      two characters, so `region: "[[Waterdeep#Government]]"` resolved the literal
+      `Waterdeep#Government`, missed, and was filed in `edges` as a ghost — while the body
+      scanner has always stripped the anchor and resolved Waterdeep. The same shape test
+      called `group: [[A]] [[B]]` one link to `A]] [[B`. Now the value has to be **one**
+      link: the anchor is dropped for resolution (`props.value` keeps what the author
+      typed, so `prop:region="[[Waterdeep#Government]]"` still matches and the reader still
+      sees where the link lands), a value holding two links is `text`, and
+      `[[#a heading in this note]]` names no note. Several links on one key is a list, one
+      per item — which is also the only shape strict YAML, and therefore Obsidian, reads:
+      to a YAML parser an unquoted `[[A]]` is a nested flow sequence, and
+      `[[A]] [[B]]` is a parse error that costs the note its whole block.
   - **P4.3b Headings index — AFTER P4.3a, and explicitly NOT inside it** (ruled
     2026-11-08). Schema **v4** adds `headings(note, line, text, depth)`, filled in the
     same indexer pass from `mdstyle`/`mdlayout` — derived, not authored, so it cannot

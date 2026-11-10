@@ -1613,6 +1613,33 @@ mod tests {
         );
     }
 
+    /// The same link on both sides of the fence means the same thing: an anchored prop
+    /// link resolves to the note, exactly as `[[Waterdeep#Government]]` in the body does.
+    #[test]
+    fn a_prop_link_to_a_heading_is_an_edge_to_the_note_not_a_ghost() {
+        let (_dir, vault, db) = vault_with(&[
+            (
+                "notes/lares.md",
+                "---\nregion: \"[[Waterdeep#Government]]\"\n---\n\nBody\n",
+            ),
+            ("notes/waterdeep.md", "The city.\n"),
+        ]);
+        db.reconcile(&vault).unwrap();
+        assert_eq!(
+            column(
+                &db,
+                "SELECT kind || '=' || dst FROM edges WHERE src = 'notes/lares.md'"
+            ),
+            vec!["region=notes/waterdeep.md".to_string()],
+            "the anchor names a section of Waterdeep, not a note called `Waterdeep#Government`"
+        );
+        assert_eq!(
+            column(&db, "SELECT value || ':' || kind FROM props"),
+            vec!["[[Waterdeep#Government]]:link".to_string()],
+            "the row still holds what the author typed"
+        );
+    }
+
     /// EDGE-16: every link-shaped value is one directed row keyed by the property that
     /// wrote it, and a target that resolves to nothing keeps its row anyway.
     #[test]

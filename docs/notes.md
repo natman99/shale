@@ -277,6 +277,12 @@ Two rules worth knowing:
   two kinds, because a disagreement you can see beats a wrong answer you cannot.
 - **The block is not prose.** The spell and grammar checker ignores it, so a key you
   spell your own way is not a typo.
+- **A property is a link when the whole value is one `[[…]]`.** It becomes an edge to the
+  note it names, quoted or not. A heading anchor names a section of a note and not part
+  of its name, so `region: "[[Waterdeep#Government]]"` is an edge to Waterdeep while the
+  property keeps the anchor you typed. A value with two links in it —
+  `group: [[Federation]] [[Empire]]` — is text, not one broken link: write a list, one
+  link per item, which is also the only shape strict YAML and therefore Obsidian reads.
 
 Keys keep their case and their spaces: `Max HP` and `max hp` are different keys, and
 nothing renames them for you. A key the note writes twice keeps both rows, and
