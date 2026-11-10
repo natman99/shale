@@ -1340,6 +1340,23 @@ impl MarkdownEditor {
         self.note.buffer.borrow().display_line_count(&self.slot)
     }
 
+    /// One wrapper per (heading level, regular or wide face), so every row is measured
+    /// with the face and size it will be painted with. They outlive the display-line pass
+    /// because an embed's rows are measured with the same ones: a block that wraps with its
+    /// own wrappers would break somewhere the paint has no glyphs for.
+    pub(crate) fn body_wrappers(&self, window: &gpui::Window) -> Vec<gpui::LineWrapperHandle> {
+        let text_system = window.text_system();
+        let family = self.font_family.clone();
+        let mut wrappers: Vec<gpui::LineWrapperHandle> =
+            Vec::with_capacity(crate::theme::SIZES * 2);
+        for level in 0..crate::theme::SIZES as u8 {
+            let size = gpui::px(crate::theme::font_size(level, self.font_size));
+            wrappers.push(text_system.line_wrapper(gpui::font(family.clone()), size));
+            wrappers.push(text_system.line_wrapper(gpui::font(family.clone()).bold(), size));
+        }
+        wrappers
+    }
+
     /// The width soft wrap was computed against: the scroll container's bounds
     /// from the previous frame.
     #[cfg(test)]

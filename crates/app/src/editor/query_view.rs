@@ -33,6 +33,27 @@ impl super::MarkdownEditor {
             .map(|line| line.text)
             .collect()
     }
+
+    /// The answer's rows as the frame would break them: one string per **painted
+    /// piece**, so a test can see a refusal that runs past the pane arrive in pieces
+    /// rather than off the screen. Same `row_ranges` the frame calls.
+    pub(crate) fn query_pieces(&mut self, window: &gpui::Window) -> Vec<String> {
+        let Some(answer) = self.query_answer() else {
+            return Vec::new();
+        };
+        let entries = self.embeds.entries().to_vec();
+        let width = self.wrap_width();
+        let palette = std::rc::Rc::clone(&self.palette);
+        let mut wrappers = self.body_wrappers(window);
+        answer_lines(&answer, &entries)
+            .iter()
+            .flat_map(|line| {
+                row_ranges(line, width, &mut wrappers, &palette)
+                    .into_iter()
+                    .map(move |(lo, hi)| line.text[lo..hi].to_string())
+            })
+            .collect()
+    }
 }
 
 /// How wide one cell may be before it is clipped. A table row that runs past the pane
@@ -68,7 +89,7 @@ pub(crate) fn answer_lines(answer: &Answer, entries: &[VaultEntry]) -> Vec<Block
     if answer.rows.rows.is_empty() {
         out.push(line(
             "the query answers nothing".to_string(),
-            PhantomKind::Header,
+            PhantomKind::Caption,
             Vec::new(),
             None,
         ));
@@ -123,12 +144,39 @@ pub(crate) fn answer_lines(answer: &Answer, entries: &[VaultEntry]) -> Vec<Block
     if hidden > 0 {
         out.push(line(
             format!("…{hidden} more rows not shown"),
-            PhantomKind::Header,
+            PhantomKind::Caption,
             Vec::new(),
             None,
         ));
     }
     out
+}
+
+/// Whether a row of the answer is prose the pane can run out of room for.
+///
+/// A table row keeps its columns: breaking one mid-cell would leave the continuation
+/// lines with nothing to align to, and the cell clip already bounds each one. A sentence
+/// the answer says about itself — a refusal, an admission about the rows it left out — is
+/// prose, and a database message quoting the statement it refused is longer than any pane.
+pub(crate) fn is_prose(line: &BlockLine) -> bool {
+    matches!(
+        line.phantom,
+        Some(PhantomKind::Refusal) | Some(PhantomKind::Caption)
+    )
+}
+
+/// Where a row of the answer breaks at `width`. The frame and the tests ask this one
+/// function, or the test measures a break the paint never makes.
+pub(crate) fn row_ranges(
+    line: &BlockLine,
+    width: gpui::Pixels,
+    wrappers: &mut [gpui::LineWrapperHandle],
+    palette: &shale_core::theme::Palette,
+) -> Vec<(usize, usize)> {
+    if !is_prose(line) {
+        return vec![(0, line.text.len())];
+    }
+    super::embeds::wrap_text(&line.text, &line.spans, None, width, wrappers, palette)
 }
 
 /// One row of the table as the reader sees it: each cell clipped to the column's

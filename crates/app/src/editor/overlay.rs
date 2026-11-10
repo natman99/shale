@@ -937,15 +937,25 @@ impl MarkdownEditor {
                 .lines
                 .iter()
                 .enumerate()
-                .map(|(ix, line)| match painted.get(ix) {
-                    Some(row) if !line.badge => {
-                        let room = (width - px(line.depth as f32 * INDENT_STEP)).max(px(0.));
-                        embeds::wrap_body(std::slice::from_ref(row), room, wrappers, &self.palette)
-                            .pop()
-                            .unwrap_or_else(|| vec![(0, row.text.len())])
+                .map(|(ix, line)| {
+                    let room = (width - px(line.depth as f32 * INDENT_STEP)).max(px(0.));
+                    match painted.get(ix) {
+                        Some(row) if !line.badge => embeds::wrap_body(
+                            std::slice::from_ref(row),
+                            room,
+                            wrappers,
+                            &self.palette,
+                        )
+                        .pop()
+                        .unwrap_or_else(|| vec![(0, row.text.len())]),
+                        // A query row wraps only when it is prose; a table row keeps its
+                        // columns whole.
+                        _ if block.kind == BlockKind::Query => {
+                            super::query_view::row_ranges(line, room, wrappers, &self.palette)
+                        }
+                        // A badge is one line by construction.
+                        _ => vec![(0, line.text.len())],
                     }
-                    // A badge is one line by construction.
-                    _ => vec![(0, line.text.len())],
                 })
                 .collect();
             // The block being edited's rows go in one wrapper, so the block has one

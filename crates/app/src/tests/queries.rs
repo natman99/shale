@@ -886,6 +886,69 @@ fn a_refusal_that_spans_lines_is_drawn_on_one(cx: &mut TestAppContext) {
     assert!(!rows[0].contains('\n'), "one line per row: {:?}", rows[0]);
 }
 
+/// A database message that quotes the statement it refused is longer than any pane,
+/// and a block has no viewport of its own — the host scrolls. So the refusal wraps:
+/// the reason arrives in pieces, and every piece of it is on screen.
+#[gpui::test]
+fn a_refusal_longer_than_the_pane_wraps(cx: &mut TestAppContext) {
+    let long = "SELECT note, value, note AS again, nope, value AS again2, note AS again3 \
+              FROM props WHERE key = 'cr' AND value > 0 AND note IS NOT NULL ORDER BY value\n";
+    let (_dir, window) = monsters(cx, long);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "queries/tough.shq");
+    cx.run_until_parked();
+
+    let rows = table(&window, cx);
+    assert_eq!(rows.len(), 1, "one row, the reason: {rows:?}");
+    let pieces = window
+        .update(cx, |ws, window, cx| ws.query_pieces(window, cx))
+        .unwrap();
+    assert!(
+        pieces.len() > 1,
+        "a {}-character reason drawn as one line: {pieces:?}",
+        rows[0].chars().count()
+    );
+    assert_eq!(
+        pieces.concat(),
+        rows[0],
+        "breaking the row loses nothing between the pieces"
+    );
+    assert!(
+        pieces.iter().all(|piece| !piece.trim().is_empty()),
+        "every piece has something in it: {pieces:?}"
+    );
+}
+
+/// A table row is not prose: breaking one mid-cell would leave the continuation lines
+/// with nothing to align to, so the columns stay whole and the cell clip does the
+/// bounding instead.
+#[gpui::test]
+fn a_table_row_keeps_its_columns_whole(cx: &mut TestAppContext) {
+    // Four cells at the clip's own width: the row is longer than the test's pane by a
+    // wide margin, which is exactly why the rule has to be visible in the test.
+    let sql = format!(
+        "SELECT '{}' AS one, '{}' AS two, '{}' AS three, '{}' AS four",
+        "x".repeat(60),
+        "y".repeat(60),
+        "z".repeat(60),
+        "w".repeat(60)
+    );
+    let (_dir, window) = monsters(cx, &sql);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "queries/tough.shq");
+    cx.run_until_parked();
+
+    let rows = table(&window, cx);
+    assert!(
+        rows.last().expect("the answer row").chars().count() > 200,
+        "the row is meant to be wider than the pane: {rows:?}"
+    );
+    let pieces = window
+        .update(cx, |ws, window, cx| ws.query_pieces(window, cx))
+        .unwrap();
+    assert_eq!(pieces, rows, "one piece per row, header included");
+}
+
 /// The palette is the door for someone who does not remember the word.
 #[gpui::test]
 fn the_palette_offers_a_saved_query(cx: &mut TestAppContext) {

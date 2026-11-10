@@ -43,41 +43,52 @@ pub(crate) fn wrap_body(
     palette: &Palette,
 ) -> Vec<Vec<(usize, usize)>> {
     rows.iter()
-        .map(|row| {
-            let end = row.text.len();
-            // No measured width yet (the first frame), or nothing to break: one line.
-            if width <= px(0.) || end == 0 {
-                return vec![(0, end)];
-            }
-            let heading = row.heading.unwrap_or(0).min(theme::SIZES as u8 - 1);
-            let wide = row
-                .spans
-                .iter()
-                .any(|(_, _, style)| theme::RunStyle::for_style(*style, palette).is_wide());
-            let wrapper = &mut wrappers[heading as usize * 2 + usize::from(wide)];
-            let mut starts = vec![0usize];
-            for boundary in wrapper.wrap_line(
-                &[LineFragment::text(&row.text)],
-                width,
-                IndentAdjustment::NoIndent,
-            ) {
-                // Breaks come back in order; a zero-width or repeated one is dropped so
-                // every range handed back has something in it. The index is snapped to a
-                // character boundary because the ranges are used to slice a UTF-8 string,
-                // and a break in the middle of a multi-byte character would panic in the
-                // paint path rather than merely look wrong.
-                let mut ix = boundary.ix;
-                while ix < end && !row.text.is_char_boundary(ix) {
-                    ix += 1;
-                }
-                if ix > *starts.last().unwrap() && ix < end {
-                    starts.push(ix);
-                }
-            }
-            (0..starts.len())
-                .map(|i| (starts[i], starts.get(i + 1).copied().unwrap_or(end)))
-                .collect()
-        })
+        .map(|row| wrap_text(&row.text, &row.spans, row.heading, width, wrappers, palette))
+        .collect()
+}
+
+/// Where one line of painted text breaks at `width`. `wrap_body` is this over a whole
+/// embed body; anything else that paints a row of its own — a query note's refusal, for
+/// instance — asks the same question of one row.
+pub(crate) fn wrap_text(
+    text: &str,
+    spans: &[(usize, usize, Style)],
+    heading: Option<u8>,
+    width: Pixels,
+    wrappers: &mut [LineWrapperHandle],
+    palette: &Palette,
+) -> Vec<(usize, usize)> {
+    let end = text.len();
+    // No measured width yet (the first frame), or nothing to break: one line.
+    if width <= px(0.) || end == 0 {
+        return vec![(0, end)];
+    }
+    let heading = heading.unwrap_or(0).min(theme::SIZES as u8 - 1);
+    let wide = spans
+        .iter()
+        .any(|(_, _, style)| theme::RunStyle::for_style(*style, palette).is_wide());
+    let wrapper = &mut wrappers[heading as usize * 2 + usize::from(wide)];
+    let mut starts = vec![0usize];
+    for boundary in wrapper.wrap_line(
+        &[LineFragment::text(text)],
+        width,
+        IndentAdjustment::NoIndent,
+    ) {
+        // Breaks come back in order; a zero-width or repeated one is dropped so
+        // every range handed back has something in it. The index is snapped to a
+        // character boundary because the ranges are used to slice a UTF-8 string,
+        // and a break in the middle of a multi-byte character would panic in the
+        // paint path rather than merely look wrong.
+        let mut ix = boundary.ix;
+        while ix < end && !text.is_char_boundary(ix) {
+            ix += 1;
+        }
+        if ix > *starts.last().unwrap() && ix < end {
+            starts.push(ix);
+        }
+    }
+    (0..starts.len())
+        .map(|i| (starts[i], starts.get(i + 1).copied().unwrap_or(end)))
         .collect()
 }
 

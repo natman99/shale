@@ -76,6 +76,10 @@ pub(crate) enum PhantomKind {
     /// Why a query did not answer, in the runner's own words and the palette's red.
     /// A refusal is drawn rather than swallowed: no hidden errors and state.
     Refusal,
+    /// A sentence an answer says about itself — it found nothing, it left rows out.
+    /// Not data, so it is not dressed as data, and it is the one kind of query row the
+    /// pane is allowed to break across lines.
+    Caption,
 }
 
 pub(crate) struct PhantomLine {
@@ -154,7 +158,7 @@ impl PhantomLine {
             PhantomKind::Embed | PhantomKind::EmbedBadge => self.palette.ui_border,
             // A query's table is content too: its rule says where the computed rows
             // start and stop, and says nothing about their being right or wrong.
-            PhantomKind::Row | PhantomKind::Header => self.palette.ui_border,
+            PhantomKind::Row | PhantomKind::Header | PhantomKind::Caption => self.palette.ui_border,
             PhantomKind::Refusal => self.palette.callout_danger,
         }
     }
@@ -240,6 +244,9 @@ impl Element for PhantomLine {
                     PhantomKind::Embed => self.palette.ui_fg,
                     PhantomKind::Row => self.palette.ui_fg,
                     PhantomKind::Header => self.palette.dim,
+                    // A sentence the answer says about itself. It is not data, so it is
+                    // not dressed as data; it is also the one row allowed to wrap.
+                    PhantomKind::Caption => self.palette.dim,
                     PhantomKind::Refusal => self.palette.callout_danger,
                 },
                 ..RunStyle::plain(&self.palette)

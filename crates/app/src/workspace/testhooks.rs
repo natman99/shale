@@ -260,6 +260,17 @@ impl Workspace {
             .unwrap_or_default()
     }
 
+    /// The query note's answer as the frame breaks it: one string per painted piece.
+    pub(crate) fn query_pieces<C: gpui::AppContext>(
+        &self,
+        window: &gpui::Window,
+        cx: &mut C,
+    ) -> Vec<String> {
+        self.editor()
+            .map(|editor| editor.update(cx, |editor, _cx| editor.query_pieces(window)))
+            .unwrap_or_default()
+    }
+
     /// How many display lines the editor on screen draws. A folded query note draws
     /// one; a refusal draws the whole program.
     pub(crate) fn display_lines<C: gpui::AppContext>(&self, cx: &C) -> usize {

@@ -5,7 +5,7 @@ use std::rc::Rc;
 
 use gpui::{
     div, font, prelude::*, px, rgb, Context, CursorStyle, ImgResourceLoader, IntoElement,
-    LineWrapperHandle, MouseButton, ParentElement, Render, SharedString, Styled, Window,
+    MouseButton, ParentElement, Render, SharedString, Styled, Window,
 };
 use shale_core::vim::{Key, Mode};
 
@@ -180,17 +180,7 @@ impl Render for MarkdownEditor {
         // display-line pass because an embed's rows are measured with the same ones: a
         // block that wraps with its own wrappers would break somewhere the paint has no
         // glyphs for.
-        let mut wrappers: Vec<LineWrapperHandle> = {
-            let text_system = window.text_system();
-            let family = self.font_family.clone();
-            let mut wrappers: Vec<LineWrapperHandle> = Vec::with_capacity(theme::SIZES * 2);
-            for level in 0..theme::SIZES as u8 {
-                let size = px(theme::font_size(level, self.font_size));
-                wrappers.push(text_system.line_wrapper(font(family.clone()), size));
-                wrappers.push(text_system.line_wrapper(font(family.clone()).bold(), size));
-            }
-            wrappers
-        };
+        let mut wrappers = self.body_wrappers(window);
         let display_lines = self.display_lines(
             wrap_width,
             &mut wrappers,
