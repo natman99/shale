@@ -1,0 +1,9 @@
++++
+name = "Where this note points"
+relative = "current"
++++
+-- The note the reader is standing in, from the inside: `:current` is bound to the
+-- note holding the embed, so the same saved query answers differently in every note
+-- that asks for it. A target that names no note is still a row — the dead end is the
+-- answer, not a missing row.
+SELECT target AS points FROM links WHERE source = :current ORDER BY target

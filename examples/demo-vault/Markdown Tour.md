@@ -71,3 +71,13 @@ stays in `queries/`; this note borrows its rows. A row naming a note is that not
 to open the file.
 
 ![[Creature ratings]]
+
+### Relative to the note it sits in
+
+A saved query can ask about the note that embeds it: `relative = "current"` in the
+declaration, `:current` in the body. This one lists the tour's own links — the same file
+embedded in another note would list that note's instead, and run from a surface with no
+note under the reader it says so rather than answering nothing. A row naming no note is a
+dead end the query found, not a row that failed to appear.
+
+![[Where this note points]]
