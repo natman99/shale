@@ -63,3 +63,11 @@ fn main() {
     println!("fenced blocks keep their own background");
 }
 ```
+
+## Saved query
+
+`![[…]]` over a `.shq` file draws the answer that query computes, right here. The program
+stays in `queries/`; this note borrows its rows. A row naming a note is that note: click it
+to open the file.
+
+![[Creature ratings]]
