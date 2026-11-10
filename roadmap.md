@@ -72,10 +72,15 @@ by its **shape** instead — a background band and a hairline boundary in the ne
 key across every note that writes it. **P4.3a is closed.** What it leaves behind for
 P4.3: `core::query` is the one grammar, `props` is the table a `.shq` body will read, and
 the key rename is the migration path a saved query's vocabulary can lean on.
-**P4.3 has started: M1 — the `.shq` file format and the read-only runner — and M2, the
-door (`:query`, the picker that lists saved queries and draws their answers) landed
-2026-11-09.** The plan, an edge ledger (EDGE-1…22) and the rulings still open are in
-`queries-plan.md`.
+**P4.3 has started: M1 (the `.shq` file format and the read-only runner), M2 (the door:
+`:query`, the picker that lists saved queries and draws their answers) and M3 (the note
+itself: the program folded, its answer drawn underneath, the marker row carrying what the
+file computed) landed 2026-11-10.** A `.shq` opened in a tab now reads as a question and
+its answer rather than as SQL: `▸ Creature ratings · 2 rows` with the table hanging under
+it, a cell spelled as a vault path opening that note, a refusal opening the program so the
+reason is never a blank page. What is left is `![[query-name]]` (M4), the anchor's journey
+for relative queries (M5), `:save-query` (M6) and MCP (M7). The plan, an edge ledger
+(EDGE-1…24) and the rulings are in `queries-plan.md`.
 
 **P4.0, transclusion — the editable half (closed 2026-11-08).** P4.0a
 (read-only embeds) shipped on 2026-11-06, and **P4.0b — editing inside an embed — is
@@ -1421,6 +1426,21 @@ edges, query nodes, MCP canvas tools) is P6.10.
     through that door because there is no second runner. Two perf checks are owed rather than
     decided now: the cost of a query embedded in a query, and an uncapped read (the surface
     caps what it draws; the core reads what the query answers).
+  - **Landed 2026-11-10 (M3).** `FoldKind` separates a query's fold from a heading's — a
+    `.shq`'s `#`-looking lines are not sections, and its one region is the whole file, shut
+    by default and titled with the query's name. The table hangs under the last *visible*
+    line of the program, folded or open, as phantom rows that own no bytes: the caret cannot
+    land in one, `/` cannot match one, and a row that names no note is not addressable at
+    all. A cell spelled exactly as a vault path carries a door and the link colour, the
+    picker's rule, so the same answer is a door in both surfaces or a dead end in both.
+    `Cell::display` and `Rows::sort_by` moved to the core for the same reason. Two gates
+    open the program, one per kind of wrong: a body the runner refuses **on shape** gets no
+    fold at all (`fold::query_region` asks `db::check_question`, the runner's own question),
+    and a body that fails **at run time** keeps its fold and opens it. An answer of no rows
+    keeps the fold shut, because `the query answers nothing` is a reason the reader can read
+    where they stand. Virtualization is deferred to the perf review: the region is capped at
+    `MAX_ROWS` rows plus the line admitting the rest, which bounds a frame the way an embed
+    block is bounded (ruling 18 in `queries-plan.md`).
   - **P4.3b Headings index — AFTER P4.3a, and explicitly NOT inside it** (ruled
     2026-11-08). Schema **v4** adds `headings(note, line, text, depth)`, filled in the
     same indexer pass from `mdstyle`/`mdlayout` — derived, not authored, so it cannot

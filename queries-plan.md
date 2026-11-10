@@ -146,10 +146,13 @@ Built ones name their test; the rest name the milestone that owes one.
 - **M1 — the format and the runner.** Landed. No surface.
 - **M2 — the door.** Landed. `:query` and the palette's *Run a saved query*, the rows in
   the picker, the tree and quick-open citizenship settled.
-- **M3 — the results where the query lives.** Designed and ruled (see *The M3 view*): the
-  declaration and body folded by default, the table drawn as the fold's rendering, the
-  region virtualized rather than paged, fences and comments highlighted and keywords left to
-  P6.6. Rows that name notes behave like links. EDGE-16, 19, 22, 23, 24.
+- **M3 — the results where the query lives.** **Landed** (`acb0f55` fold, `da616ad` table).
+  The declaration and body are one fold that starts shut; the table hangs under the last
+  visible line of the program, whether the fold is shut or open; the marker row is the
+  table's title and carries the answer's shape (`Creature ratings · 2 rows`). Rows that
+  name a note are doors, the same rule the picker follows. EDGE-16, 22, 23, 24 landed;
+  EDGE-19 (a query that takes seconds) waits for the perf review with the virtualization
+  the surface cap has made unnecessary so far — see ruling 17.
 - **M4 — `![[query-name]]`.** The transclusion resolver's third branch (note, attachment,
   query), and the same table with the same marker row. An errored query shows its error in
   the block (ruling 6). EDGE-10, 11, 21.
@@ -208,3 +211,23 @@ Built ones name their test; the rest name the milestone that owes one.
     read-only connection, no second runner invented for agents.
 16. **The runner stays uncapped** — the surface caps what it draws; a perf review is owed
     before any cap exists.
+17. **What opens the fold, and what does not** — landed as two gates, one per kind of
+    wrong. A body the runner would refuse on shape (two statements, an unterminated quote)
+    gets **no fold at all**: `fold::query_region` asks `db::check_question`, the same
+    question the runner asks, so the two doors cannot disagree about what is worth folding.
+    A body that is well-shaped but fails at run time keeps its fold **and opens it**: the
+    answer has an error, and a folded region with no table is a blank page. An answer of
+    **no rows** keeps the fold shut — the table draws `the query answers nothing` under the
+    marker, which is a reason the reader can read without opening anything. This refines
+    the 2026-11-09 ruling ("errored or empty unfolds"): empty is not an error, and unfolding
+    a program that answered correctly hides nothing useful.
+18. **Virtualization is deferred, not dropped** — the region is capped at `MAX_ROWS` (200)
+    rows plus a line admitting how many were left out, so the phantom region a frame lays
+    out is bounded and comparable to an embed block. Virtualizing it (draw only the rows
+    that intersect the viewport, height = rows × row height) is a perf-review item next to
+    EDGE-19, not a correctness one. Say so if the 200-row frame measures slow.
+19. **A database message is flattened where a surface draws it** — `db::one_line`. SQLite
+    quotes the statement it refused, newlines included, and gpui refuses a text run that
+    holds a newline. The core keeps the whole message (the MCP tool still reports it); the
+    table row and the picker row each flatten it. Cells flatten the same way: a cell may
+    hold a newline, a table row may not.
