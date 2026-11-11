@@ -21,12 +21,35 @@ to stderr; stdout is the protocol.
 | --- | --- |
 | `list_notes` | the vault's notes |
 | `read_note` | one note's contents |
-| `write_note` | replace a note's contents |
+| `write_note` | replace a note's contents — or a saved query's `.shq` |
 | `search_notes` | find lines across the vault |
 | `backlinks` | what points at a note |
 | `pending_edits` | the proposals waiting for review |
 | `retract_pending` | take one of the agent's own proposals back |
 
+**Saved-query tools**, also always available:
+
+| tool | what it does |
+| --- | --- |
+| `list_queries` | the vault's `.shq` files (`list_notes` walks markdown, so it never shows these) |
+| `read_query` | one query's declaration and SQL body |
+| `run_query` | ask one, and read back the rows it answers |
+
+There is one write door: a `.shq` is written with `write_note`, so the profile's paths and
+the review queue govern it exactly as they govern a note. Running is a different matter and
+gets its own verb, because the guarantee there is about the statement, not the path — the
+query runs against the vault index on a connection that cannot write, and a body that is
+not exactly one `SELECT` is refused before SQLite is asked. A vault with no index says so
+rather than answering zero rows.
+
+A query that declares `relative = "current"` asks for the note it is relative to. An agent
+has no caret, so `run_query` takes a `note` argument and refuses to guess one: without it,
+and for a `note` this profile cannot see, the answer is the same sentence the editor shows
+when a relative query has no note under the reader.
+
+The answer arrives as text: the query's name and how many rows it answered, a header line,
+then one line per row — `∅` for NULL, `''` for an empty string. Long answers are cut at the
+same number the in-file table cuts at, and the last line says how many were left out.
 **Live tools**, offered only when a Shale window is up and answering:
 
 | tool | what it answers |

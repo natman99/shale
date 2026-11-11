@@ -325,7 +325,8 @@ live = true
 # read = ["**"]
 # write = ["inbox/", "drafts/"]
 # deny = ["journal/"]
-# tools = ["list_notes", "read_note", "write_note", "search_notes", "backlinks"]
+# tools = ["list_notes", "read_note", "write_note", "search_notes", "backlinks",
+#           "list_queries", "read_query", "run_query"]
 "#
     }
 }

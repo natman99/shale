@@ -180,8 +180,12 @@ Built ones name their test; the rest name the milestone that owes one.
   the search box and the saved file both read, `compile_sql` writes its values as literals,
   and the offer to keep a search is the last row of an operators-only search. Three searches
   cannot be saved and each is refused by name.
-- **M7 — MCP.** Create/edit/run query notes, so "make me a dashboard of X" writes a
-  file rather than a session. EDGE-18.
+- **M7 — MCP.** The agent door: `list_queries`, `read_query`, `run_query`, so "make me a
+  dashboard of X" writes a file and reads back what it answers rather than holding a
+  session. Writing stays `write_note` (ruling 43), the runner is the same runner on a
+  connection that cannot write (ruling 41), a relative query names its host or is refused
+  (ruling 42), and the sentences come from one chain both doors read (ruling 44).
+  EDGE-18.
 - **Not here:** the graph lens (P4.16) and the GM screen (P7.4) consume this item.
 
 ## Rulings
@@ -406,3 +410,30 @@ Built ones name their test; the rest name the milestone that owes one.
     search box. One gap left open on purpose: creating a file that explains an existing ghost
     link does not re-file that ghost in the index, and the same is true of a created *note*,
     so it is one fix for both doors rather than an M6 special case.
+41. **The agent door runs the same runner, on a connection that cannot write** (M7).
+    Ruling 15's promise is kept by moving the runner rather than copying it: `db::run_on(conn,
+    sql, bindings)` is the whole act, and `Db::run` is `check` + `self.read()` + that call.
+    The stdio server never starts a writer — `db::reader(vault_root)` opens the *existing*
+    `<vault>/.shale/shale.db` with `query_only` and answers `None` when the file is not there,
+    which is EDGE-14's sentence ("there is no vault index to read") rather than zero rows. A
+    door that creates an index it never writes to would be claiming a vault has one.
+42. **A relative query names its host or is refused** (M7). The MCP door takes an optional
+    `note` argument and hands it to `QueryNote::anchor` exactly as the editor hands the note
+    under the caret; without it, `anchor(None)` refuses in the sentence ruling 38 wrote
+    (EDGE-12). Ruling 36 is untouched — the host is a note, and only a note — the difference
+    is that an agent has no caret, so it *names* the note instead of the door guessing one.
+    A `note` that is not a note in the vault is refused, not bound.
+43. **One write door** (M7). There is no `write_query`: `write_note` writes any text file in
+    the vault, `.shq` included, because a second verb is a second profile rule and a second
+    review path for one act — and EDGE-18's promise (the review strip governs an agent's
+    query write) is already kept by the door that exists. What the query door adds is
+    *visibility* (`list_queries`, `read_query`: `list_notes` walks markdown, so an agent
+    could not see a query at all) and the run verb. `write_note`'s description says what it
+    covers, since an agent decides which verb to reach for from that sentence.
+44. **The sentences come from one chain** (M7). `query_note::ask(text, host, run)` parses the
+    file, decides the anchor, runs the body, applies the declaration's sort, and answers
+    `Answered { name, rows } | Empty { name } | Refused { why }`. The app maps that to picker
+    rows; the MCP door maps it to text. EDGE-1 ("no note answers this"), EDGE-2 (the SQLite
+    message plus the reader's own text), EDGE-3/4 (a body that is not one question) and
+    EDGE-12 (no host) are each one sentence with one author, so the two doors cannot drift
+    into disagreeing about the same file.

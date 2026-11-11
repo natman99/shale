@@ -37,6 +37,7 @@ use shale_core::Vault;
 
 mod live;
 mod pending_tools;
+mod query_tools;
 mod resources;
 mod vault_tools;
 
@@ -279,6 +280,7 @@ fn tool_definitions(server: &Server) -> Vec<Value> {
             .collect::<Vec<_>>()
     };
     let mut tools = allowed(vault_tools::definitions());
+    tools.extend(allowed(query_tools::definitions()));
     tools.extend(allowed(pending_tools::definitions()));
     if live::available(server.vault.root()) {
         tools.extend(allowed(live::definitions()));
@@ -301,6 +303,9 @@ fn call_tool(server: &Server, name: &str, arguments: &Value) -> Result<Value> {
         )));
     }
     if let Some(result) = vault_tools::call(server, name, arguments)? {
+        return Ok(result);
+    }
+    if let Some(result) = query_tools::call(server, name, arguments)? {
         return Ok(result);
     }
     match name {
@@ -353,18 +358,38 @@ mod tests {
         Ok(())
     }
 
-    /// Without a window answering, the five vault tools, the two queue tools, and
-    /// nothing else.
+    /// Without a window answering: the vault tools, the query tools, the queue tools,
+    /// and nothing else. Named rather than counted — a count cannot say *which* door is
+    /// missing, and a door quietly disappearing from `tools/list` is a feature an agent
+    /// never learns to ask for.
     #[test]
     fn tools_list_without_a_window_is_the_vault_half() -> Result<()> {
         let (_d, server) = fixture(None, McpProfile::default(), None);
         let result = dispatch(&server, "tools/list", &json!({}))?;
-        let tools = result["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 7);
+        let names: Vec<String> = result["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|tool| tool["name"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "list_notes",
+                "read_note",
+                "write_note",
+                "search_notes",
+                "backlinks",
+                "list_queries",
+                "read_query",
+                "run_query",
+                "pending_edits",
+                "retract_pending",
+            ],
+            "the vault half, in the order an agent sees it"
+        );
         assert!(
-            !tools
-                .iter()
-                .any(|t| t["name"].as_str().unwrap().starts_with("live_")),
+            !names.iter().any(|name| name.starts_with("live_")),
             "no live tool is offered that cannot be called"
         );
         Ok(())

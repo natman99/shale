@@ -92,9 +92,12 @@ the same day**: the operators in the search box compile into the statement a `.s
 from the one builder the live search also reads, so saving a search and writing the file out
 are the same act and the file answers what the search answered (ruling 40). The offer is the
 last row of an operators-only search, `:save-query <search>` is the keyboard route, a name is
-one name, and an existing query is never overwritten. What is left is MCP (M7) — plus the
-graph, which still draws a query embed as a ghost node because it re-scans text with its own
-entry lists (ruling 35). The
+one name, and an existing query is never overwritten. **M7 — the agent door — landed the
+same day**, and with it P4.3 is closed: `shale-mcp` lists, reads and runs saved queries on a
+connection that cannot write, and the sentences a query answers with are written once, in
+core, for both doors (rulings 41-44). What is left of the item is the graph, which still
+draws a query embed as a ghost node because it re-scans text with its own entry lists
+(ruling 35). The
 plan, an edge ledger (EDGE-1…24) and the rulings are in `queries-plan.md`.
 
 **A six-item input round closed on 2026-11-10**, between M6 and M7: the arrow keys and Tab
@@ -1468,6 +1471,21 @@ edges, query nodes, MCP canvas tools) is P6.10.
     where they stand. Virtualization is deferred to the perf review: the region is capped at
     `MAX_ROWS` rows plus the line admitting the rest, which bounds a frame the way an embed
     block is bounded (ruling 18 in `queries-plan.md`).
+  - **Landed 2026-11-10 (M7: the agent door).** `shale-mcp` gained `list_queries`,
+    `read_query` and `run_query` (`crates/mcp/src/query_tools.rs`), so an agent asked for
+    "a dashboard of X" writes a `.shq` and reads back what it answers instead of holding a
+    line of SQL in a transcript. Three rules hold it: the runner moved rather than being
+    copied (`db::run_on` is the act; `Db::run` is `check` + a read connection + that call),
+    and the door opens the index through `Db::reader`, which answers `None` for a vault with
+    no index rather than creating one to answer from (ruling 41, EDGE-14). A relative query
+    names its host with a `note` argument or is refused in the editor's own sentence — an
+    agent has no caret, so it says which note it means (ruling 42, EDGE-12). There is no
+    `write_query`: `write_note` writes any file in the vault, `.shq` included, which is what
+    keeps EDGE-18's review-queue promise for a query write without a second path to keep
+    honest (ruling 43). And the sentences are one chain — `query_note::ask` parses, anchors,
+    asks, sorts, and answers `Answered | Empty | Refused`, which the picker draws as rows and
+    the agent door renders as text (ruling 44), so the two doors cannot disagree about the
+    same file.
   - **P4.3b Headings index — AFTER P4.3a, and explicitly NOT inside it** (ruled
     2026-11-08). Schema **v4** adds `headings(note, line, text, depth)`, filled in the
     same indexer pass from `mdstyle`/`mdlayout` — derived, not authored, so it cannot

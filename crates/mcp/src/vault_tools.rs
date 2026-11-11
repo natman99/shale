@@ -42,7 +42,7 @@ pub(crate) fn definitions() -> Vec<Value> {
         }),
         json!({
             "name": "write_note",
-            "description": "Create or overwrite a markdown note. Parent directories are created automatically.",
+            "description": "Create or overwrite a file in the vault: a markdown note, or a saved query's .shq (see list_queries) — there is one write door and the profile's paths and the review queue govern it. Parent directories are created automatically.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
