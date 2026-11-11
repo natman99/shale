@@ -207,6 +207,10 @@ impl RunStyle {
             // looking like it worked.
             Style::FrontmatterBroken => run.color = palette.callout_danger,
             Style::Punctuation => run.color = palette.dim,
+            // The `^abc123` that names a block: quiet, visible, and never hidden
+            // (`mdlayout::is_marker` deliberately does not list it). The id is the
+            // note's claim on itself, so the reader can see it and edit it.
+            Style::BlockAnchor => run.color = palette.dim,
         }
         run
     }

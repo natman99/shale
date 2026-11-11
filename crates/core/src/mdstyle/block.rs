@@ -6,7 +6,7 @@
 use super::{inline::inline_spans, is_table_delimiter_row, CalloutKind, Style, StyleSpan};
 
 /// A thematic break: three or more of the same `-`, `*` or `_`, spaces allowed.
-fn is_thematic_break(content: &str) -> bool {
+pub(super) fn is_thematic_break(content: &str) -> bool {
     let trimmed = content.trim();
     let Some(first) = trimmed.chars().next() else {
         return false;
@@ -289,7 +289,7 @@ pub(super) fn callout_header_range(content: &str) -> Option<(usize, usize)> {
 /// optional space after each. The same walk [`scan_line`] does while it draws
 /// those markers; byte indexing is enough because `>` and a space are one byte
 /// each.
-fn quote_content_start(content: &str) -> usize {
+pub(super) fn quote_content_start(content: &str) -> usize {
     let bytes = content.as_bytes();
     let mut i = 0;
     while bytes.get(i) == Some(&b'>') {
@@ -309,7 +309,7 @@ fn quote_content_start(content: &str) -> usize {
 /// where the custom title begins — all byte offsets from the start of `rest`,
 /// each on a character boundary. A header must be `[!` followed by a bare word,
 /// so `[! a note]` or `[!note!]` stay ordinary quote text.
-fn callout_header(rest: &str) -> Option<(CalloutKind, usize, usize, usize)> {
+pub(super) fn callout_header(rest: &str) -> Option<(CalloutKind, usize, usize, usize)> {
     let body = rest.strip_prefix("[!")?;
     let close = body.find(']')?;
     let name = &body[..close];
@@ -411,7 +411,7 @@ fn table_pipes(base: usize, content: &str, in_table: bool, out: &mut Vec<StyleSp
 }
 
 /// Inline spans inside `content`, whose text starts at absolute `base`.
-fn opens_fence(trimmed: &[u8]) -> Option<(u8, usize)> {
+pub(super) fn opens_fence(trimmed: &[u8]) -> Option<(u8, usize)> {
     let fc = *trimmed.first()?;
     if fc != b'`' && fc != b'~' {
         return None;
@@ -423,7 +423,7 @@ fn opens_fence(trimmed: &[u8]) -> Option<(u8, usize)> {
     Some((fc, run))
 }
 
-fn closes_fence(trimmed: &[u8], fc: u8, flen: usize) -> bool {
+pub(super) fn closes_fence(trimmed: &[u8], fc: u8, flen: usize) -> bool {
     if trimmed.first() != Some(&fc) {
         return false;
     }

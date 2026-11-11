@@ -21,6 +21,9 @@
 //! `StyleSpan`, `CalloutKind` — and the driver that walks the lines.
 
 mod block;
+// The block map: the units a `^id` can name. See the module doc for why it is its
+// own scan rather than another output of the span walk.
+mod blockmap;
 mod inline;
 
 // Typographic quotes: what each straight mark stands for, which decides both the
@@ -32,6 +35,12 @@ pub mod quotes;
 pub mod object;
 
 use block::{callout_header_range, scan_line};
+
+// The block map: which parts of a note a `^id` can name. The index files ids from
+// it, the resolver cuts a block out with it, the jump scrolls to it, and the span
+// this module emits for an anchor comes from it too — so there is exactly one
+// answer to "what blocks does this note have".
+pub use blockmap::{block_map, Block, BlockAnchor, BlockKind, BlockMap};
 
 // The marker shapes a row can open with, shared with [`crate::continuation`],
 // which continues on Enter exactly what this scanner recognises.
@@ -114,6 +123,14 @@ pub enum Style {
     FrontmatterBroken,
     /// Syntax punctuation to draw dimly: brackets, delimiters, backticks.
     Punctuation,
+    /// A block anchor: the `^abc123` that names the block it sits on.
+    ///
+    /// Drawn dim and **never hidden**. Obsidian hides it in preview; Shale does not,
+    /// because an anchor asserts an identity the reader has to be able to see and
+    /// edit — hiding what computes is fine, hiding what asserts is not. The range
+    /// comes from the same scan the index files ids from, so the colour cannot claim
+    /// an anchor the note does not have.
+    BlockAnchor,
 }
 
 /// The kind of an Obsidian callout, from the name in `[!name]`.
@@ -208,6 +225,22 @@ pub fn style_spans(text: &str) -> Vec<StyleSpan> {
                 style: Style::FrontmatterKey,
             });
         }
+    }
+    // Block anchors go in before the line walk for the same reason the keys do: a
+    // span written earlier loses to a more specific inline span written later. The
+    // ranges come from the block map, which is also what the index files ids from,
+    // so an anchor can never be coloured where the index would not find it.
+    let blocks = blockmap::block_map_lines(
+        &lines,
+        &table_rows,
+        front.as_ref().map(|f| (f.whole.0, f.whole.1)),
+    );
+    for anchor in &blocks.anchors {
+        out.push(StyleSpan {
+            start: anchor.start,
+            end: anchor.end,
+            style: Style::BlockAnchor,
+        });
     }
     let mut fence: Option<(u8, usize)> = None;
     // The kind of the callout whose body the previous line belonged to, if any:
