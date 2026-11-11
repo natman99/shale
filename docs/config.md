@@ -25,7 +25,7 @@ into `.shale/` rather than reading both places. There is one config location.
 | | `show_file_tree` | `true` | the tree is open at startup |
 | | `autosave` | `true` | write the note on its own — after a pause, on blur, before a quit |
 | | `autosave_after_ms` | `2000` | how long a pause counts as one |
-| `[appearance]` | `theme` | `"mocha"` | a built-in palette, or the name of a file in `.shale/themes/<name>.toml` |
+| `[appearance]` | `theme` | `""` — ask the desktop | a built-in palette, or the name of a file in `.shale/themes/<name>.toml` |
 | | `font_size` | `14.0` | body text in points; headings and line heights scale from it |
 | | `font_family` | `""` | empty means "pick a monospace family that is actually installed" |
 | | `live_preview` | `true` | hide the markdown syntax of a row the cursor is not on |
@@ -38,8 +38,9 @@ into `.shale/` rather than reading both places. There is one config location.
 
 Two of them change what other features do:
 
-- **`theme = ""`** names no palette at all: the window opens in the dark default and
-  follows the desktop's own dark-or-light setting instead.
+- **`theme = ""`** is the default and names no palette at all: the window opens in Shale's
+  dark and then follows the desktop's own dark-or-light setting — `dark` for a dark desktop,
+  `light` for a light one. Naming a theme by hand stops the following.
 - **`[index] enabled = false`** leaves the cache unwritten. The features that read it
   say so instead of guessing: `:wordcount` answers *there is no vault index to count
   (index.enabled = false)*. The graph is unaffected, because `GraphIndex::build` works

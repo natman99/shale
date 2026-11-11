@@ -144,10 +144,21 @@ milestones in the order they land.
   the graph to the note to type a command — so those moved to `ctrl-w l` in the same commit.
   The falsification is the old binding put back: the new test goes red on the selection
   assertion, not on the tab assertion, which is the half that actually changed.
-- **M5 — theme default.** `Palette::DEFAULT`/`DEFAULT_NAME` → `dark`; `desktop::built_in_for`
-  → `dark`/`light`; `Config::starter()` default and the starter template's `theme` line; docs
-  (`docs/config.md`, `docs/keys.md` untouched, `design-language.md` §15's auto-pair line
-  amended in the same commit).
+- **M5 — theme default.** **Landed.** `Palette::DEFAULT` → `Self::DARK`, `DEFAULT_NAME` →
+  `dark`, `desktop::built_in_for` → `dark`/`light`, and a starter config writes `theme = ""`
+  instead of naming a flavour. Two things the plan did not predict:
+
+  - **The portal ask is what the default actually turns on.** With no theme named, every test
+    window asks the XDG portal, and ashpd runs that on threads the gpui test scheduler refuses
+    (`Your test is not deterministic`). The ask is compiled out of test builds; what is pinned
+    instead is the two halves it is made of — `follows_desktop` (a pure function of the config
+    string) and `built_in_for` (the pair the answer selects). Test fixtures name a theme
+    through one `test_config()` helper, the same way they already name the checker and index
+    off. A test that wants a palette names one.
+  - **`DEFAULT` and `DEFAULT_NAME` had drifted.** Moving the palette without moving the name
+    left `palette_for("")` answering mocha while `Palette::DEFAULT` said dark — the loader
+    resolves the fallback *by name*, so the two must move together. The core test that pins
+    `palette_for("") == Palette::DEFAULT` is what caught it.
 - **M6 — field selection + clipboard.** The `Field` model (anchor, selection-aware edits,
   utf-16 selection for gpui), the painted selection band, the shared key macro, the three
   owners' wiring, the bindings in all four field contexts, and tests: keyboard selection,

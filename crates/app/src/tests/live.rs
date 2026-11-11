@@ -14,7 +14,7 @@ use shale_core::live::{get, probe, Lock, PATH_NOTE, PATH_STATUS};
 /// with the note the window is looking at.
 #[gpui::test]
 fn the_window_answers_what_it_is_showing(cx: &mut TestAppContext) {
-    let mut config = Config::default();
+    let mut config = test_config();
     config.spellcheck.enabled = false;
     config.index.enabled = false;
     config.mcp.live = true;
@@ -72,7 +72,7 @@ fn the_window_answers_what_it_is_showing(cx: &mut TestAppContext) {
 /// had not moved.
 #[gpui::test]
 fn the_answer_follows_what_the_window_draws(cx: &mut TestAppContext) {
-    let mut config = Config::default();
+    let mut config = test_config();
     config.spellcheck.enabled = false;
     config.index.enabled = false;
     config.mcp.live = true;

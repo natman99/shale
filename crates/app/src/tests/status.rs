@@ -29,7 +29,7 @@ fn window_with_note(cx: &mut TestAppContext) -> (tempfile::TempDir, WindowHandle
 fn window_that_keeps_its_edits(
     cx: &mut TestAppContext,
 ) -> (tempfile::TempDir, WindowHandle<Workspace>) {
-    let mut config = Config::default();
+    let mut config = test_config();
     config.spellcheck.enabled = false;
     config.editor.autosave = false;
     let (dir, window) = workspace_with(cx, &["a.md"], config);

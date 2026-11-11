@@ -14,6 +14,9 @@ fn a_missing_checker_leaves_the_editor_alone(cx: &mut TestAppContext) {
     std::fs::write(dir.path().join("a.md"), "Thier spelling is wrogn.\n").unwrap();
     let vault = Rc::new(Vault::open(dir.path()).unwrap());
     let mut config = Config::default();
+    // Named so this window does not ask the desktop for a palette: the ask is a
+    // D-Bus round trip on a thread the test scheduler refuses.
+    config.appearance.theme = "mocha".to_string();
     config.spellcheck.command = "definitely-not-installed".into();
 
     cx.update(|cx| cx.bind_keys(keybindings()));

@@ -164,7 +164,7 @@ fn the_recent_list_is_the_vaults_and_not_the_windows(cx: &mut TestAppContext) {
         "the list rides in the session file"
     );
 
-    let mut config = Config::default();
+    let mut config = test_config();
     config.spellcheck.enabled = false;
     config.index.enabled = false;
     let two = open_window(cx, dir.path(), config);

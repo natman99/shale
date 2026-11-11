@@ -25,7 +25,7 @@ pub(crate) fn vault_with_session(
     notes: &[(&str, &str)],
     session: &Session,
 ) -> (tempfile::TempDir, WindowHandle<Workspace>) {
-    let mut config = Config::default();
+    let mut config = test_config();
     config.spellcheck.enabled = false;
     config.index.enabled = false;
     let dir = tempfile::tempdir().unwrap();

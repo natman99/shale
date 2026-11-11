@@ -23,8 +23,6 @@ use std::path::{Path, PathBuf};
 use anyhow::Context as _;
 use serde::{Deserialize, Serialize};
 
-use crate::theme::Palette;
-
 /// The directory Shale keeps its own files in, under the vault root: the config,
 /// the vault's theme files, and the database and cache that will join them.
 pub const DIR: &str = ".shale";
@@ -87,7 +85,10 @@ pub struct AppearanceConfig {
     /// the family palettes — Catppuccin, Tokyo Night, Gruvbox, Nord, Dracula,
     /// Solarized, One and Rosé Pine; see [`crate::theme::Palette::BUILT_INS`] for
     /// the names), or the name of a `<vault>/.shale/themes/<name>.toml` file (see
-    /// [`crate::theme`]). The default is [`Palette::DEFAULT_NAME`].
+    /// [`crate::theme`]). **Empty is the default**, and empty is not a name: it asks
+    /// the desktop which of dark or light to open in, falling back to
+    /// [`Palette::DEFAULT_NAME`] when the desktop has no answer (`design-language.md`
+    /// §15). Choosing a theme by hand stops the following.
     pub theme: String,
     /// UI font size in points.
     pub font_size: f32,
@@ -103,7 +104,9 @@ pub struct AppearanceConfig {
 impl Default for AppearanceConfig {
     fn default() -> Self {
         Self {
-            theme: Palette::DEFAULT_NAME.to_string(),
+            // Empty means "ask the desktop" (§15), which is the default a new vault
+            // gets: no palette is a preference nobody has expressed yet.
+            theme: String::new(),
             font_size: 14.0,
             font_family: String::new(),
             live_preview: true,
@@ -276,10 +279,11 @@ autosave_after_ms = 2000
 #   One          "one-dark" "one-light"
 #   Rose Pine    "rose-pine" "rose-pine-moon" "rose-pine-dawn"
 # Picking a theme in the app rewrites this line, so the choice survives a restart.
-# Setting it to an empty name ("") names no palette at all: the window opens in the
-# dark default and follows the desktop's own dark-or-light setting instead --
-# Catppuccin Mocha for dark, Catppuccin Latte for light.
-theme = "mocha"
+# An empty name names no palette at all, which is the default: the window opens in
+# Shale's dark and follows the desktop's own dark-or-light setting instead --
+# "dark" for a dark desktop, "light" for a light one. Choosing a theme by hand
+# stops the following, and so does writing a name here.
+theme = ""
 # Body text size in points; headings and line heights are scaled from it.
 font_size = 14.0
 # Empty means "pick a monospace family that is actually installed".
@@ -346,6 +350,7 @@ fn legacy_path(vault_root: &Path) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::theme::Palette;
 
     #[test]
     fn defaults_when_missing_fields() {
@@ -355,7 +360,15 @@ mod tests {
         assert!(cfg.appearance.live_preview);
         assert_eq!(cfg.appearance.font_size, 14.0);
         assert_eq!(cfg.appearance.font_family, "");
-        assert_eq!(cfg.appearance.theme, Palette::DEFAULT_NAME);
+        // A config that says nothing about the theme names no palette, which is not
+        // the same as naming the fallback: it is the request to ask the desktop
+        // (§15). The fallback is what shows while that question is in the air, and
+        // what shows when the desktop has no answer.
+        assert_eq!(cfg.appearance.theme, "");
+        assert!(
+            Palette::built_in(Palette::DEFAULT_NAME).is_some(),
+            "the palette a desktop-less vault lands on has to be a built-in"
+        );
     }
 
     /// Autosave is on, and its pause is long enough to never land between two

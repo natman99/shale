@@ -126,11 +126,26 @@ pub(crate) fn workspace(
     // thread per window, and writes `.shale/mcp.lock` into the vault, which is
     // exactly what a test counting what a command created is not expecting.
     // `tests::live` turns it back on, and it is on in the app.
+    let mut config = test_config();
+    config.index.enabled = false;
+    workspace_with(cx, files, config)
+}
+
+/// The config a test window gets, and the reason it is not `Config::default()`.
+///
+/// The checker is off (no `harper-ls` per window), and so is the live MCP channel
+/// (no port, no thread, no `.shale/mcp.lock` in the vault a test is counting). The
+/// **theme is named** for a fourth reason: a vault that names no palette asks the
+/// desktop, and that ask is a D-Bus round trip on a thread the test scheduler
+/// refuses — `Your test is not deterministic`. Naming it also keeps the paint tests
+/// on the palette they have always pinned; a test that means to look at colours
+/// names its own through `workspace_with`.
+pub(crate) fn test_config() -> Config {
     let mut config = Config::default();
     config.spellcheck.enabled = false;
-    config.index.enabled = false;
     config.mcp.live = false;
-    workspace_with(cx, files, config)
+    config.appearance.theme = "mocha".to_string();
+    config
 }
 
 /// The same, with the config the caller chose: how a test turns autosave off, or
@@ -184,9 +199,7 @@ pub(crate) fn indexed_vault(
     cx: &mut TestAppContext,
     notes: &[(&str, &str)],
 ) -> (tempfile::TempDir, WindowHandle<Workspace>) {
-    let mut config = Config::default();
-    config.spellcheck.enabled = false;
-    config.mcp.live = false;
+    let config = test_config();
     let dir = tempfile::tempdir().unwrap();
     for (name, text) in notes {
         let path = dir.path().join(name);

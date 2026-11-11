@@ -384,6 +384,14 @@ pub(crate) struct Workspace {
     _keystroke_observer: Subscription,
 }
 
+/// A config that names no palette is asking the desktop which of dark or light to
+/// open in (§15). Kept as a function of the string so the rule can be read without a
+/// window up: the ask itself is a D-Bus round trip on a thread the test scheduler
+/// refuses, so no headless test can drive it end to end.
+fn follows_desktop(configured: &str) -> bool {
+    configured.trim().is_empty()
+}
+
 impl Workspace {
     /// The vault this window reads and writes.
     pub(crate) fn vault_root(&self) -> &std::path::Path {
@@ -479,7 +487,7 @@ impl Workspace {
         // Naming nothing is not the same as naming the default: it is the vault
         // asking the desktop instead (§15), and the flag has to be read before
         // `configured` is moved into the palette below.
-        let follow_desktop = configured.is_empty();
+        let follow_desktop = follows_desktop(&configured);
         let (palette, theme_name, theme_error) = match theme::palette_for(vault.root(), &configured)
         {
             Ok(palette) => (
@@ -690,8 +698,13 @@ impl Workspace {
         }
         self.watch_hover(window, cx);
         // A vault that named no theme in its config follows the desktop, which is
-        // a question the window has to be up to ask (§15).
-        if self.follow_desktop {
+        // a question the window has to be up to ask (§15). The ask is a D-Bus round
+        // trip, and ashpd runs it on threads the gpui test scheduler refuses —
+        // `Your test is not deterministic` — so it is compiled out of test builds.
+        // What is tested instead is the two halves the ask is made of: the rule that
+        // decides to ask (`follows_desktop`) and the pair the answer picks
+        // (`desktop::built_in_for`). A headless test that wants a palette names one.
+        if self.follow_desktop && !cfg!(test) {
             self.follow_desktop_theme(window, cx);
         }
         self._activation_events = Some(cx.observe_window_activation(window, |ws, window, cx| {
@@ -1064,4 +1077,24 @@ fn note_keys(entries: &[VaultEntry]) -> HashSet<String> {
         }
     }
     keys
+}
+
+#[cfg(test)]
+mod tests {
+    use super::follows_desktop;
+
+    /// The half of §15 a headless test can reach: naming no palette is the request to
+    /// follow the desktop, and naming one stops the following. The ask itself is a
+    /// D-Bus round trip on threads the gpui test scheduler refuses, so it is compiled
+    /// out of test builds — which is only honest if the decision to ask is pinned.
+    #[test]
+    fn an_unnamed_palette_is_the_request_to_follow_the_desktop() {
+        assert!(follows_desktop(""));
+        assert!(
+            follows_desktop("  "),
+            "`theme = \" \"` names nothing, same as an empty line"
+        );
+        assert!(!follows_desktop("mocha"));
+        assert!(!follows_desktop("my-theme"));
+    }
 }

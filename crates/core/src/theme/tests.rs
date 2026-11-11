@@ -49,10 +49,12 @@ fn palette_for_resolves_built_ins_and_files() {
     let dir = tempfile::tempdir().unwrap();
     assert_eq!(palette_for(dir.path(), "dark").unwrap(), Palette::DARK);
     assert_eq!(palette_for(dir.path(), "Light").unwrap(), Palette::LIGHT);
-    // No name at all is the default palette, which is a flavour rather than
-    // Shale's own dark value.
+    // No name at all is the fallback palette, and the fallback is Shale's own dark
+    // rather than anybody's flavour: it is what shows while the desktop's answer is in
+    // the air, what shows when the desktop has none, and what shows when a named theme
+    // file is broken. A palette shown after something went wrong should not be a taste.
     assert_eq!(palette_for(dir.path(), "").unwrap(), Palette::DEFAULT);
-    assert_eq!(Palette::DEFAULT, catppuccin::MOCHA);
+    assert_eq!(Palette::DEFAULT, Palette::DARK);
     assert_eq!(
         Palette::built_in(Palette::DEFAULT_NAME),
         Some(Palette::DEFAULT)

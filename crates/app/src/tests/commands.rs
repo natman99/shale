@@ -420,7 +420,7 @@ fn paste_brings_the_clipboard_in_and_fills_the_register(cx: &mut TestAppContext)
 /// state in which a quit has to choose between writing, refusing, and throwing the
 /// work away. The disk says `on the disk` until one of the three decides otherwise.
 fn dirty_without_autosave(cx: &mut TestAppContext) -> (tempfile::TempDir, WindowHandle<Workspace>) {
-    let mut config = Config::default();
+    let mut config = test_config();
     config.spellcheck.enabled = false;
     config.index.enabled = false;
     config.editor.autosave = false;

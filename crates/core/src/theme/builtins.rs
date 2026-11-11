@@ -183,13 +183,20 @@ impl Palette {
         callout_danger: 0xc03c3c,
     };
 
-    /// The palette a vault gets when it names none: Catppuccin Mocha, the
-    /// darkest flavour and the one most people mean when they say Catppuccin.
-    pub const DEFAULT: Palette = catppuccin::MOCHA;
+    /// The palette a vault falls back to: Shale's own dark. A vault that names
+    /// no theme asks the desktop first (§15), and this is what it opens in while
+    /// that question is in the air, what it opens in when the desktop has no
+    /// answer, and what it opens in when the named theme file is broken. It is a
+    /// fallback, so it is deliberately the neutral palette rather than anybody's
+    /// favourite — a palette shown after something went wrong should not be a
+    /// taste the user never picked.
+    pub const DEFAULT: Palette = Self::DARK;
 
     /// [`Self::DEFAULT`] under the name `appearance.theme` asks for, so the
-    /// config default, the loader and the app's fallback cannot drift apart.
-    pub const DEFAULT_NAME: &'static str = "mocha";
+    /// config default, the loader and the app's fallback cannot drift apart. (They
+    /// had: this said `mocha` while `DEFAULT` was being moved to Shale's dark, and
+    /// `palette_for("")` answered with a palette that was not `DEFAULT`.)
+    pub const DEFAULT_NAME: &'static str = "dark";
 
     /// The built-in palettes, by (lowercase) name: Shale's own two, then the
     /// palettes of the families this module keeps a file for. A family's variants

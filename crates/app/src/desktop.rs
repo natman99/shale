@@ -45,13 +45,14 @@ pub(crate) async fn theme_name(appearance: WindowAppearance) -> Option<&'static 
     }
 }
 
-/// The pair §15 maps a desktop preference onto: today's default for dark, and
-/// the same family's light flavour for light. The doc author's extension, and
-/// the one line to change if the pair is ever wrong.
+/// The pair §15 maps a desktop preference onto: Shale's own two. A desktop that
+/// never asked for a palette should get a palette that is nobody's preference, and
+/// the two built-ins Shale drew itself are the only palettes that qualify. The one
+/// line to change if the pair is ever wrong.
 fn built_in_for(mode: Mode) -> &'static str {
     match mode {
-        Mode::Dark => "mocha",
-        Mode::Light => "latte",
+        Mode::Dark => "dark",
+        Mode::Light => "light",
     }
 }
 
@@ -79,20 +80,19 @@ mod tests {
     use super::*;
     use shale_core::theme::Palette;
 
-    /// The pair §15 settles on: the default dark palette, and the same family's
-    /// light flavour. Both names have to resolve, or the follow silently does
-    /// nothing on a light desktop.
+    /// The pair §15 settles on: Shale's own dark and light. Both names have to
+    /// resolve, or the follow silently does nothing on a light desktop.
     #[test]
     fn the_desktop_answer_names_two_built_ins() {
-        assert_eq!(built_in_for(Mode::Dark), "mocha");
-        assert_eq!(built_in_for(Mode::Light), "latte");
+        assert_eq!(built_in_for(Mode::Dark), "dark");
+        assert_eq!(built_in_for(Mode::Light), "light");
         for name in [built_in_for(Mode::Dark), built_in_for(Mode::Light)] {
             assert!(
                 Palette::built_in(name).is_some(),
                 "{name} is not a built-in palette"
             );
         }
-        assert_eq!(Palette::built_in("mocha").unwrap().mode(), Mode::Dark);
-        assert_eq!(Palette::built_in("latte").unwrap().mode(), Mode::Light);
+        assert_eq!(Palette::built_in("dark").unwrap().mode(), Mode::Dark);
+        assert_eq!(Palette::built_in("light").unwrap().mode(), Mode::Light);
     }
 }

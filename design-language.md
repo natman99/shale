@@ -352,9 +352,13 @@ never writes config.
   Portal's `color-scheme` on Linux, gpui's own reading of the platform setting elsewhere, dark
   when neither answers. The window opens dark and settles a moment later rather than holding the
   first frame for a D-Bus round trip, and choosing a theme by hand stops the following. Live
-  following (reacting when the desktop changes mid-session) is not built. *(The auto pair —
-  dark → `mocha`, light → `latte` — is the doc author's extension, in one function:
-  `desktop::built_in_for`.)*
+  following (reacting when the desktop changes mid-session) is not built. *(The auto pair was
+  ruled 2026-11-10: **dark → `dark`, light → `light`** — Shale's own two, not a flavour. A
+  desktop that never asked for a palette should not get somebody's preference. One function,
+  `desktop::built_in_for`.) *Amended 2026-11-10:* the fallback when nothing answers is Shale's
+  dark rather than a flavour (`Palette::DEFAULT` is `Self::DARK`), and a starter config writes
+  `theme = ""` instead of naming one — a palette shown after something went wrong, or to
+  somebody who never chose, should not be a taste.)*
 - **✅ Role vocabulary grows with §1.** The new roles (`diff_*`, `agent`, `ui_disabled`, `graph_ghost/tag/attachment`) land as `Option` fields in `ThemeFile` in the same commit as the Palette roles — 53 → 61 overridable keys, same optional-with-fallback rule.
 - **✅ `theme export`** — **landed 2026-11-03**. `:theme export <name>` writes the palette *on
   screen* — not the name in the config — as 61 `#rrggbb` keys plus `mode`, and the file reads back

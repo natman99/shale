@@ -156,7 +156,7 @@ fn losing_focus_writes_the_note(cx: &mut TestAppContext) {
 /// makes `ctrl-s` and `:w` worth keeping.
 #[gpui::test]
 fn autosave_off_leaves_the_note_to_its_owner(cx: &mut TestAppContext) {
-    let mut config = Config::default();
+    let mut config = test_config();
     config.spellcheck.enabled = false;
     config.editor.autosave = false;
     let (dir, window) = workspace_with(cx, &["a.md"], config);
