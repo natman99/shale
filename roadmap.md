@@ -1526,6 +1526,17 @@ edges, query nodes, MCP canvas tools) is P6.10.
     (P4.9) and Canvas C3's block cards. **Do not grow P4.3a to cover it**: P4.3a is in
     flight, and a second table in the same commit turns a schema decision into a moving
     target for whoever is implementing it.
+    **M1 closed (2026-11-10):** schema **v4** is live — `headings(note, line, text, depth)`,
+    written in the note's own indexing pass from a new `mdstyle::object::heading_spans` (the
+    parser's spans, keeping the text range and depth the old `headings()` threw away),
+    delete-then-insert per note, dropped with the note, and readable through `Db::run`, which
+    is what a saved query runs on. The survey's three-way disagreement held up under a test
+    except in one place: the parser styles **no** heading inside a blockquote, so `> ## Title`
+    is quoted text and gets no row — the fold and the anchor matcher already said the same,
+    and the plan's EDGE-3 and question D were corrected rather than left as a guess. What
+    is real: a bare `#` and `#\tText` are headings to the parser and prose to the anchor
+    matcher, so today they are listed sections nothing can jump to. M2 makes the matcher
+    read the same scan; M3 opens the `:sections` door.
 - **P4.4 Tag tree panel** (brainstorm ✅): rollup counts, fuzzy filter, Enter =
   search, `g` = filter graph, `r` = rename tag vault-wide, color assignment →
   graph groups. Plus `#` autocomplete from the DB.

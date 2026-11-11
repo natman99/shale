@@ -28,6 +28,7 @@ use rusqlite::{params, Connection};
 use crate::frontmatter::{self, KeyCensus, Kind, Prop};
 use crate::graph::extract_tags;
 use crate::markdown::extract_wikilinks;
+use crate::mdstyle::object::heading_spans;
 use crate::query::Query;
 use crate::vault::{rel_text, Vault, VaultEntry};
 use crate::watch::{Stamp, VaultChanges};
@@ -114,6 +115,22 @@ impl SyncReport {
 /// the vault's only one, so reading and parsing happen outside it, and a note that
 /// cannot be read costs its own row rather than taking the rest of the pass down
 /// with it.
+/// One section of a note, as schema v4 records it. Derived from the parser's
+/// heading scan, never from anything the author wrote: there is no syntax for
+/// "this is a section" beyond the heading itself, so the row cannot be lied to.
+struct Heading {
+    /// 0-based line index — the basis `events.line_start` uses and
+    /// [`crate::transclude::heading_row`] returns, so a row drives a reveal with
+    /// no translation (headings-plan.md ruling 48).
+    line: i64,
+    /// The heading's text as written: markers stripped, inline markdown intact
+    /// (`The *Fall* of Zhent`). Ruling 47: the index stores claims, and
+    /// concealment is a view decision.
+    text: String,
+    /// The marker count, 1 to 6.
+    depth: u8,
+}
+
 struct Record {
     /// Vault-relative path, as the `notes.path` column holds it: `/`-joined on every
     /// platform, by [`rel_text`].
@@ -135,6 +152,8 @@ struct Record {
     /// where `kind` is the key that wrote it (`ally`, `region`) and `target` is the
     /// note it resolves to, or what the author wrote when nothing resolves.
     edges: Vec<(String, String)>,
+    /// The note's sections, in line order, from the parser's own heading scan.
+    headings: Vec<Heading>,
     /// Why the block could not be read, if it could not. The note still gets its
     /// other rows — a bad block costs its own note its props, not the pass — and the
     /// pass reports it, because a silently empty `props` is a misleading answer.
@@ -303,6 +322,10 @@ fn record(
         }
     }
 
+    // The sections, from the same scan the fold and the `da#` text object read,
+    // so a query groups by the sections the editor folds (ruling 46).
+    let headings = heading_rows(&text);
+
     Ok(Record {
         path: rel_text(rel),
         size: meta.len() as i64,
@@ -312,8 +335,41 @@ fn record(
         links,
         edges,
         props,
+        headings,
         frontmatter_error,
     })
+}
+
+/// The note's sections as index rows, from the parser's own scan.
+///
+/// The scan answers in byte offsets and the table answers in line numbers, because
+/// every consumer of a section either reveals a row or groups by a range of them —
+/// a byte offset would be a second coordinate that goes stale on its own
+/// (headings-plan.md question C, closed as `line` only). The text is trimmed at
+/// both ends, so a tab after the markers and trailing spaces are not part of a
+/// section's name (EDGE-16).
+fn heading_rows(text: &str) -> Vec<Heading> {
+    let spans = heading_spans(text);
+    if spans.is_empty() {
+        return Vec::new();
+    }
+    // One pass to find the line starts, then a binary search per heading: the
+    // spans arrive in byte order, so this is linear in the note, not in the
+    // note times its headings.
+    let mut starts: Vec<usize> = vec![0];
+    for (at, byte) in text.bytes().enumerate() {
+        if byte == b'\n' {
+            starts.push(at + 1);
+        }
+    }
+    spans
+        .into_iter()
+        .map(|span| Heading {
+            line: (starts.partition_point(|&start| start <= span.line_start) - 1) as i64,
+            text: text[span.text_start..span.text_end].trim().to_string(),
+            depth: span.depth,
+        })
+        .collect()
 }
 
 /// Write one note's rows, replacing whatever was there for it.
@@ -405,6 +461,23 @@ fn write_record(conn: &Connection, note: &Record, provenance: Provenance) -> Res
     // Properties are replaced wholesale (EDGE-19): delete-then-insert for the note's
     // whole prop set, with no per-key diff. That is what lets a frontmatter block the
     // author deleted take its rows with it, and it is why `props_note` exists.
+    // Sections are replaced wholesale, exactly like props: the note is the unit,
+    // so a heading that moved or went away takes its row with it (ruling 50).
+    conn.execute("DELETE FROM headings WHERE note = ?1", params![note.path])
+        .with_context(|| format!("indexing {}", note.path))?;
+    for heading in &note.headings {
+        conn.execute(
+            "INSERT INTO headings (note, line, text, depth) VALUES (?1, ?2, ?3, ?4)",
+            params![
+                note.path,
+                heading.line,
+                heading.text,
+                i64::from(u32::from(heading.depth))
+            ],
+        )
+        .with_context(|| format!("indexing {}", note.path))?;
+    }
+
     conn.execute("DELETE FROM props WHERE note = ?1", params![note.path])
         .with_context(|| format!("indexing {}", note.path))?;
     for prop in &note.props {
@@ -438,6 +511,7 @@ fn drop_note(conn: &Connection, path: &str) -> Result<()> {
         params![path],
     )?;
     conn.execute("DELETE FROM props WHERE note = ?1", params![path])?;
+    conn.execute("DELETE FROM headings WHERE note = ?1", params![path])?;
     Ok(())
 }
 
@@ -1469,7 +1543,7 @@ fn escape_like(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::schema::{SCHEMA_V1, SCHEMA_V2, SCHEMA_VERSION};
+    use crate::db::schema::{SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_VERSION};
     use std::fs::{File, FileTimes};
 
     /// A vault whose notes are written by hand, and its index. The `TempDir` is
@@ -1496,6 +1570,18 @@ mod tests {
             .collect();
         out.sort();
         out
+    }
+
+    /// One column from every row, **in the order the query asked for it**. [`column`]
+    /// sorts, which is right for a set of rows and wrong for a section list, whose
+    /// whole point is that it came back in reading order.
+    fn column_ordered(db: &Db, sql: &str) -> Vec<String> {
+        let conn = db.read().unwrap();
+        let mut stmt = conn.prepare(sql).unwrap();
+        stmt.query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .map(|row| row.unwrap())
+            .collect()
     }
 
     /// The log as `kind:provenance` words, oldest first.
@@ -1858,6 +1944,128 @@ mod tests {
             column(&db, "SELECT CAST(COUNT(*) AS TEXT) FROM props"),
             vec!["0"],
             "the table exists, and it is empty until the notes are read again"
+        );
+    }
+
+    /// The rebuild this release will actually give its users: an index at v3 (no
+    /// `headings`) becomes v4 by being dropped, not by an `ALTER TABLE`.
+    #[test]
+    fn an_index_at_v3_gains_the_headings_table_by_rebuild() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join(".shale")).unwrap();
+        {
+            let conn = Connection::open(dir.path().join(".shale/shale.db")).unwrap();
+            conn.execute_batch(SCHEMA_V3).unwrap();
+            conn.execute_batch("PRAGMA user_version = 3;").unwrap();
+        }
+        let db = Db::open(dir.path()).unwrap();
+        assert_eq!(db.schema_version(), SCHEMA_VERSION);
+        assert_eq!(
+            column(&db, "SELECT CAST(COUNT(*) AS TEXT) FROM headings"),
+            vec!["0"],
+            "the table exists, and it is empty until the notes are read again"
+        );
+    }
+
+    /// P4.3b M1: the sections a note has reach `headings`, in line order, from the
+    /// parser's own scan — the same spans the fold and the `da#` text object read, so
+    /// a query groups by the sections the editor folds (ruling 46). The fenced `#` is
+    /// not a section, the blockquoted one is, a bare `#` is a section with no name,
+    /// and a note may name two sections the same way (EDGE-1/2/3/6).
+    #[test]
+    fn a_notes_sections_are_indexed_in_line_order() {
+        let (_dir, vault, db) = vault_with(&[(
+            "Lair.md",
+            concat!(
+                "intro\n",
+                "# The Fall\n",
+                "body\n",
+                "## Deep *Fall*\n",
+                "```\n",
+                "# not a heading\n",
+                "```\n",
+                "> ## Quoted\n",
+                "#\n",
+                "## Deep *Fall*\n",
+            ),
+        )]);
+        db.reconcile(&vault).unwrap();
+        assert_eq!(
+            column_ordered(
+                &db,
+                "SELECT line || '|' || depth || '|' || text FROM headings ORDER BY line"
+            ),
+            vec!["1|1|The Fall", "3|2|Deep *Fall*", "8|1|", "9|2|Deep *Fall*",],
+            "`line` is 0-based, `text` is what the author wrote (asterisks and all), the \
+             fence held the comment out of the section list, and `> ## Quoted` on line 7 is \
+             quoted text rather than a section of this note — the parser styles no heading \
+             inside a blockquote, which is also what the fold and the anchor matcher do"
+        );
+    }
+
+    /// The rows belong to the note: an edit that drops a heading drops its row, and a
+    /// deleted note takes its sections with it (ruling 50, EDGE-11/12). Nothing else
+    /// points at a heading, so nothing else has to follow.
+    #[test]
+    fn sections_follow_the_note_being_edited_and_deleted() {
+        let (_dir, vault, db) = vault_with(&[("a.md", "# One\n## Two\n")]);
+        db.reconcile(&vault).unwrap();
+        assert_eq!(column(&db, "SELECT text FROM headings"), vec!["One", "Two"]);
+
+        vault.write("a.md", "# One\nprose only\n").unwrap();
+        db.note_saved(&vault, Path::new("a.md"), Provenance::User)
+            .unwrap();
+        assert_eq!(
+            column(&db, "SELECT text FROM headings"),
+            vec!["One"],
+            "the section that stopped existing stopped being a row"
+        );
+
+        db.note_deleted(Path::new("a.md"), Provenance::User)
+            .unwrap();
+        assert_eq!(
+            column(&db, "SELECT CAST(COUNT(*) AS TEXT) FROM headings"),
+            vec!["0"],
+            "and the note going away took its sections with it"
+        );
+    }
+
+    /// The table answers the question it was priced for, through the same read-only
+    /// runner a saved query runs on: which notes have a section by this name, and what
+    /// sections does that note have, in order. The app has no door on these rows yet —
+    /// that is M3 — but a table nothing asks about is a shell (question G).
+    #[test]
+    fn a_query_can_ask_what_sections_a_note_has() {
+        let (_dir, vault, db) = vault_with(&[
+            ("Lair.md", "# The Fall\n## The Deep\n### Deeper\n"),
+            ("Other.md", "# The Fall\n"),
+        ]);
+        db.reconcile(&vault).unwrap();
+
+        let named = db
+            .run(
+                "SELECT note || ':' || text FROM headings WHERE text = 'The Fall' ORDER BY note",
+                &[],
+            )
+            .unwrap();
+        let got: Vec<String> = named.rows.iter().map(|row| row[0].display()).collect();
+        assert_eq!(
+            got,
+            vec!["Lair.md:The Fall", "Other.md:The Fall"],
+            "the `headings_text` index is what a vault-wide anchor lookup reads"
+        );
+
+        let outline = db
+            .run(
+                "SELECT text FROM headings WHERE note = 'Lair.md' ORDER BY line",
+                &[],
+            )
+            .unwrap();
+        let got: Vec<String> = outline.rows.iter().map(|row| row[0].display()).collect();
+        assert_eq!(
+            got,
+            vec!["The Fall", "The Deep", "Deeper"],
+            "in reading order, which is the order an outline wants"
         );
     }
 

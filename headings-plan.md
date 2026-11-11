@@ -81,13 +81,19 @@ real work — the table itself is four columns and a delete.
   the span scanner gets it for free (it never styles a fenced line as a heading), and the
   re-pointed matcher inherits it. Pinned by a test that also proves the old hand-rolled
   fence toggle is gone.
-- **EDGE-2 — `#` alone, and `#\tText`.** The parser says heading (with empty text, or text
-  after a tab); the anchor scanner says prose. Ruling 46: heading. The anchor for `#` alone
-  is the empty string (EDGE-15).
-- **EDGE-3 — `> ## Title` inside a blockquote.** The parser styles it; the anchor scanner
-  refused it. Ruling 46: it is a section, and `[[note#Title]]` now finds it. This is a
-  behaviour change for anchors, and it is the one a reader might notice — it fixes a jump
-  that used to fail.
+- **EDGE-2 — `#` alone, and `#\tText`.** Checked against the code, and the parser really
+  does differ here: `mdstyle` styles both (a bare `#` as a heading with empty text, a tab
+  after the markers as whitespace), while `transclude::heading_level` insists on a space and
+  refuses both. Ruling 46: the index follows the parser, so both get rows. The fold reads
+  the matcher, so today a bare `#` looks like a heading, folds like prose, and cannot be
+  jumped to — three surfaces, two answers, and M2 is where the matcher stops being the odd
+  one out. The anchor for `#` alone is the empty string either way (EDGE-15).
+- **EDGE-3 — `> ## Title` inside a blockquote.** The survey guessed the parser styled it. It
+  does not: `mdstyle` styles no heading inside a blockquote, and `heading_level` refuses the
+  line for its own reason (it wants a `#` at the line's start). Both say *not a section*, so
+  the index writes no row and the ruling is only that this stays true — quoting somebody's
+  heading is quoting, not sectioning. Pinned by a test anyway: a survey claim that turns out
+  backwards is worth more than one that was never checked.
 - **EDGE-4 — four-space-indented `#`.** CommonMark calls that a code block; both Shale
   scanners trim and call it a heading. Out of scope here and named as a known divergence:
   the fold and the outline already treat it as a heading, so the index agreeing with them
@@ -125,18 +131,28 @@ real work — the table itself is four columns and a delete.
   anchor" are different questions and `[[note#]]` means the second.
 - **EDGE-16 — tabs and trailing whitespace.** `text` is trimmed at both ends; a tab after
   the markers is not part of the text.
+- **EDGE-18 — a closing `##` is part of the name.** `## Deep *Fall* ##` styles its text as
+  `Deep *Fall* ##`, and `transclude::heading_text` keeps the trailing hashes too, so the
+  index and the anchor matcher agree that the hashes belong to the name. CommonMark strips
+  them; neither of our surfaces does. Left alone — that is a parser question with two
+  surfaces to move together, not an index question — and written down because a query that
+  groups by section will show it to whoever types the anchor.
 - **EDGE-17 — size.** 5k notes at ~6 headings is 30k rows, small next to `links` on the same
   fixture. The index on `text` is what a vault-wide anchor lookup reads; it is added with
   the table, not later.
 
 ## Milestones
 
-- **M1 — the table and the writer.** `SCHEMA_V4`, `SCHEMA_VERSION = 4`, `Record.headings`,
-  the delete-then-insert in `write_record`, the `drop_note` cleanup, and the tests: a note's
-  rows in line order, a fenced `#` producing nothing, a blockquoted heading producing one,
-  a deleted note losing its rows, and the existing "an older index is rebuilt" test gaining
-  a v3 fixture. Rulings 47-52 land here; ruling 46 does not have to, because the writer can
-  start from `mdstyle::object::headings` and `transclude` can follow in M2.
+- **M1 — the table and the writer. Closed.** `SCHEMA_V4`, `SCHEMA_VERSION = 4`,
+  `Record.headings`, the delete-then-insert in `write_record`, the `drop_note` cleanup, and
+  the tests: a note's rows in line order, a fenced `#` producing nothing, a blockquoted
+  heading producing nothing (the survey had that one backwards — EDGE-3), a bare `#`
+  producing a nameless row, a deleted note losing its rows, and a v3 fixture proving the
+  rebuild reaches v4 by being dropped. Rulings 47-52 land here; ruling 46 only half lands,
+  because the writer starts from a new `mdstyle::object::heading_spans` (the parser's spans,
+  with the text range and depth the old `headings()` threw away) and `transclude` still has
+  its own line scanner until M2. The table also answers through `Db::run`, which is the door
+  a saved query uses — the rows are not a shell even before M3.
 - **M2 — one scanner.** `heading_row`/`section_rows` re-pointed at the span scan, the line
   scanner deleted, EDGE-2 and EDGE-3 turned from "disagreement" into pinned behaviour. The
   risk in this milestone is the anchor tests that were written against the wrong scanner;
@@ -149,13 +165,18 @@ real work — the table itself is four columns and a delete.
 
 ## Open questions — one recommendation each
 
+A, C, E, F, H and I are taken as recommended. B, D and G were settled afterwards, each with
+its answer written where the question was.
+
 **A. Which scanner wins.** Recommendation: `mdstyle`, per ruling 46, and delete the line
 scanner rather than keeping it as a fast path. Cost: `transclude`'s matcher moves from lines
 to byte offsets, and its tests get re-read.
 
 **B. Does an anchor match the *plain* text of a heading?** Today `[[note#The Fall]]` does
 not match `## The *Fall* of Zhent`; you have to write the asterisks. Obsidian matches the
-rendered text. Options: (1) leave it — `text` is the file's claim and the anchor is written
+rendered text. **Closed (user, 2026-11-10): leave it — the anchor is written as written.**
+No plain-text column: `[[note#The Fall]]` does not name `## The *Fall* of Zhent`, and a
+reader who wants that jump writes the asterisks, which is what the file says. Options: (1) leave it — `text` is the file's claim and the anchor is written
 as written; (2) store a second column (`plain`, inline markers removed) and match either,
 which is a second truth per heading but makes formatted headings linkable; (3) normalize
 `text` itself, which loses the file's claim. Recommendation: **(1) for v4**, and note that
@@ -166,9 +187,11 @@ worth the mismatch.
 (ruling 48). Every consumer either reveals a row or groups by range; a byte offset is a
 second coordinate that goes stale on its own.
 
-**D. Blockquoted headings: sections or not?** Recommendation: sections (ruling 46 follows
-the parser). It changes what `[[note#Title]]` finds for a note with `> ## Title`, and the
-change is toward the jump working.
+**D. Blockquoted headings: sections or not?** Closed by the code rather than by a vote:
+**not sections**. The survey read the parser as styling `> ## Title`; it styles nothing
+inside a blockquote, and `heading_level` refuses the line for its own reason — so the two
+surfaces already agree and there is no divergence to settle (EDGE-3). The index writes no
+row, and quoting somebody's heading stays quoting.
 
 **E. Setext headings.** Recommendation: out of scope, with the divergence written in the
 schema doc (EDGE-5). Adding them is a parser change that moves folds and `da#` too.
@@ -183,7 +206,10 @@ jumps to the one you pick, which is the outline pane's information without the p
 (3) make `:query`'s picker offer a heading as a note-with-reveal. Recommendation: **(2) in
 M3, with (1) tested in M1.** A table nobody reads is exactly the "`CREATE TABLE` is not a
 feature" failure this repo has been bitten by, and `:sections` is a day of work that also
-proves the row shape is the shape a consumer wants.
+proves the row shape is the shape a consumer wants. **Closed (user, 2026-11-10): (2) and
+(1) both** — a `:sections` picker that jumps, and a `.shq` that groups by section. M1 got a
+head start on (1): the rows are already readable through `Db::run`, which is what a saved
+query runs on.
 
 **H. One `style_spans` pass or two.** Recommendation: two for now, measure on the 5k
 fixture, and merge them only if the walk shows the cost (EDGE-14). Restructuring the

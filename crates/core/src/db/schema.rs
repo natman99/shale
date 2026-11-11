@@ -19,7 +19,7 @@ use rusqlite::Connection;
 ///
 /// Bumped by adding a new `SCHEMA_V{n}` constant without touching the earlier ones:
 /// an index at an older version is dropped and rebuilt by [`apply`], never migrated.
-pub const SCHEMA_VERSION: i64 = 3;
+pub const SCHEMA_VERSION: i64 = 4;
 
 /// v1: the tables roadmap P1.2 lists.
 ///
@@ -184,7 +184,11 @@ CREATE INDEX IF NOT EXISTS edges_dst ON edges (dst, kind);
 /// (EDGE-17), because a `cr <= 5` query that silently drops every CR ¼ monster is
 /// worse than a census that says so. The note on disk keeps what the author wrote —
 /// the index is a query surface, and the editing surface reads the buffer.
-const SCHEMA_V3: &str = r#"
+///
+/// Kept after being superseded so the rebuild test has a real v3 to build against;
+/// nothing at runtime needs it.
+#[cfg(test)]
+pub(crate) const SCHEMA_V3: &str = r#"
 CREATE TABLE IF NOT EXISTS notes (
     path             TEXT    PRIMARY KEY,
     created_at       INTEGER NOT NULL,
@@ -255,10 +259,116 @@ CREATE INDEX IF NOT EXISTS props_key  ON props (key, kind);
 CREATE INDEX IF NOT EXISTS props_note ON props (note);
 "#;
 
+/// v4: v3 plus the sections table the query story was priced against
+/// (`headings-plan.md`). Written as v3 with one table added rather than as a
+/// migration, because that is what it is: an index at v3 is dropped and rebuilt.
+///
+/// `headings` is **derived, never authored**: one row per ATX heading the parser
+/// styles, written in the note's own indexing pass and dropped and rewritten with
+/// it. Nothing in the buffer claims "this is a section", so nothing here can be
+/// lied to — and because the rows come from the same scan the fold and the text
+/// object read, a query groups by the sections the editor folds (ruling 46).
+///
+/// `line` is the **0-based line index**: the basis `events.line_start` uses and
+/// `transclude::heading_row` returns, so a row can drive a reveal with no
+/// translation (ruling 48). An off-by-one here is invisible until someone jumps to
+/// the wrong section, which is why it is written down rather than inferred.
+///
+/// `text` is the heading as written — markers stripped, inline markdown intact:
+/// `The *Fall* of Zhent`, not `The Fall`. Concealment is a view decision and the
+/// index stores claims (ruling 47). The anchor matcher compares against this,
+/// case-insensitively, so an anchor into a formatted heading is written with its
+/// formatting; that is what it does today, and the door to changing it is a second
+/// column rather than a rewrite (question B, closed as "leave it").
+///
+/// `depth` is the marker count, 1 to 6; seven hashes is prose. The primary key is
+/// `(note, line)`, not `(note, text)`: a note may name two sections the same way
+/// and both are real (EDGE-6).
+const SCHEMA_V4: &str = r#"
+CREATE TABLE IF NOT EXISTS notes (
+    path             TEXT    PRIMARY KEY,
+    created_at       INTEGER NOT NULL,
+    modified_at      INTEGER NOT NULL,
+    size             INTEGER NOT NULL DEFAULT 0,
+    word_count       INTEGER NOT NULL DEFAULT 0,
+    created_by       TEXT    NOT NULL DEFAULT '',
+    last_modified_by TEXT    NOT NULL DEFAULT '',
+    open_count       INTEGER NOT NULL DEFAULT 0,
+    edit_count       INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS tags (
+    note TEXT NOT NULL,
+    tag  TEXT NOT NULL,
+    PRIMARY KEY (note, tag)
+);
+CREATE INDEX IF NOT EXISTS tags_tag ON tags (tag);
+
+CREATE TABLE IF NOT EXISTS links (
+    source       TEXT    NOT NULL,
+    target       TEXT    NOT NULL,
+    target_kind TEXT NOT NULL DEFAULT 'note',
+    first_seen_at INTEGER NOT NULL,
+    last_seen_at  INTEGER NOT NULL,
+    PRIMARY KEY (source, target, target_kind)
+);
+CREATE INDEX IF NOT EXISTS links_target ON links (target);
+
+CREATE TABLE IF NOT EXISTS events (
+    id         INTEGER PRIMARY KEY,
+    note       TEXT    NOT NULL,
+    kind       TEXT    NOT NULL,
+    at         INTEGER NOT NULL,
+    provenance TEXT    NOT NULL,
+    detail     TEXT    NOT NULL DEFAULT '',
+    line_start INTEGER,
+    line_end   INTEGER
+);
+CREATE INDEX IF NOT EXISTS events_note_at ON events (note, at);
+
+CREATE TABLE IF NOT EXISTS marks (
+    name       TEXT    PRIMARY KEY,
+    path       TEXT    NOT NULL,
+    position   INTEGER NOT NULL,
+    label      TEXT    NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS edges (
+    src  TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    dst  TEXT NOT NULL,
+    PRIMARY KEY (src, kind, dst)
+);
+CREATE INDEX IF NOT EXISTS edges_dst ON edges (dst, kind);
+
+CREATE TABLE IF NOT EXISTS props (
+    note    TEXT    NOT NULL,
+    key     TEXT    NOT NULL,
+    ordinal INTEGER,
+    value   TEXT    NOT NULL,
+    kind    TEXT    NOT NULL
+);
+-- `key` for the query story and the `prop:` operator, `note` for the
+-- delete-then-insert that re-indexes one note. EDGE-29: both are required.
+CREATE INDEX IF NOT EXISTS props_key  ON props (key, kind);
+CREATE INDEX IF NOT EXISTS props_note ON props (note);
+CREATE TABLE IF NOT EXISTS headings (
+    note  TEXT    NOT NULL,
+    line  INTEGER NOT NULL,
+    text  TEXT    NOT NULL DEFAULT '',
+    depth INTEGER NOT NULL,
+    PRIMARY KEY (note, line)
+);
+-- `headings_text` is what a vault-wide "which notes have a section called X"
+-- reads; `note` is covered by the primary key's own prefix.
+CREATE INDEX IF NOT EXISTS headings_text ON headings (text);
+"#;
+
 /// The tables each superseded version created, so an index at an older version can
 /// be dropped rather than migrated. Every name here is this crate's own constant.
-const SUPERSEDED_TABLES: [&str; 7] = [
-    "notes", "tags", "links", "events", "marks", "edges", "props",
+const SUPERSEDED_TABLES: [&str; 8] = [
+    "notes", "tags", "links", "events", "marks", "edges", "props", "headings",
 ];
 
 /// Bring `conn` to [`SCHEMA_VERSION`].
@@ -294,7 +404,7 @@ pub(crate) fn apply(conn: &Connection) -> Result<()> {
                 .with_context(|| format!("could not drop the superseded {table} table"))?;
         }
     }
-    conn.execute_batch(SCHEMA_V3)
+    conn.execute_batch(SCHEMA_V4)
         .context("could not create the vault index's tables")?;
     // `PRAGMA` takes no bound parameters, and the value is this crate's own
     // constant rather than anything read from the file.

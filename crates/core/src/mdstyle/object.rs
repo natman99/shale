@@ -274,25 +274,83 @@ fn inner_link(text: &str, lo: usize, hi: usize) -> (usize, usize) {
     }
 }
 
-/// The heading lines, as `(line start, level)` in order. Fence-aware for free:
-/// the scanner does not style a `#` inside a fenced block as a heading, so a
-/// comment in code cannot end a section.
-fn headings(text: &str) -> Vec<(usize, u8)> {
-    let mut out: Vec<(usize, u8)> = Vec::new();
+/// One heading the parser styles: where its line starts, the byte range of its
+/// text, and how deep. The text is what the author wrote — `*emphasis*` and the
+/// closing hashes and all — because concealment is a view decision and anything
+/// that reads a heading reads a claim (headings-plan.md ruling 47).
+#[derive(Debug, PartialEq, Eq)]
+pub struct HeadingSpan {
+    /// Byte offset of the line the heading sits on.
+    pub line_start: usize,
+    /// Byte range of the heading's text. Empty for a bare `#`.
+    pub text_start: usize,
+    pub text_end: usize,
+    /// The marker count, 1 to 6.
+    pub depth: u8,
+}
+
+/// The ATX headings, in order, from the parser's own spans. **The one answer to
+/// "what sections does this note have"**: the vault index reads this scan, and the
+/// text object reads the same spans, so a query groups by the sections the editor
+/// styles rather than by a second opinion of what a section is
+/// (headings-plan.md ruling 46).
+///
+/// Fence-aware for free: the scanner never styles a `#` inside a fenced block as a
+/// heading, so a comment in code cannot end a section. A heading inside a blockquote
+/// is not styled either — quoting somebody's heading is quoting, not sectioning.
+pub fn heading_spans(text: &str) -> Vec<HeadingSpan> {
+    /// Which half of a heading line a span is: the hashes, or what they name.
+    enum Part {
+        Marker,
+        Text(usize, usize),
+    }
+
+    let mut out: Vec<HeadingSpan> = Vec::new();
     for span in style_spans(text) {
-        let level = match span.style {
-            Style::Heading { level } => level,
-            // A heading with no text after the markers has only the markers
-            // styled, and the markers are the level.
-            Style::HeadingMarker => text[span.start..span.end].chars().count() as u8,
+        let (depth, part) = match span.style {
+            Style::Heading { level } => (level, Part::Text(span.start, span.end)),
+            // The marker run is the depth, and a heading with nothing after the
+            // markers has only the markers styled.
+            Style::HeadingMarker => (
+                text[span.start..span.end].chars().count() as u8,
+                Part::Marker,
+            ),
             _ => continue,
         };
-        let start = line_at(text, span.start).map_or(span.start, |(s, _)| s);
-        if out.last().is_none_or(|(last, _)| *last != start) {
-            out.push((start, level));
+        let (line_start, line_end) = line_at(text, span.start).unwrap_or((span.start, span.end));
+        // One heading is two spans on one line, adjacent in span order: the hashes
+        // say how deep, the text says what it is called.
+        match out.last_mut() {
+            Some(head) if head.line_start == line_start => match part {
+                Part::Text(from, to) => {
+                    head.text_start = from;
+                    head.text_end = to;
+                    // The styled text knows its own level, and it outranks a run of
+                    // hashes: a closing `##` is not a second heading.
+                    head.depth = depth;
+                }
+                Part::Marker if head.text_start == head.text_end => head.depth = depth,
+                Part::Marker => {}
+            },
+            // A heading whose text is empty until a text span says otherwise: a
+            // bare `#` is a section with no name (EDGE-3).
+            _ => out.push(HeadingSpan {
+                line_start,
+                text_start: line_end,
+                text_end: line_end,
+                depth,
+            }),
         }
     }
     out
+}
+
+/// The heading lines, as `(line start, level)` in order.
+fn headings(text: &str) -> Vec<(usize, u8)> {
+    heading_spans(text)
+        .into_iter()
+        .map(|h| (h.line_start, h.depth))
+        .collect()
 }
 
 /// The section the cursor is in: the nearest heading at or above its line, and
@@ -434,6 +492,48 @@ mod tests {
     fn cut(text: &str, offset: usize, object: Object, inner: bool) -> String {
         let (lo, hi) = range(text, offset, object, inner).unwrap();
         text[lo..hi].to_string()
+    }
+
+    /// What the parser counts as a section, pinned at the source every other
+    /// surface now reads (headings-plan.md ruling 46). The offsets are written out
+    /// rather than derived because the whole point of the scan is that a byte range
+    /// means something to whoever reads it next.
+    #[test]
+    fn heading_spans_name_the_sections_the_parser_styles() {
+        let text = concat!(
+            "# The Fall\n",        // 0
+            "body\n",              // 11
+            "## Deep *Fall* ##\n", // 16
+            "```\n",               // 34
+            "# fenced\n",          // 38
+            "```\n",               // 47
+            "#\tTabbed\n",         // 51
+            "#\n",                 // 60
+            "> ## Quoted\n",       // 62
+        );
+        let spans = heading_spans(text);
+        let seen: Vec<(usize, &str, u8)> = spans
+            .iter()
+            .map(|h| (h.line_start, &text[h.text_start..h.text_end], h.depth))
+            .collect();
+        assert_eq!(
+            seen,
+            vec![
+                (0, "The Fall", 1),
+                // The closing hashes are inside the styled text, so they are part of
+                // the section's name here and in the anchor matcher alike. Neither
+                // surface strips them today; that is a parser question, not an index
+                // one, and the two agreeing is what matters (EDGE-18).
+                (16, "Deep *Fall* ##", 2),
+                // A tab after the markers is whitespace to the parser and not to the
+                // anchor matcher, which insists on a space: this section is real and
+                // unreachable by `[[note#Tabbed]]` (EDGE-16).
+                (51, "Tabbed", 1),
+                // A bare `#` is a section with no name.
+                (60, "", 1),
+            ],
+            "the fenced `#` is not a section, and a blockquoted one is not either"
+        );
     }
 
     #[test]
