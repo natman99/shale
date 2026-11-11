@@ -1601,6 +1601,10 @@ edges, query nodes, MCP canvas tools) is P6.10.
   the jump scrolls to it. `mdstyle` gains a block-anchor span; the transclusion
   resolver grows from note/section to block granularity. **Gates canvas C3's
   block-level cards** (`canvas-plan.md`) and the block case of P6.2.
+  **Design pass done (2026-11-11): `blockrefs-plan.md`** — the survey (what exists, what
+  does not), a 26-row edge ledger, milestones M1–M5, and eleven rulings to answer by
+  number. The schema decision in it (a `blocks` table, v5) is the one that is expensive
+  to retrofit; answer it before M2.
 - **P4.10 Trash** (brainstorm ✅, user called it "very important"; ruled **vault-local**,
   not OS trash). **Added by the audit.** Delete already rewrites links; deleting to a
   `.shale/trash/` instead of unlinking is the same path with one step added, and
