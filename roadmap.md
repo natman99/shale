@@ -52,10 +52,14 @@ commit, **P4.3a frontmatter indexing**, landed 2026-11-08, so the props table th
 query story was priced against exists, and the query notes themselves have landed through
 M2), PDF
 export, Templates, tree-sitter code highlighting.
-**What is being built next (refreshed 2026-11-10): P4.3a is closed, and P4.3 (`.shq`) is
-under way — M1 (the format and the read-only runner) and M2 (the door: `:query`, the picker
-that lists saved queries and draws their answers) landed 2026-11-09; M3 (the live table in
-the file's own view) is designed and ruled in `queries-plan.md`.**
+**What is being built next (refreshed 2026-11-10): P4.3a and P4.3 are both closed — the
+`.shq` item ran M1 through M8 in two days (format and runner, the `:query` door, the folded
+note with its answer drawn under it, `![[query-name]]` and the link it asserts, relative
+queries, keep-a-search, the agent door, and the graph learning what a query is). What that
+unblocks is the sequence the dependency order already wrote: **P4.3b** (the headings index,
+sequenced after P4.3 on purpose), then **P4.9** block refs, then the computed surfaces
+(P4.15) and the consumers that were waiting — the graph lens (P4.16) and the GM screen
+(P7.4).**
 P4.0 closed on 2026-11-08 (the hover card was its last owed item; `![[query-name]]` waits
 on P4.3 and block refs on P4.9). **P4.3a's indexing half is closed:** M1 (the parser, the
 `props` table, `:props`) and M2 (the projections — `tags`, `aliases`, and `edges` finally
@@ -1208,9 +1212,12 @@ edges, query nodes, MCP canvas tools) is P6.10.
   editable embed* — struck rows and phantom additions composed within another overlay's
   block — was ruled out of P4.0b and belongs here, not in the embed work. The review strip
   is authoritative and already lists proposals for embedded notes meanwhile.
-- **P4.3 Query notes `.shq`** (brainstorm ✅): `queries/` folder, TOML
-  frontmatter + SQL body, read-only connection, results cached by query-hash +
-  vault mtime, `![[query-name]]` embedding. This is the "Obsidian bases" goal.
+- **P4.3 Query notes `.shq`** (brainstorm ✅) — **CLOSED 2026-11-10** (M1-M8; plan, edge
+  ledger and rulings in `queries-plan.md`): `queries/` folder, TOML
+  frontmatter + SQL body, read-only connection, `![[query-name]]` embedding. This is the
+  "Obsidian bases" goal. The plan's "results cached by query-hash + vault mtime" is
+  deliberately **not** built (ruling C): caching before measuring is a second source of
+  truth for an answer that costs one statement to recompute.
   - **P4.3a Frontmatter (properties) indexing — the FIRST commit of this item, not a
     sibling** (ruled 2026-11-08; design, edge-case ledger and milestones in
     `properties-plan.md`). Schema v3 adds `props(note, key, ordinal, value, kind)`; the
