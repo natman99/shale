@@ -77,6 +77,7 @@ pub const DARK: Palette = Palette {
     graph_tag: 0x98c379,
     // cyan: its teal is too near its green, which is a tag's colour
     graph_attachment: 0x56b6c2,
+    graph_query: 0x61afef,
     diff_add: 0x98c379,
     diff_delete: 0xe06c75,
     // the theme's modified colour
@@ -151,6 +152,7 @@ pub const LIGHT: Palette = Palette {
     graph_tag: 0x50a14f,
     // cyan: its teal is too near its green, which is a tag's colour
     graph_attachment: 0x0184bc,
+    graph_query: 0xf2a60d,
     diff_add: 0x50a14f,
     diff_delete: 0xe45649,
     diff_changed: 0x986801, // the darker orange: its modified colour is 1.7:1 on its own chrome

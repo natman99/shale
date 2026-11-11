@@ -72,6 +72,7 @@ pub const PALETTE: Palette = Palette {
     graph_tag: 0x50fa7b,
     // cyan: its teal is its green, which is already a tag's colour
     graph_attachment: 0x8be9fd,
+    graph_query: 0xf1fa8c,
     diff_add: 0x50fa7b,
     diff_delete: 0xff5555,
     diff_changed: 0xf1fa8c,

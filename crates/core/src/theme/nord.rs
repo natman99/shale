@@ -72,6 +72,7 @@ pub const PALETTE: Palette = Palette {
     graph_tag: 0xa3be8c,
     // gold: nord's teal is a hair off the blue every note node is
     graph_attachment: 0xebcb8b,
+    graph_query: 0xb48ead,
     diff_add: 0xa3be8c,
     diff_delete: 0xbf616a,
     diff_changed: 0xebcb8b,

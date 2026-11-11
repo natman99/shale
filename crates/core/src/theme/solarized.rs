@@ -80,6 +80,7 @@ pub const DARK: Palette = Palette {
     graph_ghost: 0x586e75,
     graph_tag: 0x859900,
     graph_attachment: 0x2aa198,
+    graph_query: 0x6c71c4,
     diff_add: 0x859900,
     diff_delete: 0xdc322f,
     diff_changed: 0xb58900,
@@ -160,6 +161,7 @@ pub const LIGHT: Palette = Palette {
     // the family's other green: its `tag` is Blue, the colour of every note node
     graph_tag: 0x859900,
     graph_attachment: 0x2aa198,
+    graph_query: 0x6c71c4,
     // cyan, its code-string colour: its green is a tag's
     diff_add: 0x2aa198,
     diff_delete: 0xdc322f,

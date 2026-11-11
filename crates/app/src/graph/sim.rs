@@ -64,6 +64,9 @@ fn key(meta: &NodeMeta) -> String {
             NodeKind::Tag => format!("#{}", meta.label),
             NodeKind::Ghost => format!("?{}", meta.label),
             // Unreachable for a node with no path; kept honest rather than assumed.
+            // A saved query is a question the vault can answer, so it wears a
+            // different mark from the files that answer it.
+            NodeKind::Query => format!("\u{192}{}", meta.label),
             NodeKind::Note | NodeKind::Attachment => format!("~{}", meta.label),
         },
     }

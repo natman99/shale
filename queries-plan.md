@@ -186,7 +186,6 @@ Built ones name their test; the rest name the milestone that owes one.
   connection that cannot write (ruling 41), a relative query names its host or is refused
   (ruling 42), and the sentences come from one chain both doors read (ruling 44).
   EDGE-18.
-- **Not here:** the graph lens (P4.16) and the GM screen (P7.4) consume this item.
 
 ## Rulings
 
@@ -358,7 +357,11 @@ Built ones name their test; the rest name the milestone that owes one.
     in the graph view while the index, the colour and the door agree it is a link. Left for
     the graph pass rather than patched half-in: teaching the graph a third list is a
     signature change through `build` and `set_note`, and a half-taught graph is exactly the
-    disagreement ruling 33 refuses.
+    disagreement ruling 33 refuses. **Closed the same day by M8**, and taught whole: the
+    third list goes through `build`, `set_note` and the queued changes, the node has its own
+    kind and its own palette role, and the resolution order matches the other four surfaces.
+    The graph still re-scans text rather than reading `links` — that is a separate standing
+    difference, and this item did not try to settle it.
 36. **The anchor is the note the reader is standing in, and only a note** (M5). `:current`
     binds the host of the surface that ran the query: the active note for `:query`, the note
     holding the embed for a `![[query]]` block. A query note is not a note, so a relative

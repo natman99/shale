@@ -79,6 +79,7 @@ pub const MAIN: Palette = Palette {
     // pine: its `tag` is iris, the colour of every note node
     graph_tag: 0x31748f,
     graph_attachment: 0x9ccfd8,
+    graph_query: 0xeb6f92,
     // foam: the family has no green
     diff_add: 0x9ccfd8,
     diff_delete: 0xeb6f92,
@@ -151,6 +152,7 @@ pub const MOON: Palette = Palette {
     // pine: its `tag` is iris, the colour of every note node
     graph_tag: 0x3e8fb0,
     graph_attachment: 0x9ccfd8,
+    graph_query: 0xeb6f92,
     // foam: the family has no green
     diff_add: 0x9ccfd8,
     diff_delete: 0xeb6f92,
@@ -227,6 +229,7 @@ pub const DAWN: Palette = Palette {
     // pine: its `tag` is iris, the colour of every note node
     graph_tag: 0x286983,
     graph_attachment: 0x56949f,
+    graph_query: 0xb4637a,
     // foam: the family has no green
     diff_add: 0x56949f,
     diff_delete: 0xb4637a,

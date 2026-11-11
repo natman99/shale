@@ -244,6 +244,7 @@ fn roles(p: &Palette) -> Vec<(&'static str, u32, &'static str, u32, f32)> {
             p.bg,
             1.5,
         ),
+        ("a query node", p.graph_query, "the note", p.bg, 1.5),
         ("the agent's mark", p.agent, "the window", p.ui_bg, 2.0),
         (
             "a disabled control",
@@ -456,13 +457,14 @@ pub fn audit(palette: &Palette) -> Vec<Flag> {
             floor: 1.05,
         });
     }
-    // A node's kind is told by its colour, so the four kinds have to be four
+    // A node's kind is told by its colour, so the kinds have to be different
     // colours: a tag that is the colour of every note node is not a tag.
     let kinds = [
         ("a note node", palette.graph_node),
         ("a ghost node", palette.graph_ghost),
         ("a tag node", palette.graph_tag),
         ("an attachment node", palette.graph_attachment),
+        ("a query node", palette.graph_query),
     ];
     for (i, (what, colour)) in kinds.iter().enumerate() {
         for (other, other_colour) in &kinds[i + 1..] {

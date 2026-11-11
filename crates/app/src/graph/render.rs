@@ -409,12 +409,14 @@ pub(crate) fn paint_nodes(
     for kind in [
         NodeKind::Note,
         NodeKind::Attachment,
+        NodeKind::Query,
         NodeKind::Tag,
         NodeKind::Ghost,
     ] {
         let fill = match kind {
             NodeKind::Note => gpui::rgb(palette.graph_node),
             NodeKind::Attachment => gpui::rgb(palette.graph_attachment),
+            NodeKind::Query => gpui::rgb(palette.graph_query),
             NodeKind::Tag => gpui::rgb(palette.graph_tag),
             NodeKind::Ghost => gpui::rgb(palette.graph_ghost),
         };

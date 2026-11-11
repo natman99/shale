@@ -251,6 +251,10 @@ pub struct Palette {
     /// An attachment node: a file in the vault that is not a note. Distinct from
     /// [`Self::graph_node`] so a picture does not read as a note you can open.
     pub graph_attachment: u32,
+    /// A saved-query node (`.shq`). A file the author wrote, not a picture and not
+    /// a note, and the graph that hid it as a ghost was the fifth surface disagreeing
+    /// about what `![[name]]` means — so it gets its own named colour, not a blend.
+    pub graph_query: u32,
     /// A line the review strip proposes to add, and one it proposes to remove or
     /// change (roadmap P2.5a renders hunks against these three).
     ///
@@ -361,6 +365,7 @@ impl Palette {
             graph_ghost,
             graph_tag,
             graph_attachment,
+            graph_query,
             diff_add,
             diff_delete,
             diff_changed,
@@ -427,6 +432,7 @@ impl Palette {
             (&mut out.graph_ghost, graph_ghost),
             (&mut out.graph_tag, graph_tag),
             (&mut out.graph_attachment, graph_attachment),
+            (&mut out.graph_query, graph_query),
             (&mut out.diff_add, diff_add),
             (&mut out.diff_delete, diff_delete),
             (&mut out.diff_changed, diff_changed),
@@ -544,6 +550,7 @@ impl Palette {
             graph_ghost: Some(self.graph_ghost),
             graph_tag: Some(self.graph_tag),
             graph_attachment: Some(self.graph_attachment),
+            graph_query: Some(self.graph_query),
             diff_add: Some(self.diff_add),
             diff_delete: Some(self.diff_delete),
             diff_changed: Some(self.diff_changed),
@@ -965,6 +972,13 @@ pub struct ThemeFile {
         serialize_with = "serialize_color"
     )]
     pub graph_attachment: Option<u32>,
+    /// A saved-query node in the graph view.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
+    pub graph_query: Option<u32>,
     /// A review-strip line the agent proposes to add.
     #[serde(
         default,

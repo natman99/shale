@@ -93,11 +93,19 @@ from the one builder the live search also reads, so saving a search and writing 
 are the same act and the file answers what the search answered (ruling 40). The offer is the
 last row of an operators-only search, `:save-query <search>` is the keyboard route, a name is
 one name, and an existing query is never overwritten. **M7 — the agent door — landed the
-same day**, and with it P4.3 is closed: `shale-mcp` lists, reads and runs saved queries on a
-connection that cannot write, and the sentences a query answers with are written once, in
-core, for both doors (rulings 41-44). What is left of the item is the graph, which still
-draws a query embed as a ghost node because it re-scans text with its own entry lists
-(ruling 35). The
+same day**: `shale-mcp` lists, reads and runs saved queries on a connection that cannot
+write, and the sentences a query answers with are written once, in core, for both doors
+(rulings 41-44). **M8 — the graph learns what a query is — closed the item the same day**,
+which is ruling 35's gap paid: `build` and `set_note` take a third entry list (the vault's
+`.shq` files, the same list the index, the link colour and `gd` already read), a query node
+is its own `NodeKind` in its own colour (`graph_query`, named in all nine built-in palettes
+and audited against the note colour like every other kind), the panel counts queries apart
+from notes, and `enter` opens the program the way it opens a note. Two things the picture
+had to be told: a query's **program asserts no links** — `[[` inside SQL is SQL, so a `.shq`
+has edges only from the notes that embed it — and a note embedding a **deleted** `.shq`
+degrades to a ghost keyed by the old path, because that is what the editor colours the same
+embed as. A query nobody has embedded is a node with no edges: an orphan the `orphans` chip
+can hide, not an absence. **P4.3 is closed.** The
 plan, an edge ledger (EDGE-1…24) and the rulings are in `queries-plan.md`.
 
 **A six-item input round closed on 2026-11-10**, between M6 and M7: the arrow keys and Tab

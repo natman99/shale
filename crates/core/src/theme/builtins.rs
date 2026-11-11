@@ -90,6 +90,7 @@ impl Palette {
         graph_ghost: 0x9aa0a6,
         graph_tag: 0x8fbf7f,
         graph_attachment: 0x6fc7c2,
+        graph_query: 0xc586c0,
         // The review strip's triple, taken from accents this palette already
         // carries: a proposed change is not an error, so `diff_delete` is the
         // palette's red rather than a louder one.
@@ -172,6 +173,7 @@ impl Palette {
         graph_ghost: 0x686d76,
         graph_tag: 0x245824,
         graph_attachment: 0x2f8f89,
+        graph_query: 0x9b4fa0,
         diff_add: 0x245824,
         diff_delete: 0xc03c3c,
         diff_changed: 0xb07a22,

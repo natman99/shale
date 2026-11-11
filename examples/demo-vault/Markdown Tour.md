@@ -81,3 +81,9 @@ note under the reader it says so rather than answering nothing. A row naming no 
 dead end the query found, not a row that failed to appear.
 
 ![[Where this note points]]
+
+### In the graph
+
+`:graph` draws each saved query as a node of its own (`ƒ`, in its own colour), wired to the
+notes that ask it. A query nobody has embedded sits there unconnected — a question on the
+shelf, not an absence.

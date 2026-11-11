@@ -107,6 +107,9 @@ const WHEEL_NOTCH_CLAMP: f32 = 2.0;
 pub(crate) struct GraphSummary {
     /// Notes in the graph, including the ones that link nothing.
     pub(crate) notes: usize,
+    /// Saved queries (`.shq`). Counted apart from notes because they are not notes:
+    /// a query is a question the vault can answer, and the picture says so.
+    pub(crate) queries: usize,
     /// Link targets that resolve to no file — visible structure rather than vanished.
     pub(crate) ghosts: usize,
     /// `#tag` nodes.
@@ -1547,6 +1550,7 @@ impl Render for GraphView {
                     .flex_wrap()
                     .gap_4()
                     .child(stat(&palette, counts.notes, "notes"))
+                    .child(stat(&palette, counts.queries, "queries"))
                     .child(stat(&palette, counts.links, "links"))
                     .child(stat(&palette, counts.tags, "tags"))
                     .child(stat(&palette, counts.ghosts, "missing"));

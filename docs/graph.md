@@ -10,10 +10,16 @@ filter changes the numbers as well as the picture.
 
 ## What the graph is made of
 
-Nodes are notes, attachments, **ghosts** (a link that resolves to nothing) and
-tags; an edge is a link. A→b and b→a is one edge, flagged bidirectional. Tag hues
-are derived from the palette in OKLCH, so a tag's colour follows the theme rather
-than being fixed.
+Nodes are notes, attachments, saved queries (`.shq`, drawn with an `ƒ` and the palette's
+`graph_query` colour), **ghosts** (a link that resolves to nothing) and tags; an edge is a
+link. A→b and b→a is one edge, flagged bidirectional. Tag hues are derived from the palette
+in OKLCH, so a tag's colour follows the theme rather than being fixed.
+
+A query is a node whether or not anything embeds it — an unasked question is still a
+question, and the `orphans` chip hides it the way it hides a note nobody links to. The
+embed is what draws the edge: a query's own program is SQL, so a `[[` inside it is not a
+link and asserts nothing. Delete the file and a note still embedding it shows a ghost
+keyed by the old path, which is what the note's own text says about it.
 
 ## The layout is deterministic, and it is not saved
 

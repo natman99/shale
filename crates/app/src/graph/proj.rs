@@ -523,6 +523,7 @@ fn paint_nodes3d(
         let fill = match node.kind {
             NodeKind::Note => palette.graph_node,
             NodeKind::Attachment => palette.graph_attachment,
+            NodeKind::Query => palette.graph_query,
             NodeKind::Tag => palette.graph_tag,
             NodeKind::Ghost => palette.graph_ghost,
         };

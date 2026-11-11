@@ -362,6 +362,7 @@ fn the_panel_shows_the_vault(cx: &mut TestAppContext) {
             .update(&mut cx, |ws, _window, cx| ws.graph_counts(cx))
             .unwrap(),
         Some(GraphSummary {
+            queries: 0,
             notes: 3,
             ghosts: 1,
             tags: 1,
@@ -396,6 +397,7 @@ fn the_graph_follows_the_vault(cx: &mut TestAppContext) {
     assert_eq!(
         after,
         Some(GraphSummary {
+            queries: 0,
             notes: before.notes + 1,
             ghosts: 1,
             tags: 1,

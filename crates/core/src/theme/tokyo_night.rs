@@ -80,6 +80,7 @@ pub const NIGHT: Palette = Palette {
     graph_tag: 0x9ece6a,
     // teal
     graph_attachment: 0x1abc9c,
+    graph_query: 0x9d7cd8,
     diff_add: 0x9ece6a,
     // its red
     diff_delete: 0xf7768e,
@@ -155,6 +156,7 @@ pub const STORM: Palette = Palette {
     graph_tag: 0x9ece6a,
     // teal
     graph_attachment: 0x1abc9c,
+    graph_query: 0x9d7cd8,
     diff_add: 0x9ece6a,
     // its red
     diff_delete: 0xf7768e,
@@ -231,6 +233,7 @@ pub const LIGHT: Palette = Palette {
     graph_tag: 0x385f0d,
     // teal
     graph_attachment: 0x33635c,
+    graph_query: 0x65359d,
     diff_add: 0x385f0d,
     // its red
     diff_delete: 0x942f2f,

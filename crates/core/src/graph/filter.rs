@@ -73,7 +73,7 @@ pub fn apply(index: &GraphIndex, filter: &GraphFilter) -> Vec<bool> {
         for (i, v) in visible.iter_mut().enumerate() {
             let meta = index.meta(NodeIndex::new(i));
             match meta.kind {
-                NodeKind::Note | NodeKind::Attachment => {
+                NodeKind::Note | NodeKind::Attachment | NodeKind::Query => {
                     let path = meta.path.as_ref().map(rel_text);
                     let inside = match path {
                         Some(p) => p == prefix || p.starts_with(&format!("{prefix}/")),
@@ -146,7 +146,11 @@ pub fn apply(index: &GraphIndex, filter: &GraphFilter) -> Vec<bool> {
         match meta.kind {
             NodeKind::Ghost if filter.existing_only => *v = false,
             NodeKind::Tag if !filter.tags => *v = false,
-            NodeKind::Note if !filter.orphans && index.degree(node) == 0 => *v = false,
+            // An unembedded query is an orphan the same way an unwritten-about
+            // note is: a file that nothing reaches.
+            NodeKind::Note | NodeKind::Query if !filter.orphans && index.degree(node) == 0 => {
+                *v = false
+            }
             _ => {}
         }
     }
@@ -191,7 +195,12 @@ mod tests {
         fs::write(root.join("child 2/x.md"), "to [[p]]")?;
         fs::write(root.join("lonely.md"), "an orphan note")?;
         let vault = Vault::open(root)?;
-        let index = GraphIndex::build(&vault, &vault.list_markdown()?, &vault.list_attachments()?)?;
+        let index = GraphIndex::build(
+            &vault,
+            &vault.list_markdown()?,
+            &vault.list_attachments()?,
+            &vault.list_queries()?,
+        )?;
         Ok((dir, vault, index))
     }
 

@@ -16,6 +16,7 @@ use petgraph::graph::{NodeIndex, UnGraph};
 
 use crate::markdown::extract_wikilinks;
 use crate::mdstyle::{style_spans, Style};
+use crate::query_note::EXTENSION;
 use crate::vault::{rel_text, LinkResolver, Vault, VaultEntry};
 
 /// What a graph node represents.
@@ -25,6 +26,10 @@ pub enum NodeKind {
     Note,
     /// A non-markdown file an embed or link points at.
     Attachment,
+    /// A saved query (`.shq`) a note embeds with `![[name]]`. A file the author
+    /// owns, so it is not a ghost; and its own program asserts no links, so it
+    /// has edges only from the notes that embed it.
+    Query,
     /// A link target that resolves to no file; rendered dimmer, and dropped
     /// by the "existing files only" filter.
     Ghost,
@@ -85,24 +90,37 @@ pub struct GraphIndex {
     by_tag: HashMap<String, NodeIndex>,
     /// Raw unresolved link target to its ghost node.
     by_ghost: HashMap<String, NodeIndex>,
+    /// The vault's saved queries, kept so a rebuild can put their nodes back
+    /// without re-reading the vault. They are nodes whether or not anything
+    /// embeds them — a query nobody has embedded is an orphan, not an absence.
+    queries: Vec<PathBuf>,
 }
 
 impl GraphIndex {
     /// Build the graph by reading every note in `notes`. `attachments` are
     /// the vault's non-note files, used to resolve `![[image.png]]`-style
-    /// targets to real nodes instead of ghosts.
-    pub fn build(vault: &Vault, notes: &[VaultEntry], attachments: &[VaultEntry]) -> Result<Self> {
+    /// targets to real nodes instead of ghosts, and `queries` are its `.shq`
+    /// files, which resolve `![[name]]` the same way the index, the link colour
+    /// and `gd` already do — four surfaces, one order, or the picture disagrees
+    /// with the text it is a picture of.
+    pub fn build(
+        vault: &Vault,
+        notes: &[VaultEntry],
+        attachments: &[VaultEntry],
+        queries: &[VaultEntry],
+    ) -> Result<Self> {
         // Resolution tables built once for the whole vault: per-link
         // scans over `notes` made this loop quadratic (18 s on a 5k-note
         // vault, all of it on the UI thread of the first `:graph`).
         let note_res = LinkResolver::new(notes);
         let attach_res = LinkResolver::new(attachments);
+        let query_res = LinkResolver::new(queries);
         let mut note_links = HashMap::new();
         for note in notes {
             let text = vault.read(&note.path)?;
             note_links.insert(
                 note.path.clone(),
-                scan_note_links(&text, &note_res, &attach_res),
+                scan_note_links(&text, &note_res, &attach_res, &query_res),
             );
         }
         let mut index = Self {
@@ -111,6 +129,7 @@ impl GraphIndex {
             by_path: HashMap::new(),
             by_tag: HashMap::new(),
             by_ghost: HashMap::new(),
+            queries: queries.iter().map(|q| q.path.clone()).collect(),
         };
         index.rebuild();
         Ok(index)
@@ -184,16 +203,30 @@ impl GraphIndex {
         text: &str,
         notes: &[VaultEntry],
         attachments: &[VaultEntry],
+        queries: &[VaultEntry],
     ) {
         // Tables rebuilt per call: one save rescans the entry lists once
         // (milliseconds at vault scale), which beats caching tables that
         // go stale the moment a file appears or moves.
         let note_res = LinkResolver::new(notes);
         let attach_res = LinkResolver::new(attachments);
-        self.note_links.insert(
-            path.as_ref().to_path_buf(),
-            scan_note_links(text, &note_res, &attach_res),
-        );
+        let query_res = LinkResolver::new(queries);
+        if path.as_ref().extension().is_some_and(|e| e == EXTENSION) {
+            // A saved query's program is SQL, not markdown: it asserts no links,
+            // so there is nothing here to re-scan. The edges a query has are the
+            // embeds other notes draw at it, and those live in the note's own
+            // entry. Its node comes from the query list, just below.
+            self.note_links.remove(path.as_ref());
+        } else {
+            self.note_links.insert(
+                path.as_ref().to_path_buf(),
+                scan_note_links(text, &note_res, &attach_res, &query_res),
+            );
+        }
+        // A query created, renamed or deleted between saves shows up here too:
+        // the lists are the file tree's, so the graph follows the tree rather
+        // than waiting for the next full scan.
+        self.queries = queries.iter().map(|q| q.path.clone()).collect();
         self.rebuild();
     }
 
@@ -201,6 +234,10 @@ impl GraphIndex {
     /// rebuild the structure.
     pub fn remove_note(&mut self, path: impl AsRef<Path>) {
         self.note_links.remove(path.as_ref());
+        // A deleted `.shq` leaves the picture the same way a deleted note does:
+        // the list is what a query node comes from, so the file going means the
+        // node goes, without waiting for the next full scan.
+        self.queries.retain(|q| q != path.as_ref());
         self.rebuild();
     }
 
@@ -231,6 +268,25 @@ impl GraphIndex {
             self.by_path.insert(path.clone(), node);
         }
 
+        // Saved queries next, also sorted. They are nodes on their own account,
+        // not on account of anything linking to them: an unembedded query is an
+        // orphan the way an unwritten-about note is, and the `orphans` chip can
+        // hide it the same way.
+        let mut queries = self.queries.clone();
+        queries.sort();
+        for path in queries {
+            let node = self.graph.add_node(NodeMeta {
+                kind: NodeKind::Query,
+                path: Some(path.clone()),
+                label: path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("")
+                    .to_string(),
+            });
+            self.by_path.insert(path, node);
+        }
+
         // Targets, deduped per kind, then edges. Directed pairs are kept so
         // the bidirectional flag can be set once all links are in.
         let mut directed: Vec<(NodeIndex, NodeIndex)> = Vec::new();
@@ -238,20 +294,27 @@ impl GraphIndex {
             let source = self.by_path[path];
             for link in links {
                 let target = match link.kind {
-                    NodeKind::Note | NodeKind::Attachment => {
+                    NodeKind::Note | NodeKind::Attachment | NodeKind::Query => {
                         match self.by_path.get(link.path.as_ref().unwrap()) {
                             Some(node) => *node,
                             None => {
-                                // An attachment is not in note_links, so it
-                                // joins the arena on first reference; a note
-                                // path that is gone (deleted or renamed after
-                                // this note was last scanned) degrades to a
-                                // ghost keyed by the old path, exactly as it
-                                // renders in the editor.
+                                // An attachment is not in note_links, and a
+                                // query may have appeared since the lists were
+                                // handed over, so either joins the arena on
+                                // first reference. A query joins that way only
+                                // while the query list still says the file is
+                                // there: a note embedding a deleted `.shq` has a
+                                // broken embed, and the editor colours that a
+                                // ghost, so the picture does too. A note path
+                                // that is gone (deleted or renamed after this
+                                // note was last scanned) degrades the same way,
+                                // keyed by the old path.
                                 let path = link.path.as_ref().unwrap();
-                                if link.kind == NodeKind::Attachment {
+                                let gone =
+                                    link.kind == NodeKind::Query && !self.queries.contains(path);
+                                if link.kind != NodeKind::Note && !gone {
                                     let node = self.graph.add_node(NodeMeta {
-                                        kind: NodeKind::Attachment,
+                                        kind: link.kind,
                                         path: Some(path.clone()),
                                         label: path
                                             .file_name()
@@ -341,7 +404,16 @@ impl GraphIndex {
 /// [`LinkResolver::resolve_attachment`] (embeds and `[[file.png]]` links), and what
 /// resolves to neither becomes a ghost keyed by its raw target. Tags come
 /// from the style scanner, so fences and inline code are already skipped.
-fn scan_note_links(text: &str, notes: &LinkResolver, attachments: &LinkResolver) -> Vec<Link> {
+/// The links one note asserts, in the order every other surface resolves them:
+/// a note, then an attachment, then a saved query, then a ghost keyed by what
+/// the author wrote. The query note's own text is never scanned — a program
+/// asserts rows, not links — so a `.shq` has edges only from its embeds.
+fn scan_note_links(
+    text: &str,
+    notes: &LinkResolver,
+    attachments: &LinkResolver,
+    queries: &LinkResolver,
+) -> Vec<Link> {
     let mut links: Vec<Link> = Vec::new();
     let mut seen: HashSet<(NodeKind, Option<PathBuf>, String)> = HashSet::new();
 
@@ -362,6 +434,12 @@ fn scan_note_links(text: &str, notes: &LinkResolver, attachments: &LinkResolver)
                 path: Some(entry.path.clone()),
                 label: String::new(),
             }
+        } else if let Some(entry) = queries.resolve_link(target) {
+            Link {
+                kind: NodeKind::Query,
+                path: Some(entry.path.clone()),
+                label: String::new(),
+            }
         } else {
             Link {
                 kind: NodeKind::Ghost,
@@ -369,8 +447,8 @@ fn scan_note_links(text: &str, notes: &LinkResolver, attachments: &LinkResolver)
                 label: target.to_string(),
             }
         };
-        // Notes and attachments are keyed by path (one node per file);
-        // ghosts by their raw target string.
+        // Notes, attachments and queries are keyed by path (one node per
+        // file); ghosts by their raw target string.
         let key = (link.kind, link.path.clone(), link.label.clone());
         if seen.insert(key) {
             links.push(link);
@@ -441,7 +519,12 @@ mod tests {
     }
 
     fn build(vault: &Vault) -> Result<GraphIndex> {
-        GraphIndex::build(vault, &vault.list_markdown()?, &vault.list_attachments()?)
+        GraphIndex::build(
+            vault,
+            &vault.list_markdown()?,
+            &vault.list_attachments()?,
+            &vault.list_queries()?,
+        )
     }
 
     #[test]
@@ -528,7 +611,7 @@ mod tests {
         let (_dir, vault) = fixture()?;
         let notes = vault.list_markdown()?;
         let attachments = vault.list_attachments()?;
-        let mut index = GraphIndex::build(&vault, &notes, &attachments)?;
+        let mut index = GraphIndex::build(&vault, &notes, &attachments, &[])?;
 
         // Sever Welcome's link to Another Note; the ghost it gains must show.
         index.set_note(
@@ -536,6 +619,7 @@ mod tests {
             "Now pointing at [[gone]].",
             &notes,
             &attachments,
+            &[],
         );
         let welcome = index.node_for_path("Welcome.md").unwrap();
         let another = index.node_for_path("notes/Another Note.md").unwrap();
@@ -551,6 +635,114 @@ mod tests {
         );
         assert!(index.ghost_for_target("gone").is_some());
         assert!(index.node_for_tag("greeting").is_none(), "the tag left too");
+        Ok(())
+    }
+
+    #[test]
+    fn an_embedded_query_is_a_node_and_the_embed_is_its_edge() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let root = dir.path();
+        fs::create_dir_all(root.join("queries"))?;
+        fs::write(root.join("lair.md"), "Facts: ![[Creature ratings]]\n")?;
+        fs::write(
+            root.join("queries/Creature ratings.shq"),
+            "[[lair]] is not a link here; this is SQL.\nSELECT 1;\n",
+        )?;
+        let vault = Vault::open(root)?;
+        let index = build(&vault)?;
+
+        let query = index
+            .node_for_path("queries/Creature ratings.shq")
+            .expect("the query is in the picture");
+        assert_eq!(index.meta(query).kind, NodeKind::Query);
+        assert_eq!(index.meta(query).label, "Creature ratings");
+
+        let lair = index.node_for_path("lair.md").unwrap();
+        assert!(
+            index.graph().find_edge(lair, query).is_some(),
+            "the embed is the edge"
+        );
+        assert_eq!(
+            index.degree(query),
+            1,
+            "the query's program asserts no links of its own"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_query_nobody_embeds_is_an_orphan_not_an_absence() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let root = dir.path();
+        fs::create_dir_all(root.join("queries"))?;
+        fs::write(root.join("lair.md"), "No embeds here.\n")?;
+        fs::write(root.join("queries/Unasked.shq"), "SELECT 1;\n")?;
+        let vault = Vault::open(root)?;
+        let index = build(&vault)?;
+
+        let query = index
+            .node_for_path("queries/Unasked.shq")
+            .expect("an unasked question is still a question");
+        assert_eq!(index.meta(query).kind, NodeKind::Query);
+        assert_eq!(index.degree(query), 0);
+        Ok(())
+    }
+
+    #[test]
+    fn saving_a_query_keeps_it_a_query_and_gains_the_embed() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let root = dir.path();
+        fs::create_dir_all(root.join("queries"))?;
+        fs::write(root.join("lair.md"), "Nothing yet.\n")?;
+        fs::write(root.join("queries/Ratings.shq"), "SELECT 1;\n")?;
+        let vault = Vault::open(root)?;
+        let notes = vault.list_markdown()?;
+        let attachments = vault.list_attachments()?;
+        let queries = vault.list_queries()?;
+        let mut index = GraphIndex::build(&vault, &notes, &attachments, &queries)?;
+        assert_eq!(
+            index.degree(index.node_for_path("queries/Ratings.shq").unwrap()),
+            0
+        );
+
+        // The note starts embedding it: the edge arrives with the note's save.
+        index.set_note(
+            "lair.md",
+            "Facts: ![[Ratings]]\n",
+            &notes,
+            &attachments,
+            &queries,
+        );
+        let query = index.node_for_path("queries/Ratings.shq").unwrap();
+        assert_eq!(index.meta(query).kind, NodeKind::Query);
+        assert_eq!(index.degree(query), 1);
+
+        // Saving the query itself must not turn it into a note or give it edges.
+        index.set_note(
+            "queries/Ratings.shq",
+            "SELECT name FROM notes WHERE name = '[[lair]]';\n",
+            &notes,
+            &attachments,
+            &queries,
+        );
+        let query = index.node_for_path("queries/Ratings.shq").unwrap();
+        assert_eq!(index.meta(query).kind, NodeKind::Query);
+        assert_eq!(
+            index.degree(query),
+            1,
+            "the only edge is the embed; a name inside SQL is not a link"
+        );
+        assert_eq!(index.meta(query).kind, NodeKind::Query);
+
+        // Deleting it takes the node with it. The note still embeds the name, so
+        // what is left is what the editor would colour: a ghost keyed by the path
+        // that used to answer.
+        index.remove_note("queries/Ratings.shq");
+        assert!(index.node_for_path("queries/Ratings.shq").is_none());
+        assert!(
+            index.ghost_for_target("queries/Ratings.shq").is_some(),
+            "the embed that no longer resolves is visible structure, not vanished"
+        );
         Ok(())
     }
 
@@ -576,7 +768,7 @@ mod tests {
         let (_dir, vault) = fixture()?;
         let notes = vault.list_markdown()?;
         let attachments = vault.list_attachments()?;
-        let mut index = GraphIndex::build(&vault, &notes, &attachments)?;
+        let mut index = GraphIndex::build(&vault, &notes, &attachments, &[])?;
 
         // Another Note is gone from the vault but Welcome's scan still points
         // at it: the edge survives, aimed at a ghost, not a dangling index.

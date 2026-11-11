@@ -580,6 +580,52 @@ fn hjkl_picks_a_node_and_enter_opens_it(cx: &mut TestAppContext) {
     );
 }
 
+/// A saved query is in the picture as itself: not a note, not a ghost, and counted
+/// apart from both. It joins the picture on its own account (nobody has to link at it),
+/// the embed that asks it is the edge, and `enter` opens the program the way it opens
+/// a note — which is the graph agreeing with what the text, the link colour and `gd`
+/// already say about `![[name]]`.
+#[gpui::test]
+fn a_saved_query_is_a_node_the_graph_can_open(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(
+        cx,
+        &[
+            ("a.md", "facts: ![[Ratings]]\n"),
+            ("queries/Ratings.shq", "SELECT name FROM notes;\n"),
+        ],
+    );
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show(&mut cx, &window, "a.md");
+    cx.simulate_keystrokes("space g");
+    paint(&mut cx, &window);
+
+    assert_eq!(
+        window
+            .update(&mut cx, |ws, _window, cx| ws.graph_counts(cx))
+            .unwrap(),
+        Some(GraphSummary {
+            notes: 1,
+            queries: 1,
+            ghosts: 0,
+            tags: 0,
+            links: 1,
+        }),
+        "the question is counted apart from the note that asked it"
+    );
+
+    let (_, at) = node(&mut cx, &window, "queries/Ratings.shq");
+    pointer(&mut cx, at, false);
+    cx.simulate_keystrokes("enter");
+
+    assert!(
+        tabs(&window, &mut cx)
+            .iter()
+            .any(|(label, _)| label == "queries/Ratings.shq"),
+        "`enter` opened the program: {:?}",
+        tabs(&window, &mut cx)
+    );
+}
+
 /// `enter` opens the node the pointer is on, which is the keyboard's way to use what the
 /// mouse found.
 #[gpui::test]

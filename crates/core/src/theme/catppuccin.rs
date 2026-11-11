@@ -58,6 +58,7 @@
 //! | `graph_text`, `graph_ghost` | Subtext 0                             |
 //! | `graph_tag`                | Mauve (Blue is already every note node) |
 //! | `graph_attachment`         | Teal                                  |
+//! | `graph_query`              | Peach (a question, and Mauve is a tag's) |
 //! | `diff_add`, `diff_delete`, `diff_changed` | Green, Red, Yellow (the guide's success, error and warning) |
 //! | `callout_note`             | Blue                                  |
 //! | `callout_teal`             | Teal                                  |
@@ -164,6 +165,7 @@ pub const LATTE: Palette = Palette {
     // distinguishable from a note.
     graph_tag: 0x8839ef,
     graph_attachment: 0x179299,
+    graph_query: 0xdf8e1d,
     diff_add: 0x40a02b,
     diff_delete: 0xd20f39,
     diff_changed: 0xdf8e1d,
@@ -240,6 +242,7 @@ pub const FRAPPE: Palette = Palette {
     graph_ghost: 0xa5adce,
     graph_tag: 0xca9ee6,
     graph_attachment: 0x81c8be,
+    graph_query: 0xe5c890,
     diff_add: 0xa6d189,
     diff_delete: 0xe78284,
     diff_changed: 0xe5c890,
@@ -314,6 +317,7 @@ pub const MACCHIATO: Palette = Palette {
     graph_ghost: 0xa5adcb,
     graph_tag: 0xc6a0f6,
     graph_attachment: 0x8bd5ca,
+    graph_query: 0xeed49f,
     diff_add: 0xa6da95,
     diff_delete: 0xed8796,
     diff_changed: 0xeed49f,
@@ -389,6 +393,7 @@ pub const MOCHA: Palette = Palette {
     graph_ghost: 0xa6adc8,
     graph_tag: 0xcba6f7,
     graph_attachment: 0x94e2d5,
+    graph_query: 0xf9e2af,
     diff_add: 0xa6e3a1,
     diff_delete: 0xf38ba8,
     diff_changed: 0xf9e2af,

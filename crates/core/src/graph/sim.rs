@@ -927,7 +927,12 @@ fn the_1k_fixture_settles_and_stays_bounded() -> anyhow::Result<()> {
     use petgraph::visit::EdgeRef;
     let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/graph/1k");
     let vault = Vault::open(&root)?;
-    let index = GraphIndex::build(&vault, &vault.list_markdown()?, &vault.list_attachments()?)?;
+    let index = GraphIndex::build(
+        &vault,
+        &vault.list_markdown()?,
+        &vault.list_attachments()?,
+        &vault.list_queries()?,
+    )?;
     let g = index.graph();
     let n = g.node_count();
     let edges: Vec<[u32; 2]> = g
