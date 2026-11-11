@@ -159,11 +159,30 @@ milestones in the order they land.
     left `palette_for("")` answering mocha while `Palette::DEFAULT` said dark — the loader
     resolves the fallback *by name*, so the two must move together. The core test that pins
     `palette_for("") == Palette::DEFAULT` is what caught it.
-- **M6 — field selection + clipboard.** The `Field` model (anchor, selection-aware edits,
-  utf-16 selection for gpui), the painted selection band, the shared key macro, the three
-  owners' wiring, the bindings in all four field contexts, and tests: keyboard selection,
-  selection-replacing edits, copy/cut/paste round trip, non-ASCII, and the picker keeping its
-  row navigation while the field selects.
+- **M6 — field selection + clipboard.** **Landed.** The `Field` model gained one number —
+  `anchor`, the end that stopped moving — and every edit now starts by taking the selection,
+  so "type over a selection" is the default rather than a case each edit remembers. The band is
+  painted under the text. One `field_keys!` table in `keys.rs` and one `field_key_actions!` in
+  `field.rs` cover the prompt, every picker and the graph's filter, which is also the fix for
+  the filter having a field that could not reach the ends of its own line. Tests: five at the
+  keyboard, four at the model, and the keysym-shape block in
+  `keymap_matches_the_linux_keystroke_shape`. Two surprises worth keeping:
+
+  - **EDGE-23 — the platform's typed-character path reports no range.** gpui calls
+    `replace_utf16(None, "x")` for a printable key, so a field that only honours a range gpui
+    hands it inserts *beside* its own selection and the selection survives the key meant to
+    consume it. The field's own selection is the fallback. Falsified: dropping the fallback
+    turns the test's `goblx` into `goblxin`.
+  - **EDGE-24 — three contexts, one table.** The prompt, the picker and the graph's filter each
+    kept a hand-copied list of field keys, and the filter's had already lost keys the prompt
+    had. The bindings and the handlers are each written once now.
+  - **EDGE-25 — `ctrl-a` is select-all, not readline's start-of-line.** Ruled by the user, and
+    the departure is deliberate: `home` is start-of-line, so nothing is lost. The note editor
+    keeps its own `ctrl-a` (the bindings live only in the field contexts).
+  - Shift+arrow arrives on Linux as the `Left`/`Home` **keysym with the shift modifier carried
+    separately**, never as a `key_char`. A keystroke test types the string gpui parses and so
+    cannot catch a binding spelled for a shape the platform never sends; the keysym block can,
+    and it goes red when a binding is commented out.
 
 M1-M5 are independent of each other; M6 is the one that touches three surfaces at once, so it
 goes last and gets the most tests.

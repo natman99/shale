@@ -826,6 +826,13 @@ impl Workspace {
             .map(|target| render_target(&target))
     }
 
+    /// What the picker's field holds, or `None` when no picker is up. The rows are a
+    /// weak oracle for the field: two different queries can answer with the same rows.
+    #[cfg(test)]
+    pub(crate) fn picker_field(&self, cx: &gpui::App) -> Option<String> {
+        Some(self.picker.as_ref()?.read(cx).field_text().to_string())
+    }
+
     /// Every row the picker is offering, in order, each rendered the way
     /// [`Self::picker_choice`] renders one. Which rows, never how many.
     #[cfg(test)]

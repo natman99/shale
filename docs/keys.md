@@ -204,8 +204,27 @@ While the tree has the keyboard (`ctrl-w h`):
 
 Quick-open, vault search, the palette, the theme picker and the one-line prompt
 all behave the same: type to narrow (the match is a subsequence, not a prefix),
-`j`/`k` or arrows to move, `enter` to choose, `escape` to cancel. Choosing a row
-of the theme picker previews that palette; `escape` puts the old one back.
+arrows to move the highlighted row, `enter` to choose, `escape` to cancel. Choosing
+a row of the theme picker previews that palette; `escape` puts the old one back.
+The arrows and not `j`/`k`, because the surface is a text field first: a query may
+contain any letter at all. (`j`/`k` do move rows in the popup, which has no field.)
+
+The line you type into is a field with a selection, and it answers the same keys
+wherever it appears — the prompt, every picker, and the graph's filter strip:
+
+| key | what it does |
+| --- | --- |
+| `shift-left` / `shift-right` | extend the selection by one character |
+| `home` / `end` | the caret to the start / end of the line |
+| `shift-home` / `shift-end`, `shift-up` / `shift-down` | select to the start / end |
+| `ctrl-a` | select the whole line |
+| `ctrl-c` / `ctrl-x` / `ctrl-v` | copy / cut / paste, on the system clipboard |
+
+A field is one line, so it has no line above or below: `shift-up` and `shift-down`
+are the ends of it, which is what a shell's line editor makes of them too. `ctrl-a`
+is the deliberate departure from that editor — it selects everything, and `home` is
+start-of-line. Typing, `backspace`, `delete` or a paste replaces what is selected; a
+plain arrow leaves the selection at the end it was heading for rather than stepping.
 
 ## The command line
 

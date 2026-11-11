@@ -230,6 +230,22 @@ actions!(
         FieldDeleteWordBack,
         FieldLeft,
         FieldRight,
+        // Selection in a field: shift extends the caret, `ctrl-a` takes the whole
+        // line, `home`/`end` are its ends. Bound in every context that holds a
+        // field — the prompt, the pickers, the graph's filter.
+        FieldSelectLeft,
+        FieldSelectRight,
+        FieldSelectToStart,
+        FieldSelectToEnd,
+        FieldSelectAll,
+        FieldHome,
+        FieldEnd,
+        // The clipboard in a field. The note editor yanks and pastes with vim's
+        // keys; a field takes the keys everybody else reaches for, and both write
+        // the same system clipboard.
+        FieldCopy,
+        FieldCut,
+        FieldPaste,
         // Moving the highlighted row of a picker.
         PickerUp,
         PickerDown,

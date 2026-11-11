@@ -412,15 +412,43 @@ fn build() -> (Vec<KeyBinding>, Vec<KeymapRow>) {
     // The one-line prompt. Printable characters never reach a keybinding — they
     // arrive through the input handler — so only the keys that are not text are
     // bound here.
+    // The keys a one-line field answers, in whichever context holds one: the prompt,
+    // the pickers, the graph's filter. One table, because it is one widget — three
+    // hand-copied tables is how the graph's filter came to be missing keys the prompt
+    // had, and how all three came to have no selection at all.
+    macro_rules! field_keys {
+        ($b:expr, $ctx:expr) => {
+            bind!($b, Some($ctx), [
+                "backspace" => FieldBackspace,
+                "delete" => FieldDelete,
+                "ctrl-backspace" => FieldDeleteWordBack,
+                "left" => FieldLeft,
+                "right" => FieldRight,
+                // Shift extends the caret. A field is one line, so `shift-up` and
+                // `shift-down` are the ends of it, as they are in a shell's line
+                // editor; `shift-home`/`shift-end` are the same two requests.
+                "shift-left" => FieldSelectLeft,
+                "shift-right" => FieldSelectRight,
+                "shift-up" => FieldSelectToStart,
+                "shift-down" => FieldSelectToEnd,
+                "home" => FieldHome,
+                "end" => FieldEnd,
+                "shift-home" => FieldSelectToStart,
+                "shift-end" => FieldSelectToEnd,
+                // `ctrl-a` is select-all here, not the shell's start-of-line: the
+                // user asked for it, and `home` is the start of the line already.
+                "ctrl-a" => FieldSelectAll,
+                "ctrl-c" => FieldCopy,
+                "ctrl-x" => FieldCut,
+                "ctrl-v" => FieldPaste,
+            ]);
+        };
+    }
     bind!(b, Some("prompt"), [
         "enter" => FieldSubmit,
         "escape" => FieldCancel,
-        "backspace" => FieldBackspace,
-        "delete" => FieldDelete,
-        "ctrl-backspace" => FieldDeleteWordBack,
-        "left" => FieldLeft,
-        "right" => FieldRight,
     ]);
+    field_keys!(b, "prompt");
     // A picker: the same field keys, plus the two that move the highlighted row.
     // The arrows, and deliberately not `j`/`k`: the picker is a text field, and a
     // query may contain any letter at all. (`j`/`k` still work in the popup, which
@@ -428,14 +456,13 @@ fn build() -> (Vec<KeyBinding>, Vec<KeymapRow>) {
     bind!(b, Some("picker"), [
         "enter" => FieldSubmit,
         "escape" => FieldCancel,
-        "backspace" => FieldBackspace,
-        "delete" => FieldDelete,
-        "ctrl-backspace" => FieldDeleteWordBack,
-        "left" => FieldLeft,
-        "right" => FieldRight,
+        // The rows, and deliberately not `j`/`k`: the picker is a text field, and a
+        // query may contain any letter at all. (`j`/`k` still work in the popup, which
+        // has no field to type into.)
         "down" => PickerDown,
         "up" => PickerUp,
     ]);
+    field_keys!(b, "picker");
     // The popup. It is a sibling of the note and the tree, so — as with a picker —
     // `j`/`k` are free here, and `escape` closes it rather than leaving a vim
     // command half-typed. The rows are also reachable by number, which is the
@@ -521,15 +548,11 @@ fn build() -> (Vec<KeyBinding>, Vec<KeymapRow>) {
     bind!(b, Some(crate::graph::FILTER_CONTEXT), [
         "escape" => GraphFilterClose,
         "enter" => GraphFilterClose,
-        "backspace" => FieldBackspace,
-        "delete" => FieldDelete,
-        "ctrl-backspace" => FieldDeleteWordBack,
-        "left" => FieldLeft,
-        "right" => FieldRight,
         "alt-o" => GraphFilterOrphans,
         "alt-x" => GraphFilterMissing,
         "alt-t" => GraphFilterTags,
     ]);
+    field_keys!(b, crate::graph::FILTER_CONTEXT);
     // The camera and selection keys carry their step, so they are pushed one by one as
     // the popup's row numbers are. `+` and `-` are literal keys — shift+`=` reaches us
     // as `+`, the same way `$` does in the note.
@@ -646,6 +669,16 @@ fn action_note(name: &str) -> Option<&'static str> {
         "FieldDeleteWordBack" => "delete the word before the caret",
         "FieldLeft" => "move the caret left",
         "FieldRight" => "move the caret right",
+        "FieldSelectLeft" => "extend the selection left",
+        "FieldSelectRight" => "extend the selection right",
+        "FieldSelectToStart" => "select to the start of the line",
+        "FieldSelectToEnd" => "select to the end of the line",
+        "FieldSelectAll" => "select the whole line",
+        "FieldHome" => "move the caret to the start of the line",
+        "FieldEnd" => "move the caret to the end of the line",
+        "FieldCopy" => "copy the selection to the clipboard",
+        "FieldCut" => "cut the selection to the clipboard",
+        "FieldPaste" => "paste the clipboard over the selection",
         "PickerDown" => "move the highlighted row down",
         "PickerUp" => "move the highlighted row up",
         "RunCommandLine" => "type a `:` command",

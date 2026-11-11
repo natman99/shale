@@ -36,6 +36,7 @@ use crate::acts::{
     FieldSubmit, PickerDown, PickerUp,
 };
 use crate::field::{approx_char_width, Field, FieldElement, FieldOwner};
+use crate::field_key_actions;
 use crate::style::CHIP_RADIUS;
 
 /// The key context the picker's bindings live in. Like the prompt it is drawn as
@@ -237,6 +238,20 @@ impl<T: Clone + 'static> Picker<T> {
     /// Re-rank the rows for the current query and put the selection back on the
     /// best one: typing narrows the list, so the row the user wants is the one
     /// that just moved to the top.
+    /// What the field holds. A test reads the query itself rather than inferring it
+    /// from the rows, because two different queries can answer with the same rows.
+    #[cfg(test)]
+    pub(crate) fn field_text(&self) -> &str {
+        self.field.text()
+    }
+
+    /// A paste or a cut changed the query, so the rows are re-searched and the
+    /// highlight re-emitted — the same follow-up a typed character gets.
+    fn field_text_changed(&mut self, cx: &mut Context<Self>) {
+        self.rerank();
+        cx.emit(PickerEvent::Highlight);
+    }
+
     fn rerank(&mut self) {
         let query = self.field.text().to_string();
         if let Some(source) = self.source.clone() {
@@ -345,6 +360,9 @@ impl<T: Clone + 'static> Focusable for Picker<T> {
 impl<T: Clone + 'static> FieldOwner for Picker<T> {
     fn field(&self) -> &Field {
         &self.field
+    }
+    fn field_mut(&mut self) -> &mut Field {
+        &mut self.field
     }
 
     fn palette(&self) -> &Rc<Palette> {
@@ -599,92 +617,96 @@ impl<T: Clone + 'static> Render for Picker<T> {
             })
             .collect();
 
-        div()
-            .key_context(CONTEXT)
-            .track_focus(&self.focus_handle)
-            .on_action(cx.listener(|this, _: &FieldSubmit, _window, cx| {
-                if this.chosen().is_some() {
-                    cx.emit(PickerEvent::Choose);
-                }
-            }))
-            .on_action(cx.listener(|_, _: &FieldCancel, _window, cx| {
-                cx.emit(PickerEvent::Cancel);
-            }))
-            .on_action(cx.listener(|this, _: &FieldBackspace, _window, cx| {
-                this.field.backspace();
-                this.rerank();
-                cx.notify();
-                cx.emit(PickerEvent::Highlight);
-            }))
-            .on_action(cx.listener(|this, _: &FieldDelete, _window, cx| {
-                this.field.delete_forward();
-                this.rerank();
-                cx.notify();
-                cx.emit(PickerEvent::Highlight);
-            }))
-            // `ctrl-backspace`: the word before the caret, the same boundary the
-            // note editor deletes.
-            .on_action(cx.listener(|this, _: &FieldDeleteWordBack, _window, cx| {
-                this.field.delete_word_back();
-                this.rerank();
-                cx.notify();
-                cx.emit(PickerEvent::Highlight);
-            }))
-            .on_action(cx.listener(|this, _: &FieldLeft, _window, cx| {
-                this.field.step_caret(-1);
-                cx.notify();
-            }))
-            .on_action(cx.listener(|this, _: &FieldRight, _window, cx| {
-                this.field.step_caret(1);
-                cx.notify();
-            }))
-            .on_action(cx.listener(|this, _: &PickerUp, _window, cx| {
-                this.move_selection(-1);
-                cx.notify();
-                cx.emit(PickerEvent::Highlight);
-            }))
-            .on_action(cx.listener(|this, _: &PickerDown, _window, cx| {
-                this.move_selection(1);
-                cx.notify();
-                cx.emit(PickerEvent::Highlight);
-            }))
-            .border_1()
-            .border_color(gpui::rgb(palette.popup_border))
-            // The same corner as every other chip in the window. gpui draws the
-            // border with it, so the panel's outline stays one shape.
-            .rounded(CHIP_RADIUS)
-            // Opaque, because the picker *overlays* the note: a panel that lets
-            // the text through is unreadable, which is the price of not pushing
-            // the note down. It is raised, so it takes the popup pair rather than
-            // the chrome pair: the panel must read as being above the note, not as
-            // more of the same surface (`design-language.md` §5).
-            .bg(gpui::rgb(palette.popup_bg))
-            .child(
-                div()
-                    .text_size(crate::style::TEXT_XS)
-                    .px_2()
-                    .pt_1()
-                    .text_color(gpui::rgb(palette.ui_dim))
-                    .child(self.label.clone()),
-            )
-            .child(div().px_2().py_1().child(FieldElement::new(entity)))
-            .children(rows)
-            .child(
-                div()
-                    .text_size(crate::style::TEXT_XS)
-                    .px_2()
-                    .py_1()
-                    .text_color(gpui::rgb(palette.ui_dim))
-                    .child(format!(
-                        "{} of {} matching",
-                        if self.ranked.is_empty() {
-                            0
-                        } else {
-                            self.selected + 1
-                        },
-                        self.matches()
-                    )),
-            )
+        field_key_actions!(
+            div()
+                .key_context(CONTEXT)
+                .track_focus(&self.focus_handle)
+                .on_action(cx.listener(|this, _: &FieldSubmit, _window, cx| {
+                    if this.chosen().is_some() {
+                        cx.emit(PickerEvent::Choose);
+                    }
+                }))
+                .on_action(cx.listener(|_, _: &FieldCancel, _window, cx| {
+                    cx.emit(PickerEvent::Cancel);
+                }))
+                .on_action(cx.listener(|this, _: &FieldBackspace, _window, cx| {
+                    this.field.backspace();
+                    this.rerank();
+                    cx.notify();
+                    cx.emit(PickerEvent::Highlight);
+                }))
+                .on_action(cx.listener(|this, _: &FieldDelete, _window, cx| {
+                    this.field.delete_forward();
+                    this.rerank();
+                    cx.notify();
+                    cx.emit(PickerEvent::Highlight);
+                }))
+                // `ctrl-backspace`: the word before the caret, the same boundary the
+                // note editor deletes.
+                .on_action(cx.listener(|this, _: &FieldDeleteWordBack, _window, cx| {
+                    this.field.delete_word_back();
+                    this.rerank();
+                    cx.notify();
+                    cx.emit(PickerEvent::Highlight);
+                }))
+                .on_action(cx.listener(|this, _: &FieldLeft, _window, cx| {
+                    this.field.step_caret(-1);
+                    cx.notify();
+                }))
+                .on_action(cx.listener(|this, _: &FieldRight, _window, cx| {
+                    this.field.step_caret(1);
+                    cx.notify();
+                }))
+                .on_action(cx.listener(|this, _: &PickerUp, _window, cx| {
+                    this.move_selection(-1);
+                    cx.notify();
+                    cx.emit(PickerEvent::Highlight);
+                }))
+                .on_action(cx.listener(|this, _: &PickerDown, _window, cx| {
+                    this.move_selection(1);
+                    cx.notify();
+                    cx.emit(PickerEvent::Highlight);
+                }))
+                .border_1()
+                .border_color(gpui::rgb(palette.popup_border))
+                // The same corner as every other chip in the window. gpui draws the
+                // border with it, so the panel's outline stays one shape.
+                .rounded(CHIP_RADIUS)
+                // Opaque, because the picker *overlays* the note: a panel that lets
+                // the text through is unreadable, which is the price of not pushing
+                // the note down. It is raised, so it takes the popup pair rather than
+                // the chrome pair: the panel must read as being above the note, not as
+                // more of the same surface (`design-language.md` §5).
+                .bg(gpui::rgb(palette.popup_bg))
+                .child(
+                    div()
+                        .text_size(crate::style::TEXT_XS)
+                        .px_2()
+                        .pt_1()
+                        .text_color(gpui::rgb(palette.ui_dim))
+                        .child(self.label.clone()),
+                )
+                .child(div().px_2().py_1().child(FieldElement::new(entity)))
+                .children(rows)
+                .child(
+                    div()
+                        .text_size(crate::style::TEXT_XS)
+                        .px_2()
+                        .py_1()
+                        .text_color(gpui::rgb(palette.ui_dim))
+                        .child(format!(
+                            "{} of {} matching",
+                            if self.ranked.is_empty() {
+                                0
+                            } else {
+                                self.selected + 1
+                            },
+                            self.matches()
+                        )),
+                ),
+            cx,
+            Self::field_text_changed
+        )
     }
 }
 

@@ -1197,3 +1197,121 @@ fn a_cut_never_lands_inside_a_character(cx: &mut TestAppContext) {
     // Slicing at every boundary is the assertion.
     marked(detail, runs);
 }
+
+// ----- selection and the clipboard in a field (P4.x six-item round) -----
+
+/// What the picker's field holds. The rows are a weak oracle for this: two different
+/// queries can answer with the same rows.
+fn field(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> String {
+    window
+        .update(cx, |ws, _window, cx| ws.picker_field(cx))
+        .unwrap()
+        .unwrap_or_default()
+}
+
+/// `shift-left` extends a selection from the caret, and typing replaces it. This is
+/// the whole point of a selection in a search box: fix the end of a wrong query
+/// without retyping it.
+#[gpui::test]
+fn shift_arrows_select_and_typing_replaces_them(cx: &mut TestAppContext) {
+    let (_dir, window) = query_vault(cx);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    cx.simulate_keystrokes("ctrl-shift-f");
+    cx.simulate_input("goblin");
+    assert_eq!(field(&window, cx), "goblin");
+
+    cx.simulate_keystrokes("shift-left shift-left");
+    cx.simulate_input("x");
+    assert_eq!(
+        field(&window, cx),
+        "goblx",
+        "the two selected characters went away and `x` arrived in their place"
+    );
+}
+
+/// `ctrl-a` is the whole line, so a search can be replaced in two keys. This is a
+/// deliberate departure from a shell's line editor, where `ctrl-a` is start-of-line;
+/// `home` is that here, and it is bound too.
+#[gpui::test]
+fn ctrl_a_takes_the_whole_line(cx: &mut TestAppContext) {
+    let (_dir, window) = query_vault(cx);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    cx.simulate_keystrokes("ctrl-shift-f");
+    cx.simulate_input("tag:monster");
+
+    cx.simulate_keystrokes("ctrl-a");
+    cx.simulate_input("z");
+    assert_eq!(field(&window, cx), "z", "the selection went under one key");
+}
+
+/// The clipboard is the system one, so a query can leave Shale and come back. Cut
+/// empties the field; paste puts the same text back over whatever was selected.
+#[gpui::test]
+fn cut_and_paste_move_the_query_through_the_clipboard(cx: &mut TestAppContext) {
+    let (_dir, window) = query_vault(cx);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    cx.simulate_keystrokes("ctrl-shift-f");
+    cx.simulate_input("tag:monster");
+
+    cx.simulate_keystrokes("ctrl-a ctrl-x");
+    assert_eq!(field(&window, cx), "", "cut took the line out of the field");
+    assert_eq!(
+        cx.read_from_clipboard().and_then(|item| item.text()),
+        Some("tag:monster".into()),
+        "and put it where another program can see it"
+    );
+
+    // A paste onto a selection replaces it, which is what a paste means.
+    cx.simulate_input("link:100%");
+    cx.simulate_keystrokes("ctrl-a ctrl-v");
+    assert_eq!(
+        field(&window, cx),
+        "tag:monster",
+        "the paste replaced the selected line rather than joining it"
+    );
+}
+
+/// A stray arrow with a selection out leaves the selection at the end it was heading
+/// for and does not step. Stepping *and* clearing would be two changes for one key.
+#[gpui::test]
+fn a_plain_arrow_leaves_the_selection_where_it_was(cx: &mut TestAppContext) {
+    let (_dir, window) = query_vault(cx);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    cx.simulate_keystrokes("ctrl-shift-f");
+    cx.simulate_input("goblin");
+    cx.simulate_keystrokes("shift-left shift-left left");
+    assert_eq!(field(&window, cx), "goblin", "the arrow moved nothing");
+
+    // The caret is left at the selection's left edge, so the next `backspace` eats
+    // the character in front of that edge rather than the selection: the arrow's
+    // whole job was to put the caret where the selection started.
+    cx.simulate_keystrokes("backspace");
+    assert_eq!(
+        field(&window, cx),
+        "gobin",
+        "`l` went, which is the character before the edge the selection started at"
+    );
+}
+
+/// `home` and `end` are the ends of the line, which is what makes `shift-up` and
+/// `shift-down` the same two requests rather than a motion onto a line that does
+/// not exist.
+#[gpui::test]
+fn home_and_end_move_the_caret_to_the_ends(cx: &mut TestAppContext) {
+    let (_dir, window) = query_vault(cx);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    cx.simulate_keystrokes("ctrl-shift-f");
+    cx.simulate_input("monster");
+
+    cx.simulate_keystrokes("home");
+    cx.simulate_input("g");
+    assert_eq!(field(&window, cx), "gmonster", "`home` went to the start");
+
+    cx.simulate_keystrokes("end shift-up");
+    cx.simulate_input("x");
+    assert_eq!(
+        field(&window, cx),
+        "x",
+        "`shift-up` from the end of the line selected all of it, and typing replaced it"
+    );
+}

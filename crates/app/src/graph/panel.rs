@@ -27,6 +27,7 @@ use crate::acts::{
     GraphFilterMissing, GraphFilterOpen, GraphFilterOrphans, GraphFilterTags,
 };
 use crate::field::{approx_char_width, Field, FieldElement, FieldOwner};
+use crate::field_key_actions;
 
 use super::GraphView;
 
@@ -177,6 +178,12 @@ impl GraphView {
     /// handler and each of the five keys bound in the strip — so the picture follows the
     /// query as it is typed rather than waiting for `enter`, which is what makes the line
     /// a filter and not a command.
+    /// A paste or a cut changed the filter line, so the graph re-filters exactly as
+    /// it does for a typed character.
+    fn field_text_changed(&mut self, cx: &mut Context<Self>) {
+        self.sync_search(cx);
+    }
+
     fn sync_search(&mut self, cx: &mut Context<Self>) {
         let mut filter = self.filter.clone();
         filter.search = Some(self.filter_field.text().to_string());
@@ -219,83 +226,87 @@ impl GraphView {
             Some(depth) => format!("local {depth}"),
             None => "local".to_string(),
         };
-        div()
-            .key_context(FILTER_CONTEXT)
-            .track_focus(&self.panel_focus)
-            .flex_none()
-            .flex()
-            .items_center()
-            .gap_2()
-            .text_color(gpui::rgb(palette.ui_fg))
-            // A click anywhere in the strip is a click on the strip's keyboard. The
-            // window already aims the keyboard at the field when the frame moves (see
-            // [`GraphView::focus_target`]), but a press that lands on the strip's
-            // background — between the chips, or in the gap beside the field — has to
-            // take the keyboard too, or the field looks ready and hears nothing.
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _event, window, cx| {
-                    this.panel_focus.focus(window, cx);
-                }),
-            )
-            .on_action(cx.listener(|this, _: &FieldBackspace, _window, cx| {
-                this.filter_field.backspace();
-                this.sync_search(cx);
-            }))
-            .on_action(cx.listener(|this, _: &FieldDelete, _window, cx| {
-                this.filter_field.delete_forward();
-                this.sync_search(cx);
-            }))
-            .on_action(cx.listener(|this, _: &FieldDeleteWordBack, _window, cx| {
-                this.filter_field.delete_word_back();
-                this.sync_search(cx);
-            }))
-            .on_action(cx.listener(|this, _: &FieldLeft, _window, cx| {
-                this.filter_field.step_caret(-1);
-                cx.notify();
-            }))
-            .on_action(cx.listener(|this, _: &FieldRight, _window, cx| {
-                this.filter_field.step_caret(1);
-                cx.notify();
-            }))
-            .on_action(cx.listener(Self::close_panel))
-            .on_action(cx.listener(Self::toggle_orphans))
-            .on_action(cx.listener(Self::toggle_missing))
-            .on_action(cx.listener(Self::toggle_tags))
-            .child(
-                chip(&palette, "orphans", orphans)
-                    .id("graph-filter-orphans")
-                    .on_click(cx.listener(|this, _, _window, cx| {
-                        this.toggle(Chip::Orphans, cx);
-                    })),
-            )
-            .child(
-                chip(&palette, "missing", missing)
-                    .id("graph-filter-missing")
-                    .on_click(cx.listener(|this, _, _window, cx| {
-                        this.toggle(Chip::Missing, cx);
-                    })),
-            )
-            .child(
-                chip(&palette, "tags", tags)
-                    .id("graph-filter-tags")
-                    .on_click(cx.listener(|this, _, _window, cx| {
-                        this.toggle(Chip::Tags, cx);
-                    })),
-            )
-            .child(
-                chip(&palette, &local_label, local.is_some())
-                    .id("graph-filter-local")
-                    .on_click(cx.listener(|this, _, _window, cx| {
-                        this.toggle(Chip::Local, cx);
-                    })),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .child(FieldElement::new(cx.entity())),
-            )
+        field_key_actions!(
+            div()
+                .key_context(FILTER_CONTEXT)
+                .track_focus(&self.panel_focus)
+                .flex_none()
+                .flex()
+                .items_center()
+                .gap_2()
+                .text_color(gpui::rgb(palette.ui_fg))
+                // A click anywhere in the strip is a click on the strip's keyboard. The
+                // window already aims the keyboard at the field when the frame moves (see
+                // [`GraphView::focus_target`]), but a press that lands on the strip's
+                // background — between the chips, or in the gap beside the field — has to
+                // take the keyboard too, or the field looks ready and hears nothing.
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, _event, window, cx| {
+                        this.panel_focus.focus(window, cx);
+                    }),
+                )
+                .on_action(cx.listener(|this, _: &FieldBackspace, _window, cx| {
+                    this.filter_field.backspace();
+                    this.sync_search(cx);
+                }))
+                .on_action(cx.listener(|this, _: &FieldDelete, _window, cx| {
+                    this.filter_field.delete_forward();
+                    this.sync_search(cx);
+                }))
+                .on_action(cx.listener(|this, _: &FieldDeleteWordBack, _window, cx| {
+                    this.filter_field.delete_word_back();
+                    this.sync_search(cx);
+                }))
+                .on_action(cx.listener(|this, _: &FieldLeft, _window, cx| {
+                    this.filter_field.step_caret(-1);
+                    cx.notify();
+                }))
+                .on_action(cx.listener(|this, _: &FieldRight, _window, cx| {
+                    this.filter_field.step_caret(1);
+                    cx.notify();
+                }))
+                .on_action(cx.listener(Self::close_panel))
+                .on_action(cx.listener(Self::toggle_orphans))
+                .on_action(cx.listener(Self::toggle_missing))
+                .on_action(cx.listener(Self::toggle_tags))
+                .child(
+                    chip(&palette, "orphans", orphans)
+                        .id("graph-filter-orphans")
+                        .on_click(cx.listener(|this, _, _window, cx| {
+                            this.toggle(Chip::Orphans, cx);
+                        })),
+                )
+                .child(
+                    chip(&palette, "missing", missing)
+                        .id("graph-filter-missing")
+                        .on_click(cx.listener(|this, _, _window, cx| {
+                            this.toggle(Chip::Missing, cx);
+                        })),
+                )
+                .child(
+                    chip(&palette, "tags", tags)
+                        .id("graph-filter-tags")
+                        .on_click(cx.listener(|this, _, _window, cx| {
+                            this.toggle(Chip::Tags, cx);
+                        })),
+                )
+                .child(
+                    chip(&palette, &local_label, local.is_some())
+                        .id("graph-filter-local")
+                        .on_click(cx.listener(|this, _, _window, cx| {
+                            this.toggle(Chip::Local, cx);
+                        })),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .child(FieldElement::new(cx.entity())),
+                ),
+            cx,
+            Self::field_text_changed
+        )
     }
 
     /// Whether the filter strip is showing, for the tests that open and close it.
@@ -317,6 +328,9 @@ impl GraphView {
 impl FieldOwner for GraphView {
     fn field(&self) -> &Field {
         &self.filter_field
+    }
+    fn field_mut(&mut self) -> &mut Field {
+        &mut self.filter_field
     }
 
     fn palette(&self) -> &Rc<Palette> {

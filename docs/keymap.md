@@ -266,6 +266,18 @@ in hand. `docs/keys.md` is the human map of both halves.
 | `ctrl-backspace` | delete the word before the caret | `FieldDeleteWordBack` | — |
 | `left` | move the caret left | `FieldLeft` | — |
 | `right` | move the caret right | `FieldRight` | — |
+| `shift-left` | extend the selection left | `FieldSelectLeft` | — |
+| `shift-right` | extend the selection right | `FieldSelectRight` | — |
+| `shift-up` | select to the start of the line | `FieldSelectToStart` | — |
+| `shift-down` | select to the end of the line | `FieldSelectToEnd` | — |
+| `home` | move the caret to the start of the line | `FieldHome` | — |
+| `end` | move the caret to the end of the line | `FieldEnd` | — |
+| `shift-home` | select to the start of the line | `FieldSelectToStart` | — |
+| `shift-end` | select to the end of the line | `FieldSelectToEnd` | — |
+| `ctrl-a` | select the whole line | `FieldSelectAll` | — |
+| `ctrl-c` | copy the selection to the clipboard | `FieldCopy` | — |
+| `ctrl-x` | cut the selection to the clipboard | `FieldCut` | — |
+| `ctrl-v` | paste the clipboard over the selection | `FieldPaste` | — |
 
 ### while `picker` has the keyboard
 
@@ -273,13 +285,25 @@ in hand. `docs/keys.md` is the human map of both halves.
 | --- | --- | --- | --- |
 | `enter` | accept what is typed | `FieldSubmit` | — |
 | `escape` | dismiss without accepting | `FieldCancel` | — |
+| `down` | move the highlighted row down | `PickerDown` | — |
+| `up` | move the highlighted row up | `PickerUp` | — |
 | `backspace` | delete the character before the caret | `FieldBackspace` | — |
 | `delete` | delete the character at the caret | `FieldDelete` | — |
 | `ctrl-backspace` | delete the word before the caret | `FieldDeleteWordBack` | — |
 | `left` | move the caret left | `FieldLeft` | — |
 | `right` | move the caret right | `FieldRight` | — |
-| `down` | move the highlighted row down | `PickerDown` | — |
-| `up` | move the highlighted row up | `PickerUp` | — |
+| `shift-left` | extend the selection left | `FieldSelectLeft` | — |
+| `shift-right` | extend the selection right | `FieldSelectRight` | — |
+| `shift-up` | select to the start of the line | `FieldSelectToStart` | — |
+| `shift-down` | select to the end of the line | `FieldSelectToEnd` | — |
+| `home` | move the caret to the start of the line | `FieldHome` | — |
+| `end` | move the caret to the end of the line | `FieldEnd` | — |
+| `shift-home` | select to the start of the line | `FieldSelectToStart` | — |
+| `shift-end` | select to the end of the line | `FieldSelectToEnd` | — |
+| `ctrl-a` | select the whole line | `FieldSelectAll` | — |
+| `ctrl-c` | copy the selection to the clipboard | `FieldCopy` | — |
+| `ctrl-x` | cut the selection to the clipboard | `FieldCut` | — |
+| `ctrl-v` | paste the clipboard over the selection | `FieldPaste` | — |
 
 ### while `popup` has the keyboard
 
@@ -355,12 +379,24 @@ in hand. `docs/keys.md` is the human map of both halves.
 | --- | --- | --- | --- |
 | `escape` | close the filter strip | `GraphFilterClose` | — |
 | `enter` | close the filter strip | `GraphFilterClose` | — |
+| `alt-o` | show or hide unlinked notes | `GraphFilterOrphans` | — |
+| `alt-x` | show or hide links to notes that do not exist | `GraphFilterMissing` | — |
+| `alt-t` | show or hide tags | `GraphFilterTags` | — |
 | `backspace` | delete the character before the caret | `FieldBackspace` | — |
 | `delete` | delete the character at the caret | `FieldDelete` | — |
 | `ctrl-backspace` | delete the word before the caret | `FieldDeleteWordBack` | — |
 | `left` | move the caret left | `FieldLeft` | — |
 | `right` | move the caret right | `FieldRight` | — |
-| `alt-o` | show or hide unlinked notes | `GraphFilterOrphans` | — |
-| `alt-x` | show or hide links to notes that do not exist | `GraphFilterMissing` | — |
-| `alt-t` | show or hide tags | `GraphFilterTags` | — |
+| `shift-left` | extend the selection left | `FieldSelectLeft` | — |
+| `shift-right` | extend the selection right | `FieldSelectRight` | — |
+| `shift-up` | select to the start of the line | `FieldSelectToStart` | — |
+| `shift-down` | select to the end of the line | `FieldSelectToEnd` | — |
+| `home` | move the caret to the start of the line | `FieldHome` | — |
+| `end` | move the caret to the end of the line | `FieldEnd` | — |
+| `shift-home` | select to the start of the line | `FieldSelectToStart` | — |
+| `shift-end` | select to the end of the line | `FieldSelectToEnd` | — |
+| `ctrl-a` | select the whole line | `FieldSelectAll` | — |
+| `ctrl-c` | copy the selection to the clipboard | `FieldCopy` | — |
+| `ctrl-x` | cut the selection to the clipboard | `FieldCut` | — |
+| `ctrl-v` | paste the clipboard over the selection | `FieldPaste` | — |
 

@@ -131,6 +131,47 @@ fn keymap_matches_the_linux_keystroke_shape() {
         );
     }
 
+    // A field's keys, in the shape Linux actually delivers them: the arrows and
+    // Home/End arrive as *keysyms* (`Left`, `Home`) with the shift modifier carried
+    // separately, never as a `key_char`. A keystroke test types the string gpui
+    // parses, which cannot catch a binding spelled for a shape the platform never
+    // sends — this can.
+    let contexts = vec![gpui::KeyContext::try_from("picker").unwrap()];
+    for (control, shift, key, action) in [
+        (false, true, "left", "shale::FieldSelectLeft"),
+        (false, true, "right", "shale::FieldSelectRight"),
+        (false, false, "home", "shale::FieldHome"),
+        (false, false, "end", "shale::FieldEnd"),
+        (false, true, "home", "shale::FieldSelectToStart"),
+        (false, true, "end", "shale::FieldSelectToEnd"),
+        (false, true, "up", "shale::FieldSelectToStart"),
+        (false, true, "down", "shale::FieldSelectToEnd"),
+        (true, false, "a", "shale::FieldSelectAll"),
+        (true, false, "c", "shale::FieldCopy"),
+        (true, false, "x", "shale::FieldCut"),
+        (true, false, "v", "shale::FieldPaste"),
+    ] {
+        let typed = gpui::Keystroke {
+            modifiers: gpui::Modifiers {
+                control,
+                shift,
+                ..Default::default()
+            },
+            key: key.to_string(),
+            key_char: None,
+        };
+        let (bindings, pending) = keymap.bindings_for_input(&[typed], &contexts);
+        assert!(!pending, "{key} should not leave pending input");
+        assert_eq!(
+            bindings
+                .iter()
+                .map(|b| b.action().name())
+                .collect::<Vec<_>>(),
+            vec![action],
+            "shift {shift} + ctrl {control} + {key} should resolve to {action} in a picker"
+        );
+    }
+
     // The visual context has to carry the same bindings, or the keys stop
     // working the moment `v` is typed.
     let contexts = vec![gpui::KeyContext::try_from("vim-visual").unwrap()];
