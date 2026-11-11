@@ -192,6 +192,9 @@ impl Workspace {
             // the reader gives it and the command line does not (`:save-query`, P4.3 M6).
             ex::Ex::SaveQuery(search) => self.ask_save_query(&search, window, cx),
             ex::Ex::Props => self.props(cx),
+            // The pattern is the rest of the line verbatim; an empty one is not a
+            // missing argument but the outline of the note on screen.
+            ex::Ex::Sections(pattern) => self.sections(&pattern, window, cx),
             ex::Ex::ThemeExport(name) => match self.export_theme(&name) {
                 Ok(path) => self.say(format!("wrote {}", rel_text(&path)), cx),
                 Err(err) => self.say(format!("{err:#}"), cx),

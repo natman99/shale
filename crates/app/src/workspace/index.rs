@@ -16,16 +16,19 @@
 
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
+use std::sync::Arc;
 
 use gpui::{Context, Window};
 use shale_core::db::Provenance;
 use shale_core::frontmatter::{KeyCensus, Kind, Prop};
+use shale_core::vault::rel_text;
 use shale_core::watch::VaultChanges;
 
 use super::open::{notice, PickerTarget};
 use super::Workspace;
-use crate::acts::{PropertyKeys, Props, RenamePropertyKey, WordCount};
-use crate::picker::PickerItem;
+use crate::acts::{PropertyKeys, Props, RenamePropertyKey, Sections, WordCount};
+use crate::picker::{PickerItem, RowSource};
 
 impl Workspace {
     pub(super) fn flush_index(&self) {
@@ -272,6 +275,145 @@ impl Workspace {
         self.open_picker(label, rows, window, cx);
     }
 
+    /// `:sections [pattern]`: jump to a section (P4.3b M3).
+    ///
+    /// The argument chooses the list, and the two lists answer different questions.
+    /// With no pattern it is the note on screen, read from its **buffer**: the outline
+    /// of what the reader is looking at, unsaved edits included — the one surface the
+    /// index must not answer for (headings-plan.md ruling 52). With a pattern it is
+    /// the vault, read from `headings`: the sections in notes nobody has open, which
+    /// is the question a table can answer and a buffer cannot.
+    pub(super) fn sections(&mut self, pattern: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let pattern = pattern.trim();
+        if !pattern.is_empty() {
+            self.show_vault_sections(pattern, window, cx);
+            return;
+        }
+        let label = "Sections of this note";
+        // The note the caret is inside — inside an entered embed, the embedded note,
+        // whose outline is the one on screen — and otherwise the tab's.
+        let Some(path) = self
+            .caret_note(cx)
+            .or_else(|| self.pane().active_tab().path().map(|p| p.to_path_buf()))
+        else {
+            self.open_picker(
+                label,
+                vec![notice("no note on screen to outline")],
+                window,
+                cx,
+            );
+            return;
+        };
+        let Some(note) = self.note_entry(&path, cx) else {
+            return;
+        };
+        let text = note.buffer.borrow().text().to_string();
+        let heads = shale_core::mdstyle::object::heading_lines(&text);
+        if heads.is_empty() {
+            self.open_picker(
+                label,
+                vec![notice(format!("{} has no sections", rel_text(&path)))],
+                window,
+                cx,
+            );
+            return;
+        }
+        let rows = heads
+            .iter()
+            .map(|head| {
+                let name = text[head.text_start..head.text_end].trim();
+                (
+                    PickerItem {
+                        // Indented by depth, because the point of an outline is which
+                        // section sits inside which.
+                        label: format!(
+                            "{}{}",
+                            "  ".repeat(head.depth as usize - 1),
+                            section_name(name)
+                        )
+                        .into(),
+                        detail: format!(
+                            "{} · line {}",
+                            "#".repeat(head.depth as usize),
+                            head.line + 1
+                        )
+                        .into(),
+                        detail_ranges: Vec::new(),
+                        search: section_name(name).into(),
+                    },
+                    PickerTarget::Section {
+                        path: path.clone(),
+                        line: head.line,
+                        text: name.to_string(),
+                    },
+                )
+            })
+            .collect();
+        self.open_picker(
+            &format!("Sections of {}", rel_text(&path)),
+            rows,
+            window,
+            cx,
+        );
+    }
+
+    /// The vault-wide half of `:sections`: every section whose text holds what the
+    /// reader typed, from the `headings` table, refined as the field changes.
+    fn show_vault_sections(&mut self, seed: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let label = "Sections in the vault";
+        let Some(db) = self.db.as_ref() else {
+            // "No sections" and "I cannot look" are different answers (EDGE-25).
+            self.open_picker(
+                label,
+                vec![notice(
+                    "there is no vault index to read (index.enabled = false)",
+                )],
+                window,
+                cx,
+            );
+            return;
+        };
+        let db = Arc::clone(db);
+        let source: RowSource<PickerTarget> = Rc::new(move |want| {
+            let Ok(found) = db.sections_matching(want, MAX_SECTIONS) else {
+                return Vec::new();
+            };
+            found
+                .into_iter()
+                .map(|section| {
+                    let name = section.text.trim();
+                    (
+                        PickerItem {
+                            label: section_name(name).into(),
+                            detail: format!("{} · line {}", section.note, section.line + 1).into(),
+                            detail_ranges: Vec::new(),
+                            // The note is part of what a section is typed against, so
+                            // `:sections lair` can find a section by where it lives.
+                            search: format!("{} {}", name, section.note).into(),
+                        },
+                        PickerTarget::Section {
+                            path: PathBuf::from(&section.note),
+                            line: section.line,
+                            text: section.text.clone(),
+                        },
+                    )
+                })
+                .collect()
+        });
+        self.open_sourced_picker(label, source, seed, window, cx);
+    }
+
+    /// The palette row's `:sections`: the note on screen, because a palette row has
+    /// nowhere to type a pattern. The vault-wide list is `:sections <pattern>`.
+    pub(super) fn show_sections(
+        &mut self,
+        _: &Sections,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.sections("", window, cx);
+    }
+
     /// The palette row's `:wordcount`: the whole vault, because a palette row has
     /// nowhere to type a folder.
     pub(super) fn show_wordcount(
@@ -287,6 +429,21 @@ impl Workspace {
     /// palette row can mean.
     pub(super) fn show_props(&mut self, _: &Props, _window: &mut Window, cx: &mut Context<Self>) {
         self.props(cx);
+    }
+}
+
+/// How many vault-wide sections to offer. A keystroke reads the index, and an outline
+/// of a big vault is not something a picker should try to rank; the limit is the same
+/// posture the search picker keeps, and the field narrows what the limit cut.
+const MAX_SECTIONS: usize = 200;
+
+/// A section's name for a row. A bare `#` is a section with no name, and a row that
+/// reads as nothing looks like a bug rather than like the note's own blank heading.
+fn section_name(name: &str) -> String {
+    if name.trim().is_empty() {
+        "(unnamed section)".to_string()
+    } else {
+        name.to_string()
     }
 }
 

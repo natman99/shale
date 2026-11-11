@@ -287,6 +287,10 @@ actions!(
         // choosing a key means renaming it; the command line can skip both steps
         // with `:rename-key cr challenge`.
         RenamePropertyKey,
+        // Jump to a section (`:sections`, P4.3b M3). The palette row can only mean the
+        // note on screen, so it outlines that note; the vault-wide list needs the
+        // pattern only the command line can carry.
+        Sections,
         // Run a saved query: choose a `.shq`, run it against the index, read the rows
         // (`:query`, P4.3 M2).
         RunQuery,

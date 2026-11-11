@@ -55,6 +55,16 @@ pub(crate) enum PickerTarget {
     /// the compiler is the authority on what a search can become, and it is asked again
     /// when the name arrives, so the file cannot drift from the question.
     SaveQuery(String),
+    /// A section of a note to jump to (`:sections`, P4.3b M3). The line is the
+    /// index's 0-based line, and the text is what the index stored with it: the note
+    /// opens if it is not open, and the reveal checks the line against the buffer
+    /// before trusting it, because a note with unsaved edits answers about itself
+    /// (ruling 52).
+    Section {
+        path: std::path::PathBuf,
+        line: usize,
+        text: String,
+    },
     /// A row that exists to be read rather than chosen: the query could not be
     /// answered, and the reason *is* the answer. Choosing it repeats the reason in
     /// the status bar. A picker has no other way to say anything, and returning no
@@ -434,6 +444,26 @@ impl Workspace {
             PickerTarget::Note(path) => self.open_note(&path, cx),
             PickerTarget::Hit { path, line } => {
                 self.open_note_at(&path, line, cx);
+            }
+            PickerTarget::Section { path, line, text } => {
+                self.open_note(&path, cx);
+                // Only if the note really opened: a read error leaves the tab, and
+                // the caret, where they were.
+                if self.note().as_deref() == Some(path.as_path()) {
+                    if let Some(editor) = self.editor().cloned() {
+                        let found =
+                            editor.update(cx, |editor, cx| editor.reveal_section(line, &text, cx));
+                        if !found {
+                            // The index named a section the buffer no longer holds.
+                            // Rare (an index mid-rebuild), and worth saying rather
+                            // than silently opening the note at the top.
+                            self.say(
+                                format!("opened {}, but its section is gone", rel_text(&path)),
+                                cx,
+                            );
+                        }
+                    }
+                }
             }
             PickerTarget::Theme(name) => {
                 // Chosen, so it is saved: the theme the picker was opened with is

@@ -191,7 +191,18 @@ has stopped being drawn.
 | `ctrl-shift-f`, `space s` | vault search: every line that holds what you typed, or every note that answers an operator (below); choosing a row opens the note |
 | `/`, then `n` / `N` | search the note that is open |
 | `:wordcount [folder]` | words in the vault, or in one subtree (needs the index) |
+| `:sections [pattern]` | jump to a section: the open note's outline with no pattern, every section in the vault that holds the pattern with one (the vault-wide half needs the index) |
 | `space g` | the graph, whose filter strip narrows by `orphans` / `missing` / `tags` and by a search line |
+
+`:sections` answers about headings. With no pattern it lists the sections of the note
+on screen, in reading order and indented by depth, and choosing one puts the cursor on
+that heading — the outline pane's information without the pane. With a pattern it lists
+the vault instead: every section whose text holds what you typed, each row naming the
+note it lives in, and choosing one opens that note on the heading. The two halves read
+different things on purpose. The open note is answered by its buffer, so a heading you
+have just typed is already in the list and a heading you have moved is not jumped to by
+a stale line number; the rest of the vault is answered by the index, which is the only
+thing that knows about the notes you have not opened.
 
 ### Asking with operators
 

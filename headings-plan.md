@@ -75,6 +75,15 @@ real work — the table itself is four columns and a delete.
     buffer (`reveal_heading` does). The index answers about the vault. This goes in the
     schema doc, because it is the first thing a consumer will get wrong.
 
+53. **The two halves of a section jump read different things.** The note under the reader
+    is answered by its **buffer** — a heading typed a second ago is in the list, and a
+    heading moved since the index read it is not jumped to by a stale number. The rest of
+    the vault is answered by **`headings`**, which is the only thing that knows about the
+    notes nobody has open. Where the two meet — a jump into a note that is open and dirty —
+    the index's line is *checked* against the buffer and the text is the fallback. Checking
+    rather than always searching by text is what lets a note with two sections of the same
+    name jump to the second one.
+
 ## Edge ledger
 
 - **EDGE-1 — a `#` inside a fenced block is not a heading.** Both scanners already agree;
@@ -139,6 +148,15 @@ real work — the table itself is four columns and a delete.
   is the kind of surprise this repo refuses. Pinned by a test in M2.
 - **EDGE-16 — tabs and trailing whitespace.** `text` is trimmed at both ends; a tab after
   the markers is not part of the text.
+- **EDGE-19 — a stale line number.** The index read the file; the reader has since pushed
+  a line above everything. A jump that believes the index's line lands on the wrong text,
+  which is the symptom ruling 53 exists to prevent. Pinned by an app test that dirties a
+  note, reads the row the index still holds, and asserts the caret ends up on the heading
+  the reader is looking at.
+- **EDGE-20 — a vault with no index says it cannot look.** `:sections <pattern>` with
+  `index.enabled = false` is a notice row, not an empty list — the same posture `:keys` and
+  `:wordcount` keep (EDGE-25 there). The no-pattern half needs no index at all, which is
+  why it is the half the palette row can offer.
 - **EDGE-18 — a closing `##` is part of the name.** `## Deep *Fall* ##` styles its text as
   `Deep *Fall* ##`, and `transclude::heading_text` keeps the trailing hashes too, so the
   index and the anchor matcher agree that the hashes belong to the name. CommonMark strips
@@ -173,9 +191,16 @@ real work — the table itself is four columns and a delete.
   genuinely changed (EDGE-2), and one pins the fence rule the parser turns out to hold: a
   closing fence must use the same character as its opener and be at least as long, where the
   deleted toggle closed on any `~~~` line after a ` ``` ` one (EDGE-1).
-- **M3 — a reader.** The table earns its rows by answering something. Question G decides
-  which door: a section-grouped `.shq` (the roadmap's stated purpose, and free the moment
-  the table exists), a `:sections` picker that jumps, or both.
+- **M3 — a reader. Closed.** `:sections` is the door, and the argument chooses which of
+  two questions it asks. With no pattern it outlines the note on screen from its **buffer**,
+  indented by depth, and choosing a row puts the caret on that heading. With a pattern it
+  lists the vault from `headings`, each row naming the note the section lives in, and
+  choosing one opens that note on the heading. The grouped-query half is tested through
+  `Db::run` — the runner a saved query uses — with a query that counts a section name
+  across the vault. What v4 can group by is the **section itself**: `props` and `links`
+  have no line column, so "which section is this property in" is still a sentence the
+  schema cannot say, and the plan says that rather than letting the roadmap's phrasing
+  imply it. Ruling 53 is the one M3 adds.
 - **Not here.** The outline pane is P4.13 (it reads the buffer for the open note and this
   table for the rest); the chips are P7.10; anchor renames are P4.6's report.
 

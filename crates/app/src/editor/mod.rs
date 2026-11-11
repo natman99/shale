@@ -1397,6 +1397,37 @@ impl MarkdownEditor {
         }
     }
 
+    /// Put the view on the section the index says sits at `line`, or on the first
+    /// heading whose text matches when the buffer no longer agrees about that line.
+    ///
+    /// The index answers about the vault; the buffer answers about the note under the
+    /// reader (headings-plan.md ruling 52). A note with unsaved edits can have moved a
+    /// heading since the index read it, and a jump that believes a stale line number
+    /// lands on the wrong text — so the line is *checked* against the buffer rather
+    /// than believed. Checking is also what lets a note with two sections of the same
+    /// name jump to the second one, which a text search could not do.
+    pub(crate) fn reveal_section(
+        &mut self,
+        line: usize,
+        text: &str,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let agreed = {
+            let buffer = self.note.buffer.borrow();
+            let text_of = |head: &shale_core::mdstyle::object::HeadingLine| {
+                buffer.text()[head.text_start..head.text_end].trim()
+            };
+            shale_core::mdstyle::object::heading_lines(buffer.text())
+                .iter()
+                .any(|head| head.line == line && text_of(head).eq_ignore_ascii_case(text.trim()))
+        };
+        if agreed {
+            self.reveal_line(line, cx);
+            return true;
+        }
+        self.reveal_heading(text, cx)
+    }
+
     /// Put the cursor on the buffer byte `offset` and scroll it into view. What
     /// `/` and `n`/`N` do with a match: the cursor lands on the match's first
     /// byte, which is where the reader wants to be, and the vim engine is left

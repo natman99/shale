@@ -87,6 +87,11 @@ pub(crate) enum Ex {
     /// key list, no new name opens the prompt. A key with a space in it is reachable
     /// through the list, not typed here — the command line splits on spaces.
     RenameKey(String, String),
+    /// `sections [pattern]`: jump to a section (P4.3b M3). No pattern outlines the
+    /// note on screen from its buffer; a pattern searches the vault's sections through
+    /// the index. The rest of the line is the pattern verbatim, because a section name
+    /// can hold a space.
+    Sections(String),
     /// `query`: run a saved query (`:query`, P4.3 M2). The name is not an argument —
     /// the command opens the list of `.shq` files, because the file's *name* is what a
     /// reader remembers and the picker is the surface that matches against it.
@@ -178,6 +183,7 @@ impl Ex {
             Ex::Props => "vault.props",
             Ex::PropertyKeys => "vault.keys",
             Ex::RenameKey(..) => "vault.rename-key",
+            Ex::Sections(..) => "vault.sections",
             Ex::Query => "vault.query",
             Ex::SaveQuery(..) => "vault.save-query",
             Ex::Review => "review.focus",
@@ -356,6 +362,7 @@ pub(crate) fn parse(line: &str) -> Ex {
         "keys" => Ex::PropertyKeys,
         // A saved question, run rather than read: the picker lists the vault's `.shq`
         // files and the answer comes back as rows.
+        "sections" => Ex::Sections(rest.to_string()),
         "query" => Ex::Query,
         "save-query" => Ex::SaveQuery(rest.to_string()),
         "rename-key" => {

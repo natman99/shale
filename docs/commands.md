@@ -46,6 +46,7 @@ as you would type it.
 | `clipboard.paste` | Paste from the clipboard | `ctrl-shift-v` | `:paste`, `:p` | — |
 | `vault.props` | Show the open note's properties | — | `:props`, `:properties` | — |
 | `vault.keys` | List the vault's property keys | — | `:keys` | — |
+| `vault.sections` | Jump to a section | — | `:sections [pattern]` | `[pattern]` |
 | `vault.query` | Run a saved query | — | `:query` | — |
 | `vault.save-query` | Save a search as a query | — | `:save-query [search]` | `[search]` |
 | `vault.rename-key` | Rename a property key across the vault | — | `:rename-key [old] [new]` | `[old] [new]` |

@@ -56,10 +56,10 @@ export, Templates, tree-sitter code highlighting.
 `.shq` item ran M1 through M8 in two days (format and runner, the `:query` door, the folded
 note with its answer drawn under it, `![[query-name]]` and the link it asserts, relative
 queries, keep-a-search, the agent door, and the graph learning what a query is). What that
-unblocks is the sequence the dependency order already wrote: **P4.3b** (the headings index,
-sequenced after P4.3 on purpose), then **P4.9** block refs, then the computed surfaces
-(P4.15) and the consumers that were waiting — the graph lens (P4.16) and the GM screen
-(P7.4).**
+unblocks is the sequence the dependency order already wrote. **P4.3b is closed too** (2026-11-10:
+schema v4's `headings` table, one heading scanner for the whole app, and `:sections` as its
+reader — see its item below). Next is **P4.9** block refs, then the computed surfaces (P4.15)
+and the consumers that were waiting — the graph lens (P4.16) and the GM screen (P7.4).**
 P4.0 closed on 2026-11-08 (the hover card was its last owed item; `![[query-name]]` waits
 on P4.3 and block refs on P4.9). **P4.3a's indexing half is closed:** M1 (the parser, the
 `props` table, `:props`) and M2 (the projections — `tags`, `aliases`, and `edges` finally
@@ -1541,8 +1541,17 @@ edges, query nodes, MCP canvas tools) is P6.10.
     one out. What a reader can notice: `[[note#Tabbed]]` reaches `#\tTabbed` and that heading
     folds, and a fence closer now has to match its opener the way CommonMark says. No existing
     anchor or fold test was re-recorded; killing the shared scan turns 25 of them red at once,
-    which is the proof the three surfaces really do read one walk now. M3 opens the `:sections`
-    door.
+    which is the proof the three surfaces really do read one walk now.
+    **M3 closed (2026-11-10): P4.3b is done.** `:sections` outlines the note on screen from
+    its **buffer** (indented by depth, each row naming its line) and, with a pattern, lists
+    the vault from `headings` — each row naming the note the section lives in — and choosing
+    either puts the caret on the heading. Where the index's line meets a dirty buffer the line
+    is *checked* before it is trusted, with the heading's text as the fallback (ruling 53),
+    which is also what lets a note with two same-named sections jump to the second one. The
+    grouped-query half is tested through `Db::run`: what v4 can group by is the section
+    itself, since `props` and `links` have no line column yet — the roadmap's promise that a
+    query can group things by the section they sit in needs one, and that is a later bump
+    rather than a promise this one quietly drops.
 - **P4.4 Tag tree panel** (brainstorm ✅): rollup counts, fuzzy filter, Enter =
   search, `g` = filter graph, `r` = rename tag vault-wide, color assignment →
   graph groups. Plus `#` autocomplete from the DB.

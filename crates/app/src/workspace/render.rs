@@ -660,6 +660,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::copy_text))
             .on_action(cx.listener(Self::show_wordcount))
             .on_action(cx.listener(Self::show_props))
+            .on_action(cx.listener(Self::show_sections))
             .on_action(cx.listener(Self::show_property_keys))
             .on_action(cx.listener(Self::show_rename_key))
             .on_action(cx.listener(Self::show_queries))

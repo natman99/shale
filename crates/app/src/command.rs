@@ -568,6 +568,15 @@ const ALL: &[Command] = &[
         action: Some(|| Box::new(PropertyKeys)),
     },
     Command {
+        id: "vault.sections",
+        label: "Jump to a section",
+        keys: "",
+        ex: &["sections"],
+        args: "[pattern]",
+        in_palette: true,
+        action: Some(|| Box::new(Sections)),
+    },
+    Command {
         id: "vault.query",
         label: "Run a saved query",
         keys: "",

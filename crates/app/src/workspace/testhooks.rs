@@ -891,6 +891,11 @@ fn render_target(target: &PickerTarget) -> String {
         // The same census row, in the pane's rename mood: what a test needs to see
         // is that choosing this row renames *this* key rather than searching it.
         PickerTarget::RenameKey(key) => format!("rename {key}"),
+        // A section jump: which note, which heading, and the line the index named
+        // (0-based, the basis the table stores — unlike a search hit's 1-based line).
+        PickerTarget::Section { path, line, text } => {
+            format!("{}#{}@{}", rel_text(path), text, line)
+        }
         PickerTarget::RunQuery(path) => format!("query {}", path.display()),
         PickerTarget::SaveQuery(search) => format!("save {search}"),
         PickerTarget::Notice(reason) => reason.to_string(),

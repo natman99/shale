@@ -714,3 +714,164 @@ fn a_written_twice_key_and_an_unread_value_say_what_they_are(cx: &mut TestAppCon
         "the unread value is named as unread: {line}"
     );
 }
+
+// ---- `:sections`: the outline, and the vault-wide jump (P4.3b M3) ----
+
+/// The row a section jump renders: which note, which heading, and the line the index
+/// named — 0-based, the basis the `headings` table stores.
+fn caret_row(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> usize {
+    window
+        .update(cx, |ws, _window, cx| ws.cursor_position(cx))
+        .unwrap()
+        .0
+}
+
+/// `:sections` with no pattern outlines the note on screen, in reading order, each row
+/// saying how deep it is and which line it sits on. The list comes from the **buffer**,
+/// so it is the outline of what the reader is looking at rather than what the disk
+/// remembers (headings-plan.md ruling 52).
+#[gpui::test]
+fn sections_outlines_the_note_on_screen(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("Lair.md", "# The Fall\nbody\n## The Deep\nmore\n")]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "Lair.md");
+    type_command("sections", cx);
+
+    let rows = window
+        .update(cx, |ws, _window, cx| ws.picker_rows(cx))
+        .unwrap();
+    assert_eq!(
+        rows,
+        vec!["Lair.md#The Fall@0", "Lair.md#The Deep@2"],
+        "in reading order, with the line the reveal will use"
+    );
+
+    let shown = window
+        .update(cx, |ws, _window, cx| ws.picker_shown(cx))
+        .unwrap();
+    assert_eq!(shown[0].0, "The Fall");
+    assert_eq!(
+        shown[1].0, "  The Deep",
+        "indented by depth, because the point of an outline is which section is inside which"
+    );
+    assert_eq!(
+        shown[1].1, "## · line 3",
+        "the markers and the line are the dim half: 1-based, the way a reader counts"
+    );
+}
+
+/// Choosing a row puts the caret on the heading, not at the top of the note.
+#[gpui::test]
+fn a_section_row_puts_the_caret_on_its_heading(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(
+        cx,
+        &[("Lair.md", "# The Fall\nbody\n## The Deep\nmore\nand more\n")],
+    );
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "Lair.md");
+    type_command("sections", cx);
+    // `down`, not `j`: the picker is a text field first, so a typed `j` would filter
+    // the list to nothing rather than step through it.
+    cx.simulate_keystrokes("down enter");
+
+    assert_eq!(
+        caret_row(&window, cx),
+        2,
+        "the second row is `## The Deep`, on buffer row 2"
+    );
+}
+
+/// A note with nothing to outline is an answer, not an empty pane.
+#[gpui::test]
+fn a_note_with_no_sections_says_so(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("Plain.md", "just prose\n")]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "Plain.md");
+    type_command("sections", cx);
+
+    let rows = window
+        .update(cx, |ws, _window, cx| ws.picker_rows(cx))
+        .unwrap();
+    assert_eq!(rows, vec!["Plain.md has no sections"]);
+}
+
+/// With a pattern the list is the vault, read from `headings`: the sections in notes
+/// nobody has open, which is the question a table can answer and a buffer cannot.
+#[gpui::test]
+fn sections_with_a_pattern_lists_the_vault_through_the_index(cx: &mut TestAppContext) {
+    let (_dir, window) = indexed_vault(
+        cx,
+        &[
+            ("Lair.md", "# The Fall\nbody\n## The Deep\n"),
+            ("Other.md", "# the fall\n"),
+            ("Third.md", "# Nothing here\n"),
+        ],
+    );
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    type_command("sections fall", cx);
+
+    let rows = window
+        .update(cx, |ws, _window, cx| ws.picker_rows(cx))
+        .unwrap();
+    assert_eq!(
+        rows,
+        vec!["Lair.md#The Fall@0", "Other.md#the fall@0"],
+        "case-insensitively, in note order, and the note that has no such section is absent"
+    );
+
+    let shown = window
+        .update(cx, |ws, _window, cx| ws.picker_shown(cx))
+        .unwrap();
+    assert_eq!(
+        shown[0].1, "Lair.md · line 1",
+        "the note is the dim half, because out here the section is not the interesting part"
+    );
+}
+
+/// A vault with no index says it cannot look rather than reporting no sections — the
+/// same posture `:keys` and `:wordcount` keep (EDGE-25).
+#[gpui::test]
+fn sections_without_an_index_says_it_cannot_look(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("Lair.md", "# The Fall\n")]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    type_command("sections fall", cx);
+
+    let rows = window
+        .update(cx, |ws, _window, cx| ws.picker_rows(cx))
+        .unwrap();
+    assert_eq!(
+        rows,
+        vec!["there is no vault index to read (index.enabled = false)"]
+    );
+}
+
+/// The index answers about the vault; the buffer answers about the note under the
+/// reader. A note edited since the index read it has moved its headings, and the jump
+/// checks the line against the buffer instead of believing it — so the caret lands on
+/// the heading the reader can see. Believing the stale line is what this test catches.
+#[gpui::test]
+fn a_section_jump_into_a_dirty_note_lands_on_the_heading_the_reader_sees(cx: &mut TestAppContext) {
+    let (_dir, window) = indexed_vault(cx, &[("Gift.md", "# Gift\nnot this\n## The middle\n")]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "Gift.md");
+    // A line above everything, left unsaved: the index still remembers the headings
+    // where the file had them.
+    cx.simulate_keystrokes("gg O pushed down escape");
+
+    type_command("sections middle", cx);
+    let rows = window
+        .update(cx, |ws, _window, cx| ws.picker_rows(cx))
+        .unwrap();
+    assert_eq!(
+        rows,
+        vec!["Gift.md#The middle@2"],
+        "the index's line, stale by one"
+    );
+
+    cx.simulate_keystrokes("enter");
+    assert_eq!(
+        caret_row(&window, cx),
+        3,
+        "the heading where the reader is looking at it, not where the index last read it"
+    );
+}

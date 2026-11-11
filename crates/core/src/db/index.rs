@@ -115,6 +115,22 @@ impl SyncReport {
 /// the vault's only one, so reading and parsing happen outside it, and a note that
 /// cannot be read costs its own row rather than taking the rest of the pass down
 /// with it.
+/// One section of one note, as a vault-wide section lookup answers it.
+///
+/// The note is named because the answer is about the vault; `line` is the **0-based**
+/// line index, the same basis the `headings` table stores and a reveal reads.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Section {
+    /// Vault-relative path to the note that holds the section.
+    pub note: String,
+    /// 0-based line index of the heading's line.
+    pub line: usize,
+    /// The heading's text as the file wrote it, inline markdown included.
+    pub text: String,
+    /// The marker count, 1 to 6.
+    pub depth: u8,
+}
+
 /// One section of a note, as schema v4 records it. Derived from the parser's
 /// heading scan, never from anything the author wrote: there is no syntax for
 /// "this is a section" beyond the heading itself, so the row cannot be lied to.
@@ -797,6 +813,43 @@ impl Db {
         let mut out = Vec::new();
         for row in rows {
             out.push(row.context("reading the vault index's properties")?);
+        }
+        Ok(out)
+    }
+
+    /// Every section in the vault whose text contains `want`, in note-then-line
+    /// order; an empty `want` is the whole outline, up to `limit` rows.
+    ///
+    /// This is what the `headings_text` index is for: the question is asked across
+    /// notes nobody has open, which is the only reason a section needs to be in a
+    /// table at all (`headings-plan.md` question G). Matching is SQLite's `LIKE`, so
+    /// it is case-insensitive for ASCII — the same slack the anchor matcher gives an
+    /// author typing from memory — and the wildcards in what the reader typed are
+    /// quoted, so `100%` finds a section called `100%` and not everything.
+    pub fn sections_matching(&self, want: &str, limit: usize) -> Result<Vec<Section>> {
+        let like = format!("%{}%", escape_like(want.trim()));
+        let conn = self.read()?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT note, line, text, depth FROM headings
+                 WHERE text LIKE ?1 ESCAPE '\\'
+                 ORDER BY note, line
+                 LIMIT ?2",
+            )
+            .context("reading the vault index's sections")?;
+        let rows = stmt
+            .query_map(params![like, limit as i64], |row| {
+                Ok(Section {
+                    note: row.get(0)?,
+                    line: row.get::<_, i64>(1)? as usize,
+                    text: row.get(2)?,
+                    depth: row.get::<_, i64>(3)?.clamp(0, 6) as u8,
+                })
+            })
+            .context("reading the vault index's sections")?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row.context("reading the vault index's sections")?);
         }
         Ok(out)
     }
@@ -1984,6 +2037,97 @@ mod tests {
              fence held the comment out of the section list, and `> ## Quoted` on line 7 is \
              quoted text rather than a section of this note — the parser styles no heading \
              inside a blockquote, which is also what the fold and the anchor matcher do"
+        );
+    }
+
+    /// P4.3b M3: the table answers the vault-wide question, which is the only reason a
+    /// section needs to be in a table at all (question G). Note-then-line order, because
+    /// the answer is an outline of the vault rather than a bag of headings.
+    #[test]
+    fn a_section_can_be_found_across_the_vault() {
+        let (_dir, vault, db) = vault_with(&[
+            ("Third.md", "## Deep *Fall*\n"),
+            ("Lair.md", "# The Fall\n## The Deep\n"),
+            ("Other.md", "# the fall\n"),
+        ]);
+        db.reconcile(&vault).unwrap();
+        let found = db.sections_matching("fall", 20).unwrap();
+        assert_eq!(
+            found
+                .iter()
+                .map(|s| (s.note.as_str(), s.line, s.text.as_str(), s.depth))
+                .collect::<Vec<_>>(),
+            vec![
+                ("Lair.md", 0, "The Fall", 1),
+                ("Other.md", 0, "the fall", 1),
+                ("Third.md", 0, "Deep *Fall*", 2),
+            ],
+            "matched case-insensitively, the way an author types an anchor"
+        );
+
+        assert_eq!(
+            db.sections_matching("", 20)
+                .unwrap()
+                .into_iter()
+                .map(|s| s.note)
+                .collect::<Vec<_>>(),
+            vec!["Lair.md", "Lair.md", "Other.md", "Third.md"],
+            "an empty pattern is the whole outline, not nothing"
+        );
+    }
+
+    /// The wildcards in what the reader typed are quoted, so a section called `100%`
+    /// is found by `100%` and everything else is not swept in — the same trap the
+    /// `link:` operator fell into (P4.14).
+    #[test]
+    fn a_section_pattern_is_a_substring_and_not_a_glob() {
+        let (_dir, vault, db) = vault_with(&[("Weird.md", "## 100%\n## 1000\n## a_b\n## axb\n")]);
+        db.reconcile(&vault).unwrap();
+        assert_eq!(
+            db.sections_matching("100%", 20)
+                .unwrap()
+                .into_iter()
+                .map(|s| s.text)
+                .collect::<Vec<_>>(),
+            vec!["100%"]
+        );
+        assert_eq!(
+            db.sections_matching("a_b", 20)
+                .unwrap()
+                .into_iter()
+                .map(|s| s.text)
+                .collect::<Vec<_>>(),
+            vec!["a_b"]
+        );
+    }
+
+    /// The roadmap's stated purpose — a query that groups by section — asked through
+    /// the runner a saved query uses. What v4 can group by is the section itself:
+    /// props and links have no line column yet, so "which section is this property
+    /// in" waits for one, and the plan says so rather than pretending otherwise.
+    #[test]
+    fn a_saved_query_can_group_the_vault_by_section() {
+        let (_dir, vault, db) = vault_with(&[
+            ("notes/A.md", "# A\n## Scene\nfirst\n## Scene\nsecond\n"),
+            ("notes/B.md", "# B\n## Scene\n"),
+            ("notes/C.md", "# C\nno scenes here\n"),
+        ]);
+        db.reconcile(&vault).unwrap();
+        let rows = db
+            .run(
+                "SELECT note || ' ' || CAST(COUNT(*) AS TEXT) FROM headings
+                 WHERE lower(text) = 'scene'
+                 GROUP BY note
+                 ORDER BY note",
+                &[],
+            )
+            .unwrap();
+        let got: Vec<String> = rows.rows.iter().map(|row| row[0].display()).collect();
+        assert_eq!(
+            got,
+            vec!["notes/A.md 2", "notes/B.md 1"],
+            "two sections with the same name in one note are two rows (ruling 50), \
+             and a note with none is simply absent"
         );
     }
 
