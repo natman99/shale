@@ -750,6 +750,20 @@ mobile, ~~Canvas~~ **reopened 2026-11-03 — see the Canvas section below and
   finest atom for free. Hover preview on a block ref shows just that block.
 - Graph edges stay note-level (Obsidian's rule); block refs enrich the
   backlinks panel with the exact block.
+- **Design pass ruled 2026-11-11** (all eleven questions, recommendations taken; the
+  reasoning and the edge ledger are in `blockrefs-plan.md`): blocks are markdown-aware
+  (paragraph, one list item with its nested children, whole quote/callout/table, code
+  fence, heading line); Obsidian's id grammar exactly (`[A-Za-z0-9-]+`, at the end of the
+  block's last line after whitespace, or alone on a line with a blank above,
+  case-sensitive); **schema v5 `blocks(note, id, line)`** — indexed, not scanned on
+  demand; an id on a heading names the line, not the section; quotes, callouts and tables
+  are addressable only as a whole; the `^id` is painted `dim` and **never hidden** (a
+  deliberate divergence from Obsidian's preview — an anchor asserts, it does not compute),
+  with the standing embed nesting cap pinned by a test rather than assumed; `:block-id`
+  (palette, no chord, one undoable edit, never a second id on one block) and `:blocks`
+  (vault-wide, riding `:sections`); duplicate ids tie-break shortest path then
+  alphabetical, and both are listed; `ib`/`ab` become block text objects;
+  `[[note#Heading#^id]]` is refused and documented as refused.
 
 ### Outline pane ✅
 - Heading tree in a sidebar: click to jump, current heading highlighted while

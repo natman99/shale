@@ -78,7 +78,24 @@ whole block is the atom); ids are Latin letters, numbers and dashes only; `[[^^b
 searches the vault. `[^id]` is a footnote, a separate syntax — a collision hazard to design
 around.
 
-## 3. Rulings this pass needs
+## 3. Rulings — ALL RESOLVED (2026-11-11)
+
+The user answered all eleven in one reply, taking the recommendation on every one.
+The options stay below as the record of what was on the table.
+
+| # | Ruling |
+|---|---|
+| 1 | **Markdown-aware blocks**, Obsidian's set: paragraph, one list item (with its nested children), whole quote/callout/table, code fence, heading line. One scan in `mdstyle`. |
+| 2 | **Obsidian's grammar exactly**: `[A-Za-z0-9-]+`, at the end of the block's last line after whitespace, or alone on its own line with a blank above; case-sensitive. Generated ids stay 6 chars of `a-z2-7`. |
+| 3 | **Index it**: schema v5 `blocks(note, id, line)`, `line` = the block's first line, extent re-derived from the text. |
+| 4 | An id on a heading names **the heading line**, not its section. |
+| 5 | **Whole quote/callout/table** is the atom; a list item includes its sub-list. |
+| 6 | **Never hide the anchor** — `dim`, not a marker. Plus the user's addition: *keep the recursion cap*. The standing embed cap (`transclude::MAX_DEPTH = 3`, 1 editable + 2 read-only) bounds block embeds too, and M3 pins it with a test rather than trusting the note in this file. |
+| 7 | `:block-id` in the palette, no chord, one grouped edit, refuses a second id on a block. |
+| 8 | **Yes to `:blocks`**, riding `:sections`. |
+| 9 | Duplicate ids: both exist, resolver tie-breaks shortest path then alphabetical, `:blocks` shows both. |
+| 10 | **`ib`/`ab` block text object**, free on top of the scan. |
+| 11 | `[[note#Heading#^id]]` is **refused** this phase and documented as refused. |
 
 Eleven questions, each with the recommendation first. Answer by number.
 
@@ -237,10 +254,21 @@ Given A–E and the v5 table:
 
 Split by dependency; each closes with the workspace gate green and its falsifications run.
 
-- **M1 — the scan and the span (core only).** `mdstyle::blocks(text) -> Vec<Block>` (kind,
-  first/last line, byte range) and `block_anchors(text)` for the ids it carries;
-  `Style::BlockAnchor` painted `dim`, not a marker. No schema, no resolver. Tests: every
-  EDGE from 1 to 10, plus the fence rules.
+- **M1 — the scan and the span (core only). CLOSED (2026-11-11).**
+  `mdstyle::blockmap::block_map(text) -> BlockMap { blocks, anchors }` — `Block` carries
+  kind, first/last line, byte range and indent; `BlockAnchor` carries the id, the token's
+  byte range, its line, and which block it names. `Style::BlockAnchor` is painted `dim` and
+  kept out of `mdlayout::is_marker`. No schema, no resolver.
+  Two deviations from the wording above, both deliberate: the scan lives in its own module,
+  `mdstyle/blockmap.rs` (with the span scan in one file, `block.rs` would have passed the
+  repo's 1000-line refactor line), and it returns one map rather than two functions, because
+  an anchor means nothing except next to the block it attaches to.
+  15 tests. Six falsifications, each turning at least one red: the whitespace-before-the-caret
+  rule, the deepest-block-wins rule, "the block must end on the anchor's line", the blank line
+  above an own-line id, structured blocks taking only the own-line form, and the marker set.
+  Two guards were **deleted** rather than kept, because breaking them showed they decided
+  nothing once the block-kind rule and the walk's own skipping were in place: marking fence
+  lines as code, and a properties-block check inside the anchor pass.
 - **M2 — schema v5.** `blocks(note, id, line)` + index; written in the note's record pass
   with per-note delete; `note_removed` clears it; `Db::block_exists(id)` and
   `Db::blocks_matching(want, limit)`; a v4 vault gains the table by rebuild (the v3→v4
