@@ -79,15 +79,20 @@ real work — the table itself is four columns and a delete.
 
 - **EDGE-1 — a `#` inside a fenced block is not a heading.** Both scanners already agree;
   the span scanner gets it for free (it never styles a fenced line as a heading), and the
-  re-pointed matcher inherits it. Pinned by a test that also proves the old hand-rolled
-  fence toggle is gone.
-- **EDGE-2 — `#` alone, and `#\tText`.** Checked against the code, and the parser really
-  does differ here: `mdstyle` styles both (a bare `#` as a heading with empty text, a tab
-  after the markers as whitespace), while `transclude::heading_level` insists on a space and
-  refuses both. Ruling 46: the index follows the parser, so both get rows. The fold reads
-  the matcher, so today a bare `#` looks like a heading, folds like prose, and cannot be
-  jumped to — three surfaces, two answers, and M2 is where the matcher stops being the odd
-  one out. The anchor for `#` alone is the empty string either way (EDGE-15).
+  re-pointed matcher inherits it. The parser's fence rules turn out to be **stricter** than
+  the toggle the matcher deleted: `mdstyle` needs three or more of one character to open, and
+  its closer must be the same character and at least as long, while `transclude::fence`
+  toggled on any line starting with ` ``` ` or `~~~`. A note that mixed the two styles used
+  to have its headings hidden past a stray tilde; now it does not, and both the fold and the
+  painter have been holding this rule all along. Pinned in M2.
+- **EDGE-2 — `#` alone, and `#\tText`.** **Closed by M2.** Checked against the code, and the
+  parser really does differ here: `mdstyle` styles both (a bare `#` as a heading with empty
+  text, a tab after the markers as whitespace), while `transclude::heading_level` insisted on
+  a space and refused both. The fold was not the odd one out — it walked the style spans
+  itself, with its own merge rule and its own line search, so it already agreed with the
+  painter; that made it a *fourth* copy of the same walk rather than a disagreeing scanner.
+  Now all three read `mdstyle::object::heading_lines`, and the change a reader could notice
+  is that `[[note#Tabbed]]` jumps to `#\tTabbed` and that heading folds.
 - **EDGE-3 — `> ## Title` inside a blockquote.** The survey guessed the parser styled it. It
   does not: `mdstyle` styles no heading inside a blockquote, and `heading_level` refuses the
   line for its own reason (it wants a `#` at the line's start). Both say *not a section*, so
@@ -126,9 +131,12 @@ real work — the table itself is four columns and a delete.
   Headings are a second pass over the same text unless the spans are computed once and fed
   to both. Measure on the 5k fixture before restructuring; the indexer is a background
   walk, not a frame budget.
-- **EDGE-15 — an empty heading.** A row with `text = ''`. An anchor naming the empty string
-  (`[[note#]]`) matches the first empty heading — pinned, because "no anchor" and "empty
-  anchor" are different questions and `[[note#]]` means the second.
+- **EDGE-15 — an empty heading, and an anchor with no text.** A bare `#` is a section and the
+  index lists it with `text = ''`: the census says what the note has. An anchor naming the
+  empty string (`[[note#]]`) matches **nothing** and says so. The plan's first draft had the
+  empty anchor finding the first nameless heading; that is reversed here on purpose — an empty
+  anchor is a typo rather than a request, and a jump that silently lands on an unnamed section
+  is the kind of surprise this repo refuses. Pinned by a test in M2.
 - **EDGE-16 — tabs and trailing whitespace.** `text` is trimmed at both ends; a tab after
   the markers is not part of the text.
 - **EDGE-18 — a closing `##` is part of the name.** `## Deep *Fall* ##` styles its text as
@@ -153,10 +161,18 @@ real work — the table itself is four columns and a delete.
   with the text range and depth the old `headings()` threw away) and `transclude` still has
   its own line scanner until M2. The table also answers through `Db::run`, which is the door
   a saved query uses — the rows are not a shell even before M3.
-- **M2 — one scanner.** `heading_row`/`section_rows` re-pointed at the span scan, the line
-  scanner deleted, EDGE-2 and EDGE-3 turned from "disagreement" into pinned behaviour. The
-  risk in this milestone is the anchor tests that were written against the wrong scanner;
-  they get re-read, not re-recorded.
+- **M2 — one scanner. Closed.** `heading_row` and `section_rows` re-pointed at
+  `mdstyle::object::heading_lines` (the span scan in line numbers), and what is deleted is
+  worth listing: `heading_level`, `heading_text`, the hand-rolled fence toggle in both
+  anchor functions, `transclude::fence` itself, and `fold::heading_rows` — a fourth copy of
+  the same span walk, with its own merge rule for a marker run. The anchor *matching* rule
+  (trim, case-insensitive, first match wins) stayed where it was, as ruling 46 said; only
+  "is this line a heading, and which part is its name" moved. No existing anchor test was
+  re-recorded: the ones that pinned fence behaviour and section slicing passed unchanged,
+  which is the result this milestone was supposed to produce. Two new ones pin what
+  genuinely changed (EDGE-2), and one pins the fence rule the parser turns out to hold: a
+  closing fence must use the same character as its opener and be at least as long, where the
+  deleted toggle closed on any `~~~` line after a ` ``` ` one (EDGE-1).
 - **M3 — a reader.** The table earns its rows by answering something. Question G decides
   which door: a section-grouped `.shq` (the roadmap's stated purpose, and free the moment
   the table exists), a `:sections` picker that jumps, or both.

@@ -14,7 +14,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::mdstyle::{style_spans, Style};
+use crate::mdstyle::object::heading_lines;
 
 /// How a fold is remembered across edits.
 ///
@@ -81,7 +81,13 @@ impl FoldRegion {
 /// heading always comes before the sections nested under it).
 pub fn fold_regions(text: &str) -> Vec<FoldRegion> {
     let starts = line_starts(text);
-    let headings = heading_rows(text, &starts);
+    // The parser's own scan, in line numbers: the fold, the vault index, the text
+    // object and the anchor matcher all read this one walk, so a section that looks
+    // like a section folds like one and can be jumped to (headings-plan.md ruling 46).
+    let headings: Vec<(usize, u8)> = heading_lines(text)
+        .into_iter()
+        .map(|head| (head.line, head.depth))
+        .collect();
 
     // Number repeated heading texts in buffer order so two sections with the
     // same title can be folded apart.
@@ -324,39 +330,6 @@ fn row_text<'a>(text: &'a str, starts: &[usize], row: usize) -> &'a str {
         .unwrap_or("")
 }
 
-/// `(row, level)` for every heading, in buffer order.
-///
-/// The markdown scanner decides what a heading is, which is what keeps a `#`
-/// inside a fenced code block from opening a section.
-fn heading_rows(text: &str, starts: &[usize]) -> Vec<(usize, u8)> {
-    let mut out: Vec<(usize, u8)> = Vec::new();
-    for span in style_spans(text) {
-        let level = match span.style {
-            Style::Heading { level } => level,
-            // A heading with no text after the markers gets only the marker
-            // span, so the level is the run of `#` itself.
-            Style::HeadingMarker => {
-                text[span.start..].chars().take_while(|&c| c == '#').count() as u8
-            }
-            _ => continue,
-        };
-        if level == 0 || level > 6 {
-            continue;
-        }
-        let row = starts
-            .binary_search(&span.start)
-            .unwrap_or_else(|i| i.saturating_sub(1));
-        if let Some((last_row, last_level)) = out.last_mut() {
-            if *last_row == row {
-                *last_level = (*last_level).max(level);
-                continue;
-            }
-        }
-        out.push((row, level));
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -391,6 +364,21 @@ mod tests {
     fn a_hash_inside_a_fenced_block_is_not_a_heading() {
         let text = "# Real\n```\n# fake\n```\nafter\n";
         assert_eq!(rows(text), vec![(0, 5, 1)]);
+        assert_eq!(
+            rows("# Real\n~~~\n# fake\n~~~\nafter\n"),
+            vec![(0, 5, 1)],
+            "a tilde fence is a fence, and the closer has to match the opener"
+        );
+    }
+
+    /// The fold used to walk the style spans itself, with its own merge rule for a
+    /// marker run and its own line search. It now reads the same scan the painter, the
+    /// vault index and the anchor matcher read, so a heading that looks like a section
+    /// folds like one — including the tab-separated heading the anchor matcher used to
+    /// refuse (headings-plan.md ruling 46, EDGE-2).
+    #[test]
+    fn a_tab_after_the_markers_opens_a_fold() {
+        assert_eq!(rows("#\tOne\nbody\nlast\n"), vec![(0, 3, 1)]);
     }
 
     #[test]

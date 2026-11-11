@@ -20,6 +20,7 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
+use crate::mdstyle::object::{heading_lines, HeadingLine};
 use crate::vault::{Vault, VaultEntry};
 
 /// How many levels of embed expand before they become badges.
@@ -408,34 +409,22 @@ fn label(embed: &EmbedRef, stem: &str) -> String {
 /// from memory. A `#` inside a fenced code block is neither a heading nor a
 /// boundary; the fence itself is part of the section it sits in.
 pub fn section_rows<'a>(text: &'a str, anchor: &str) -> Option<Vec<(usize, &'a str)>> {
-    let want = anchor.trim().to_lowercase();
-    let mut inside_fence = false;
-    let mut level: Option<usize> = None;
-    let mut out: Vec<(usize, &'a str)> = Vec::new();
-    for (index, line) in text.lines().enumerate() {
-        if fence(line) {
-            inside_fence = !inside_fence;
-        }
-        let heading = if inside_fence {
-            None
-        } else {
-            heading_level(line)
-        };
-        match (level, heading) {
-            (None, Some(_)) if heading_text(line).eq_ignore_ascii_case(&want) => {
-                level = Some(heading.unwrap());
-                out.push((index, line));
-            }
-            (Some(lvl), Some(h)) if h <= lvl => break,
-            (Some(_), _) | (None, None) => {
-                if level.is_some() {
-                    out.push((index, line));
-                }
-            }
-            (None, Some(_)) => {}
-        }
-    }
-    (!out.is_empty()).then_some(out)
+    let head = find_heading(text, anchor)?;
+    // The section runs to the next heading of the same depth or shallower. The
+    // headings come from the parser's scan, so a `#` inside a fenced block neither
+    // opens a section nor ends one — the fence is part of the section it sits in.
+    let heads = heading_lines(text);
+    let end = heads
+        .iter()
+        .find(|other| other.line > head.line && other.depth <= head.depth)
+        .map_or(usize::MAX, |other| other.line);
+    Some(
+        text.lines()
+            .enumerate()
+            .skip(head.line)
+            .take_while(|(line, _)| *line < end)
+            .collect(),
+    )
 }
 
 /// As [`section_rows`], with the row numbers dropped.
@@ -452,46 +441,29 @@ pub fn section(text: &str, anchor: &str) -> Option<Vec<String>> {
 /// heading the embed would not, or the other way round, gives the reader two answers to
 /// the same written question.
 pub fn heading_row(text: &str, anchor: &str) -> Option<usize> {
+    find_heading(text, anchor).map(|head| head.line)
+}
+
+/// The heading an anchor names, from the parser's own scan: the same walk the fold,
+/// the vault index and the text object read, so the section an embed slices and the
+/// row a jump reveals are the same section (headings-plan.md ruling 46).
+///
+/// Matching stays the anchor matcher's own rule — trimmed, case-insensitive, first
+/// match wins — because the author types from memory. What moved here is only "is
+/// this line a heading, and which part of it is its name".
+fn find_heading(text: &str, anchor: &str) -> Option<HeadingLine> {
     let want = anchor.trim().to_lowercase();
-    let mut inside_fence = false;
-    for (index, line) in text.lines().enumerate() {
-        if fence(line) {
-            inside_fence = !inside_fence;
-            continue;
-        }
-        if inside_fence {
-            continue;
-        }
-        if heading_level(line).is_some() && heading_text(line).eq_ignore_ascii_case(&want) {
-            return Some(index);
-        }
+    if want.is_empty() {
+        // An empty anchor is a typo, not a request for the nameless section a bare
+        // `#` makes. The index still lists that section: the census and the jump are
+        // allowed to differ about a heading with no name (EDGE-15).
+        return None;
     }
-    None
-}
-
-/// `#` count of an ATX heading, or `None` if the line is not one. A `#` inside a
-/// fenced code block is not a heading, so a fence toggles the scan off.
-fn heading_level(line: &str) -> Option<usize> {
-    let trimmed = line.trim_start();
-    let hashes = trimmed.chars().take_while(|c| *c == '#').count();
-    if (1..=6).contains(&hashes) && trimmed[hashes..].starts_with(' ') {
-        Some(hashes)
-    } else {
-        None
-    }
-}
-
-fn heading_text(line: &str) -> &str {
-    line.trim_start()
-        .trim_start_matches('#')
-        .trim_start()
-        .trim_end()
-}
-
-/// Whether a line opens or closes a fenced code block.
-pub fn fence(line: &str) -> bool {
-    let t = line.trim_start();
-    t.starts_with("```") || t.starts_with("~~~")
+    heading_lines(text).into_iter().find(|head| {
+        text[head.text_start..head.text_end]
+            .trim()
+            .eq_ignore_ascii_case(&want)
+    })
 }
 
 /// The set of embed targets a note's text refers to, for the app's cache:
@@ -862,6 +834,43 @@ mod tests {
             "a `#` inside a fence is not a heading"
         );
         assert_eq!(heading_row(text, "Nowhere"), None);
+
+        // The line scanner this matcher used to be insisted on a space after the
+        // markers, so it called these prose and the parser called them headings.
+        // Reading the parser's scan is the whole of ruling 46, and this is the
+        // behaviour it changes: a section that looks like one can be jumped to.
+        assert_eq!(
+            heading_row("intro\n#\tTabbed\nbody\n", "Tabbed"),
+            Some(1),
+            "a tab after the markers is whitespace to the parser (EDGE-2)"
+        );
+        assert_eq!(
+            heading_row("~~~\n# Fake\n~~~\n# Fake\n", "Fake"),
+            Some(3),
+            "a tilde fence hides a heading, and the closer has to match the opener"
+        );
+        assert_eq!(
+            heading_row("#\nnamed\n", ""),
+            None,
+            "a bare `#` is a section with no name, and an empty anchor is a typo, not \
+             a request for it (EDGE-15)"
+        );
+    }
+
+    /// The section an embed slices and the row a jump reveals come from one scan, so
+    /// a heading the old line scanner refused is both jumpable *and* sliceable.
+    #[test]
+    fn a_section_named_by_an_anchor_that_needs_a_tab_is_still_a_section() {
+        let text = "intro\n#\tTabbed\nbody\nnext\n# Other\n";
+        assert_eq!(
+            section(text, "Tabbed"),
+            Some(vec![
+                "#\tTabbed".to_string(),
+                "body".to_string(),
+                "next".to_string()
+            ]),
+            "the section runs to the next heading of its own level or shallower"
+        );
     }
 
     #[test]

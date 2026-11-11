@@ -28,7 +28,7 @@ use rusqlite::{params, Connection};
 use crate::frontmatter::{self, KeyCensus, Kind, Prop};
 use crate::graph::extract_tags;
 use crate::markdown::extract_wikilinks;
-use crate::mdstyle::object::heading_spans;
+use crate::mdstyle::object::heading_lines;
 use crate::query::Query;
 use crate::vault::{rel_text, Vault, VaultEntry};
 use crate::watch::{Stamp, VaultChanges};
@@ -340,34 +340,18 @@ fn record(
     })
 }
 
-/// The note's sections as index rows, from the parser's own scan.
+/// The note's sections as index rows, from the parser's own scan — the same walk the
+/// fold and the text object read, which is the whole point of ruling 46.
 ///
-/// The scan answers in byte offsets and the table answers in line numbers, because
-/// every consumer of a section either reveals a row or groups by a range of them —
-/// a byte offset would be a second coordinate that goes stale on its own
-/// (headings-plan.md question C, closed as `line` only). The text is trimmed at
-/// both ends, so a tab after the markers and trailing spaces are not part of a
-/// section's name (EDGE-16).
+/// The text is trimmed at both ends, so trailing spaces are not part of a section's
+/// name; the markers are already gone, because the scan never includes them.
 fn heading_rows(text: &str) -> Vec<Heading> {
-    let spans = heading_spans(text);
-    if spans.is_empty() {
-        return Vec::new();
-    }
-    // One pass to find the line starts, then a binary search per heading: the
-    // spans arrive in byte order, so this is linear in the note, not in the
-    // note times its headings.
-    let mut starts: Vec<usize> = vec![0];
-    for (at, byte) in text.bytes().enumerate() {
-        if byte == b'\n' {
-            starts.push(at + 1);
-        }
-    }
-    spans
+    heading_lines(text)
         .into_iter()
-        .map(|span| Heading {
-            line: (starts.partition_point(|&start| start <= span.line_start) - 1) as i64,
-            text: text[span.text_start..span.text_end].trim().to_string(),
-            depth: span.depth,
+        .map(|head| Heading {
+            line: head.line as i64,
+            text: text[head.text_start..head.text_end].trim().to_string(),
+            depth: head.depth,
         })
         .collect()
 }

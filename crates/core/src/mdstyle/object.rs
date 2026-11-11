@@ -345,6 +345,45 @@ pub fn heading_spans(text: &str) -> Vec<HeadingSpan> {
     out
 }
 
+/// A heading in the coordinates the rest of the program wants: the **0-based** line
+/// it sits on, its depth, and the byte range of its text.
+#[derive(Debug, PartialEq, Eq)]
+pub struct HeadingLine {
+    pub line: usize,
+    pub text_start: usize,
+    pub text_end: usize,
+    pub depth: u8,
+}
+
+/// [`heading_spans`] counted into lines. The line table is built once, here, so no
+/// consumer keeps its own copy of "which byte starts which line" — three of them
+/// did, each with its own idea of what a heading is, and that is how one note ended
+/// up with several different sets of sections (headings-plan.md ruling 46).
+pub fn heading_lines(text: &str) -> Vec<HeadingLine> {
+    let spans = heading_spans(text);
+    if spans.is_empty() {
+        return Vec::new();
+    }
+    let mut out = Vec::with_capacity(spans.len());
+    // The spans arrive in byte order, so one forward walk over the newlines counts
+    // every line number without a table of them.
+    let mut line = 0usize;
+    let mut at = 0usize;
+    for span in spans {
+        while let Some(break_at) = text[at..span.line_start].find('\n') {
+            at += break_at + 1;
+            line += 1;
+        }
+        out.push(HeadingLine {
+            line,
+            text_start: span.text_start,
+            text_end: span.text_end,
+            depth: span.depth,
+        });
+    }
+    out
+}
+
 /// The heading lines, as `(line start, level)` in order.
 fn headings(text: &str) -> Vec<(usize, u8)> {
     heading_spans(text)

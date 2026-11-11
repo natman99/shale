@@ -1533,10 +1533,16 @@ edges, query nodes, MCP canvas tools) is P6.10.
     is what a saved query runs on. The survey's three-way disagreement held up under a test
     except in one place: the parser styles **no** heading inside a blockquote, so `> ## Title`
     is quoted text and gets no row — the fold and the anchor matcher already said the same,
-    and the plan's EDGE-3 and question D were corrected rather than left as a guess. What
-    is real: a bare `#` and `#\tText` are headings to the parser and prose to the anchor
-    matcher, so today they are listed sections nothing can jump to. M2 makes the matcher
-    read the same scan; M3 opens the `:sections` door.
+    and the plan's EDGE-3 and question D were corrected rather than left as a guess.
+    **M2 closed (2026-11-10): one scanner.** `heading_row` and `section_rows` now read
+    `mdstyle::object::heading_lines`, and `heading_level`, `heading_text`, `transclude::fence`
+    and `fold::heading_rows` are deleted — the last of those was a fourth copy of the same
+    span walk, so the fold already agreed with the painter and the anchor matcher was the odd
+    one out. What a reader can notice: `[[note#Tabbed]]` reaches `#\tTabbed` and that heading
+    folds, and a fence closer now has to match its opener the way CommonMark says. No existing
+    anchor or fold test was re-recorded; killing the shared scan turns 25 of them red at once,
+    which is the proof the three surfaces really do read one walk now. M3 opens the `:sections`
+    door.
 - **P4.4 Tag tree panel** (brainstorm ✅): rollup counts, fuzzy filter, Enter =
   search, `g` = filter graph, `r` = rename tag vault-wide, color assignment →
   graph groups. Plus `#` autocomplete from the DB.
