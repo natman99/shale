@@ -33,6 +33,41 @@ fn opening_a_vault_puts_the_index_in_its_state_directory() {
 
 /// A reader writing a query by hand (the inline-SQL feature) needs the names to be
 /// the ones the roadmap promises.
+/// The agent door (P4.3 M7, ruling 41) reads an index it did not create and must never
+/// create one: a vault with no index gets `None`, so the door can say "there is no vault
+/// index to read" instead of answering from an empty file it just made.
+#[test]
+fn a_reader_never_creates_the_index_it_asks_about() {
+    let dir = tempfile::tempdir().unwrap();
+    assert!(
+        Db::reader(dir.path()).unwrap().is_none(),
+        "no index file, no connection"
+    );
+    assert!(
+        !dir.path().join(".shale").join("shale.db").exists(),
+        "and asking did not leave one behind"
+    );
+
+    let db = Db::open(dir.path()).unwrap();
+    assert!(
+        Db::reader(dir.path()).unwrap().is_some(),
+        "now there is one"
+    );
+
+    // The connection is read-only, so the door cannot become the second writer by
+    // accident — the same guarantee `Db::read` gives the app's own readers.
+    let conn = Db::reader(dir.path()).unwrap().unwrap();
+    let err = conn
+        .execute_batch("CREATE TABLE nobody (x)")
+        .unwrap_err()
+        .to_string();
+    assert!(
+        err.contains("attempt to write a readonly database"),
+        "a reader must not be able to write: {err}"
+    );
+    drop(db);
+}
+
 #[test]
 fn every_table_the_roadmap_promises_is_there() {
     let (_dir, db) = opened();

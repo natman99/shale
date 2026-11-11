@@ -25,7 +25,7 @@
 use super::Db;
 use anyhow::{anyhow, Context, Result};
 use rusqlite::types::ValueRef;
-use rusqlite::Row;
+use rusqlite::{Connection, Row};
 
 /// One cell of a result.
 ///
@@ -165,46 +165,55 @@ impl Db {
     /// Run one query against the index on a read-only connection.
     pub fn run(&self, sql: &str, bindings: &[Binding<'_>]) -> Result<Rows> {
         check(sql)?;
-        let conn = self.read()?;
-        let mut stmt = conn
-            .prepare(sql)
-            .with_context(|| format!("the query could not be prepared: {sql}"))?;
-        let columns: Vec<String> = stmt.column_names().map(str::to_string).collect();
-        let width = columns.len();
-        // The body's own list of parameters decides what gets bound. rusqlite refuses
-        // a name the statement does not hold, and the surface offers an anchor whether
-        // or not this query asked for one — so an unasked-for binding is dropped rather
-        // than reported. The other direction is the one worth a message: a body that
-        // asks for `:curent` is a typo, and SQLite's answer for it names neither the
-        // intent nor the anchor that was sitting right there.
-        let wanted = parameters(sql);
-        if let Some(missing) = wanted
-            .iter()
-            .find(|name| !bindings.iter().any(|bound| bound.name == **name))
-        {
-            return Err(anyhow!(
-                "the query asks for `{missing}`, and nothing supplies it"
-            ));
-        }
-
-        let named: Vec<(&str, &str)> = bindings
-            .iter()
-            .filter(|bound| wanted.iter().any(|name| name == bound.name))
-            .map(|b| (b.name, b.text))
-            .collect();
-        let mut out = Rows {
-            columns,
-            rows: Vec::new(),
-        };
-        let mapped = stmt
-            .query_map(named.as_slice(), |row| read_row(row, width))
-            .with_context(|| format!("the query failed to run: {sql}"))?;
-        for row in mapped {
-            out.rows
-                .push(row.context("a result row could not be read")?);
-        }
-        Ok(out)
+        run_on(&self.read()?, sql, bindings)
     }
+}
+
+/// The runner itself, on a connection the caller already holds.
+///
+/// This is the whole act — prepare, bind, read — so a door that has no [`Db`] (the
+/// stdio MCP server never starts a writer, ruling 41) runs the same statement through
+/// the same rules rather than inventing a second runner for agents. The shape rule
+/// ([`check`]) is asked by whoever holds the connection, before this is called.
+pub fn run_on(conn: &Connection, sql: &str, bindings: &[Binding<'_>]) -> Result<Rows> {
+    let mut stmt = conn
+        .prepare(sql)
+        .with_context(|| format!("the query could not be prepared: {sql}"))?;
+    let columns: Vec<String> = stmt.column_names().map(str::to_string).collect();
+    let width = columns.len();
+    // The body's own list of parameters decides what gets bound. rusqlite refuses
+    // a name the statement does not hold, and the surface offers an anchor whether
+    // or not this query asked for one — so an unasked-for binding is dropped rather
+    // than reported. The other direction is the one worth a message: a body that
+    // asks for `:curent` is a typo, and SQLite's answer for it names neither the
+    // intent nor the anchor that was sitting right there.
+    let wanted = parameters(sql);
+    if let Some(missing) = wanted
+        .iter()
+        .find(|name| !bindings.iter().any(|bound| bound.name == **name))
+    {
+        return Err(anyhow!(
+            "the query asks for `{missing}`, and nothing supplies it"
+        ));
+    }
+
+    let named: Vec<(&str, &str)> = bindings
+        .iter()
+        .filter(|bound| wanted.iter().any(|name| name == bound.name))
+        .map(|b| (b.name, b.text))
+        .collect();
+    let mut out = Rows {
+        columns,
+        rows: Vec::new(),
+    };
+    let mapped = stmt
+        .query_map(named.as_slice(), |row| read_row(row, width))
+        .with_context(|| format!("the query failed to run: {sql}"))?;
+    for row in mapped {
+        out.rows
+            .push(row.context("a result row could not be read")?);
+    }
+    Ok(out)
 }
 
 /// One row's cells, in column order. The width comes from the statement's columns, so

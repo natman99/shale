@@ -157,6 +157,81 @@ pub enum Anchor {
     Refused(String),
 }
 
+/// What asking a saved query answers, decided once for every door that asks (M7).
+///
+/// The picker, an embedded table, the query's own view and the agent door all read the
+/// same file and the same index, so the sentences here are the only wording any of them
+/// get: EDGE-1's empty answer, EDGE-2's SQLite message with the reader's own text in
+/// front of it, EDGE-3/4's body that is not one question, EDGE-12's missing host. A door
+/// that wrote its own version of "no note answers this" would be a door that could
+/// disagree with the editor about the same file.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Outcome {
+    /// The body answered. `rows` already carries the declaration's `sort`.
+    Answered { name: String, rows: crate::db::Rows },
+    /// EDGE-1: an answer of nothing is still an answer, and says so.
+    Empty { name: String },
+    /// Something refused, in one sentence the reader can act on.
+    Refused { why: String },
+}
+
+/// Ask a saved query, on a connection the surface already holds.
+///
+/// `stem` is the file's stem, which the declaration's `name` may overrule; `host` is the
+/// note the reader is standing in, or `None` for a surface that has none (a graph tab, a
+/// query viewed in its own file, an agent that named no note). The connection is asked to
+/// be read-only by whoever opened it — [`crate::db::Db::read`], or
+/// [`crate::db::Db::reader`] for a door with no writer — and the shape rule runs before
+/// SQLite is, so a body that is not one question never reaches the engine.
+pub fn ask(text: &str, stem: &str, host: Option<&Path>, conn: &rusqlite::Connection) -> Outcome {
+    let note = match QueryNote::parse(text) {
+        Ok(note) => note,
+        Err(err) => {
+            return Outcome::Refused {
+                why: format!("this is not a query note: {err}"),
+            };
+        }
+    };
+    let anchor = note.anchor(host);
+    let current = match &anchor {
+        Anchor::Bound(current) => Some(current.clone()),
+        Anchor::NotAsked => None,
+        Anchor::Refused(why) => return Outcome::Refused { why: why.clone() },
+    };
+    let bindings = match &current {
+        Some(current) => vec![crate::db::Binding::new(crate::db::CURRENT, current)],
+        None => Vec::new(),
+    };
+    let name = note.display_name(stem).to_string();
+    // One question, asked the runner's own way, before the engine sees the text.
+    if let Err(err) = crate::db::check_question(&note.sql) {
+        return Outcome::Refused {
+            why: format!(
+                "the query could not be answered: {}",
+                crate::db::one_line(&err.to_string())
+            ),
+        };
+    }
+    match crate::db::run_on(conn, &note.sql, &bindings) {
+        Err(err) => Outcome::Refused {
+            why: format!(
+                "the query could not be answered: {}",
+                crate::db::one_line(&format!("{err:#}"))
+            ),
+        },
+        Ok(rows) if rows.rows.is_empty() => Outcome::Empty { name },
+        Ok(mut rows) => {
+            // The declaration's `sort` is the reader's override, applied to what came
+            // back rather than spliced into the statement: a query that sorts itself and
+            // a note that sorts it are one sort.
+            if let Some(sort) = note.decl.sort.as_deref() {
+                rows.sort_by(sort);
+            }
+            Outcome::Answered { name, rows }
+        }
+    }
+}
+
 /// The byte offset of the closing fence's line start, if there is one.
 fn find_fence(text: &str) -> Option<usize> {
     let mut at = 0;
@@ -231,6 +306,87 @@ mod tests {
 
     /// A relative query: the host note's own outgoing links.
     const RELATIVE: &str = "+++\nname = \"Where I point\"\nrelative = \"current\"\n+++\nSELECT target FROM links WHERE source = :current ORDER BY target\n";
+
+    /// An index to ask against. The queries below answer out of thin air, so the index
+    /// only has to exist and hold its schema.
+    fn index() -> (tempfile::TempDir, crate::db::Db) {
+        let dir = tempfile::tempdir().unwrap();
+        let db = crate::db::Db::open(dir.path()).unwrap();
+        (dir, db)
+    }
+
+    /// Ruling 44: the chain every door runs. The declaration's `sort` is applied to what
+    /// came back, so the answer's order is the file's order, not the engine's.
+    #[test]
+    fn asking_a_query_answers_and_the_declaration_has_the_last_word_on_order() {
+        let (_dir, db) = index();
+        let conn = db.read().unwrap();
+        let text =
+            "+++\nname = \"Letters\"\nsort = \"n\"\n+++\nSELECT 'b' AS n UNION ALL SELECT 'a'\n";
+        let Outcome::Answered { name, rows } = ask(text, "letters", None, &conn) else {
+            panic!("this body is one question and answers two rows");
+        };
+        assert_eq!(name, "Letters", "the declared name, not the stem");
+        let cells: Vec<String> = rows.rows.iter().map(|row| row[0].display()).collect();
+        assert_eq!(cells, ["a", "b"], "sorted by the declared column");
+    }
+
+    /// EDGE-1: an answer of nothing is an answer, and the chain says which.
+    #[test]
+    fn asking_a_query_that_answers_nothing_is_not_a_refusal() {
+        let (_dir, db) = index();
+        let conn = db.read().unwrap();
+        let text = "+++\nname = \"Nothing\"\n+++\nSELECT 1 WHERE 0\n";
+        assert_eq!(
+            ask(text, "nothing", None, &conn),
+            Outcome::Empty {
+                name: "Nothing".into()
+            }
+        );
+    }
+
+    /// EDGE-3/4 and EDGE-2, in one: a body the runner refuses is refused in the chain's
+    /// own words, before SQLite is asked, and the file stays whatever it was.
+    #[test]
+    fn asking_a_body_that_is_not_one_question_never_reaches_the_engine() {
+        let (_dir, db) = index();
+        let conn = db.read().unwrap();
+        let text = "+++\n+++\nUPDATE notes SET path = 'gone.md'\n";
+        let Outcome::Refused { why } = ask(text, "wrong", None, &conn) else {
+            panic!("a body that is not a question must be refused");
+        };
+        assert!(
+            why.starts_with("the query could not be answered: "),
+            "{why}"
+        );
+    }
+
+    /// EDGE-12 through the agent door: the same sentence the editor's picker shows,
+    /// because there is one author of it (ruling 38).
+    #[test]
+    fn asking_a_relative_query_with_no_host_refuses_in_the_editors_words() {
+        let (_dir, db) = index();
+        let conn = db.read().unwrap();
+        let Outcome::Refused { why } = ask(RELATIVE, "where-i-point", None, &conn) else {
+            panic!("a host-less surface must refuse");
+        };
+        assert_eq!(
+            why,
+            "a relative query needs a note to be relative to, and this surface has none"
+        );
+    }
+
+    /// EDGE-6 through the chain: a declaration that opens and never closes is refused as
+    /// a file, before any of the body is read.
+    #[test]
+    fn asking_a_file_that_is_not_a_query_note_says_so() {
+        let (_dir, db) = index();
+        let conn = db.read().unwrap();
+        let Outcome::Refused { why } = ask("+++\nname = \"Half\"\n", "half", None, &conn) else {
+            panic!("a declaration that never closes is not a query");
+        };
+        assert!(why.starts_with("this is not a query note: "), "{why}");
+    }
 
     /// The anchor's journey (M5): a relative query run from a note gets that note.
     #[test]

@@ -43,7 +43,7 @@ mod tests;
 
 pub use index::{compile_sql, target_kind, word_count, Decls, EventKind, SyncReport};
 pub use query::{
-    check as check_question, one_line, parameters, Binding, Cell, Rows, CURRENT, MAX_ROWS,
+    check as check_question, one_line, parameters, run_on, Binding, Cell, Rows, CURRENT, MAX_ROWS,
 };
 pub use schema::SCHEMA_VERSION;
 
@@ -214,6 +214,24 @@ impl Db {
             job: Box::new(job),
             reply: None,
         })
+    }
+
+    /// A read-only connection to an index that already exists, with no writer behind it.
+    ///
+    /// For a door that never had a [`Db`] — the stdio MCP server, which must not start a
+    /// writer thread just to answer a question (ruling 41). `None` when the vault has no
+    /// index file: opening one would create the very thing the door is asking about and
+    /// then answer from it, which is EDGE-14's lie in a new costume. The caller says
+    /// "there is no vault index to read" instead.
+    pub fn reader(vault_root: &Path) -> Result<Option<Connection>> {
+        let path = vault_root.join(STATE_DIR).join(DB_FILE);
+        if !path.exists() {
+            return Ok(None);
+        }
+        let conn = connect(&path)?;
+        conn.execute_batch("PRAGMA query_only = ON;")
+            .context("could not open the vault index for reading")?;
+        Ok(Some(conn))
     }
 
     /// A connection for reading.

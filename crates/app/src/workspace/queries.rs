@@ -92,18 +92,6 @@ impl Workspace {
                 return;
             }
         };
-        let note = match QueryNote::parse(&text) {
-            Ok(note) => note,
-            Err(err) => {
-                self.open_picker(
-                    &label,
-                    vec![notice(format!("this is not a query note: {err}"))],
-                    window,
-                    cx,
-                );
-                return;
-            }
-        };
         // EDGE-14: with the index off there is nothing to answer from, and "no note
         // answers this" would be a lie about the vault rather than about the setting.
         let Some(db) = self.db.as_ref() else {
@@ -117,57 +105,41 @@ impl Workspace {
             );
             return;
         };
-        // The anchor's journey (M5): the note the reader is standing in, with the
-        // question asked the same way the editor's table and the query's own view ask it.
-        // A relative query run from a surface with no note under the reader — a graph tab,
-        // an empty window, or the query open in its own tab — is refused out loud, as a
-        // row, rather than answering zero (EDGE-12).
-        let anchor = note.anchor(self.note().as_deref());
-        if let shale_core::query_note::Anchor::Refused(why) = anchor {
-            self.open_picker(&label, vec![notice(why)], window, cx);
-            return;
-        }
-        let current = match &anchor {
-            shale_core::query_note::Anchor::Bound(path) => Some(path.clone()),
-            _ => None,
-        };
-        let bindings = match current.as_deref() {
-            Some(current) => vec![shale_core::db::Binding::new(
-                shale_core::db::CURRENT,
-                current,
-            )],
-            None => Vec::new(),
-        };
-        // The declaration's `sort` is the reader's override, applied to what came back
-        // rather than spliced into the statement: a query that sorts itself and a note
-        // that sorts it are one sort.
-        let answer = db.run(&note.sql, &bindings).map(|mut rows| {
-            if let Some(sort) = note.decl.sort.as_deref() {
-                rows.sort_by(sort);
+        let conn = match db.read() {
+            Ok(conn) => conn,
+            Err(err) => {
+                self.open_picker(
+                    &label,
+                    vec![notice(format!("the vault index could not be read: {err}"))],
+                    window,
+                    cx,
+                );
+                return;
             }
-            rows
-        });
+        };
         let stem = path
             .file_stem()
             .map(|stem| stem.to_string_lossy().into_owned())
             .unwrap_or_else(|| path.display().to_string());
-        let name = note.display_name(&stem).to_string();
-        let (label, rows) = match answer {
-            Err(err) => (
+        // The one chain (ruling 44): parse, anchor, ask, sort. The picker's job is to draw
+        // what that answered, not to re-decide what a refusal says — so the sentences for
+        // EDGE-1, EDGE-2, EDGE-3/4 and EDGE-12 are written once, in core, and the agent
+        // door reads the same ones.
+        //
+        // The anchor's journey (M5): the note the reader is standing in, handed over the
+        // same way the editor's table and the query's own view hand it. A relative query
+        // run from a surface with no note under the reader — a graph tab, an empty window,
+        // or the query open in its own tab — is refused out loud, as a row (EDGE-12).
+        let host = self.note();
+        let outcome = shale_core::query_note::ask(&text, &stem, host.as_deref(), &conn);
+        let (label, rows) = match outcome {
+            shale_core::query_note::Outcome::Refused { why } => (label, vec![notice(why)]),
+            shale_core::query_note::Outcome::Empty { name } => (
                 format!("Query {name}"),
-                vec![notice(format!(
-                    "the query could not be answered: {}",
-                    shale_core::db::one_line(&format!("{err:#}"))
-                ))],
-            ),
-            Ok(rows) if rows.rows.is_empty() => {
                 // EDGE-1: an answer of nothing is still an answer.
-                (
-                    format!("Query {name}"),
-                    vec![notice("no note answers this")],
-                )
-            }
-            Ok(rows) => (
+                vec![notice("no note answers this")],
+            ),
+            shale_core::query_note::Outcome::Answered { name, rows } => (
                 format!("Query {name}"),
                 result_rows(&rows, &self.entries, path),
             ),
