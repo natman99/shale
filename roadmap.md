@@ -1513,7 +1513,12 @@ edges, query nodes, MCP canvas tools) is P6.10.
     the agent door renders as text (ruling 44), so the two doors cannot disagree about the
     same file.
   - **P4.3b Headings index — AFTER P4.3a, and explicitly NOT inside it** (ruled
-    2026-11-08). Schema **v4** adds `headings(note, line, text, depth)`, filled in the
+    2026-11-08). **Plan, rulings 46-52 and an edge ledger are in `headings-plan.md`
+    (2026-11-10)**, and the survey that came with it found the item's real work: three
+    scanners answer "what headings does this note have" (`transclude::heading_level`,
+    `mdstyle::object::headings`, `fold::heading_rows`) and they disagree about `#` alone,
+    `#\tText` and `> ## Title`. The table is four columns; agreeing on one scanner is the
+    milestone. Schema **v4** adds `headings(note, line, text, depth)`, filled in the
     same indexer pass from `mdstyle`/`mdlayout` — derived, not authored, so it cannot
     lie, and it is dropped/rebuilt like the rest of the index. It is what lets a *query*
     group things by the section they sit in (cue chips, counter chips, scene cards), and
