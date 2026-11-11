@@ -144,7 +144,11 @@ pub(crate) fn call(server: &Server, name: &str, arguments: &Value) -> Result<Opt
 fn render(name: &str, rows: &shale_core::db::Rows) -> String {
     let total = rows.rows.len();
     let shown = total.min(MAX_ROWS);
-    let mut out = format!("{name} \u{b7} {total} rows\n");
+    // The same wording the marker row wears: one answer is one row, not one rows.
+    let mut out = format!(
+        "{name} \u{b7} {total} {}\n",
+        if total == 1 { "row" } else { "rows" }
+    );
     out.push_str(&rows.columns.join(" | "));
     for row in rows.rows.iter().take(shown) {
         out.push('\n');
@@ -302,6 +306,35 @@ mod tests {
             text(&refused)
         );
         Ok(())
+    }
+
+    /// The shape line is the marker row's wording, and the cut admits itself.
+    #[test]
+    fn an_answer_is_rendered_with_the_markers_wording_and_admits_its_cut() {
+        let one = shale_core::db::Rows {
+            columns: vec!["n".into()],
+            rows: vec![vec![shale_core::db::Cell::Integer(1)]],
+        };
+        assert_eq!(render("One", &one), "One \u{b7} 1 row\nn\n1");
+
+        let many = shale_core::db::Rows {
+            columns: vec!["n".into(), "t".into()],
+            rows: (0..=MAX_ROWS)
+                .map(|i| {
+                    vec![
+                        shale_core::db::Cell::Integer(i as i64),
+                        shale_core::db::Cell::Null,
+                    ]
+                })
+                .collect(),
+        };
+        let text = render("Many", &many);
+        assert!(text.starts_with(&format!("Many \u{b7} {} rows\n", MAX_ROWS + 1)));
+        assert!(
+            text.ends_with(&format!("\u{2026} and 1 more rows ({MAX_ROWS} shown)")),
+            "{text}"
+        );
+        assert!(text.contains("\u{2205}"), "NULL is a cell, not a blank");
     }
 
     /// EDGE-14: a vault with no index gets the sentence, never an empty table.
