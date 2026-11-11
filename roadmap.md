@@ -1605,8 +1605,15 @@ edges, query nodes, MCP canvas tools) is P6.10.
   ledger, milestones M1–M5, and all eleven rulings answered (recommendations taken; the
   table is in the plan's §3). **M1 closed:** `mdstyle::blockmap::block_map` is the one scan
   that answers "what blocks does this note have", and `Style::BlockAnchor` paints the id
-  `dim` without ever hiding it. **M2 is the schema bump** — `blocks(note, id, line)`, v5 —
-  the decision the plan priced hardest.
+  `dim` without ever hiding it. **M2 closed (2026-11-11):** schema **v5** is live —
+  `blocks(note, id, line)` with `blocks_id`/`blocks_note`, written from `block_map` in the
+  note's record pass and cleared with the note. **No primary key on purpose**: one id can
+  name two blocks, in one note or in two (ruling 9), and a key would fail the index over a
+  note the author wrote. `line` is the block's **first** line, not the token's, and the
+  block's extent is not stored — the scan recomputes it. Readers: `Db::blocks_matching`
+  (vault-wide, wildcards quoted) and `Db::block_id_taken` (exact, for `:block-id`'s
+  collision check). A saved query can already group the vault by id, which is the whole
+  reason the table exists.
 - **P4.10 Trash** (brainstorm ✅, user called it "very important"; ruled **vault-local**,
   not OS trash). **Added by the audit.** Delete already rewrites links; deleting to a
   `.shale/trash/` instead of unlinking is the same path with one step added, and

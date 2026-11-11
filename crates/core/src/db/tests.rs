@@ -16,8 +16,11 @@ fn opened() -> (tempfile::TempDir, Db) {
 
 /// The tables the roadmap promises, in the order the check reads them: P1.2's six
 /// plus the properties table P4.3a added.
-const TABLES: [&str; 7] = [
-    "notes", "tags", "links", "events", "marks", "edges", "props",
+/// Every table this build creates. `headings` was missing from this list when v4
+/// landed — the enumeration test only ever checked v1's seven — so v5 adds both it
+/// and `blocks`.
+const TABLES: [&str; 9] = [
+    "notes", "tags", "links", "events", "marks", "edges", "props", "headings", "blocks",
 ];
 
 #[test]

@@ -269,11 +269,41 @@ Split by dependency; each closes with the workspace gate green and its falsifica
   Two guards were **deleted** rather than kept, because breaking them showed they decided
   nothing once the block-kind rule and the walk's own skipping were in place: marking fence
   lines as code, and a properties-block check inside the anchor pass.
-- **M2 — schema v5.** `blocks(note, id, line)` + index; written in the note's record pass
-  with per-note delete; `note_removed` clears it; `Db::block_exists(id)` and
-  `Db::blocks_matching(want, limit)`; a v4 vault gains the table by rebuild (the v3→v4
-  test is the template). Falsifications: no per-note delete → red; scan returns nothing →
-  red; `line` off by one → red.
+- **M2 — schema v5. CLOSED (2026-11-11).** `SCHEMA_VERSION` is 5: `blocks(note, id, line)`
+  with `blocks_id` (the collision check, the "where is this id" question) and `blocks_note`
+  (the per-note delete-then-insert). Written in the note's record pass, cleared by
+  `note_removed`, and `SCHEMA_V4` is `#[cfg(test)]` so a test can hand Shale a v4 index and
+  watch it rebuild — the v3→v4 test is the template, and it passes.
+  Five deviations from the wording above, each deliberate:
+  1. **No primary key.** The plan wrote `blocks(note, id, line)` as though `(note, id)` were
+     a key. It is not: the same id can name two blocks in one note (a typo, or two blocks
+     the author meant alike), and the same id can live in two notes (ruling 9). A key would
+     have made the second insert an error — a failed index over a note the author legally
+     wrote. Both rows exist; the resolver's tie-break decides which one a link reaches.
+  2. **`line` is the block's first line**, not the line the token sits on. A jump wants the
+     top of the thing it names, and an id written on its own line below a table would
+     otherwise land the reader *under* it. The extent is not stored: the scan that found the
+     id can produce the range again (ruling 47's rule, applied to blocks).
+  3. The readers are `Db::blocks_matching(want, limit)` and `Db::block_id_taken(id)`, not
+     `block_exists`. The check is **exact**, not a prefix: `ab12` is not `ab12cd`, and a
+     false "taken" would make `:block-id` redraw an id it could have used.
+  4. The writer calls `mdstyle::block_map` rather than matching a caret token itself, so the
+     index cannot hold an id the editor would decline — inside a fence, inside a properties
+     block, or mid-paragraph file no row.
+  5. A sort in the row builder was **deleted**: the scan walks the note line by line, so its
+     anchors are already in line order, and every reader orders by `line` anyway.
+  Also fixed on the way: `db/tests.rs`'s table enumeration had been missing `headings` since
+  v4 landed — v5 adds both it and `blocks`, so the list is nine.
+  8 tests, and a saved query grouping the vault by id proves the payoff of ruling 3: the
+  table is reachable from `.shq` through the same `Db::run` path, with no second answer to
+  keep in step.
+  Falsifications, each turning at least one test red: store the anchor's own line; drop the
+  per-note delete; drop the delete on removal; make the collision check a prefix match; stop
+  quoting the reader's wildcards in the blocks reader; replace the block map with a naive
+  caret-token scan (two tests red). The first round had two **green** mutations, and both
+  were real findings: `id LIKE ?1` is `id = ?1` when the pattern has no wildcards, so the
+  "prefix" mutation changed nothing until it became `LIKE ?1 || '%'`; and the sort was dead
+  code, which is why it is gone rather than tested.
 - **M3 — the resolver and the two doors.** `Anchor::{Heading, Block}` decided by the link's
   spelling; `block_rows`; embed draws the block through the existing phantom rows; refusal
   sentence `no block "^abc" in <note>`; hover card follows; `reveal_block` in the editor and

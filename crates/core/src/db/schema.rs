@@ -19,7 +19,7 @@ use rusqlite::Connection;
 ///
 /// Bumped by adding a new `SCHEMA_V{n}` constant without touching the earlier ones:
 /// an index at an older version is dropped and rebuilt by [`apply`], never migrated.
-pub const SCHEMA_VERSION: i64 = 4;
+pub const SCHEMA_VERSION: i64 = 5;
 
 /// v1: the tables roadmap P1.2 lists.
 ///
@@ -283,8 +283,10 @@ CREATE INDEX IF NOT EXISTS props_note ON props (note);
 ///
 /// `depth` is the marker count, 1 to 6; seven hashes is prose. The primary key is
 /// `(note, line)`, not `(note, text)`: a note may name two sections the same way
-/// and both are real (EDGE-6).
-const SCHEMA_V4: &str = r#"
+/// and both are real (EDGE-6). Kept only so a test can hand Shale an index at v4 and
+/// watch it rebuild; nothing at runtime needs it.
+#[cfg(test)]
+pub(crate) const SCHEMA_V4: &str = r#"
 CREATE TABLE IF NOT EXISTS notes (
     path             TEXT    PRIMARY KEY,
     created_at       INTEGER NOT NULL,
@@ -365,10 +367,118 @@ CREATE TABLE IF NOT EXISTS headings (
 CREATE INDEX IF NOT EXISTS headings_text ON headings (text);
 "#;
 
+/// v5 (P4.9 M2): v4 plus the block ids the notes carry.
+///
+/// A `^abc123` is a claim a note makes about one of its own parts, and the index is
+/// the only place a vault-wide question about those claims can be asked: the
+/// `:block-id` command asks "is this id taken?" before it writes one, `:blocks`
+/// lists them, and a `.shq` can group the vault by them.
+///
+/// `line` is the **first line of the block**, 0-based — the same basis `headings.line`
+/// uses and every reveal reads (ruling 47: store what a reader types, let the parser
+/// recompute the rest). The block's extent is deliberately *not* stored: the scan that
+/// produced the id can produce its range again, and a second column would be a second
+/// answer to keep in step.
+///
+/// There is **no primary key**: the same id can appear twice in one note (a typo, or
+/// two blocks the author meant to name alike) and both are real rows. The resolver's
+/// tie-break — shortest path, then alphabetical, the alias rule — decides which one a
+/// link reaches, and `:blocks` shows both so the clash is at least visible.
+const SCHEMA_V5: &str = r#"
+CREATE TABLE IF NOT EXISTS notes (
+    path             TEXT    PRIMARY KEY,
+    created_at       INTEGER NOT NULL,
+    modified_at      INTEGER NOT NULL,
+    size             INTEGER NOT NULL DEFAULT 0,
+    word_count       INTEGER NOT NULL DEFAULT 0,
+    created_by       TEXT    NOT NULL DEFAULT '',
+    last_modified_by TEXT    NOT NULL DEFAULT '',
+    open_count       INTEGER NOT NULL DEFAULT 0,
+    edit_count       INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS tags (
+    note TEXT NOT NULL,
+    tag  TEXT NOT NULL,
+    PRIMARY KEY (note, tag)
+);
+CREATE INDEX IF NOT EXISTS tags_tag ON tags (tag);
+
+CREATE TABLE IF NOT EXISTS links (
+    source       TEXT    NOT NULL,
+    target       TEXT    NOT NULL,
+    target_kind TEXT NOT NULL DEFAULT 'note',
+    first_seen_at INTEGER NOT NULL,
+    last_seen_at  INTEGER NOT NULL,
+    PRIMARY KEY (source, target, target_kind)
+);
+CREATE INDEX IF NOT EXISTS links_target ON links (target);
+
+CREATE TABLE IF NOT EXISTS events (
+    id         INTEGER PRIMARY KEY,
+    note       TEXT    NOT NULL,
+    kind       TEXT    NOT NULL,
+    at         INTEGER NOT NULL,
+    provenance TEXT    NOT NULL,
+    detail     TEXT    NOT NULL DEFAULT '',
+    line_start INTEGER,
+    line_end   INTEGER
+);
+CREATE INDEX IF NOT EXISTS events_note_at ON events (note, at);
+
+CREATE TABLE IF NOT EXISTS marks (
+    name       TEXT    PRIMARY KEY,
+    path       TEXT    NOT NULL,
+    position   INTEGER NOT NULL,
+    label      TEXT    NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS edges (
+    src  TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    dst  TEXT NOT NULL,
+    PRIMARY KEY (src, kind, dst)
+);
+CREATE INDEX IF NOT EXISTS edges_dst ON edges (dst, kind);
+
+CREATE TABLE IF NOT EXISTS props (
+    note    TEXT    NOT NULL,
+    key     TEXT    NOT NULL,
+    ordinal INTEGER,
+    value   TEXT    NOT NULL,
+    kind    TEXT    NOT NULL
+);
+-- `key` for the query story and the `prop:` operator, `note` for the
+-- delete-then-insert that re-indexes one note. EDGE-29: both are required.
+CREATE INDEX IF NOT EXISTS props_key  ON props (key, kind);
+CREATE INDEX IF NOT EXISTS props_note ON props (note);
+CREATE TABLE IF NOT EXISTS headings (
+    note  TEXT    NOT NULL,
+    line  INTEGER NOT NULL,
+    text  TEXT    NOT NULL DEFAULT '',
+    depth INTEGER NOT NULL,
+    PRIMARY KEY (note, line)
+);
+-- `headings_text` is what a vault-wide "which notes have a section called X"
+-- reads; `note` is covered by the primary key's own prefix.
+CREATE INDEX IF NOT EXISTS headings_text ON headings (text);
+
+CREATE TABLE IF NOT EXISTS blocks (
+    note TEXT    NOT NULL,
+    id   TEXT    NOT NULL,
+    line INTEGER NOT NULL
+);
+-- `blocks_id` is the collision check and the "where is this id" question;
+-- `blocks_note` is the delete-then-insert that re-indexes one note.
+CREATE INDEX IF NOT EXISTS blocks_id   ON blocks (id);
+CREATE INDEX IF NOT EXISTS blocks_note ON blocks (note);
+"#;
+
 /// The tables each superseded version created, so an index at an older version can
 /// be dropped rather than migrated. Every name here is this crate's own constant.
-const SUPERSEDED_TABLES: [&str; 8] = [
-    "notes", "tags", "links", "events", "marks", "edges", "props", "headings",
+const SUPERSEDED_TABLES: [&str; 9] = [
+    "notes", "tags", "links", "events", "marks", "edges", "props", "headings", "blocks",
 ];
 
 /// Bring `conn` to [`SCHEMA_VERSION`].
@@ -404,7 +514,7 @@ pub(crate) fn apply(conn: &Connection) -> Result<()> {
                 .with_context(|| format!("could not drop the superseded {table} table"))?;
         }
     }
-    conn.execute_batch(SCHEMA_V4)
+    conn.execute_batch(SCHEMA_V5)
         .context("could not create the vault index's tables")?;
     // `PRAGMA` takes no bound parameters, and the value is this crate's own
     // constant rather than anything read from the file.

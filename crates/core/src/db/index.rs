@@ -131,6 +131,21 @@ pub struct Section {
     pub depth: u8,
 }
 
+/// One block id of one note, as a vault-wide lookup answers it.
+///
+/// `line` is the **first line of the block**, 0-based — the same basis `Section::line`
+/// uses, so a row can drive a reveal with no translation. The block's extent is not
+/// here because the scan that found the id can produce the range again.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlockHit {
+    /// Vault-relative path to the note that carries the id.
+    pub note: String,
+    /// The id, without its caret.
+    pub id: String,
+    /// 0-based line index of the block's first line.
+    pub line: usize,
+}
+
 /// One section of a note, as schema v4 records it. Derived from the parser's
 /// heading scan, never from anything the author wrote: there is no syntax for
 /// "this is a section" beyond the heading itself, so the row cannot be lied to.
@@ -145,6 +160,18 @@ struct Heading {
     text: String,
     /// The marker count, 1 to 6.
     depth: u8,
+}
+
+/// One block id a note carries, as schema v5 records it.
+///
+/// Derived from the block map, never from a guess about where a caret sits: an id in a
+/// fence, in a properties block, or in the middle of a paragraph files no row, because
+/// the scan declines those and the index reads the same scan.
+struct BlockRow {
+    /// The id, without its caret.
+    id: String,
+    /// 0-based line index of the block's **first** line.
+    line: i64,
 }
 
 struct Record {
@@ -170,6 +197,8 @@ struct Record {
     edges: Vec<(String, String)>,
     /// The note's sections, in line order, from the parser's own heading scan.
     headings: Vec<Heading>,
+    /// The note's block ids, in line order, from the block map.
+    blocks: Vec<BlockRow>,
     /// Why the block could not be read, if it could not. The note still gets its
     /// other rows — a bad block costs its own note its props, not the pass — and the
     /// pass reports it, because a silently empty `props` is a misleading answer.
@@ -342,6 +371,11 @@ fn record(
     // so a query groups by the sections the editor folds (ruling 46).
     let headings = heading_rows(&text);
 
+    // The block ids, from the same scan that will cut a block out for an embed and
+    // paint the `^id` on screen, so the index cannot hold an id the editor would not
+    // find (ruling 46's rule, applied to blocks).
+    let blocks = block_rows(&text);
+
     Ok(Record {
         path: rel_text(rel),
         size: meta.len() as i64,
@@ -352,6 +386,7 @@ fn record(
         edges,
         props,
         headings,
+        blocks,
         frontmatter_error,
     })
 }
@@ -368,6 +403,24 @@ fn heading_rows(text: &str) -> Vec<Heading> {
             line: head.line as i64,
             text: text[head.text_start..head.text_end].trim().to_string(),
             depth: head.depth,
+        })
+        .collect()
+}
+
+/// The note's block ids as index rows, from the block map.
+///
+/// A row's `line` is the **block's first line**, not the line the token sits on: a
+/// jump wants the top of the thing it names, and an id written on its own line below a
+/// table would otherwise land the reader under it.
+fn block_rows(text: &str) -> Vec<BlockRow> {
+    let map = crate::mdstyle::block_map(text);
+    // No sort: the scan walks the note line by line, so its anchors are already in
+    // line order, and a reader that cares orders by `line` anyway.
+    map.anchors
+        .iter()
+        .map(|anchor| BlockRow {
+            id: anchor.id.clone(),
+            line: map.blocks[anchor.block].first_line as i64,
         })
         .collect()
 }
@@ -463,6 +516,18 @@ fn write_record(conn: &Connection, note: &Record, provenance: Provenance) -> Res
     // author deleted take its rows with it, and it is why `props_note` exists.
     // Sections are replaced wholesale, exactly like props: the note is the unit,
     // so a heading that moved or went away takes its row with it (ruling 50).
+    // Block ids are replaced wholesale too. An id the author deleted takes its row
+    // with it, which is the whole reason the row is keyed by note rather than diffed.
+    conn.execute("DELETE FROM blocks WHERE note = ?1", params![note.path])
+        .with_context(|| format!("indexing {}", note.path))?;
+    for block in &note.blocks {
+        conn.execute(
+            "INSERT INTO blocks (note, id, line) VALUES (?1, ?2, ?3)",
+            params![note.path, block.id, block.line],
+        )
+        .with_context(|| format!("indexing {}", note.path))?;
+    }
+
     conn.execute("DELETE FROM headings WHERE note = ?1", params![note.path])
         .with_context(|| format!("indexing {}", note.path))?;
     for heading in &note.headings {
@@ -512,6 +577,7 @@ fn drop_note(conn: &Connection, path: &str) -> Result<()> {
     )?;
     conn.execute("DELETE FROM props WHERE note = ?1", params![path])?;
     conn.execute("DELETE FROM headings WHERE note = ?1", params![path])?;
+    conn.execute("DELETE FROM blocks WHERE note = ?1", params![path])?;
     Ok(())
 }
 
@@ -852,6 +918,61 @@ impl Db {
             out.push(row.context("reading the vault index's sections")?);
         }
         Ok(out)
+    }
+
+    /// Every block id in the vault whose id contains `want`, in note-then-line
+    /// order; an empty `want` is the whole census, up to `limit` rows.
+    ///
+    /// This is what `blocks_id` and `blocks_note` are for. The pattern is quoted
+    /// against `LIKE`'s wildcards the way a section pattern is, so a reader typing
+    /// `100%` looks for an id called `100%` and does not get the whole vault.
+    pub fn blocks_matching(&self, want: &str, limit: usize) -> Result<Vec<BlockHit>> {
+        let like = format!("%{}%", escape_like(want.trim()));
+        let conn = self.read()?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT note, id, line FROM blocks
+                 WHERE id LIKE ?1 ESCAPE '\\'
+                 ORDER BY note, line, id
+                 LIMIT ?2",
+            )
+            .context("reading the vault index's block ids")?;
+        let rows = stmt
+            .query_map(params![like, limit as i64], |row| {
+                Ok(BlockHit {
+                    note: row.get(0)?,
+                    id: row.get(1)?,
+                    line: row.get::<_, i64>(2)? as usize,
+                })
+            })
+            .context("reading the vault index's block ids")?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row.context("reading the vault index's block ids")?);
+        }
+        Ok(out)
+    }
+
+    /// Whether some note already carries this exact id.
+    ///
+    /// The `:block-id` command asks this before it writes, which is the promise the
+    /// brainstorm made when it chose random six-character ids: the generator does not
+    /// trust the birthday odds, it checks. Exact rather than `LIKE`, because `a1` and
+    /// `a10` are different ids and a false "taken" would make the command redraw an id
+    /// it could have used.
+    pub fn block_id_taken(&self, id: &str) -> Result<bool> {
+        let conn = self.read()?;
+        let found: i64 = conn
+            .query_row(
+                "SELECT CAST(COUNT(*) AS TEXT) FROM blocks WHERE id = ?1",
+                params![id],
+                |row| {
+                    let text: String = row.get(0)?;
+                    Ok(text.parse().unwrap_or(0))
+                },
+            )
+            .context("asking the vault index about a block id")?;
+        Ok(found > 0)
     }
 
     /// Which notes a query selects, as vault-relative paths, sorted.
@@ -1580,7 +1701,7 @@ fn escape_like(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::schema::{SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_VERSION};
+    use crate::db::schema::{SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_VERSION};
     use std::fs::{File, FileTimes};
 
     /// A vault whose notes are written by hand, and its index. The `TempDir` is
@@ -2128,6 +2249,33 @@ mod tests {
             vec!["notes/A.md 2", "notes/B.md 1"],
             "two sections with the same name in one note are two rows (ruling 50), \
              and a note with none is simply absent"
+        );
+    }
+
+    /// The point of indexing block ids (ruling 3) is that a saved query can ask about
+    /// them: the same `Db::run` path, the same table the editor writes, no second
+    /// answer to keep in step.
+    #[test]
+    fn a_saved_query_can_group_the_vault_by_block_id() {
+        let (_dir, vault, db) = vault_with(&[
+            ("notes/A.md", "one ^tagged\n\ntwo ^tagged\n"),
+            ("notes/B.md", "three ^tagged\n\nfour ^other\n"),
+            ("notes/C.md", "no ids here\n"),
+        ]);
+        db.reconcile(&vault).unwrap();
+        let rows = db
+            .run(
+                "SELECT id || ' ' || CAST(COUNT(*) AS TEXT) FROM blocks
+                 GROUP BY id
+                 ORDER BY id",
+                &[],
+            )
+            .unwrap();
+        let got: Vec<String> = rows.rows.iter().map(|row| row[0].display()).collect();
+        assert_eq!(
+            got,
+            vec!["other 1", "tagged 3"],
+            "one id can name blocks in several notes, and a query counts them all"
         );
     }
 
@@ -2983,6 +3131,173 @@ mod tests {
                 "notes/lair.md",
                 "notes/snare.md"
             ]
+        );
+    }
+
+    /// The rebuild this release will actually give its users: an index at v4 (no
+    /// `blocks`) becomes v5 by being dropped, not by an `ALTER TABLE`.
+    #[test]
+    fn an_index_at_v4_gains_the_blocks_table_by_rebuild() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join(".shale")).unwrap();
+        {
+            let conn = Connection::open(dir.path().join(".shale/shale.db")).unwrap();
+            conn.execute_batch(SCHEMA_V4).unwrap();
+            conn.execute_batch("PRAGMA user_version = 4;").unwrap();
+        }
+        let db = Db::open(dir.path()).unwrap();
+        assert_eq!(db.schema_version(), SCHEMA_VERSION);
+        assert_eq!(
+            column(&db, "SELECT CAST(COUNT(*) AS TEXT) FROM blocks"),
+            vec!["0"],
+            "the table exists, and it is empty until the notes are read again"
+        );
+    }
+
+    /// P4.9 M2: a note's block ids reach `blocks`, and the line stored is the block's
+    /// **first** line — the one a jump wants — not the line the token sits on. The
+    /// nested list item keeps its own row (the deepest block ending on the line wins),
+    /// and a table's id, written on its own line below a blank, lands on the table's
+    /// header row.
+    #[test]
+    fn a_notes_block_ids_are_indexed_at_their_blocks_first_line() {
+        let (_dir, vault, db) = vault_with(&[(
+            "Lair.md",
+            concat!(
+                "The goblin waits by the door,\n",
+                "patient as stone. ^goblin\n",
+                "\n",
+                "- Gemmy\n",
+                "    - Unhelpful assistant ^kid\n",
+                "\n",
+                "| a | b |\n",
+                "| - | - |\n",
+                "\n",
+                "^tbl\n",
+            ),
+        )]);
+        db.reconcile(&vault).unwrap();
+        assert_eq!(
+            column_ordered(
+                &db,
+                "SELECT id || '@' || CAST(line AS TEXT) FROM blocks ORDER BY line, id"
+            ),
+            vec!["goblin@0", "kid@4", "tbl@6"],
+            "one row per id, at the top of the block it names"
+        );
+    }
+
+    /// An id the author deletes takes its row with it. The test goes through
+    /// `note_saved`, not `reconcile`: the delete-then-insert is per note, and a full
+    /// rebuild would hide a writer that cleared the wrong scope.
+    #[test]
+    fn a_block_id_the_author_removed_leaves_no_row_behind() {
+        let (_dir, vault, db) = vault_with(&[("a.md", "one ^keep\n\ntwo ^drop\n")]);
+        db.reconcile(&vault).unwrap();
+        assert_eq!(column(&db, "SELECT id FROM blocks"), vec!["drop", "keep"]);
+        vault.write("a.md", "one ^keep\n\ntwo\n").unwrap();
+        db.note_saved(&vault, Path::new("a.md"), Provenance::User)
+            .unwrap();
+        assert_eq!(
+            column(&db, "SELECT id FROM blocks"),
+            vec!["keep"],
+            "and the id that stays keeps its row"
+        );
+    }
+
+    /// EDGE-25: one note's removal empties `blocks` and `headings` together, so the
+    /// two derived tables cannot drift apart on the same event.
+    #[test]
+    fn a_deleted_note_loses_its_block_and_section_rows() {
+        let (_dir, vault, db) = vault_with(&[("a.md", "# Section\n\ntext ^id1\n")]);
+        db.reconcile(&vault).unwrap();
+        assert_eq!(
+            column(&db, "SELECT CAST(COUNT(*) AS TEXT) FROM blocks"),
+            vec!["1"]
+        );
+        db.note_deleted(Path::new("a.md"), Provenance::External)
+            .unwrap();
+        for table in ["blocks", "headings"] {
+            assert_eq!(
+                column(&db, &format!("SELECT CAST(COUNT(*) AS TEXT) FROM {table}")),
+                vec!["0"],
+                "{table}"
+            );
+        }
+    }
+
+    /// The same id twice — in one note or in two — is two rows, not a conflict: the
+    /// table has no primary key on purpose, and the resolver's tie-break (shortest
+    /// path, then alphabetical) is what decides which one a link reaches (ruling 9).
+    #[test]
+    fn the_same_id_in_two_places_gets_two_rows() {
+        let (_dir, vault, db) =
+            vault_with(&[("a.md", "one ^dup\n\ntwo ^dup\n"), ("b.md", "three ^dup\n")]);
+        db.reconcile(&vault).unwrap();
+        assert_eq!(
+            column(&db, "SELECT note || ':' || CAST(line AS TEXT) FROM blocks"),
+            vec!["a.md:0", "a.md:2", "b.md:0"]
+        );
+    }
+
+    /// The index reads the block map rather than a caret regex of its own, so what the
+    /// scan declines is not indexed: an id inside a properties block is a value, and an
+    /// id inside a fence is code.
+    #[test]
+    fn an_id_the_scan_declines_is_not_indexed() {
+        let (_dir, vault, db) = vault_with(&[(
+            "a.md",
+            concat!(
+                "---\n",
+                "aliases: goblin ^prop\n",
+                "---\n\n",
+                "```\n",
+                "code ^fence\n",
+                "```\n\n",
+                "the goblin waits ^yes\n",
+            ),
+        )]);
+        db.reconcile(&vault).unwrap();
+        assert_eq!(column(&db, "SELECT id FROM blocks"), vec!["yes"]);
+    }
+
+    /// The two questions the index is asked about ids: `:blocks` listing the vault, and
+    /// the create command's collision check. The check is exact — `ab9` is not `ab99xy`
+    /// — and a pattern the reader types has its wildcards quoted.
+    #[test]
+    fn block_ids_can_be_found_across_the_vault() {
+        let (_dir, vault, db) = vault_with(&[
+            ("a.md", "one ^ab12cd\n"),
+            ("b.md", "two ^ab99xy\n"),
+            // An id holding digits, so a wildcard the reader typed has something it
+            // *would* match if it were obeyed instead of quoted.
+            ("c.md", "three ^x100y\n"),
+        ]);
+        db.reconcile(&vault).unwrap();
+        assert_eq!(
+            column(&db, "SELECT note FROM blocks WHERE id LIKE 'ab%'"),
+            vec!["a.md", "b.md"]
+        );
+        let hits = db.blocks_matching("ab12", 10).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(
+            (hits[0].note.as_str(), hits[0].id.as_str(), hits[0].line),
+            ("a.md", "ab12cd", 0)
+        );
+        assert!(db.block_id_taken("ab99xy").unwrap());
+        assert!(
+            !db.block_id_taken("ab12").unwrap(),
+            "the front half of a real id is not that id: a prefix would make the              create command redraw an id it could have used"
+        );
+        assert_eq!(
+            db.blocks_matching("100%", 10).unwrap().len(),
+            0,
+            "a wildcard the reader typed is quoted, not obeyed: `100%` is an id              called `100%`, not `100` followed by anything"
+        );
+        assert_eq!(
+            db.blocks_matching("x100y", 10).unwrap().len(),
+            1,
+            "and the id itself is still findable"
         );
     }
 }
