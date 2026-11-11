@@ -97,6 +97,18 @@ graph, which still draws a query embed as a ghost node because it re-scans text 
 entry lists (ruling 35). The
 plan, an edge ledger (EDGE-1…24) and the rulings are in `queries-plan.md`.
 
+**A six-item input round closed on 2026-11-10**, between M6 and M7: the arrow keys and Tab
+answer in the note (arrows are actions, not vim motions, so they work with an operator
+half-typed; Tab writes a literal tab and shift-Tab takes one level back), the mouse's side
+buttons walk the jump list, escape in the graph puts down the chosen node instead of leaving
+the tab (`ctrl-w l` is the way out, as in every other surface), the default palette is
+Shale's own dark with the desktop asked for dark or light (`theme = ""`), and every text
+field — prompt, picker, graph filter — has a selection and the clipboard. Two things that
+round taught the repo: a mouse-down takes keyboard focus for **any** button, so a root
+`capture_any_mouse_down` has to stop propagation even when it refuses the click (EDGE-22);
+and a config default that asks the desktop breaks every headless test, because the portal
+client runs on threads the gpui test scheduler refuses. The record is `input-plan.md`.
+
 **P4.0, transclusion — the editable half (closed 2026-11-08).** P4.0a
 (read-only embeds) shipped on 2026-11-06, and **P4.0b — editing inside an embed — is
 built through M4**: the buffer registry that made it possible (P4.17), entering with
