@@ -764,6 +764,14 @@ mobile, ~~Canvas~~ **reopened 2026-11-03 — see the Canvas section below and
   (vault-wide, riding `:sections`); duplicate ids tie-break shortest path then
   alphabetical, and both are listed; `ib`/`ab` become block text objects;
   `[[note#Heading#^id]]` is refused and documented as refused.
+- **Shipped 2026-11-11** (M1–M5: the scan, schema v5, the anchor kind, `:block-id` and
+  `:blocks`, docs and the demo tour). Two things the design did not know. An id's write is
+  **checked by the scan**: each candidate spelling is applied to a copy and re-read, and
+  the first that names *this* block wins — a placement guess the scan reads as another
+  block would hand the author a link that lies. And a command reaches the palette through
+  its **label**, not its name: `:blocks` labelled "Jump to a block" is unreachable by the
+  word `blocks`. The block text object (ruling 10) is **owed**: `ib`/`ab` as written collide
+  with vim's `ib`/`ab` for the paren object, so it needs a key that is not taken.
 
 ### Outline pane ✅
 - Heading tree in a sidebar: click to jump, current heading highlighted while

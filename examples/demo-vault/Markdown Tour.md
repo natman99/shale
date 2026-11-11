@@ -87,3 +87,18 @@ dead end the query found, not a row that failed to appear.
 `:graph` draws each saved query as a node of its own (`ƒ`, in its own colour), wired to the
 notes that ask it. A query nobody has embedded sits there unconnected — a question on the
 shelf, not an absence.
+
+## Block references
+
+A block can be named. `:block-id` writes the name on the block the cursor is in — six
+characters, at the end of the block's last line, or on their own line below a table, a
+quote or a fence — and one `u` takes it back. `:blocks` lists the ids: this note's with no
+pattern, the whole vault's with one.
+
+A named block is a target the way a heading is. The link below lands on a paragraph in
+`Welcome`; the line under it draws that same paragraph here. The id itself stays visible,
+just dim — it is text in the note, and other tools can read it.
+
+[[Welcome#^start]]
+
+![[Welcome#^start]]

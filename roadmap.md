@@ -1634,7 +1634,13 @@ edges, query nodes, MCP canvas tools) is P6.10.
   hand the author a link that lies. `:blocks` is two halves like `:sections` — no pattern
   lists the note on screen from its buffer, a pattern lists the vault from `blocks` — and
   its rows say `^id · kind · line N` under the block's first line. EDGE-29 (new): a
-  command reaches the palette through its **label**, not its name.
+  command reaches the palette through its **label**, not its name. **M5 closed
+  (2026-11-11):** `docs/notes.md` says what a block is, where an id sits and what refuses;
+  the demo tour carries a real one — `Welcome.md`'s first paragraph is `^start`, linked and
+  embedded from the tour — and the probe that checked it read the demo files through the
+  same resolver the window uses. **What P4.9 still owes is one key**: ruling 10's `ib`/`ab`
+  block text object collides with vim's `ib`/`ab` for the paren object, so the object is
+  built on the scan and waits for a scope character that is free.
   Two edges the plan did not have: **a heading that carries an id still answers its name**
   (EDGE-27 — the id is cut before heading matching), and **an embed line can carry its own
   id** (EDGE-28 — `![[a]] ^x` was not an embed at all, so labelling a working transclusion

@@ -111,6 +111,7 @@ Wiki-links resolve against the vault:
 [[notes/Another Note]]        # by path
 [[another note|Aliased]]      # with an alias
 [[Another Note#A heading]]    # a heading anchor (`gd` lands on that heading)
+[[Another Note#^goblin]]      # a block anchor (`gd` lands on that block)
 ```
 
 Resolution tries the exact path, then the exact path with `.md` added, then the
@@ -127,7 +128,22 @@ which is honoured exactly.
 
 An anchor is matched case-insensitively against the heading text. A heading that
 has gone missing opens the note at the top and the status bar says which heading it
-could not find, rather than dropping you somewhere plausible.
+could not find, rather than dropping you somewhere plausible. A `#^id` anchor is a
+different kind of question and is matched case-sensitively against a block id, because
+the spelling decides which kind it is — Shale never guesses from the text. A block that
+has gone missing leaves the note open and says which block it could not find.
+
+**A block can be named.** `:block-id [id]` writes an id on the block the cursor is in:
+six characters if you give no name, your name if you do. It lands at the end of the
+block's last line, or — for a table, quote, callout or code fence, which have no last
+line an id could sit on — on its own line below a blank. It is **one edit**, so one `u`
+takes the id and its blank line back together. An id is letters, digits and `-`,
+case-sensitive, and it is never hidden: it is drawn dim, because it is text in the note
+and other tools should be able to read it. `:block-id` refuses a second id on a block
+that already has one (and names the id it has, since that is the one you will want to
+paste into a link), refuses an id outside that grammar, and refuses an id another note in
+the vault already uses. A heading can carry one too; it names the heading line, not the
+section, and the heading still answers its own name.
 
 Backlinks are computed (the index keeps them, and the graph draws them), and an
 agent can ask for them with the `backlinks` MCP tool. There is no backlinks panel
@@ -140,11 +156,15 @@ A line that is nothing but an embed shows the other note inside this one:
 ```markdown
 ![[Another Note]]              # the whole note
 ![[Another Note#A heading]]    # one section of it
+![[Another Note#^goblin]]      # one block of it
 ```
 
 The body is live, not a screenshot: it re-renders when either note changes, and it
 is styled by the source note's own markdown. A section that no longer exists shows
-a badge naming what is missing instead of showing nothing. Embeds nest, with a cap;
+a badge naming what is missing instead of showing nothing; a missing block says
+`no block "^goblin" in gift.md`, in the badge's own words. A block is one paragraph,
+one list item with its children, one whole quote, callout, table or code fence, or one
+heading line — the same atom the id was written on. Embeds nest, with a cap;
 past the cap a block shows the name it would have expanded and nothing else.
 
 **A badge is a door, not a caption.** Clicking one opens the note it names, the same door
@@ -192,6 +212,8 @@ has stopped being drawn.
 | `/`, then `n` / `N` | search the note that is open |
 | `:wordcount [folder]` | words in the vault, or in one subtree (needs the index) |
 | `:sections [pattern]` | jump to a section: the open note's outline with no pattern, every section in the vault that holds the pattern with one (the vault-wide half needs the index) |
+| `:blocks [pattern]` | jump to a block by its id: the open note's ids with no pattern, every id in the vault that holds the pattern with one (the vault-wide half needs the index) |
+| `:block-id [id]` | give the block under the cursor an id; one `u` takes it back |
 | `space g` | the graph, whose filter strip narrows by `orphans` / `missing` / `tags` and by a search line |
 
 `:sections` answers about headings. With no pattern it lists the sections of the note
@@ -203,6 +225,14 @@ different things on purpose. The open note is answered by its buffer, so a headi
 have just typed is already in the list and a heading you have moved is not jumped to by
 a stale line number; the rest of the vault is answered by the index, which is the only
 thing that knows about the notes you have not opened.
+
+`:blocks` answers about block ids and splits the same way, for the same reason. With no
+pattern it lists the ids in the note on screen, in reading order, each row labelled by
+the block's first line and detailed with the id, what kind of block it is, and the line
+it starts on; choosing one puts the cursor on the block's first line. With a pattern it
+lists the vault: every id that holds what you typed, in any note, including the notes you
+have never opened. A note with no ids says so and points at `:block-id`; a vault with no
+index says it cannot look, which is a different answer from having nothing to find.
 
 ### Asking with operators
 
