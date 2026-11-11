@@ -206,5 +206,18 @@ milestones in the order they land.
     a key reaches is not. The bare-arrow half of that test is what stops the new binding from
     being a widening of the old one.
 
+- **M8 — the field's word step.** **Landed.** `ctrl`+`←/→` moves the caret a word at a time
+  and `ctrl`+`shift`+`←/→` selects one, in the prompt, every picker and the graph's filter. The
+  field already had `ctrl-backspace` — delete the word before the caret — and no way to *reach*
+  a word boundary, so the gesture was half-built.
+  - **EDGE-28 — one definition of "the word before an offset", and now one after it.**
+    `word_back` is already the single answer for the buffer's backward motion, insert-mode
+    `ctrl-backspace` and the fields' delete-word. The forward twin went into the same file
+    (`core/src/buffer/words.rs`) rather than into `field.rs`, so a word in a field and a word in
+    a note are the same shape. Both walkers share one asymmetry worth knowing before writing a
+    test: from the *middle* of a run, forward lands on the run's end and back lands on its
+    start, so a right-then-left round trip only agrees from a run's start. The core test pins
+    the boundaries where they do agree and says why the others are not pinned.
+
 M1-M5 are independent of each other; M6 is the one that touches three surfaces at once, so it
-goes last and gets the most tests. M7 came after the round closed, from using the app.
+goes last and gets the most tests. M7 and M8 came after the round closed, from using the app.

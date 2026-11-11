@@ -274,6 +274,10 @@ in hand. `docs/keys.md` is the human map of both halves.
 | `end` | move the caret to the end of the line | `FieldEnd` | — |
 | `shift-home` | select to the start of the line | `FieldSelectToStart` | — |
 | `shift-end` | select to the end of the line | `FieldSelectToEnd` | — |
+| `ctrl-left` | move the caret to the start of the word | `FieldWordLeft` | — |
+| `ctrl-right` | move the caret to the end of the word | `FieldWordRight` | — |
+| `ctrl-shift-left` | extend the selection to the start of the word | `FieldSelectWordLeft` | — |
+| `ctrl-shift-right` | extend the selection to the end of the word | `FieldSelectWordRight` | — |
 | `ctrl-a` | select the whole line | `FieldSelectAll` | — |
 | `ctrl-c` | copy the selection to the clipboard | `FieldCopy` | — |
 | `ctrl-x` | cut the selection to the clipboard | `FieldCut` | — |
@@ -300,6 +304,10 @@ in hand. `docs/keys.md` is the human map of both halves.
 | `end` | move the caret to the end of the line | `FieldEnd` | — |
 | `shift-home` | select to the start of the line | `FieldSelectToStart` | — |
 | `shift-end` | select to the end of the line | `FieldSelectToEnd` | — |
+| `ctrl-left` | move the caret to the start of the word | `FieldWordLeft` | — |
+| `ctrl-right` | move the caret to the end of the word | `FieldWordRight` | — |
+| `ctrl-shift-left` | extend the selection to the start of the word | `FieldSelectWordLeft` | — |
+| `ctrl-shift-right` | extend the selection to the end of the word | `FieldSelectWordRight` | — |
 | `ctrl-a` | select the whole line | `FieldSelectAll` | — |
 | `ctrl-c` | copy the selection to the clipboard | `FieldCopy` | — |
 | `ctrl-x` | cut the selection to the clipboard | `FieldCut` | — |
@@ -399,6 +407,10 @@ in hand. `docs/keys.md` is the human map of both halves.
 | `end` | move the caret to the end of the line | `FieldEnd` | — |
 | `shift-home` | select to the start of the line | `FieldSelectToStart` | — |
 | `shift-end` | select to the end of the line | `FieldSelectToEnd` | — |
+| `ctrl-left` | move the caret to the start of the word | `FieldWordLeft` | — |
+| `ctrl-right` | move the caret to the end of the word | `FieldWordRight` | — |
+| `ctrl-shift-left` | extend the selection to the start of the word | `FieldSelectWordLeft` | — |
+| `ctrl-shift-right` | extend the selection to the end of the word | `FieldSelectWordRight` | — |
 | `ctrl-a` | select the whole line | `FieldSelectAll` | — |
 | `ctrl-c` | copy the selection to the clipboard | `FieldCopy` | — |
 | `ctrl-x` | cut the selection to the clipboard | `FieldCut` | — |

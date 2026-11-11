@@ -118,7 +118,10 @@ tab pages, and the reason `ctrl-w l` read as "the graph closed". It is gone: the
 to the tab on screen, leaving a graph tab is tab paging (`g t`/`g T`, `:tabnext`) as it is for
 every tab, and `window.right`'s palette label now says "Focus the pane to the right" instead of
 promising a note. Node selection gained an arrow form beside `hjkl`: `ctrl`+`shift`+arrow, with
-the bare arrows left as the camera and `shift` still moving it three times as far.
+the bare arrows left as the camera and `shift` still moving it three times as far. In the
+*fields* — prompt, picker, graph filter — the same modifier pair does what it does everywhere
+text is edited: `ctrl`+`shift`+arrow selects a word and `ctrl`+arrow moves by one, on the same
+boundary `ctrl-backspace` already deletes from (`word_forward`, beside `word_back` in core).
 
 **P4.0, transclusion — the editable half (closed 2026-11-08).** P4.0a
 (read-only embeds) shipped on 2026-11-06, and **P4.0b — editing inside an embed — is

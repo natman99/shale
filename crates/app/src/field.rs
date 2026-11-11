@@ -17,7 +17,7 @@ use gpui::{
     InspectorElementId, IntoElement, LayoutId, Pixels, ShapedLine, SharedString,
     Style as ElementStyle, UTF16Selection, Window,
 };
-use shale_core::buffer::word_back;
+use shale_core::buffer::{word_back, word_forward};
 use shale_core::theme::Palette;
 
 use crate::style::CHIP_RADIUS;
@@ -121,6 +121,31 @@ impl Field {
     pub(crate) fn select_to_end(&mut self) {
         self.anchor = Some(self.anchor.unwrap_or(self.caret));
         self.caret = self.text.len();
+    }
+
+    /// `ctrl`+`left`/`right`: the word boundary the caret lands on. A plain motion
+    /// leaves any selection behind, as every other motion here does.
+    pub(crate) fn caret_word_left(&mut self) {
+        self.anchor = None;
+        self.caret = word_back(&self.text, self.caret);
+    }
+
+    pub(crate) fn caret_word_right(&mut self) {
+        self.anchor = None;
+        self.caret = word_forward(&self.text, self.caret);
+    }
+
+    /// `ctrl`+`shift`+`left`/`right`: the selection grows by a word. Only the caret
+    /// end moves — the anchor stays where the key was first pressed, which is the
+    /// whole selection model in one line.
+    pub(crate) fn select_word_left(&mut self) {
+        self.anchor = Some(self.anchor.unwrap_or(self.caret));
+        self.caret = word_back(&self.text, self.caret);
+    }
+
+    pub(crate) fn select_word_right(&mut self) {
+        self.anchor = Some(self.anchor.unwrap_or(self.caret));
+        self.caret = word_forward(&self.text, self.caret);
     }
 
     /// The whole line, which is what `ctrl-a` means here. In a shell's line editor
@@ -415,6 +440,30 @@ macro_rules! field_key_actions {
         // editor does with them, and what a user reaching for `shift-home`
         // expects when they overshoot.
         .on_action(
+            $cx.listener(|this, _: &$crate::acts::FieldWordLeft, _window, cx| {
+                this.field_mut().caret_word_left();
+                cx.notify();
+            }),
+        )
+        .on_action(
+            $cx.listener(|this, _: &$crate::acts::FieldWordRight, _window, cx| {
+                this.field_mut().caret_word_right();
+                cx.notify();
+            }),
+        )
+        .on_action(
+            $cx.listener(|this, _: &$crate::acts::FieldSelectWordLeft, _window, cx| {
+                this.field_mut().select_word_left();
+                cx.notify();
+            }),
+        )
+        .on_action($cx.listener(
+            |this, _: &$crate::acts::FieldSelectWordRight, _window, cx| {
+                this.field_mut().select_word_right();
+                cx.notify();
+            },
+        ))
+        .on_action(
             $cx.listener(|this, _: &$crate::acts::FieldSelectToStart, _window, cx| {
                 this.field_mut().select_to_start();
                 cx.notify();
@@ -681,6 +730,43 @@ impl<E: FieldOwner + EntityInputHandler + 'static> Element for FieldElement<E> {
 #[cfg(test)]
 mod tests {
     use super::Field;
+
+    /// `ctrl`+`shift`+arrow grows the selection a word at a time, and `ctrl`+arrow
+    /// moves the caret by a word and leaves the selection behind — the pair every text
+    /// field has, which this one did not.
+    #[test]
+    fn words_are_the_unit_ctrl_moves_and_selects() {
+        let mut field = Field::new("tag:monster order:cr");
+        field.select_word_left();
+        assert_eq!(
+            field.selected_text().as_deref(),
+            Some("cr"),
+            "one key takes the word before the caret"
+        );
+        field.select_word_left();
+        field.select_word_left();
+        assert_eq!(
+            field.selected_text().as_deref(),
+            Some("order:cr"),
+            "and keeps going, run by run: the word, the colon, the word again"
+        );
+
+        // A plain motion drops the selection rather than dragging it along, and crosses
+        // the blank to the word before it — the same boundary `ctrl-backspace` deletes
+        // from, because it is the same question.
+        field.caret_word_left();
+        assert_eq!(
+            field.selection(),
+            None,
+            "the motion left the selection behind"
+        );
+        assert_eq!(field.caret, 4, "the start of `monster`");
+        field.caret_word_right();
+        assert_eq!(
+            field.caret, 11,
+            "and back at the blank's start, going the other way"
+        );
+    }
 
     /// The selection is one anchor with the caret as the other end, so the range is
     /// normalised at the one place that reads it: a selection made leftwards reads

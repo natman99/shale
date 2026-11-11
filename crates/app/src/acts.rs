@@ -235,6 +235,10 @@ actions!(
         // field — the prompt, the pickers, the graph's filter.
         FieldSelectLeft,
         FieldSelectRight,
+        FieldWordLeft,
+        FieldWordRight,
+        FieldSelectWordLeft,
+        FieldSelectWordRight,
         FieldSelectToStart,
         FieldSelectToEnd,
         FieldSelectAll,

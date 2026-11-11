@@ -268,6 +268,53 @@ pub fn word_back(text: &str, at: usize) -> usize {
     i
 }
 
+/// The offset `ctrl`+`right` lands on going forward from `at`: the end of the run the
+/// caret is inside, or — sitting on a blank or at a run's end — the end of the next run.
+///
+/// The forward twin of [`word_back`], with the same classes and the same walk, so
+/// `ctrl`+`left` then `ctrl`+`right` comes back to the boundary it left. The fields
+/// (prompt, picker, graph filter) ask this for word-wise caret motion and selection;
+/// the buffer's `w` has its own text-object rule, which is a different question — where
+/// a *motion* lands and what an *object* covers are not the same boundary.
+pub fn word_forward(text: &str, at: usize) -> usize {
+    let len = text.len();
+    let at = at.min(len);
+    if at == len {
+        return len;
+    }
+    // The character just after `i`, and the byte offset just past it.
+    let next_class = |i: usize| text[i..].chars().next().map(class_of);
+    let past_next = |i: usize| i + text[i..].chars().next().map_or(0, |ch| ch.len_utf8());
+
+    let mut i = at;
+    // In the middle of a run: forward to that run's end.
+    if let Some(cls) = next_class(i) {
+        if cls != WordClass::Whitespace && cls != WordClass::Newline {
+            while i < len && next_class(i) == Some(cls) {
+                i = past_next(i);
+            }
+            if i > at {
+                return i;
+            }
+        }
+    }
+    // On a blank (or at a run's end): cross blanks, then over the next run.
+    while i < len {
+        match next_class(i) {
+            Some(WordClass::Whitespace) | Some(WordClass::Newline) => i = past_next(i),
+            _ => break,
+        }
+    }
+    if i < len {
+        if let Some(cls) = next_class(i) {
+            while i < len && next_class(i) == Some(cls) {
+                i = past_next(i);
+            }
+        }
+    }
+    i
+}
+
 /// The offset vim's `B` motion lands on coming back from `at`: the start of the
 /// WORD before the cursor. The WORD-level twin of [`word_back`], and deliberately
 /// a separate walk rather than a flag on it: a WORD is delimited only by blanks,

@@ -435,6 +435,14 @@ fn build() -> (Vec<KeyBinding>, Vec<KeymapRow>) {
                 "end" => FieldEnd,
                 "shift-home" => FieldSelectToStart,
                 "shift-end" => FieldSelectToEnd,
+                // Word-wise motion and selection. `ctrl`+arrow is the word step
+                // everywhere text is edited, and the field had no word step at all:
+                // `ctrl-backspace` deletes a word, so the caret should be able to
+                // reach one.
+                "ctrl-left" => FieldWordLeft,
+                "ctrl-right" => FieldWordRight,
+                "ctrl-shift-left" => FieldSelectWordLeft,
+                "ctrl-shift-right" => FieldSelectWordRight,
                 // `ctrl-a` is select-all here, not the shell's start-of-line: the
                 // user asked for it, and `home` is the start of the line already.
                 "ctrl-a" => FieldSelectAll,
@@ -685,6 +693,10 @@ fn action_note(name: &str) -> Option<&'static str> {
         "FieldLeft" => "move the caret left",
         "FieldRight" => "move the caret right",
         "FieldSelectLeft" => "extend the selection left",
+        "FieldWordLeft" => "move the caret to the start of the word",
+        "FieldWordRight" => "move the caret to the end of the word",
+        "FieldSelectWordLeft" => "extend the selection to the start of the word",
+        "FieldSelectWordRight" => "extend the selection to the end of the word",
         "FieldSelectRight" => "extend the selection right",
         "FieldSelectToStart" => "select to the start of the line",
         "FieldSelectToEnd" => "select to the end of the line",

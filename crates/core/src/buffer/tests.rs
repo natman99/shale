@@ -829,3 +829,55 @@ fn two_buffers_never_share_the_id_their_caches_are_keyed_on() {
         "and the id stays inside this buffer's own epoch"
     );
 }
+
+/// `ctrl`+`right` in a field steps run by run: the end of the run the caret is inside,
+/// then — sitting on a blank — the end of the next one. Same classes as `word_back`,
+/// and the two are pinned as a pair, because a caret that walks right and then left to
+/// a *different* boundary is a caret the user cannot aim.
+#[test]
+fn word_forward_steps_run_by_run() {
+    let text = "goblin w/10  hp";
+    assert_eq!(word_forward(text, 0), 6, "inside a word: to its end");
+    assert_eq!(word_forward(text, 6), 8, "on a blank: over the next run");
+    assert_eq!(
+        word_forward(text, 8),
+        9,
+        "on punctuation: to the end of that run"
+    );
+    assert_eq!(
+        word_forward(text, 9),
+        11,
+        "digits are word characters, not punctuation"
+    );
+    assert_eq!(
+        word_forward(text, 11),
+        15,
+        "two blanks crossed at once, then the word"
+    );
+    assert_eq!(
+        word_forward(text, 15),
+        15,
+        "at the end of the line it stays put"
+    );
+
+    // From the start of a run, the pair agrees. From the middle of one it does not —
+    // forward goes to that run's end and back goes to its start — and that is the same
+    // asymmetry `word_back` has always had: the caret is being aimed at words, not at
+    // the character it happened to be sitting on.
+    for at in [0usize, 7, 9, 13] {
+        assert_eq!(
+            word_back(text, word_forward(text, at)),
+            at,
+            "right then left from {at} comes back to {at}"
+        );
+    }
+
+    // Byte offsets, so a multibyte character has to be stepped whole.
+    let accented = "h\u{e9}llo w\u{f6}rld";
+    assert_eq!(
+        word_forward(accented, 0),
+        6,
+        "`héllo` is five characters, six bytes"
+    );
+    assert_eq!(word_forward(accented, 7), 13, "and `wörld` likewise");
+}

@@ -1315,3 +1315,31 @@ fn home_and_end_move_the_caret_to_the_ends(cx: &mut TestAppContext) {
         "`shift-up` from the end of the line selected all of it, and typing replaced it"
     );
 }
+
+/// `ctrl`+`shift`+arrow selects a word at a time, which is how a search gets edited:
+/// one key reaches the operator, not the six characters in front of it. `ctrl`+arrow
+/// alone moves the caret by a word and selects nothing.
+#[gpui::test]
+fn ctrl_shift_arrows_select_whole_words(cx: &mut TestAppContext) {
+    let (_dir, window) = query_vault(cx);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    cx.simulate_keystrokes("ctrl-shift-f");
+    cx.simulate_input("tag:monster");
+
+    cx.simulate_keystrokes("ctrl-shift-left");
+    cx.simulate_input("goblin");
+    assert_eq!(
+        field(&window, cx),
+        "tag:goblin",
+        "one key took `monster` and the typing replaced it"
+    );
+
+    // The caret motion beside it: a word at a time, selecting nothing.
+    cx.simulate_keystrokes("ctrl-left");
+    cx.simulate_input("x");
+    assert_eq!(
+        field(&window, cx),
+        "tag:xgoblin",
+        "`ctrl-left` stepped to the start of `goblin` without taking a selection"
+    );
+}

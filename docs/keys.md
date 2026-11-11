@@ -215,13 +215,18 @@ wherever it appears — the prompt, every picker, and the graph's filter strip:
 | key | what it does |
 | --- | --- |
 | `shift-left` / `shift-right` | extend the selection by one character |
+| `ctrl-left` / `ctrl-right` | the caret a word at a time |
+| `ctrl-shift-left` / `ctrl-shift-right` | extend the selection a word at a time |
 | `home` / `end` | the caret to the start / end of the line |
 | `shift-home` / `shift-end`, `shift-up` / `shift-down` | select to the start / end |
 | `ctrl-a` | select the whole line |
 | `ctrl-c` / `ctrl-x` / `ctrl-v` | copy / cut / paste, on the system clipboard |
 
-A field is one line, so it has no line above or below: `shift-up` and `shift-down`
-are the ends of it, which is what a shell's line editor makes of them too. `ctrl-a`
+A word is a run of one kind — letters and digits, punctuation, or blanks — and the word
+step uses the same boundary `ctrl-backspace` deletes from, so the caret can be parked on
+exactly the thing the key would take away. In the graph tab itself `ctrl`+`shift`+arrows
+belong to the canvas (they move the chosen node); inside its filter strip they are back to
+being field keys. `ctrl-a`
 is the deliberate departure from that editor — it selects everything, and `home` is
 start-of-line. Typing, `backspace`, `delete` or a paste replaces what is selected; a
 plain arrow leaves the selection at the end it was heading for rather than stepping.
