@@ -875,3 +875,357 @@ fn a_section_jump_into_a_dirty_note_lands_on_the_heading_the_reader_sees(cx: &mu
         "the heading where the reader is looking at it, not where the index last read it"
     );
 }
+
+// ---- `:block-id` and `:blocks`: the two verbs (P4.9 M4) ----
+
+/// The id Shale generated, read back out of the note: six characters of `a-z2-7`
+/// (ruling 2). Returns the whole buffer text too, for the tests that need both.
+fn id_in(text: &str) -> String {
+    let at = text.find('^').expect("an id was written");
+    text[at + 1..]
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric())
+        .collect()
+}
+
+fn is_generated(id: &str) -> bool {
+    id.len() == 6
+        && id
+            .chars()
+            .all(|c| "abcdefghijklmnopqrstuvwxyz234567".contains(c))
+}
+
+/// `:block-id` on a paragraph writes the id at the end of its last line, says what it
+/// wrote, and one `u` takes the whole thing back (EDGE-21).
+#[gpui::test]
+fn block_id_gives_the_block_under_the_caret_an_id(cx: &mut TestAppContext) {
+    let original = "the goblin waits\nby the door\n\nnext paragraph\n";
+    let (_dir, window) = vault_with(cx, &[("Lair.md", original)]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "Lair.md");
+    type_command("block-id", cx);
+
+    let text = window
+        .update(cx, |ws, _window, cx| ws.buffer_text(cx))
+        .unwrap();
+    assert!(
+        text.starts_with("the goblin waits\nby the door ^"),
+        "the id lands at the end of the block's last line: {text}"
+    );
+    let id = id_in(&text);
+    assert!(is_generated(&id), "{id} is not a generated id");
+    assert!(
+        status(&window, cx).starts_with("block id ^"),
+        "{}",
+        status(&window, cx)
+    );
+
+    cx.simulate_keystrokes("u");
+    assert_eq!(
+        window
+            .update(cx, |ws, _window, cx| ws.buffer_text(cx))
+            .unwrap(),
+        original,
+        "one undo removes the id and the space before it"
+    );
+}
+
+/// EDGE-10: a block that already has an id is not given a second one. The sentence
+/// names the id that is already there, which is what the reader needs to reuse it.
+#[gpui::test]
+fn block_id_refuses_a_second_id_on_the_same_block(cx: &mut TestAppContext) {
+    let text = "the goblin waits ^goblin\n\nnext\n";
+    let (_dir, window) = vault_with(cx, &[("Lair.md", text)]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "Lair.md");
+    type_command("block-id", cx);
+
+    assert_eq!(
+        window
+            .update(cx, |ws, _window, cx| ws.buffer_text(cx))
+            .unwrap(),
+        text,
+        "nothing was written"
+    );
+    assert_eq!(
+        status(&window, cx),
+        "this block already has an id: ^goblin",
+        "and the reader is told which one"
+    );
+}
+
+/// A typed id is used as written, so an author can name a block after what it is
+/// instead of after what a generator drew.
+#[gpui::test]
+fn block_id_takes_the_id_the_reader_types(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("Lair.md", "the goblin waits\n")]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "Lair.md");
+    type_command("block-id goblin", cx);
+
+    assert_eq!(
+        window
+            .update(cx, |ws, _window, cx| ws.buffer_text(cx))
+            .unwrap(),
+        "the goblin waits ^goblin\n"
+    );
+    assert_eq!(status(&window, cx), "block id ^goblin (u takes it back)");
+}
+
+/// Ruling 2's grammar is a refusal, not a shrug: an id with a character outside
+/// `[A-Za-z0-9-]` would not be found by the scan, so writing it would be a lie.
+#[gpui::test]
+fn block_id_refuses_an_id_outside_the_grammar(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("Lair.md", "the goblin waits\n")]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "Lair.md");
+    type_command("block-id bad_id", cx);
+
+    assert_eq!(
+        window
+            .update(cx, |ws, _window, cx| ws.buffer_text(cx))
+            .unwrap(),
+        "the goblin waits\n"
+    );
+    assert_eq!(
+        status(&window, cx),
+        "^bad_id is not a block id: letters, digits and - only"
+    );
+}
+
+/// The collision check reaches past the note on screen: an id another note already
+/// uses would make `[[elsewhere#^goblin]]` ambiguous, so it is refused. This is the
+/// vault-wide half — the buffer alone would let it through.
+#[gpui::test]
+fn block_id_refuses_an_id_the_vault_already_uses(cx: &mut TestAppContext) {
+    let (_dir, window) = indexed_vault(
+        cx,
+        &[
+            ("Gift.md", "the troll waits ^goblin\n"),
+            ("Lair.md", "the goblin waits\n"),
+        ],
+    );
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "Lair.md");
+    type_command("block-id goblin", cx);
+
+    assert_eq!(
+        window
+            .update(cx, |ws, _window, cx| ws.buffer_text(cx))
+            .unwrap(),
+        "the goblin waits\n",
+        "the note was not written"
+    );
+    assert_eq!(
+        status(&window, cx),
+        "^goblin is already in use in this vault",
+        "{}",
+        status(&window, cx)
+    );
+}
+
+/// A structured block's id stands on its own line below a blank (EDGE-8), and the one
+/// undo takes the blank line away with it (EDGE-21).
+#[gpui::test]
+fn block_id_on_a_table_writes_the_own_line_form_as_one_edit(cx: &mut TestAppContext) {
+    let original = "| a | b |\n| - | - |\n| 1 | 2 |\n";
+    let (_dir, window) = vault_with(cx, &[("Lair.md", original)]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "Lair.md");
+    cx.simulate_keystrokes("0");
+    type_command("block-id tid", cx);
+
+    let text = window
+        .update(cx, |ws, _window, cx| ws.buffer_text(cx))
+        .unwrap();
+    assert_eq!(text, "| a | b |\n| - | - |\n| 1 | 2 |\n\n^tid\n");
+    cx.simulate_keystrokes("u");
+    assert_eq!(
+        window
+            .update(cx, |ws, _window, cx| ws.buffer_text(cx))
+            .unwrap(),
+        original,
+        "the blank line goes with the id"
+    );
+}
+
+/// `:blocks` with no pattern lists the note on screen from its **buffer**: the ids the
+/// reader can see, in reading order, each row labelled by the block's first line.
+#[gpui::test]
+fn blocks_lists_the_note_on_screen(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("Lair.md", "one ^aaaaaa\n\ntwo ^bbbbbb\n")]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "Lair.md");
+    type_command("blocks", cx);
+
+    let rows = window
+        .update(cx, |ws, _window, cx| ws.picker_rows(cx))
+        .unwrap();
+    assert_eq!(
+        rows,
+        vec!["Lair.md#^aaaaaa", "Lair.md#^bbbbbb"],
+        "in reading order"
+    );
+
+    let shown = window
+        .update(cx, |ws, _window, cx| ws.picker_shown(cx))
+        .unwrap();
+    assert_eq!(
+        shown[0].0, "one ^aaaaaa",
+        "the block's first line is the label"
+    );
+    assert_eq!(
+        shown[0].1, "^aaaaaa · paragraph · line 1",
+        "the id, the kind, and the line a reader counts from one"
+    );
+}
+
+/// EDGE-12: the list answers from the buffer, so an id typed a second ago — unsaved,
+/// unread by the index — is already in it.
+#[gpui::test]
+fn blocks_lists_an_id_the_reader_just_typed(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("Lair.md", "the goblin waits\n")]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "Lair.md");
+    cx.simulate_keystrokes("A");
+    cx.simulate_input(" ^mine");
+    cx.simulate_keystrokes("escape");
+
+    type_command("blocks", cx);
+    let rows = window
+        .update(cx, |ws, _window, cx| ws.picker_rows(cx))
+        .unwrap();
+    assert_eq!(rows, vec!["Lair.md#^mine"], "unsaved, and still listed");
+}
+
+/// Choosing a row puts the caret on the block's first line — the top of the thing the
+/// id names, which is the same row the `blocks` table stores.
+#[gpui::test]
+fn a_block_row_puts_the_caret_on_the_blocks_first_line(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(
+        cx,
+        &[(
+            "Lair.md",
+            "intro\n\nthe goblin waits\nby the door. ^goblin\n",
+        )],
+    );
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "Lair.md");
+    type_command("blocks", cx);
+    cx.simulate_keystrokes("enter");
+
+    assert_eq!(
+        caret_row(&window, cx),
+        2,
+        "the top of the block, not the line the id sits on"
+    );
+}
+
+/// With a pattern the list is the vault, read from `blocks`: ids in notes nobody has
+/// open, which is the question a table answers and a buffer cannot.
+#[gpui::test]
+fn blocks_with_a_pattern_lists_the_vault_through_the_index(cx: &mut TestAppContext) {
+    let (_dir, window) = indexed_vault(
+        cx,
+        &[
+            ("Gift.md", "the troll waits ^goblin\n"),
+            ("Lair.md", "the goblin waits ^gob222\n"),
+            ("Third.md", "nothing ided here\n"),
+        ],
+    );
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    type_command("blocks gob", cx);
+
+    let rows = window
+        .update(cx, |ws, _window, cx| ws.picker_rows(cx))
+        .unwrap();
+    assert_eq!(
+        rows,
+        vec!["Gift.md#^goblin", "Lair.md#^gob222"],
+        "in note order, and the note with no such id is absent"
+    );
+}
+
+/// A vault with no index says it cannot look, rather than reporting no ids (EDGE-13).
+#[gpui::test]
+fn blocks_without_an_index_says_it_cannot_look(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("Lair.md", "the goblin waits ^goblin\n")]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    type_command("blocks gob", cx);
+
+    let rows = window
+        .update(cx, |ws, _window, cx| ws.picker_rows(cx))
+        .unwrap();
+    assert_eq!(
+        rows,
+        vec!["there is no vault index to read (index.enabled = false)"],
+        "cannot look, and says so"
+    );
+}
+
+/// A note with no ids is an answer, not an empty pane — and the answer points at the
+/// verb that would change it.
+#[gpui::test]
+fn a_note_with_no_block_ids_says_so(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("Plain.md", "just prose\n")]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "Plain.md");
+    type_command("blocks", cx);
+
+    let rows = window
+        .update(cx, |ws, _window, cx| ws.picker_rows(cx))
+        .unwrap();
+    assert_eq!(
+        rows,
+        vec!["Plain.md has no block ids yet (`:block-id` adds one)"],
+        "{rows:?}"
+    );
+}
+
+/// The caret decides which block, and a caret on a blank line decides nothing: the
+/// command says where to put the caret rather than iding the block above by surprise.
+#[gpui::test]
+fn block_id_on_a_blank_line_says_where_the_caret_should_be(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("Lair.md", "one\n\nthree\n")]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "Lair.md");
+    cx.simulate_keystrokes("j");
+    type_command("block-id tid", cx);
+
+    assert_eq!(
+        window
+            .update(cx, |ws, _window, cx| ws.buffer_text(cx))
+            .unwrap(),
+        "one\n\nthree\n"
+    );
+    assert_eq!(
+        status(&window, cx),
+        "put the caret inside a paragraph, list item, heading, table, quote or code block"
+    );
+}
+
+/// The palette reaches both verbs from the words a person would type. Membership, not
+/// ranking, is the contract.
+#[gpui::test]
+fn the_palette_offers_both_block_verbs(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("a.md", "one line\n")]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    for (query, label) in [
+        ("block", "Jump to a block by its id"),
+        ("blocks", "Jump to a block by its id"),
+        ("block id", "Give the block under the caret an id"),
+        ("blockid", "Give the block under the caret an id"),
+    ] {
+        cx.simulate_keystrokes("ctrl-shift-p");
+        cx.simulate_input(query);
+        let offered = window
+            .update(cx, |ws, _window, cx| ws.picker_rows(cx))
+            .unwrap();
+        assert!(
+            offered.iter().any(|row| row == label),
+            "{query} offers: {offered:?}"
+        );
+        cx.simulate_keystrokes("escape");
+    }
+}

@@ -291,6 +291,13 @@ actions!(
         // note on screen, so it outlines that note; the vault-wide list needs the
         // pattern only the command line can carry.
         Sections,
+        // Jump to a block (`:blocks`, P4.9 M4). Like `:sections`: the palette row can
+        // only mean the note on screen, and the vault-wide list needs the pattern only
+        // the command line can carry.
+        Blocks,
+        // Give the block under the caret an id (`:block-id`, P4.9 M4). No chord: this is
+        // a command reached for by name, when a link needs somewhere to land.
+        AddBlockId,
         // Run a saved query: choose a `.shq`, run it against the index, read the rows
         // (`:query`, P4.3 M2).
         RunQuery,

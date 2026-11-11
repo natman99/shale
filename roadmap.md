@@ -1623,6 +1623,18 @@ edges, query nodes, MCP canvas tools) is P6.10.
   The chained `[[note#H#^id]]` is refused by reading it literally (ruling 11). The recursion
   cap is pinned by test, not by comment: block embeds stop at `MAX_DEPTH` like everything
   else, and a block that embeds its own note is cut by the chain at the second mention.
+  **M4 closed (2026-11-11): the two verbs.** `:block-id [id]` gives the block under the
+  caret an id — **one insert, so one `u` takes it back**, the blank line a structured
+  block's id stands on included (EDGE-21) — and refuses a second id on a block that has
+  one, an id outside ruling 2's grammar, and an id the vault already uses
+  (`Db::block_id_taken`, the check a buffer cannot do alone). With no argument it draws 6
+  chars of `a-z2-7` and redraws while the draw is taken. The write is **checked by the
+  scan**: each candidate spelling is applied to a copy and re-read, and the first that
+  names *this* block wins, because a placement guess the scan reads as another block would
+  hand the author a link that lies. `:blocks` is two halves like `:sections` — no pattern
+  lists the note on screen from its buffer, a pattern lists the vault from `blocks` — and
+  its rows say `^id · kind · line N` under the block's first line. EDGE-29 (new): a
+  command reaches the palette through its **label**, not its name.
   Two edges the plan did not have: **a heading that carries an id still answers its name**
   (EDGE-27 — the id is cut before heading matching), and **an embed line can carry its own
   id** (EDGE-28 — `![[a]] ^x` was not an embed at all, so labelling a working transclusion

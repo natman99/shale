@@ -92,6 +92,13 @@ pub(crate) enum Ex {
     /// the index. The rest of the line is the pattern verbatim, because a section name
     /// can hold a space.
     Sections(String),
+    /// `blocks [pattern]`: jump to a block (P4.9 M4). No pattern lists the blocks the
+    /// note on screen has ids for, read from its buffer; a pattern searches the vault's
+    /// ids through the index. The rest of the line is the pattern verbatim.
+    Blocks(String),
+    /// `block-id [id]`: give the block under the caret an id (P4.9 M4). With no id one
+    /// is generated; a typed id has to fit the grammar and be unused in the vault.
+    BlockId(String),
     /// `query`: run a saved query (`:query`, P4.3 M2). The name is not an argument —
     /// the command opens the list of `.shq` files, because the file's *name* is what a
     /// reader remembers and the picker is the surface that matches against it.
@@ -184,6 +191,8 @@ impl Ex {
             Ex::PropertyKeys => "vault.keys",
             Ex::RenameKey(..) => "vault.rename-key",
             Ex::Sections(..) => "vault.sections",
+            Ex::Blocks(..) => "vault.blocks",
+            Ex::BlockId(..) => "note.block-id",
             Ex::Query => "vault.query",
             Ex::SaveQuery(..) => "vault.save-query",
             Ex::Review => "review.focus",
@@ -363,6 +372,11 @@ pub(crate) fn parse(line: &str) -> Ex {
         // A saved question, run rather than read: the picker lists the vault's `.shq`
         // files and the answer comes back as rows.
         "sections" => Ex::Sections(rest.to_string()),
+        // One block, by its id. The same two halves as `:sections`: the note on screen
+        // from its buffer, or the vault from the index.
+        "blocks" => Ex::Blocks(rest.to_string()),
+        // The id is the whole rest of the line, because an id can hold a `-`.
+        "block-id" => Ex::BlockId(rest.to_string()),
         "query" => Ex::Query,
         "save-query" => Ex::SaveQuery(rest.to_string()),
         "rename-key" => {

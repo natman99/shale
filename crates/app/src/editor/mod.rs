@@ -12,6 +12,7 @@
 //! - [`overlay`]: a queued agent proposal painted in the note (roadmap P2.5b)
 
 mod actions;
+pub(crate) mod blockid;
 pub(crate) mod embeds;
 pub(crate) mod frontmatter;
 mod input;

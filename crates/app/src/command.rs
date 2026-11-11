@@ -577,6 +577,27 @@ const ALL: &[Command] = &[
         action: Some(|| Box::new(Sections)),
     },
     Command {
+        id: "vault.blocks",
+        // The label carries the word the command is named by *and* the noun it takes,
+        // so `:blocks` typed into the palette reaches it — "Jump to a block" is
+        // unreachable from `blocks`, which is how the first version of this test failed.
+        label: "Jump to a block by its id",
+        keys: "",
+        ex: &["blocks"],
+        args: "[pattern]",
+        in_palette: true,
+        action: Some(|| Box::new(Blocks)),
+    },
+    Command {
+        id: "note.block-id",
+        label: "Give the block under the caret an id",
+        keys: "",
+        ex: &["block-id"],
+        args: "[id]",
+        in_palette: true,
+        action: Some(|| Box::new(AddBlockId)),
+    },
+    Command {
         id: "vault.query",
         label: "Run a saved query",
         keys: "",

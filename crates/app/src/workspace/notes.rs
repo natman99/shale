@@ -14,7 +14,8 @@ use gpui::{Context, Window};
 use shale_core::markdown::Anchor;
 use shale_core::vault::{rel_text, LinkResolver};
 
-use crate::acts::{AddProperties, Save};
+use crate::acts::{AddBlockId, AddProperties, Save};
+use crate::editor::blockid::BlockId;
 use crate::editor::frontmatter::Frontmatter;
 use crate::note::Note;
 
@@ -188,6 +189,72 @@ impl Workspace {
                 Frontmatter::Already => "the note already has properties; caret moved inside",
                 Frontmatter::ReadOnly => "the note is read-only here (preview mode)",
                 Frontmatter::NoNote => "no note to write",
+            },
+            cx,
+        );
+    }
+
+    /// The palette's `:block-id`: give the block under the caret an id (P4.9 M4).
+    ///
+    /// The caret decides which note, the same rule `:add-properties` follows: inside an
+    /// entered embed this writes the embedded note, because that is the note the keyboard
+    /// is on. The editor owns the buffer, so the id arrives as one grouped edit and one
+    /// `u` takes it back.
+    pub(super) fn add_block_id(
+        &mut self,
+        _: &AddBlockId,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.set_block_id("", cx);
+    }
+
+    /// `:block-id [id]`. The window's job is the vault-wide collision check; the
+    /// editor's job is the block under the caret and where an id for it would land.
+    ///
+    /// With the index off, the check is the buffer alone — which is what the index's
+    /// posture asks for (a window with no index has a few features degraded, not a
+    /// broken one), and the sentence says "already in use" only about what was read
+    /// (EDGE-13).
+    pub(super) fn set_block_id(&mut self, want: &str, cx: &mut Context<Self>) {
+        let Some(editor) = self.pane().active_tab().editor().cloned() else {
+            self.say("no note to write", cx);
+            return;
+        };
+        let want = want.trim();
+        let db = self.db.clone();
+        let outcome = editor.update(cx, |editor, cx| {
+            editor.add_block_id(
+                want,
+                &|id| {
+                    db.as_ref()
+                        .is_some_and(|db| db.block_id_taken(id).unwrap_or(false))
+                },
+                cx,
+            )
+        });
+        self.say(
+            match &outcome {
+                // Named in the sentence because the id is the thing the reader will want
+                // to paste into a link.
+                BlockId::Inserted(id) => format!("block id ^{id} (u takes it back)"),
+                BlockId::HasId(existing) => {
+                    format!("this block already has an id: ^{existing}")
+                }
+                BlockId::NoBlock => concat!(
+                    "put the caret inside a paragraph, list item, heading, ",
+                    "table, quote or code block"
+                )
+                .to_string(),
+                BlockId::BadId(id) => {
+                    format!("^{id} is not a block id: letters, digits and - only")
+                }
+                BlockId::Taken => match want {
+                    "" => "every id it tried was already in use".to_string(),
+                    id => format!("^{id} is already in use in this vault"),
+                },
+                BlockId::NoRoom => "this block has no room for an id of its own".to_string(),
+                BlockId::ReadOnly => "the note is read-only here (preview mode)".to_string(),
             },
             cx,
         );

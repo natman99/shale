@@ -323,7 +323,7 @@ fn anchor_token(content: &str) -> Option<(usize, String)> {
     let trimmed = content.trim_end();
     let bytes = trimmed.as_bytes();
     let mut i = bytes.len();
-    while i > 0 && (bytes[i - 1].is_ascii_alphanumeric() || bytes[i - 1] == b'-') {
+    while i > 0 && is_id_byte(bytes[i - 1]) {
         i -= 1;
     }
     if i == bytes.len() || i == 0 || bytes[i - 1] != b'^' {
@@ -505,6 +505,180 @@ fn list_owner(map: &BlockMap, line: usize, alone: bool) -> Option<usize> {
     }
     best.map(|(_, index)| index)
 }
+
+// ---------------------------------------------------------------------------
+// Writing an id: the create verb's half of the scan (P4.9 M4).
+// ---------------------------------------------------------------------------
+
+/// One byte of an id. [`anchor_token`] walks a line with this set and
+/// [`valid_block_id`] asks it of a whole id, so the grammar the scan accepts and the
+/// grammar the create command accepts are one statement, not two (ruling 2).
+fn is_id_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'-'
+}
+
+/// Is `id` a legal block id: `[A-Za-z0-9-]+`, case-sensitive.
+pub fn valid_block_id(id: &str) -> bool {
+    !id.is_empty() && id.bytes().all(is_id_byte)
+}
+
+/// Which block the byte at `offset` sits in — the innermost one, so a caret inside a
+/// nested list item names the item the reader is looking at and not its parent. The
+/// tie-break is [`list_owner`]'s: deeper indent, then later line.
+pub fn block_at(map: &BlockMap, offset: usize) -> Option<usize> {
+    let mut best: Option<((usize, usize, usize), usize)> = None;
+    for (index, block) in map.blocks.iter().enumerate() {
+        if offset < block.start || offset > block.end {
+            continue;
+        }
+        let key = (block.indent, block.first_line, index);
+        if best.is_none_or(|(seen, _)| key > seen) {
+            best = Some((key, index));
+        }
+    }
+    best.map(|(_, index)| index)
+}
+
+/// The id a block already carries, if it carries one (EDGE-10).
+pub fn block_id(map: &BlockMap, block: usize) -> Option<&str> {
+    map.anchors
+        .iter()
+        .find(|anchor| anchor.block == block)
+        .map(|anchor| anchor.id.as_str())
+}
+
+/// Where an id goes, and what to write there.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlockIdWrite {
+    /// The byte to write at.
+    pub at: usize,
+    /// The text to write: whitespace, sometimes a blank line, then `^id`.
+    pub insert: String,
+    /// Just past the token — where the editor leaves the caret, so the reader can keep
+    /// typing on the id they were given (EDGE-21).
+    pub caret: usize,
+}
+
+/// The edit that gives `block` the id `id`, or `None` when no spelling would name it.
+///
+/// Candidate spellings are tried in order and each is **re-read by this same scan**: the
+/// anchor has to land inside the text just written *and* name the block it was written
+/// for. The placement rules below are a guess about where the scan will accept an id;
+/// the scan is the authority. A command that wrote an id the scan reads as naming a
+/// different block would hand the author a link that lies, so the guess is checked
+/// rather than trusted.
+pub fn with_block_id(text: &str, id: &str, block: usize) -> Option<BlockIdWrite> {
+    let map = block_map(text);
+    let target = map.blocks.get(block)?;
+    let (kind, first_line, start) = (target.kind, target.first_line, target.start);
+    for (at, insert) in id_candidates(&map, target, id) {
+        let mut out = String::with_capacity(text.len() + insert.len());
+        out.push_str(&text[..at]);
+        out.push_str(&insert);
+        out.push_str(&text[at..]);
+        let after = block_map(&out);
+        let Some(written) = after
+            .blocks
+            .iter()
+            .position(|b| b.kind == kind && b.first_line == first_line && b.start == start)
+        else {
+            continue;
+        };
+        if let Some(anchor) = after.anchors.iter().find(|a| {
+            a.id == id && a.block == written && a.start >= at && a.end <= at + insert.len()
+        }) {
+            return Some(BlockIdWrite {
+                at,
+                insert,
+                caret: anchor.end,
+            });
+        }
+    }
+    None
+}
+
+/// Where an id for `block` could be written, best guess first.
+fn id_candidates(map: &BlockMap, block: &Block, id: &str) -> Vec<(usize, String)> {
+    match block.kind {
+        // The id sits at the end of the block's last line, after whitespace.
+        BlockKind::Paragraph | BlockKind::Heading => vec![(block.end, format!(" ^{id}"))],
+        // A structured block has no last line an id could sit on — an id after a table
+        // row is ordinary text (EDGE-8) — so it takes the own-line form: a blank line,
+        // then the id alone (ruling 5's atom, ruled 4 for headings).
+        BlockKind::Quote | BlockKind::Callout | BlockKind::Table | BlockKind::Code => {
+            vec![(block.end, format!("\n\n^{id}"))]
+        }
+        BlockKind::ListItem => {
+            let child = map.blocks.iter().find(|b| {
+                b.kind == BlockKind::ListItem
+                    && b.first_line > block.first_line
+                    && b.first_line <= block.last_line
+            });
+            let Some(child) = child else {
+                // No children: the item's own last line is the last line of the block,
+                // which is the spelling the manual uses for a plain bullet.
+                return vec![(block.end, format!(" ^{id}"))];
+            };
+            // Children end the block, so an id appended there would name the child
+            // (deepest block wins). The item's own line goes between the item and its
+            // child: indented past the item, so the walk keeps it inside the item, and
+            // shallower than the child, so the item is the deepest thing holding it
+            // (EDGE-7).
+            let mut out = Vec::new();
+            for indent in [
+                block.indent + 2,
+                child.indent.saturating_sub(1),
+                block.indent + 1,
+            ] {
+                if indent <= block.indent || indent >= child.indent {
+                    continue;
+                }
+                let line = " ".repeat(indent);
+                out.push((block.end, format!("\n{line}^{id}")));
+            }
+            out
+        }
+    }
+}
+
+/// A fresh block id: six characters of `a-z2-7` (ruling 2), retried while the caller
+/// says the candidate is taken.
+///
+/// No RNG crate: the seed is the clock mixed with a process counter, which is plenty
+/// for ids that only have to be unique *within one vault* — and uniqueness is not
+/// trusted to the seed anyway, because every candidate goes through `taken`.
+pub fn new_block_id(taken: impl Fn(&str) -> bool) -> Option<String> {
+    const ALPHABET: &[u8; 32] = b"abcdefghijklmnopqrstuvwxyz234567";
+    let mut state = seed();
+    for _ in 0..64 {
+        let mut id = String::with_capacity(6);
+        for _ in 0..6 {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            id.push(ALPHABET[((state >> 33) & 31) as usize] as char);
+        }
+        if !taken(&id) {
+            return Some(id);
+        }
+    }
+    None
+}
+
+/// A non-zero xorshift seed: the clock, salted by a counter so two calls in the same
+/// nanosecond cannot produce the same id.
+fn seed() -> u64 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(1);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos() as u64);
+    let salt = COUNTER.fetch_add(1, Ordering::Relaxed);
+    (nanos ^ (salt << 33) ^ 0x9e37_79b9_7f4a_7c15)
+        .wrapping_mul(0xff51_afd7_ed55_8ccd)
+        .max(1)
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::Style;
@@ -748,5 +922,193 @@ mod tests {
         );
         let hidden = crate::mdlayout::hidden_ranges(text, &spans, 0, text.len() - 1);
         assert_eq!(hidden, Vec::new(), "live preview hides nothing here");
+    }
+
+    // ---------------------------------------------------------------------
+    // Writing an id (P4.9 M4): where the create verb puts it, and what the
+    // scan agrees to.
+    // ---------------------------------------------------------------------
+
+    /// The note with the id written, and the anchor the re-scan found for it.
+    fn written(text: &str, id: &str, block: usize) -> (String, BlockAnchor) {
+        let write = with_block_id(text, id, block).expect("an id can be written here");
+        let out = format!("{}{}{}", &text[..write.at], write.insert, &text[write.at..]);
+        let map = block_map(&out);
+        let anchor = map
+            .anchors
+            .iter()
+            .find(|a| a.id == id)
+            .expect("the written id is an anchor");
+        (out, anchor.clone())
+    }
+
+    /// A paragraph takes its id at the end of its last line, and the block it names
+    /// is the whole soft-wrapped paragraph (EDGE-6).
+    #[test]
+    fn an_id_written_for_a_paragraph_sits_at_the_end_of_its_last_line() {
+        let text = "the goblin\nwaits by the door\n\nnext paragraph\n";
+        let (out, anchor) = written(text, "goblin", 0);
+        assert_eq!(
+            out, "the goblin\nwaits by the door ^goblin\n\nnext paragraph\n",
+            "appended to the last line, after a space"
+        );
+        let map = block_map(&out);
+        assert_eq!(anchor.block, 0);
+        assert_eq!(
+            (map.blocks[0].first_line, map.blocks[0].last_line),
+            (0, 1),
+            "and it still names the whole paragraph"
+        );
+    }
+
+    /// Ruling 4: an id on a heading names the heading line, and the create verb
+    /// writes it there — not at the end of the section.
+    #[test]
+    fn an_id_written_for_a_heading_names_the_heading_line() {
+        let text = "## The Fall\nthe city went under\n";
+        let (out, anchor) = written(text, "fall", 0);
+        assert_eq!(out, "## The Fall ^fall\nthe city went under\n");
+        let map = block_map(&out);
+        assert_eq!(map.blocks[anchor.block].kind, BlockKind::Heading);
+        assert_eq!(map.blocks[anchor.block].first_line, 0);
+    }
+
+    /// EDGE-8: an id after a table row is ordinary text, so a table's id stands on
+    /// its own line below a blank — the one form the scan accepts for a structured
+    /// block.
+    #[test]
+    fn an_id_written_for_a_table_stands_on_its_own_line_below_a_blank() {
+        let text = "| a | b |\n| - | - |\n| 1 | 2 |\n";
+        let (out, anchor) = written(text, "tid", 0);
+        assert_eq!(out, "| a | b |\n| - | - |\n| 1 | 2 |\n\n^tid\n");
+        let map = block_map(&out);
+        assert_eq!(map.blocks[anchor.block].kind, BlockKind::Table);
+        assert_eq!(
+            map.blocks[anchor.block].last_line, 2,
+            "the table, not the id line"
+        );
+    }
+
+    /// A quote and a fenced block take the same own-line form.
+    #[test]
+    fn a_quote_and_a_code_block_take_the_own_line_form() {
+        let (out, anchor) = written("> quote\n> more\n", "qid", 0);
+        assert_eq!(out, "> quote\n> more\n\n^qid\n");
+        let map = block_map(&out);
+        assert_eq!(map.blocks[anchor.block].kind, BlockKind::Quote);
+
+        let (out, anchor) = written("```rust\nlet x = 1;\n```\n", "cid", 0);
+        assert_eq!(out, "```rust\nlet x = 1;\n```\n\n^cid\n");
+        let map = block_map(&out);
+        assert_eq!(map.blocks[anchor.block].kind, BlockKind::Code);
+    }
+
+    /// EDGE-7, the hard one: a parent item's id must name the item and not the child
+    /// that ends its block. The id goes on a line of its own between the two indents.
+    #[test]
+    fn an_id_written_for_a_parent_item_names_the_item_and_not_the_child() {
+        let text = "- parent\n    - child\n";
+        let (out, anchor) = written(text, "pid", 0);
+        let map = block_map(&out);
+        assert_eq!(
+            map.blocks[anchor.block].kind,
+            BlockKind::ListItem,
+            "a list item either way"
+        );
+        assert_eq!(
+            map.blocks[anchor.block].first_line, 0,
+            "the parent's block, not the child's:\n{out}"
+        );
+        assert_eq!(
+            map.blocks[anchor.block].last_line, 2,
+            "the item's block now holds the id line"
+        );
+    }
+
+    /// The child, addressed by its own block index, keeps being the child.
+    #[test]
+    fn an_id_written_for_a_child_item_names_the_child() {
+        let text = "- parent\n    - child\n";
+        let map = block_map(text);
+        let child = map
+            .blocks
+            .iter()
+            .position(|b| b.first_line == 1)
+            .expect("the child is a block");
+        let (out, anchor) = written(text, "cid", child);
+        let after = block_map(&out);
+        assert_eq!(
+            after.blocks[anchor.block].first_line, 1,
+            "the child's block:\n{out}"
+        );
+    }
+
+    /// Where there is no room for an own-line id between an item and its child, the
+    /// command refuses rather than writing one the scan would read as naming the
+    /// child. A refusal is a smaller lie than a link to the wrong block.
+    #[test]
+    fn an_item_with_no_room_for_its_own_id_is_refused() {
+        // The child is nested one space deep: no indent sits between 0 and 1.
+        let text = "- parent\n - child\n";
+        assert_eq!(with_block_id(text, "pid", 0), None);
+    }
+
+    /// The caret decides the block, and the innermost one wins: a caret in a nested
+    /// item names the item, not the parent that contains it.
+    #[test]
+    fn the_innermost_block_under_the_caret_wins() {
+        let text = "- parent\n    - child\n";
+        let map = block_map(text);
+        let parent = block_at(&map, 2).expect("the parent's text");
+        let child = block_at(&map, text.find("child").unwrap() + 2).expect("the child's text");
+        assert_ne!(parent, child);
+        assert_eq!(map.blocks[parent].first_line, 0);
+        assert_eq!(map.blocks[child].first_line, 1);
+        // A blank line between blocks holds no block at all.
+        assert_eq!(block_at(&block_map("one\n\ntwo\n"), 4), None);
+    }
+
+    /// EDGE-10: the census of a block's ids, which is what lets the create verb
+    /// refuse a second one instead of writing a block with two claims.
+    #[test]
+    fn a_block_that_already_has_an_id_says_which_one() {
+        let map = block_map("the goblin waits ^goblin\n");
+        assert_eq!(block_id(&map, 0), Some("goblin"));
+        assert_eq!(block_id(&map, 99), None);
+        assert_eq!(block_id(&block_map("plain\n"), 0), None);
+    }
+
+    /// Ruling 2's grammar, asked of a whole id: `[A-Za-z0-9-]+`, case-sensitive.
+    #[test]
+    fn the_id_grammar_is_the_scans_grammar() {
+        for ok in ["a", "ab12cd", "AB", "a-b-c", "0"] {
+            assert!(valid_block_id(ok), "{ok} is legal");
+        }
+        for no in ["", "^a", "a b", "a_b", "a.b", "a^b", "\u{e9}"] {
+            assert!(!valid_block_id(no), "{no:?} is not");
+        }
+    }
+
+    /// A generated id is six characters of `a-z2-7`, and every candidate goes through
+    /// the caller's collision check — uniqueness is not trusted to the seed.
+    #[test]
+    fn a_generated_id_is_six_characters_of_the_declared_alphabet() {
+        let alphabet = "abcdefghijklmnopqrstuvwxyz234567";
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..50 {
+            let id = new_block_id(|_| false).expect("an id");
+            assert_eq!(id.len(), 6, "{id}");
+            assert!(id.chars().all(|c| alphabet.contains(c)), "{id}");
+            assert!(valid_block_id(&id));
+            assert!(seen.insert(id.clone()), "{id} repeated");
+        }
+        // The check is consulted, not decorative: with every id starting with `a`
+        // refused, no answer starts with `a`.
+        for _ in 0..20 {
+            let id = new_block_id(|id| id.starts_with('a')).expect("an id");
+            assert!(!id.starts_with('a'), "{id} should have been refused");
+        }
+        // And a vault that somehow holds every candidate says so instead of looping.
+        assert_eq!(new_block_id(|_| true), None);
     }
 }

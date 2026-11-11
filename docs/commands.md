@@ -47,6 +47,8 @@ as you would type it.
 | `vault.props` | Show the open note's properties | — | `:props`, `:properties` | — |
 | `vault.keys` | List the vault's property keys | — | `:keys` | — |
 | `vault.sections` | Jump to a section | — | `:sections [pattern]` | `[pattern]` |
+| `vault.blocks` | Jump to a block by its id | — | `:blocks [pattern]` | `[pattern]` |
+| `note.block-id` | Give the block under the caret an id | — | `:block-id [id]` | `[id]` |
 | `vault.query` | Run a saved query | — | `:query` | — |
 | `vault.save-query` | Save a search as a query | — | `:save-query [search]` | `[search]` |
 | `vault.rename-key` | Rename a property key across the vault | — | `:rename-key [old] [new]` | `[old] [new]` |

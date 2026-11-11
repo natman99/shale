@@ -247,6 +247,12 @@ Every row is a case a test or a refusal must answer. Free rides are marked.
   is cut before the line's shape is checked. `line_embed` used to demand the line be *only*
   the embed, so labelling a working transclusion would have silently un-embedded it. The id
   names the embed line as a block, which is what a `#^x` link elsewhere reaches.
+- **EDGE-29 — a command's palette reachability is its label, not its name.** `:blocks`
+  labelled "Jump to a block" cannot be found by typing `blocks`: the matcher needs an `s`
+  after the `block`, and the row that answers instead is typewriter mode's "Dim everything
+  but the block the cursor is in". The label now carries the noun the command takes. The
+  check is a palette test that types the command's own word and asserts membership, not
+  ranking — the same contract `:sections` keeps.
 
 ## 5. Free rides (say so, don't spend rulings)
 
@@ -353,8 +359,43 @@ Split by dependency; each closes with the workspace gate green and its falsifica
   first line, where a *failed* jump leaves the caret too. A falsification is only as good as
   the fixture's ability to tell the failure from the success. A third green was a mutation
   that never applied — the mutation script now asserts its search string matched.
-- **M4 — the two verbs.** `:block-id` (grouped edit, collision-checked, refuses a second
-  id) and `:blocks` (vault-wide, riding `:sections`).
+- **M4 — the two verbs. CLOSED (2026-11-11).** `:block-id [id]` (`note.block-id`,
+  `AddBlockId`, no chord per ruling 7) and `:blocks [pattern]` (`vault.blocks`, `Blocks`,
+  riding `:sections`). The labour is split the way the two questions are: the **window**
+  owns the vault-wide collision check (`Db::block_id_taken`) and the sentences; the
+  **editor** (`editor/blockid.rs`) owns the block under the caret and where an id for it
+  would land. The outcome is a closed enum — `BlockId::{Inserted, HasId, NoBlock, BadId,
+  Taken, NoRoom, ReadOnly}` — so every refusal has its own words rather than one failure
+  with a reason bolted on. Core gained the writer's side of the same scan: `is_id_byte` is
+  the **one** statement of the id byte set (ruling 2's grammar shared by `anchor_token` and
+  `valid_block_id` — two statements of a grammar drift), `new_block_id` draws 6 chars of
+  `a-z2-7` and retries while the vault or the buffer holds the draw, `block_at` finds the
+  innermost block under a byte (`list_owner`'s tie-break, so a caret inside a nested item
+  names the item and not its parent), and `with_block_id` returns a `BlockIdWrite { at,
+  insert, caret }`.
+  Four things the wording above did not know:
+  1. **The write is checked by the scan, not by placement arithmetic.** Each candidate
+     spelling for the block's kind is applied to a copy and re-read by `block_map`; the
+     first whose read-back names *this* block wins. A placement guess the scan reads as a
+     different block would hand the author a link that lies.
+  2. **One insert, so one `u`** (EDGE-21): a structured block's id arrives with its blank
+     line in the same edit, and the table test takes both back at once.
+  3. EDGE-29 (new row): **a command's palette reachability is its label, not its name.**
+  4. `:blocks` is two halves like `:sections`: no pattern reads the **buffer** (an id typed
+     a second ago is listed before it is saved, EDGE-12), a pattern reads `blocks` (notes
+     nobody has open answer too). No index with a pattern says there is no vault index to
+     read; no index with no pattern still answers (EDGE-13).
+  A note with no ids is a row, not an empty pane — the row names the note and points at
+  `:block-id` — and a caret on a blank line idles with a sentence about where the caret
+  should be rather than iding the block above by surprise. Rows label with the block's
+  first line and detail with `^id`, the kind, and the line a reader counts from one.
+  21 new tests (7 core, 14 app). Falsifications, each turning at least one red: the grammar
+  validator accepting anything; the vault-wide check removed; the already-has-an-id read
+  removed; the buffer path never taken; a row that opens without revealing; the own-line
+  spelling dropped; the glued spelling dropped. **One came back green and was a harness
+  fault**: `if !pattern.is_empty() {` appears twice in `index.rs` — the `sections` branch
+  and the `blocks` branch — and the mutation replaced the first. A mutation must anchor on
+  text unique to the branch it means, not on the first match.
 - **M5 — docs and the demo vault.** `docs/notes.md` prose + the `:block-id`/`:blocks`
   palette rows (regenerate `docs/commands.md` unfiltered), a block ref in the demo tour,
   roadmap/brainstorm writeback in the same commit.

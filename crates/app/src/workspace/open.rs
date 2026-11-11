@@ -65,6 +65,14 @@ pub(crate) enum PickerTarget {
         line: usize,
         text: String,
     },
+    /// A block to land on (`:blocks`, P4.9 M4). The **id**, not the line: the note
+    /// answers for its own blocks from its buffer, so an id the reader typed a second
+    /// ago is still found (EDGE-12) and a line the index remembered is never trusted
+    /// over the text in front of the reader.
+    Block {
+        path: std::path::PathBuf,
+        id: String,
+    },
     /// A row that exists to be read rather than chosen: the query could not be
     /// answered, and the reason *is* the answer. Choosing it repeats the reason in
     /// the status bar. A picker has no other way to say anything, and returning no
@@ -459,6 +467,22 @@ impl Workspace {
                             // than silently opening the note at the top.
                             self.say(
                                 format!("opened {}, but its section is gone", rel_text(&path)),
+                                cx,
+                            );
+                        }
+                    }
+                }
+            }
+            PickerTarget::Block { path, id } => {
+                self.open_note(&path, cx);
+                if self.note().as_deref() == Some(path.as_path()) {
+                    if let Some(editor) = self.editor().cloned() {
+                        let found = editor.update(cx, |editor, cx| editor.reveal_block(&id, cx));
+                        if !found {
+                            // The index named an id the buffer no longer holds. Same
+                            // shape as a section that moved: say it, don't open at top.
+                            self.say(
+                                format!(r#"opened {}, but no block "^{id}""#, rel_text(&path)),
                                 cx,
                             );
                         }

@@ -27,7 +27,7 @@ use shale_core::watch::VaultChanges;
 
 use super::open::{notice, PickerTarget};
 use super::Workspace;
-use crate::acts::{PropertyKeys, Props, RenamePropertyKey, Sections, WordCount};
+use crate::acts::{Blocks, PropertyKeys, Props, RenamePropertyKey, Sections, WordCount};
 use crate::picker::{PickerItem, RowSource};
 
 impl Workspace {
@@ -414,6 +414,122 @@ impl Workspace {
         self.sections("", window, cx);
     }
 
+    /// The two halves of `:blocks` (P4.9 M4), mirroring `:sections`: with no pattern it
+    /// lists the note on screen from its **buffer** — so an id typed a second ago is in
+    /// the list before the note is saved (EDGE-12) — and with a pattern it searches the
+    /// vault through the `blocks` table.
+    pub(super) fn blocks(&mut self, pattern: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let pattern = pattern.trim();
+        if !pattern.is_empty() {
+            self.show_vault_blocks(pattern, window, cx);
+            return;
+        }
+        let label = "Blocks of this note";
+        let Some(path) = self
+            .caret_note(cx)
+            .or_else(|| self.pane().active_tab().path().map(|p| p.to_path_buf()))
+        else {
+            self.open_picker(label, vec![notice("no note on screen to list")], window, cx);
+            return;
+        };
+        let Some(note) = self.note_entry(&path, cx) else {
+            return;
+        };
+        let text = note.buffer.borrow().text().to_string();
+        let map = shale_core::mdstyle::block_map(&text);
+        if map.anchors.is_empty() {
+            self.open_picker(
+                label,
+                vec![notice(format!(
+                    "{} has no block ids yet (`:block-id` adds one)",
+                    rel_text(&path)
+                ))],
+                window,
+                cx,
+            );
+            return;
+        }
+        let rows = map
+            .anchors
+            .iter()
+            .map(|anchor| {
+                let block = &map.blocks[anchor.block];
+                let first = block_label(&text[block.start..block.end]);
+                (
+                    PickerItem {
+                        // The block's first line is what a reader recognises; the id is
+                        // what they typed or will type, so it goes in the detail.
+                        label: first.clone().into(),
+                        detail: format!(
+                            "^{} · {} · line {}",
+                            anchor.id,
+                            kind_word(block.kind),
+                            block.first_line + 1
+                        )
+                        .into(),
+                        detail_ranges: Vec::new(),
+                        search: format!("{} {}", anchor.id, first).into(),
+                    },
+                    PickerTarget::Block {
+                        path: path.clone(),
+                        id: anchor.id.clone(),
+                    },
+                )
+            })
+            .collect();
+        self.open_picker(&format!("Blocks of {}", rel_text(&path)), rows, window, cx);
+    }
+
+    /// The vault-wide half of `:blocks`: every id the index holds that holds what the
+    /// reader typed, refined as the field changes.
+    fn show_vault_blocks(&mut self, seed: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let label = "Blocks in the vault";
+        let Some(db) = self.db.as_ref() else {
+            // "No ids" and "I cannot look" are different answers (EDGE-13).
+            self.open_picker(
+                label,
+                vec![notice(
+                    "there is no vault index to read (index.enabled = false)",
+                )],
+                window,
+                cx,
+            );
+            return;
+        };
+        let db = Arc::clone(db);
+        let source: RowSource<PickerTarget> = Rc::new(move |want| {
+            let Ok(found) = db.blocks_matching(want, MAX_BLOCKS) else {
+                return Vec::new();
+            };
+            found
+                .into_iter()
+                .map(|hit| {
+                    (
+                        PickerItem {
+                            label: format!("^{}", hit.id).into(),
+                            detail: format!("{} · line {}", hit.note, hit.line + 1).into(),
+                            detail_ranges: Vec::new(),
+                            // The note is part of what an id is typed against, so
+                            // `:blocks gift` can find the ids that live in `gift.md`.
+                            search: format!("{} {}", hit.id, hit.note).into(),
+                        },
+                        PickerTarget::Block {
+                            path: PathBuf::from(&hit.note),
+                            id: hit.id,
+                        },
+                    )
+                })
+                .collect()
+        });
+        self.open_sourced_picker(label, source, seed, window, cx);
+    }
+
+    /// The palette row's `:blocks`: the note on screen, because a palette row has
+    /// nowhere to type a pattern. The vault-wide list is `:blocks <pattern>`.
+    pub(super) fn show_blocks(&mut self, _: &Blocks, window: &mut Window, cx: &mut Context<Self>) {
+        self.blocks("", window, cx);
+    }
+
     /// The palette row's `:wordcount`: the whole vault, because a palette row has
     /// nowhere to type a folder.
     pub(super) fn show_wordcount(
@@ -436,6 +552,34 @@ impl Workspace {
 /// of a big vault is not something a picker should try to rank; the limit is the same
 /// posture the search picker keeps, and the field narrows what the limit cut.
 const MAX_SECTIONS: usize = 200;
+/// The same budget for `:blocks` (P4.9 M4).
+const MAX_BLOCKS: usize = 200;
+
+/// The block's first line, as a picker label: one line, collapsed, cut at a character
+/// boundary. The id itself sits in the row's detail, so the label's job is recognition.
+fn block_label(block: &str) -> String {
+    let first = block.lines().next().unwrap_or("").trim();
+    const WIDTH: usize = 70;
+    if first.chars().count() <= WIDTH {
+        return first.to_string();
+    }
+    let cut: String = first.chars().take(WIDTH).collect();
+    format!("{cut}\u{2026}")
+}
+
+/// What a block is, in the two or three words a reader scans the detail column for.
+fn kind_word(kind: shale_core::mdstyle::BlockKind) -> &'static str {
+    use shale_core::mdstyle::BlockKind as K;
+    match kind {
+        K::Paragraph => "paragraph",
+        K::ListItem => "list item",
+        K::Quote => "quote",
+        K::Callout => "callout",
+        K::Table => "table",
+        K::Code => "code",
+        K::Heading => "heading",
+    }
+}
 
 /// A section's name for a row. A bare `#` is a section with no name, and a row that
 /// reads as nothing looks like a bug rather than like the note's own blank heading.

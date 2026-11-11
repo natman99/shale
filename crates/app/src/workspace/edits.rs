@@ -195,6 +195,8 @@ impl Workspace {
             // The pattern is the rest of the line verbatim; an empty one is not a
             // missing argument but the outline of the note on screen.
             ex::Ex::Sections(pattern) => self.sections(&pattern, window, cx),
+            ex::Ex::Blocks(pattern) => self.blocks(&pattern, window, cx),
+            ex::Ex::BlockId(id) => self.set_block_id(&id, cx),
             ex::Ex::ThemeExport(name) => match self.export_theme(&name) {
                 Ok(path) => self.say(format!("wrote {}", rel_text(&path)), cx),
                 Err(err) => self.say(format!("{err:#}"), cx),
