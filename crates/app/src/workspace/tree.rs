@@ -295,22 +295,19 @@ impl Workspace {
         cx.notify();
     }
 
-    /// Hand the keyboard back to the note.
+    /// Hand the keyboard to whatever tab is on screen.
     ///
-    /// With the graph tab on screen that means moving the frame back to the note tab
-    /// the user was last on: the keyboard cannot be handed to an editor that is not
-    /// drawn, and `escape` out of the graph is the same request as `ctrl-w l`.
+    /// This used to carry a graph branch that moved the frame back to the last note tab
+    /// first — a shortcut from before panes and tab pages existed. The graph is a tab
+    /// like any other now, so the keyboard goes to the graph itself (its canvas, or its
+    /// filter strip when that is what the user is working in), and leaving the tab is
+    /// tab paging: `g t`/`g T`, `:tabnext`, or closing it.
     pub(crate) fn focus_editor(
         &mut self,
         _: &FocusEditor,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.pane().active_tab().is_graph() {
-            if let Some(index) = self.pane().note_mru.and_then(|id| self.tab_for_id(id)) {
-                self.show_tab(index, cx);
-            }
-        }
         let focus = self.active_focus(cx);
         window.focus(&focus, cx);
         cx.notify();

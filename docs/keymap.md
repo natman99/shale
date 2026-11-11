@@ -249,7 +249,7 @@ in hand. `docs/keys.md` is the human map of both halves.
 | `right` | open this folder, or step into it | `TreeExpand` | — |
 | `enter` | open this note | `TreeOpen` | — |
 | `space e` | Show or hide the file tree | `TreeToggle` | `tree.toggle` |
-| `escape` | hand the keyboard to the note | `FocusEditor` | — |
+| `escape` | hand the keyboard to the tab on screen | `FocusEditor` | — |
 | `n` | New note | `NewNote` | `note.new` |
 | `shift-n` | New folder | `NewFolder` | `folder.new` |
 | `r` | Rename the selected note | `RenameNote` | `note.rename` |
@@ -335,7 +335,7 @@ in hand. `docs/keys.md` is the human map of both halves.
 | `x` | Reject the pending hunk under the marker | `ReviewReject` | `review.reject` |
 | `o` | Open the note the pending hunk is about | `ReviewOpenNote` | `review.open-note` |
 | `z a` | Collapse or expand the pending proposal under the marker | `ReviewCollapse` | `review.collapse` |
-| `escape` | hand the keyboard to the note | `FocusEditor` | — |
+| `escape` | hand the keyboard to the tab on screen | `FocusEditor` | — |
 
 ### while `graph` has the keyboard
 
@@ -362,12 +362,16 @@ in hand. `docs/keys.md` is the human map of both halves.
 | `\` | show the whole vault again | `GraphLocal` | `graph.global` |
 | `left` | move the view | `GraphPan` | — |
 | `shift-left` | move the view, three times as far | `GraphPan` | — |
+| `ctrl-shift-left` | move the chosen node | `GraphSelect` | — |
 | `right` | move the view | `GraphPan` | — |
 | `shift-right` | move the view, three times as far | `GraphPan` | — |
+| `ctrl-shift-right` | move the chosen node | `GraphSelect` | — |
 | `up` | move the view | `GraphPan` | — |
 | `shift-up` | move the view, three times as far | `GraphPan` | — |
+| `ctrl-shift-up` | move the chosen node | `GraphSelect` | — |
 | `down` | move the view | `GraphPan` | — |
 | `shift-down` | move the view, three times as far | `GraphPan` | — |
+| `ctrl-shift-down` | move the chosen node | `GraphSelect` | — |
 | `h` | move the chosen node | `GraphSelect` | — |
 | `l` | move the chosen node | `GraphSelect` | — |
 | `k` | move the chosen node | `GraphSelect` | — |

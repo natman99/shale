@@ -112,9 +112,9 @@ fn a_note_saved_while_the_scan_runs_is_folded_in(cx: &mut TestAppContext) {
 fn the_graph_is_one_tab_per_window(cx: &mut TestAppContext) {
     let (_dir, window, mut cx) = linked_vault(cx);
     cx.simulate_keystrokes("space g");
-    // Out and back: `ctrl-w l` returns to the note, and `space g` again must find the
-    // tab that is already there rather than opening another.
-    cx.simulate_keystrokes("ctrl-w l");
+    // Out and back: `g T` pages to the note, and `space g` again must find the tab that
+    // is already there rather than opening another.
+    cx.simulate_keystrokes("g T");
     assert!(!graph(&window, &mut cx));
     cx.simulate_keystrokes("space g");
     assert!(graph(&window, &mut cx));
@@ -130,24 +130,33 @@ fn the_graph_is_one_tab_per_window(cx: &mut TestAppContext) {
     );
 
     // The command line is the other door, and reaches the same one tab.
-    cx.simulate_keystrokes("ctrl-w l");
+    cx.simulate_keystrokes("g T");
     command_line("graph", &mut cx);
     assert_eq!(graph_tabs(&window, &mut cx), 1);
     assert!(graph(&window, &mut cx));
 }
 
-/// The way out of a graph tab is `ctrl-w l`, the same request every other surface
-/// answers. It cannot hand the keyboard to an editor that is not drawn, so it moves
-/// the frame back to the note tab the user was last on. (`escape` used to be bound to
-/// the same action, and read as 'escape closed the graph' — it now puts down the
-/// chosen node instead, and stays.)
+/// The graph is a tab like any other, so the window's pane command is not a way out of
+/// it. `note.focus-editor` used to carry a graph branch that jumped the frame back to the
+/// last note tab — a shortcut from before panes and tab pages existed, and one that now
+/// fights them: `ctrl-w l` means "the pane on the right" everywhere else, so it means
+/// that here too, and in a one-pane window it means nothing. Leaving is tab paging, as it
+/// is for every tab. (`escape` used to be bound to that same action and read as "escape
+/// closed the graph" — it now puts down the chosen node, and stays.)
 #[gpui::test]
-fn ctrl_w_l_leaves_the_graph_for_the_note(cx: &mut TestAppContext) {
+fn ctrl_w_l_leaves_the_graph_where_it_is(cx: &mut TestAppContext) {
     let (_dir, window, mut cx) = linked_vault(cx);
     cx.simulate_keystrokes("space g");
     assert!(graph(&window, &mut cx));
 
     cx.simulate_keystrokes("ctrl-w l");
+    assert!(
+        graph(&window, &mut cx),
+        "there is no pane on the right, and the graph is still what is on screen"
+    );
+
+    // Out the way every tab goes out.
+    cx.simulate_keystrokes("g T");
     assert!(!graph(&window, &mut cx), "the note is on screen again");
     assert_eq!(marker(&window, &mut cx), 0);
     assert_eq!(

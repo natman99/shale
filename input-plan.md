@@ -184,5 +184,27 @@ milestones in the order they land.
     cannot catch a binding spelled for a shape the platform never sends; the keysym block can,
     and it goes red when a binding is commented out.
 
+- **M7 — the graph tab has no door of its own.** **Landed.** `note.focus-editor` carried a
+  graph branch that moved the frame back to the last note tab (`Pane::note_mru`) — a shortcut
+  from before the app had panes and tab pages. In a one-pane window `ctrl-w l` therefore
+  swapped the graph out for a note, which read as the app closing the graph behind the user's
+  back, and it fought `ctrl-w l`'s actual meaning, "the pane on the right". The branch is gone:
+  the keyboard goes to whatever tab is on screen, and leaving a graph tab is tab paging —
+  `g t`/`g T`, `:tabnext`, `:tabclose` — as it is for every tab. The palette label moved with
+  it: `window.right` said "Focus the note", which is what the common case does and what the
+  graph no longer does, and now says "Focus the pane to the right".
+  Selection got its own arrow form: `ctrl`+`shift`+arrow is `GraphSelect`, the same action
+  `hjkl` carries.
+  - **EDGE-26 — the relic was load-bearing in four tests.** Three graph tests and the window
+    title test used `ctrl-w l` as the route from the graph to a note. Each now pages with
+    `g T`, which is also what a user would type. A test that leans on a binding it is not
+    testing has become a second owner of that binding, and it goes red for the wrong reason.
+  - **EDGE-27 — the graph's arrows are already three verbs.** Bare arrows are the camera,
+    `shift` moves it three times as far, `ctrl`+`shift` moves what `enter` opens. The new
+    binding is pinned against `hjkl` — same action, same node from a clean state — rather than
+    against a node count, because which node is nearest is the layout's business and which verb
+    a key reaches is not. The bare-arrow half of that test is what stops the new binding from
+    being a widening of the old one.
+
 M1-M5 are independent of each other; M6 is the one that touches three surfaces at once, so it
-goes last and gets the most tests.
+goes last and gets the most tests. M7 came after the round closed, from using the app.

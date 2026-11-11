@@ -108,9 +108,9 @@ fn an_edit_that_changes_no_links_leaves_the_layout_alone(cx: &mut TestAppContext
     paint(&mut cx, &window);
     let before = positions(&mut cx, &window);
 
-    // `ctrl-w l` hands the keyboard to the note and moves the frame with it; the graph
-    // tab stays on the bar, and so does its picture.
-    cx.simulate_keystrokes("ctrl-w l");
+    // `g T` pages the frame to the note; the graph tab stays on the bar, and so does
+    // its picture.
+    cx.simulate_keystrokes("g T");
     assert!(!window
         .update(&mut cx, |ws, _w, _cx| ws.showing_graph())
         .unwrap());
@@ -138,7 +138,7 @@ fn a_new_link_carries_the_old_positions(cx: &mut TestAppContext) {
     paint(&mut cx, &window);
     let before = positions(&mut cx, &window);
 
-    cx.simulate_keystrokes("ctrl-w l");
+    cx.simulate_keystrokes("g T");
     cx.simulate_keystrokes("A");
     cx.simulate_input(" and [[c]]");
     cx.simulate_keystrokes("escape ctrl-s");

@@ -39,7 +39,7 @@ as you would type it.
 | `typewriter.toggle` | Keep the cursor's line near the middle of the window | — | `:typewriter [on|off]` | `[on|off]` |
 | `tree.toggle` | Show or hide the file tree | `space e` | `:tree [on|off]` | `[on|off]` |
 | `window.left` | Focus the file tree | `ctrl-w h` | — | — |
-| `window.right` | Focus the note | `ctrl-w l` | — | — |
+| `window.right` | Focus the pane to the right | `ctrl-w l` | — | — |
 | `note.undo` | Undo | `u, ctrl-z` | — | — |
 | `note.redo` | Redo | `ctrl-r, ctrl-y, ctrl-shift-z` | — | — |
 | `clipboard.copy` | Copy the selection, or the last yank, to the clipboard | `ctrl-shift-c, space y` | `:y`, `:yank`, `:clip`, `:copy` | — |

@@ -510,10 +510,16 @@ fn build() -> (Vec<KeyBinding>, Vec<KeymapRow>) {
     // and selection keys land with Task 7.
     //
     // `escape` used to be `note.focus-editor` — the same request `ctrl-w l` makes — and
-    // that turned into a complaint, because the handler moves the pane back to the last
-    // note tab and the graph looks like it closed. The graph is a place the user went to
-    // on purpose; escape now means what it means everywhere else in Shale, which is to put
-    // down the last small decision: the chosen node. `ctrl-w l` is the way out.
+    // that turned into a complaint, because the handler moved the pane back to the last
+    // note tab and the graph looked like it had closed. The graph is a place the user went
+    // to on purpose; escape now means what it means everywhere else in Shale, which is to
+    // put down the last small decision: the chosen node.
+    //
+    // And the graph has no way out of its own any more. `note.focus-editor` used to carry
+    // a graph branch that jumped the frame to the last note tab, which was a shortcut from
+    // before panes and tab pages existed and now fights them: `ctrl-w l` means "the pane on
+    // the right" everywhere else, so it means that here too, and the graph leaves the way
+    // every tab does — `g t`/`g T`, `:tabnext`, or closing the tab.
     bind!(b, Some(crate::graph::CONTEXT), [
         // vim's command line, from the graph too: the ex bar is the workspace's,
         // not the note's, so `:tabnext`, `:only` and friends are the way out of
@@ -599,11 +605,14 @@ fn build() -> (Vec<KeyBinding>, Vec<KeymapRow>) {
     // is the spec's "`Shift` = 3× speed".
     // The shift forms are spelled out rather than built with `format!`, because a
     // binding's key text is `&'static str` and a built string would have to be leaked.
-    for (key, shift_key, dx, dy) in [
-        ("left", "shift-left", -1.0, 0.0),
-        ("right", "shift-right", 1.0, 0.0),
-        ("up", "shift-up", 0.0, -1.0),
-        ("down", "shift-down", 0.0, 1.0),
+    // `ctrl`+`shift`+arrow picks the node too — the arrows are the camera, the shift
+    // forms move it further, and the `ctrl` forms move *what is chosen*, which is the
+    // shape the arrow keys take everywhere else the user is picking a thing out.
+    for (key, shift_key, ctrl_shift_key, dx, dy) in [
+        ("left", "shift-left", "ctrl-shift-left", -1.0, 0.0),
+        ("right", "shift-right", "ctrl-shift-right", 1.0, 0.0),
+        ("up", "shift-up", "ctrl-shift-up", 0.0, -1.0),
+        ("down", "shift-down", "ctrl-shift-down", 0.0, 1.0),
     ] {
         b.bind(
             graph,
@@ -619,6 +628,12 @@ fn build() -> (Vec<KeyBinding>, Vec<KeymapRow>) {
                 dy * crate::graph::PAN_STEP * crate::graph::PAN_FAST,
             ]),
             "move the view, three times as far",
+        );
+        b.bind(
+            graph,
+            ctrl_shift_key,
+            GraphSelect([dx, dy]),
+            "move the chosen node",
         );
     }
     // `hjkl` picks the node instead of moving the view: the arrows are the camera, these
@@ -661,7 +676,7 @@ fn action_note(name: &str) -> Option<&'static str> {
         "TreeCollapse" => "collapse this folder, or step out of it",
         "TreeExpand" => "open this folder, or step into it",
         "TreeOpen" => "open this note",
-        "FocusEditor" => "hand the keyboard to the note",
+        "FocusEditor" => "hand the keyboard to the tab on screen",
         "FieldSubmit" => "accept what is typed",
         "FieldCancel" => "dismiss without accepting",
         "FieldBackspace" => "delete the character before the caret",

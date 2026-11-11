@@ -250,12 +250,13 @@ is meant.
 ## The graph tab
 
 The graph has its own context, because every key it wants (`hjkl`, `f`, `enter`)
-is a vim motion in the note.
+is a vim motion in the note. It is otherwise a tab like any other: it has no way out of
+its own, and `ctrl-w l` means the pane on the right here as it does everywhere else.
 
 | keys | what |
 | --- | --- |
-| `hjkl` | pick a node |
-| `arrows` | pan |
+| `hjkl` or `ctrl`+`shift`+arrows | pick a node |
+| `arrows` | pan (`shift`+arrows three times as far) |
 | `+` / `-` | zoom |
 | `enter` | open the chosen node's note |
 | `f` | frame the whole graph again |
@@ -263,7 +264,7 @@ is a vim motion in the note.
 | `[` / `]` | local neighbourhood, one hop out / in |
 | `\` | the whole vault again |
 | `/` | the filter strip |
-| `escape` | back to the note |
+| `escape` | put down the chosen node; the tab stays |
 | `:` | the command line, so `:tabnext` and `:only` work from the graph too |
 | `space f/s/e/d/g`, `gt`/`gT` | the same chords the note has |
 

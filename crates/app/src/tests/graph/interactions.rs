@@ -762,9 +762,9 @@ fn a_projection_only_ever_answers_about_the_picture_it_made(cx: &mut TestAppCont
 }
 
 /// `escape` in the graph puts down the chosen node and stays in the graph. It used
-/// to be bound to `note.focus-editor`, whose handler moves the pane back to the last
-/// note tab — which is why it felt like escape closed the graph. The way out is the
-/// one every other surface uses, `ctrl-w l`.
+/// to be bound to `note.focus-editor`, whose handler moved the pane back to the last
+/// note tab — which is why it felt like escape closed the graph. Leaving the tab is tab
+/// paging, as it is for every tab; the window's pane command is not a graph door.
 #[gpui::test]
 fn escape_puts_down_the_chosen_node_and_keeps_the_graph(cx: &mut TestAppContext) {
     let (_dir, window) = vault_with(cx, &[("a.md", "see [[b]]\n"), ("b.md", "back to [[a]]\n")]);
@@ -795,10 +795,52 @@ fn escape_puts_down_the_chosen_node_and_keeps_the_graph(cx: &mut TestAppContext)
     cx.simulate_keystrokes("l");
     assert!(selected(&mut cx).is_some(), "a node can be chosen again");
 
-    // The way out is the window's own.
+    // The pane command is not a way out: the graph is a tab like any other, and in a
+    // one-pane window `ctrl-w l` has no pane on the right to hand the keyboard to.
     cx.simulate_keystrokes("ctrl-w l");
     assert!(
-        !graph(&window, &mut cx),
-        "`ctrl-w l` hands the keyboard to the note"
+        graph(&window, &mut cx),
+        "`ctrl-w l` is the pane on the right, not a graph door"
     );
+
+    // Leaving is tab paging.
+    cx.simulate_keystrokes("g T");
+    assert!(!graph(&window, &mut cx), "`g T` pages to the note tab");
+}
+
+/// `ctrl`+`shift`+arrow is the node's arrow form: the bare arrows are the camera, the
+/// shift forms move the camera further, and the `ctrl` forms move what `enter` opens.
+/// Pinned against `hjkl` rather than against a node count, because which node is nearest
+/// is the layout's business — which verb a key reaches is not.
+#[gpui::test]
+fn ctrl_shift_arrows_choose_the_node_as_hjkl_does(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("a.md", "see [[b]]\n"), ("b.md", "back to [[a]]\n")]);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    let selected = |cx: &mut VisualTestContext| {
+        window
+            .update(cx, |ws, _window, cx| ws.graph_selected(cx))
+            .unwrap()
+    };
+    show(&mut cx, &window, "a.md");
+    cx.simulate_keystrokes("space g");
+    paint(&mut cx, &window);
+
+    cx.simulate_keystrokes("l");
+    let by_letter = selected(&mut cx);
+    assert!(by_letter.is_some(), "`l` chose the node nearest the middle");
+
+    cx.simulate_keystrokes("escape");
+    assert_eq!(selected(&mut cx), None, "put the node down first");
+    cx.simulate_keystrokes("ctrl-shift-right");
+    assert_eq!(
+        selected(&mut cx),
+        by_letter,
+        "the same choice, from the arrow form"
+    );
+
+    // The camera keys stayed the camera: a bare arrow moves the view and leaves the
+    // chosen node where it was.
+    cx.simulate_keystrokes("escape");
+    cx.simulate_keystrokes("right");
+    assert_eq!(selected(&mut cx), None, "a bare arrow chose nothing");
 }

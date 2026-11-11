@@ -90,7 +90,8 @@ that, a press is a click, and a click opens the node. Dragging a node begins by 
 ## The filter strip
 
 `/` opens it; `escape` closes it and leaves the keyboard where it was — on the strip a
-moment ago, on the graph after that. `ctrl-w l` is what leaves the tab. Three chips
+moment ago, on the graph after that. Leaving the *tab* is tab paging — `g t`/`g T`,
+`:tabnext` — exactly as for any other tab. Three chips
 (`orphans`, `missing`, `tags`, on `alt-o`, `alt-x` and `alt-t`) and a search line that
 narrows the picture as it is typed. A filtered node leaves the simulation as well as the
 paint, so the layout closes up around what is left.
@@ -102,8 +103,9 @@ and `-` are not in the stack while you are typing a query.
 
 | keys | what |
 | --- | --- |
-| `hjkl` | pick a node |
+| `hjkl` or `ctrl`+`shift`+arrows | pick a node |
 | arrows | pan |
+| `shift`+arrows | pan three times as far |
 | `+` / `-` | zoom |
 | `enter` | open the chosen node's note |
 | `f` | frame the whole graph |
@@ -111,7 +113,7 @@ and `-` are not in the stack while you are typing a query.
 | `[` / `]` | one hop out / in (local) |
 | `\` | the whole vault |
 | `/` | filter strip |
-| `escape` | put down the chosen node; the tab stays (`ctrl-w l` leaves it) |
+| `escape` | put down the chosen node; the tab stays (`g T` pages away) |
 | `:` | the command line, so `:tabnext` and `:only` work here too |
 
 ## What it costs

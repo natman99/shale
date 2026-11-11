@@ -172,6 +172,41 @@ fn keymap_matches_the_linux_keystroke_shape() {
         );
     }
 
+    // The graph tab's arrows, in the same delivered shape. A bare arrow is the camera and
+    // `ctrl`+`shift` is the chosen node; both arrive as keysyms, and the pair is pinned
+    // together so a widening of one verb into the other shows up here rather than in the
+    // app, three keys deep.
+    let contexts = vec![gpui::KeyContext::try_from("graph").unwrap()];
+    for (control, shift, key, action) in [
+        (true, true, "left", "shale::GraphSelect"),
+        (true, true, "right", "shale::GraphSelect"),
+        (true, true, "up", "shale::GraphSelect"),
+        (true, true, "down", "shale::GraphSelect"),
+        (false, false, "left", "shale::GraphPan"),
+        (false, true, "left", "shale::GraphPan"),
+        (false, false, "down", "shale::GraphPan"),
+    ] {
+        let typed = gpui::Keystroke {
+            modifiers: gpui::Modifiers {
+                control,
+                shift,
+                ..Default::default()
+            },
+            key: key.to_string(),
+            key_char: None,
+        };
+        let (bindings, pending) = keymap.bindings_for_input(&[typed], &contexts);
+        assert!(!pending, "{key} should not leave pending input");
+        assert_eq!(
+            bindings
+                .iter()
+                .map(|b| b.action().name())
+                .collect::<Vec<_>>(),
+            vec![action],
+            "shift {shift} + ctrl {control} + {key} should resolve to {action} in the graph"
+        );
+    }
+
     // The visual context has to carry the same bindings, or the keys stop
     // working the moment `v` is typed.
     let contexts = vec![gpui::KeyContext::try_from("vim-visual").unwrap()];

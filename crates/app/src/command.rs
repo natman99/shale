@@ -498,7 +498,11 @@ const ALL: &[Command] = &[
     },
     Command {
         id: "window.right",
-        label: "Focus the note",
+        // The pane on the right, when there is one; the tab already on screen, when
+        // there is not. It used to say "Focus the note", which was true of the common
+        // case and a promise the graph tab did not keep: the graph is a tab like any
+        // other, and `ctrl-w l` is not a door out of it.
+        label: "Focus the pane to the right",
         keys: "ctrl-w l",
         ex: &[],
         args: "",
@@ -771,9 +775,8 @@ const ALL: &[Command] = &[
     },
     // ---- the graph (roadmap P3.4) ------------------------------------------
     // One tab per window, so the command means "show the graph": pressing it again
-    // moves the frame to the tab that already holds it. `escape` in the graph tab is
-    // not a registry command — it is `note.focus-editor`, the same request `ctrl-w l`
-    // makes, which is why it needs no row of its own.
+    // moves the frame to the tab that already holds it. Leaving a graph tab needs no row
+    // of its own either: it is tab paging, which every tab shares.
     Command {
         id: "graph.open",
         label: "Show the vault's link graph",

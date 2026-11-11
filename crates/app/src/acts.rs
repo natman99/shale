@@ -320,8 +320,9 @@ actions!(
         GraphFit,
         // `escape` in the graph tab: put down the chosen node and stay in the graph.
         // It is deliberately *not* `note.focus-editor`, which is what it used to be —
-        // that handler moves the pane back to the last note tab, so escape read as
-        // 'the graph closed'. `ctrl-w l` is the way out, as it is everywhere else.
+        // that handler used to move the pane back to the last note tab, so escape read
+        // as 'the graph closed'. The graph has no door of its own any more: leaving it
+        // is tab paging, the same as for every other tab.
         GraphClearSelection,
         // The graph tab's filter strip (`/` in the graph, roadmap P3.4 Task 8). `escape`
         // and `enter` are one action: the filter took effect as it was typed, so there is

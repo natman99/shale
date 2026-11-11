@@ -610,10 +610,10 @@ fn the_window_is_titled_for_its_vault_and_note(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("space g");
     assert_eq!(title(&mut cx).as_deref(), Some(vault.as_str()));
 
-    // Walking back to the note brings its name back: the title tracks the tab on
-    // screen, not the last note that was opened. `ctrl-w l` is the graph's way out,
-    // and it lands on the note tab the frame was last on.
-    cx.simulate_keystrokes("ctrl-w l");
+    // Paging back to the note brings its name back: the title tracks the tab on screen,
+    // not the last note that was opened. The graph leaves by tab paging like every other
+    // tab — the window's pane command is not a graph door.
+    cx.simulate_keystrokes("g T");
     assert_eq!(
         title(&mut cx).as_deref(),
         Some(format!("{vault} — Deep Note").as_str())

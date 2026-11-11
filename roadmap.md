@@ -104,13 +104,21 @@ plan, an edge ledger (EDGE-1…24) and the rulings are in `queries-plan.md`.
 answer in the note (arrows are actions, not vim motions, so they work with an operator
 half-typed; Tab writes a literal tab and shift-Tab takes one level back), the mouse's side
 buttons walk the jump list, escape in the graph puts down the chosen node instead of leaving
-the tab (`ctrl-w l` is the way out, as in every other surface), the default palette is
+the tab, the default palette is
 Shale's own dark with the desktop asked for dark or light (`theme = ""`), and every text
 field — prompt, picker, graph filter — has a selection and the clipboard. Two things that
 round taught the repo: a mouse-down takes keyboard focus for **any** button, so a root
 `capture_any_mouse_down` has to stop propagation even when it refuses the click (EDGE-22);
 and a config default that asks the desktop breaks every headless test, because the portal
 client runs on threads the gpui test scheduler refuses. The record is `input-plan.md`.
+
+The same day finished the graph's tab-ness. `note.focus-editor` still carried a branch that
+jumped a graph tab back to the last note tab — a shortcut from before the app had panes and
+tab pages, and the reason `ctrl-w l` read as "the graph closed". It is gone: the keyboard goes
+to the tab on screen, leaving a graph tab is tab paging (`g t`/`g T`, `:tabnext`) as it is for
+every tab, and `window.right`'s palette label now says "Focus the pane to the right" instead of
+promising a note. Node selection gained an arrow form beside `hjkl`: `ctrl`+`shift`+arrow, with
+the bare arrows left as the camera and `shift` still moving it three times as far.
 
 **P4.0, transclusion — the editable half (closed 2026-11-08).** P4.0a
 (read-only embeds) shipped on 2026-11-06, and **P4.0b — editing inside an embed — is
