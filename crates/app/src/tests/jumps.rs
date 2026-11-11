@@ -592,3 +592,82 @@ fn the_side_buttons_wait_while_a_picker_is_open(cx: &mut TestAppContext) {
         "with the field closed, it walks back"
     );
 }
+
+// ---------------------------------------------------------------------------
+// P4.9 M3: `gd` follows a block anchor, and lands on the block's first line.
+// ---------------------------------------------------------------------------
+
+/// The note it links, with the block on rows 2 and 3 and its id at the end of row 3.
+const BLOCKS: &str = "intro\n\nThe goblin waits\nby the door. ^goblin\n\n- one\n";
+
+/// `gd` on `[[gift#^goblin]]` opens `gift` and lands on the **top** of the block, not on
+/// the line the id was written at: a jump wants the thing the id names in view.
+#[gpui::test]
+fn gd_lands_on_the_block_a_link_names(cx: &mut TestAppContext) {
+    let host = "line one\nsee [[gift#^goblin]] here\nline three\n";
+    let (_dir, window) = vault_with(cx, &[("host.md", host), ("gift.md", BLOCKS)]);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    window
+        .update(&mut cx, |ws, _window, cx| {
+            ws.open_note(&PathBuf::from("host.md"), cx)
+        })
+        .unwrap();
+    on_the_link(&mut cx);
+    cx.simulate_keystrokes("g d");
+    assert_eq!(active(&window, &mut cx), "gift.md", "the note opened");
+    assert_eq!(
+        caret_row(&window, &mut cx),
+        2,
+        "the caret is on the block's first line, not on the id's line"
+    );
+}
+
+/// A block id the note does not carry does not cancel the jump — the same ruling as a
+/// missing heading — and the sentence is the embed's own wording, with the caret in it,
+/// so following a link and embedding it cannot disagree about what went wrong.
+#[gpui::test]
+fn a_missing_block_anchor_says_which_block_is_missing(cx: &mut TestAppContext) {
+    let host = "line one\nsee [[gift#^gone]] here\nline three\n";
+    let (_dir, window) = vault_with(cx, &[("host.md", host), ("gift.md", BLOCKS)]);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    window
+        .update(&mut cx, |ws, _window, cx| {
+            ws.open_note(&PathBuf::from("host.md"), cx)
+        })
+        .unwrap();
+    on_the_link(&mut cx);
+    cx.simulate_keystrokes("g d");
+    assert_eq!(active(&window, &mut cx), "gift.md", "the note still opened");
+    assert_eq!(caret_row(&window, &mut cx), 0, "at the top");
+    assert_eq!(
+        status(&window, &mut cx),
+        r#"no block "^gone" in gift.md"#,
+        "and the reader is told it was the block that was missing"
+    );
+}
+
+/// EDGE-27: a heading that carries a block id is still the section its name names.
+/// Adding an id to a heading must not break every `#Heading` link to it, so the anchor
+/// matcher cuts the id off the title before comparing.
+#[gpui::test]
+fn a_heading_with_a_block_id_still_answers_its_name(cx: &mut TestAppContext) {
+    let host = "line one\nsee [[gift#The Fall]] here\nline three\n";
+    // The heading is not the note's first line: a jump that missed would leave the
+    // caret at the top, and the test would pass for the wrong reason.
+    let gift = "preamble\n\n## The Fall ^fall\nthe city went under\n";
+    let (_dir, window) = vault_with(cx, &[("host.md", host), ("gift.md", gift)]);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    window
+        .update(&mut cx, |ws, _window, cx| {
+            ws.open_note(&PathBuf::from("host.md"), cx)
+        })
+        .unwrap();
+    on_the_link(&mut cx);
+    cx.simulate_keystrokes("g d");
+    assert_eq!(active(&window, &mut cx), "gift.md");
+    assert_eq!(
+        caret_row(&window, &mut cx),
+        2,
+        "the heading the id sits on is still the heading the link names"
+    );
+}

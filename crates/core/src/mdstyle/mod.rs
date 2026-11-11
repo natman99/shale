@@ -40,7 +40,7 @@ use block::{callout_header_range, scan_line};
 // it, the resolver cuts a block out with it, the jump scrolls to it, and the span
 // this module emits for an anchor comes from it too — so there is exactly one
 // answer to "what blocks does this note have".
-pub use blockmap::{block_map, Block, BlockAnchor, BlockKind, BlockMap};
+pub use blockmap::{block_map, without_block_anchor, Block, BlockAnchor, BlockKind, BlockMap};
 
 // The marker shapes a row can open with, shared with [`crate::continuation`],
 // which continues on Enter exactly what this scanner recognises.

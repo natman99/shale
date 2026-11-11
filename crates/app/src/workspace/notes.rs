@@ -11,6 +11,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use gpui::{Context, Window};
+use shale_core::markdown::Anchor;
 use shale_core::vault::{rel_text, LinkResolver};
 
 use crate::acts::{AddProperties, Save};
@@ -345,7 +346,7 @@ impl Workspace {
     pub(super) fn follow_link(
         &mut self,
         target: &str,
-        anchor: Option<&str>,
+        anchor: Option<&shale_core::markdown::Anchor>,
         create: bool,
         cx: &mut Context<Self>,
     ) {
@@ -373,15 +374,31 @@ impl Workspace {
             }
         }
     }
-    /// Put the caret on a heading in the note now on screen, and say when there is no
-    /// such heading.
-    fn reveal_in_open_note(&mut self, anchor: &str, cx: &mut Context<Self>) {
+    /// Put the caret on what the anchor names in the note now on screen, and say when
+    /// the note does not carry it.
+    ///
+    /// The two kinds are asked of the buffer, never of the index: the note under the
+    /// reader is answered by what the reader is looking at (ruling 53), which is also
+    /// what makes an id typed a second ago jumpable before it is saved (EDGE-12). The
+    /// sentence for a missing block is the embed's own wording — `no block "^x" in y` —
+    /// so following a link and embedding it cannot disagree about what went wrong.
+    fn reveal_in_open_note(&mut self, anchor: &Anchor, cx: &mut Context<Self>) {
         let found = self.editor().is_some_and(|editor| {
-            editor.update(cx, |editor, cx| editor.reveal_heading(anchor, cx))
+            editor.update(cx, |editor, cx| match anchor {
+                Anchor::Heading(heading) => editor.reveal_heading(heading, cx),
+                Anchor::Block(id) => editor.reveal_block(id, cx),
+            })
         });
         if !found {
             let where_ = self.note().map(rel_text).unwrap_or_default();
-            self.say(format!("no heading “{anchor}” in {where_}"), cx);
+            match anchor {
+                Anchor::Heading(heading) => {
+                    self.say(format!("no heading “{heading}” in {where_}"), cx);
+                }
+                Anchor::Block(id) => {
+                    self.say(format!(r#"no block "^{id}" in {where_}"#), cx);
+                }
+            }
             cx.notify();
         }
     }

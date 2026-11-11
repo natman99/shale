@@ -1,3 +1,69 @@
+/// What a `#...` after a link target asks for (P4.9).
+///
+/// The **spelling** decides the kind, never what the note happens to contain: `#^foo`
+/// always asks for block id `foo`, so a heading written `## ^foo` has no anchor spelling
+/// that reaches it — the caret position is claimed by the block form
+/// (blockrefs-plan.md EDGE-23). The resolver never guesses, which is the whole reason
+/// this is a type and not a string a reader inspects at the far end.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Anchor {
+    /// A section: the heading whose text matches (case-insensitively, first match wins),
+    /// and everything under it until a heading of the same depth or shallower.
+    Heading(String),
+    /// One block of the note: the part carrying `^id`. Case-sensitive, because Obsidian's
+    /// ids are and because two ids differing only in case are two ids.
+    Block(String),
+}
+
+impl Anchor {
+    /// What the anchor names, without its caret: the heading text, or the id.
+    pub fn text(&self) -> &str {
+        match self {
+            Anchor::Heading(text) => text,
+            Anchor::Block(id) => id,
+        }
+    }
+
+    /// How the author wrote it: `The Fall`, or `^goblin` with its caret. What a title row
+    /// and a refusal sentence echo, so a reader recognises their own spelling in the
+    /// answer — and a block miss never reads like a heading miss.
+    pub fn written(&self) -> String {
+        match self {
+            Anchor::Heading(text) => text.clone(),
+            Anchor::Block(id) => format!("^{id}"),
+        }
+    }
+}
+
+/// Cut a link's `#anchor` off its target and say which kind the spelling asks for.
+///
+/// One function for both doors: `gd` following `[[note#^abc]]` and `![[note#^abc]]`
+/// embedding it have to mean the same thing, and two parsers is how they start
+/// disagreeing about one written link.
+///
+/// The chained form Obsidian accepts (`[[note#Heading#^id]]`) is refused this phase
+/// (ruling K), and refused in this branch's own words: the `#` split is `split_once`, so
+/// the anchor reads as a heading literally named `Heading#^id`, which no note has, and
+/// the reader gets the ordinary "no such section" sentence for it.
+pub fn split_anchor(link: &str) -> (String, Option<Anchor>) {
+    let Some((target, anchor)) = link.split_once('#') else {
+        return (link.trim().to_string(), None);
+    };
+    // A bare `#` asks for the whole note, which is what the author means by it.
+    let anchor = anchor.trim();
+    if anchor.is_empty() {
+        return (target.trim().to_string(), None);
+    }
+    let kind = match anchor.strip_prefix('^') {
+        // `#^` with nothing after it names nothing (EDGE-14), but it is still a *block*
+        // question: the readers refuse an empty id rather than matching the first block
+        // that happens to have no id.
+        Some(id) => Anchor::Block(id.trim().to_string()),
+        None => Anchor::Heading(anchor.to_string()),
+    };
+    (target.trim().to_string(), Some(kind))
+}
+
 /// A `[[wiki-link]]` occurrence in markdown source.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WikiLink {
@@ -5,13 +71,10 @@ pub struct WikiLink {
     pub target: String,
     /// Display text when the link uses the `[[target|alias]]` form.
     pub alias: Option<String>,
-    /// The heading the link names: `[[note#The Fall]]`\'s `The Fall`. `None` when the
-    /// link asks for a whole note. A bare `#` (`[[note#]]`) means the whole note too,
-    /// which is what the author means when they write it.
-    ///
-    /// A block anchor (`[[note#^abc123]]`) arrives here as well — P4.9 gives it a
-    /// meaning, and until then it names no heading and reads as a miss.
-    pub anchor: Option<String>,
+    /// What the link's `#...` asks for: a section (`[[note#The Fall]]`) or one block
+    /// (`[[note#^abc123]]`). `None` when the link asks for a whole note; a bare `#`
+    /// (`[[note#]]`) means the whole note too, which is what the author means by it.
+    pub anchor: Option<Anchor>,
     /// Whether the link is an embed (`![[...]]`).
     pub embed: bool,
     /// Byte offset of the start of the whole construct (including `!` for
@@ -128,14 +191,8 @@ fn scan_line(line_start: usize, line: &str, out: &mut Vec<WikiLink>) {
                     };
                     // The target is the link without its anchor; the anchor is kept,
                     // because `gd` on `[[note#The Fall]]` is a request about a section,
-                    // not only about a note.
-                    let (target, anchor) = match link.split_once('#') {
-                        Some((target, anchor)) => (
-                            target.trim().to_string(),
-                            (!anchor.trim().is_empty()).then(|| anchor.trim().to_string()),
-                        ),
-                        None => (link, None),
-                    };
+                    // not only about a note — and on `[[note#^abc]]`, about one block.
+                    let (target, anchor) = split_anchor(&link);
                     let (stem_start, stem_end) = stem_range(inner);
                     out.push(WikiLink {
                         target,

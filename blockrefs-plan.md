@@ -238,6 +238,15 @@ Every row is a case a test or a refusal must answer. Free rides are marked.
   a test names both tables.
 - **EDGE-26 — a block id that is also a heading's text.** No interaction: different anchor
   kinds, different tables.
+- **EDGE-27 — a heading that carries an id** (`## The Fall ^fall`). The id is not part of
+  the heading's name: `#The Fall` still lands, because the anchor matcher cuts a trailing
+  id off the title before comparing. Not cutting it would make adding an id silently break
+  every heading link to that heading. A heading *named* `^bare` keeps its caret — the
+  documented consequence of EDGE-23 (the spelling decides, never the content).
+- **EDGE-28 — an embed line that carries its own id** (`![[a]] ^x`). Still an embed: the id
+  is cut before the line's shape is checked. `line_embed` used to demand the line be *only*
+  the embed, so labelling a working transclusion would have silently un-embedded it. The id
+  names the embed line as a block, which is what a `#^x` link elsewhere reaches.
 
 ## 5. Free rides (say so, don't spend rulings)
 
@@ -304,10 +313,46 @@ Split by dependency; each closes with the workspace gate green and its falsifica
   were real findings: `id LIKE ?1` is `id = ?1` when the pattern has no wildcards, so the
   "prefix" mutation changed nothing until it became `LIKE ?1 || '%'`; and the sort was dead
   code, which is why it is gone rather than tested.
-- **M3 — the resolver and the two doors.** `Anchor::{Heading, Block}` decided by the link's
-  spelling; `block_rows`; embed draws the block through the existing phantom rows; refusal
-  sentence `no block "^abc" in <note>`; hover card follows; `reveal_block` in the editor and
-  the anchor-kind branch in `reveal_in_open_note` (buffer-first, per ruling 53).
+- **M3 — the resolver and the two doors. CLOSED (2026-11-11).** `Anchor::{Heading, Block}`
+  is decided by the link's spelling (`#^x` block, `#x` section, `#^` an empty block ask,
+  bare `#` no anchor at all); `transclude::block_rows` cuts the block the id names; the
+  embed draws it through the existing phantom rows; the refusal sentence is
+  `no block "^abc" in …`, the same words the embed badge uses; the hover card follows for
+  free; `MarkdownEditor::reveal_block` plus the anchor-kind branch in `reveal_in_open_note`
+  (buffer-first, per ruling 53, so an id typed a second ago jumps before it is saved). The
+  recursion cap is **pinned by test**: a chain of block embeds stops at `MAX_DEPTH` like
+  every other embed, and a block that embeds its own note is cut by the chain at the second
+  mention rather than spending the budget on one note.
+  Six deviations from the wording above, each deliberate:
+  1. `Anchor` lives in `markdown.rs`, not `transclude.rs`. `WikiLink.anchor` and
+     `EmbedRef.anchor` are the same question and `split_anchor` is one splitter; two types
+     would let `gd` and `![[…]]` drift apart on what `#^x` means.
+  2. The embed cache key now holds the anchor **with its kind**. `![[a#^b]]` and `![[a#b]]`
+     are different bodies; a `String` key hands one embed the other's rows.
+  3. EDGE-27 (new row): `mdstyle::without_block_anchor` is applied in `find_heading`, so
+     `## The Fall ^fall` still answers `#The Fall`.
+  4. EDGE-28 (new row): **an embed line can carry its own id.** Found by the cap fixture,
+     not by a ruling — `![[a]] ^x` was not an embed at all, so adding an id silently
+     un-embedded a working transclusion. `line_embed` cuts a trailing id first.
+  5. The chained `[[note#H#^id]]` (ruling 11: refuse) is refused by **reading it literally**
+     — the anchor reads as a heading named `H#^id`, which no note has — rather than by an
+     error path. One code path, and the sentence tells the reader what Shale thought they
+     wrote.
+  6. The app's missing-block sentence names the note by **path** (`gift.md`) and the badge
+     by **stem** (`gift`), the same split the heading surfaces already have
+     (`no heading “X” in gift.md` vs `no section "X" in gift`). The block wording itself is
+     identical in both.
+  11 new tests (7 core, 4 app). Falsifications, each turning at least one red: `list_owner`
+  returning `None` (three red: EDGE-7's parent bullet, the own-line id inside a list item,
+  the sub-list embed); `block_rows` never answering in the resolver; the heading strip
+  turned off (core and app); the cache key flattened to the anchor's text; the card title
+  losing its caret; `reveal_block` swapped for `reveal_heading`; the id cut removed from
+  `line_embed`. **Two came back green at first and both were fixture faults, not code
+  faults**: the cache-key test used `^atom` against `#Atom`, and two different strings never
+  collide however flat the key; and the heading-jump test put the heading on the note's
+  first line, where a *failed* jump leaves the caret too. A falsification is only as good as
+  the fixture's ability to tell the failure from the success. A third green was a mutation
+  that never applied — the mutation script now asserts its search string matched.
 - **M4 — the two verbs.** `:block-id` (grouped edit, collision-checked, refuses a second
   id) and `:blocks` (vault-wide, riding `:sections`).
 - **M5 — docs and the demo vault.** `docs/notes.md` prose + the `:block-id`/`:blocks`

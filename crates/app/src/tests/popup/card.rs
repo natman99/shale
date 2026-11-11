@@ -367,3 +367,26 @@ fn the_card_shows_the_note_as_it_is_being_edited(cx: &mut TestAppContext) {
         "the card shows the edit, not the file"
     );
 }
+
+/// P4.9 M3: a block link previews its **block**, not the whole note, and the card's
+/// title carries the caret so the reader sees which kind of link they hovered.
+#[gpui::test]
+fn resting_on_a_block_link_shows_that_block(cx: &mut TestAppContext) {
+    let host = "see [[gift#^goblin]] here\n";
+    let gift = "intro\n\nThe goblin waits\nby the door. ^goblin\n";
+    let (_dir, window) = vault_with(cx, &[("host.md", host), ("gift.md", gift)]);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show_at(&mut cx, &window, "host.md");
+    paint(&mut cx);
+    hover_at(&mut cx, &window, 0, 8);
+    let shown = card(&window, &mut cx).expect("a block link is still a link-shaped thing");
+    assert_eq!(
+        shown.0, "gift \u{203a} ^goblin",
+        "the title says which anchor"
+    );
+    assert_eq!(
+        shown.1,
+        vec!["The goblin waits", "by the door. ^goblin"],
+        "the block's lines, and not the note's"
+    );
+}

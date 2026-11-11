@@ -266,7 +266,10 @@ pub(crate) fn paint_body(lines: &[String], starts: &[usize], reveal: Reveal) -> 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct Key {
     target: String,
-    anchor: Option<String>,
+    /// The anchor **with its kind**, not as a string: `![[a#^b]]` and `![[a#b]]` name
+    /// different things in the same note, and a key that flattened them to `b` would
+    /// hand one embed the other's body.
+    anchor: Option<shale_core::markdown::Anchor>,
 }
 
 /// The bodies this note's embeds resolve to, held across frames.

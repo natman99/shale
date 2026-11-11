@@ -1653,3 +1653,72 @@ fn clicking_the_disclosure_inside_a_block_reopens_the_section(cx: &mut TestAppCo
         "the click on the glyph opened the section again"
     );
 }
+
+// ---------------------------------------------------------------------------
+// P4.9 M3: a block anchor (`![[note#^id]]`) embeds one block of the note.
+// ---------------------------------------------------------------------------
+
+/// A block embed paints the block's rows and not the paragraph next door. The id's own
+/// line is part of the block: the id is the note's claim on itself, painted and never
+/// hidden (ruling 6).
+#[gpui::test]
+fn a_block_embed_paints_the_block_and_not_its_neighbour(cx: &mut TestAppContext) {
+    let gift = "The goblin waits\nby the door. ^goblin\n\nNot the troll.\n";
+    let (_dir, window) = vault_with(cx, &[("host.md", "![[gift#^goblin]]\n"), ("gift.md", gift)]);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show_at(&mut cx, &window, "host.md");
+    assert_eq!(
+        embeds(&window, &mut cx),
+        vec![
+            "embed row 0",
+            "  @gift.md:0 The goblin waits",
+            "  @gift.md:1 by the door. ^goblin",
+        ],
+        "the block's two lines, addressed to the note they belong to"
+    );
+}
+
+/// `![[gift#^atom]]` and `![[gift#Atom]]` are two questions about one note, and the
+/// embed cache keys on the anchor **with its kind**. A key that flattened both to
+/// `atom` would hand one embed the other's rows, and the two would agree about nothing.
+#[gpui::test]
+fn a_block_anchor_and_a_section_anchor_are_not_the_same_embed(cx: &mut TestAppContext) {
+    // The id and the heading are spelled the same on purpose: a cache key that dropped
+    // the anchor's *kind* would key both of these to `atom` and hand one embed the
+    // other's body.
+    let gift = "# atom\nsection body\n# atom two\nother\n\npara body ^atom\n";
+    let host = "![[gift#^atom]]\n![[gift#atom]]\n";
+    let (_dir, window) = vault_with(cx, &[("host.md", host), ("gift.md", gift)]);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show_at(&mut cx, &window, "host.md");
+    assert_eq!(
+        embeds(&window, &mut cx),
+        vec![
+            "embed row 0",
+            "  @gift.md:5 para body ^atom",
+            "embed row 1",
+            "  @gift.md:0 # atom",
+            "  @gift.md:1 section body",
+        ],
+        "one block, one section, each its own body"
+    );
+}
+
+/// An embed line that carries its own block id is still an embed. The id is the note's
+/// claim on the line, not part of the link: making the line stop being an embed the
+/// moment it gains an id would punish the author for labelling a working transclusion.
+#[gpui::test]
+fn an_embed_line_with_its_own_id_still_embeds(cx: &mut TestAppContext) {
+    let gift = "alpha\nbeta\n";
+    let (_dir, window) = vault_with(
+        cx,
+        &[("host.md", "![[gift]] ^hostblock\n"), ("gift.md", gift)],
+    );
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show_at(&mut cx, &window, "host.md");
+    assert_eq!(
+        embeds(&window, &mut cx),
+        vec!["embed row 0", "  @gift.md:0 alpha", "  @gift.md:1 beta"],
+        "the id did not turn the embed back into a raw line"
+    );
+}

@@ -30,7 +30,7 @@ use gpui::{
     App, Context, EventEmitter, FocusHandle, Focusable, Pixels, ScrollHandle, SharedString,
 };
 use shale_core::buffer::{Buffer, ViewSlot};
-use shale_core::markdown::{extract_wikilinks, WikiLink};
+use shale_core::markdown::{extract_wikilinks, Anchor, WikiLink};
 use shale_core::mdstyle::{quotes, style_spans, Style, StyleSpan};
 use shale_core::vault::VaultEntry;
 use shale_core::vim::{Mode, Vim};
@@ -77,10 +77,10 @@ pub enum EditorEvent {
     /// The user asked to follow the wiki-link to `target`.
     FollowLink {
         target: String,
-        /// The section the link names, if it names one (roadmap P4.6a). Carried with
-        /// the target because opening the note is only half of what `gd` was asked to
-        /// do; a `gD` creation ignores it, since a new note has no headings.
-        anchor: Option<String>,
+        /// What the link names inside the note: a section (roadmap P4.6a) or one block
+        /// (P4.9). Carried with the target because opening the note is only half of what
+        /// `gd` was asked to do; a `gD` creation ignores it, since a new note has neither.
+        anchor: Option<Anchor>,
     },
     /// The user asked to follow the wiki-link to `target`, making the note first if
     /// it does not exist (`gD`). The editor does not know the vault: it reports what
@@ -717,7 +717,7 @@ impl MarkdownEditor {
     /// The whole-line rule is the resolver's, not a convenience: an embed inside a
     /// sentence is a link the author is writing, and `ctrl-]` there should follow it
     /// the way `gd` does, not swallow the sentence.
-    pub(crate) fn embed_under_caret(&self) -> Option<(String, Option<String>)> {
+    pub(crate) fn embed_under_caret(&self) -> Option<(String, Option<Anchor>)> {
         let host = self.note.buffer.borrow();
         let (row, _) = host.row_col(host.cursor());
         let start = host.line_start(row);
@@ -1388,6 +1388,24 @@ impl MarkdownEditor {
         // The scan borrows the text; the jump below moves the caret and repaints,
         // so the scan's answer has to be a plain value before either can happen.
         let row = shale_core::transclude::heading_row(self.note.buffer.borrow().text(), anchor);
+        match row {
+            Some(row) => {
+                self.reveal_line(row, cx);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Move the caret to the block an id names and scroll it into view.
+    ///
+    /// The cousin of [`Self::reveal_heading`], and the same rule about where the answer
+    /// comes from: the scan runs over the **buffer**, so an id the reader typed a second
+    /// ago and has not saved still answers a jump (blockrefs-plan.md EDGE-12). The caret
+    /// lands on the block's first line — the top of the thing the id names, which is the
+    /// same line the `blocks` table stores.
+    pub(crate) fn reveal_block(&mut self, id: &str, cx: &mut Context<Self>) -> bool {
+        let row = shale_core::transclude::block_row(self.note.buffer.borrow().text(), id);
         match row {
             Some(row) => {
                 self.reveal_line(row, cx);
@@ -2289,8 +2307,10 @@ impl MarkdownEditor {
                     .file_stem()
                     .map(|s| s.to_string_lossy().to_string())
                     .unwrap_or_else(|| link.target.clone());
-                match link.anchor.as_deref().filter(|a| !a.trim().is_empty()) {
-                    Some(anchor) => format!("{name} › {anchor}"),
+                // The card's title says what the link asked for, in the spelling the
+                // author used: a section by its name, a block with its caret.
+                match link.anchor.as_ref() {
+                    Some(anchor) => format!("{name} › {}", anchor.written()),
                     None => name,
                 }
             }

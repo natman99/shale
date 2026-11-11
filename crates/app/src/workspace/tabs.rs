@@ -339,7 +339,7 @@ impl Workspace {
         let active = index == self.pane().active;
         match event {
             EditorEvent::FollowLink { target, anchor } => {
-                self.follow_link(target, anchor.as_deref(), false, cx)
+                self.follow_link(target, anchor.as_ref(), false, cx)
             }
             // `gD` ignores the anchor: the note it creates has no headings, and an
             // anchor must never leak into the name of a file (roadmap P4.6a).

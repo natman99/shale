@@ -1613,7 +1613,20 @@ edges, query nodes, MCP canvas tools) is P6.10.
   block's extent is not stored — the scan recomputes it. Readers: `Db::blocks_matching`
   (vault-wide, wildcards quoted) and `Db::block_id_taken` (exact, for `:block-id`'s
   collision check). A saved query can already group the vault by id, which is the whole
-  reason the table exists.
+  reason the table exists. **M3 closed (2026-11-11):** the anchor is a **kind** now, not a
+  string — `markdown::Anchor::{Heading, Block}`, decided by the link's spelling and shared
+  by `WikiLink` and `EmbedRef`, so `gd` and `![[…]]` cannot mean two different things.
+  `transclude::block_rows` cuts the block an id names; the embed draws it through the
+  existing phantom rows, the hover card follows, and `reveal_block` lands the caret on the
+  block's **first** line from a buffer scan — an id typed a second ago jumps before it is
+  saved (EDGE-12). A missing block says `no block "^x" in …`, the embed badge's own words.
+  The chained `[[note#H#^id]]` is refused by reading it literally (ruling 11). The recursion
+  cap is pinned by test, not by comment: block embeds stop at `MAX_DEPTH` like everything
+  else, and a block that embeds its own note is cut by the chain at the second mention.
+  Two edges the plan did not have: **a heading that carries an id still answers its name**
+  (EDGE-27 — the id is cut before heading matching), and **an embed line can carry its own
+  id** (EDGE-28 — `![[a]] ^x` was not an embed at all, so labelling a working transclusion
+  would have silently un-embedded it).
 - **P4.10 Trash** (brainstorm ✅, user called it "very important"; ruled **vault-local**,
   not OS trash). **Added by the audit.** Delete already rewrites links; deleting to a
   `.shale/trash/` instead of unlinking is the same path with one step added, and

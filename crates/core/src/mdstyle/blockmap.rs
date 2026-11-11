@@ -339,6 +339,21 @@ fn anchor_token(content: &str) -> Option<(usize, String)> {
     Some((caret, trimmed[caret + 1..].to_string()))
 }
 
+/// The same text with a trailing `^id` token cut off, when it has one.
+///
+/// A heading that carries a block id is still the section its name names: `## The Fall
+/// ^fall` must answer `[[note#The Fall]]` as plainly as it answers `[[note#^fall]]`, or
+/// adding an id to a heading would silently break every heading link to it (EDGE-27).
+/// A heading whose *name* starts with the caret — `## ^foo` — keeps it: the caret
+/// position is claimed by the block form, so no anchor spelling reaches that name, which
+/// is EDGE-23's documented consequence rather than a bug to paper over.
+pub fn without_block_anchor(text: &str) -> &str {
+    match anchor_token(text) {
+        Some((caret, _)) if caret > 0 => text[..caret].trim_end(),
+        _ => text,
+    }
+}
+
 /// A line whose whole content is an `^id` token: Obsidian's form for a structured
 /// block's id. It belongs to the block above it, so the walk never opens a block
 /// with it and the anchor pass below is the only thing that reads it.
@@ -377,6 +392,9 @@ fn push_block(
 /// there), an id at the end of a table row or a quoted line (those blocks take the
 /// own-line form only, which is also what keeps a cell's text from reading as an
 /// id), and anything inside a fence or a properties block.
+///
+/// Two list forms are the exception, because Obsidian documents them and the blank
+/// rule would decline them — see [`list_owner`].
 fn file_anchors(map: &mut BlockMap, lines: &[(usize, &str)]) {
     for line in 0..lines.len() {
         let (offset, content) = lines[line];
@@ -384,31 +402,19 @@ fn file_anchors(map: &mut BlockMap, lines: &[(usize, &str)]) {
             continue;
         };
         let alone = anchor_only(content);
-        // The block this token names ends on this line, or — for the own-line form
-        // — on the last non-blank line above the blank line above the token.
-        let owner_line = if alone {
-            let mut above = line;
-            let mut blanks = 0usize;
-            loop {
-                if above == 0 {
-                    above = usize::MAX;
-                    break;
-                }
-                above -= 1;
-                if lines[above].1.trim().is_empty() {
-                    blanks += 1;
-                } else {
-                    break;
-                }
-            }
-            if blanks == 0 {
-                continue;
-            }
-            above
+        // The block this token names ends on this line, or — for the own-line form —
+        // on the last non-blank line above the blank line above the token. With no
+        // blank above it, the own-line form stands inside something, and only a list
+        // item's own lines qualify (see [`list_owner`]).
+        let block = if alone {
+            last_text_line(lines, line).map_or_else(
+                || list_owner(map, line, true),
+                |owner| innermost_block(map, owner),
+            )
         } else {
-            line
+            innermost_block(map, line).or_else(|| list_owner(map, line, false))
         };
-        let Some(block) = innermost_block(map, owner_line) else {
+        let Some(block) = block else {
             continue;
         };
         if !alone
@@ -442,6 +448,62 @@ fn innermost_block(map: &BlockMap, line: usize) -> Option<usize> {
         }
     }
     best.map(|(_, _, index)| index)
+}
+
+/// The last non-blank line above `line`, but only when at least one blank line
+/// separates them: the own-line form names the block it stands *under*, and the blank
+/// is what says the block is finished. A token with running text above it is in the
+/// middle of that block, which is the case EDGE-5 declines.
+fn last_text_line(lines: &[(usize, &str)], line: usize) -> Option<usize> {
+    let mut above = line;
+    let mut blanks = 0usize;
+    loop {
+        if above == 0 {
+            return None;
+        }
+        above -= 1;
+        if lines[above].1.trim().is_empty() {
+            blanks += 1;
+        } else if blanks > 0 {
+            return Some(above);
+        } else {
+            return None;
+        }
+    }
+}
+
+/// The two list forms the blank rule would decline, both from Obsidian's own manual
+/// ("specific lines within a list") and from this plan's EDGE-7.
+///
+/// `alone`: an id standing on its own line among a list item's continuation lines —
+/// the manual's `- Gemmy` / `Paperclip / Pen` / `^37006f`. The innermost item whose
+/// extent covers the line owns it, so an id written inside a nested item belongs to the
+/// nested item.
+///
+/// Not `alone`: an id at the end of a **parent's** bullet line, with its children below
+/// it. No block *ends* on that line, so [`innermost_block`] finds nothing; the item
+/// whose marker sits on the line does, and its block already spans its children — which
+/// is what an id on a parent is for (ruling 1).
+fn list_owner(map: &BlockMap, line: usize, alone: bool) -> Option<usize> {
+    let mut best: Option<((usize, usize, usize), usize)> = None;
+    for (index, block) in map.blocks.iter().enumerate() {
+        if block.kind != BlockKind::ListItem {
+            continue;
+        }
+        let holds = if alone {
+            block.first_line < line && line <= block.last_line
+        } else {
+            block.first_line == line
+        };
+        if !holds {
+            continue;
+        }
+        let key = (block.indent, block.first_line, index);
+        if best.is_none_or(|(seen, _)| key > seen) {
+            best = Some((key, index));
+        }
+    }
+    best.map(|(_, index)| index)
 }
 #[cfg(test)]
 mod tests {
@@ -584,12 +646,44 @@ mod tests {
     }
 
     #[test]
-    fn the_own_line_form_needs_the_blank_line_above_it() {
-        // Without the blank, the token is not attached to anything: the note reads
-        // as an id glued to the paragraph, and Shale declines to guess.
+    fn the_own_line_form_needs_a_blank_above_a_paragraph() {
+        // Without the blank the token stands in the middle of running text, and Shale
+        // declines to guess which block it meant. The list exception is its own test: a
+        // list item's continuation lines are already a thing the scan tracks.
         let text = "a paragraph\n^q1\n";
         assert_eq!(kinds(text), vec![(BlockKind::Paragraph, 0, 0)]);
         assert_eq!(anchors(text), Vec::new());
+    }
+
+    /// EDGE-7: an id on a parent's bullet line names the item **and its children**. No
+    /// block ends on that line, so the deepest-ending rule finds nothing; the item whose
+    /// marker sits there does, and its block already spans the child.
+    #[test]
+    fn an_id_on_a_parent_bullet_names_the_item_and_its_children() {
+        let text = "- Gemmy ^kid\n    - Unhelpful assistant\n- Someone else\n";
+        assert_eq!(
+            anchors(text),
+            vec![("kid".into(), 0, BlockKind::ListItem, 0, 1)],
+            "the parent's block spans its child, and the id names the whole thing"
+        );
+    }
+
+    /// Obsidian's own list example: the id stands on its own line among the item's
+    /// continuation lines, with no blank above it. The innermost item covering the line
+    /// owns it, so an id written inside a nested item belongs to the nested item.
+    #[test]
+    fn an_id_on_its_own_line_inside_a_list_item_names_that_item() {
+        let text = "- Gemmy\n    Paperclip / Pen\n    ^37006f\n- Unhelpful assistant\n";
+        assert_eq!(
+            anchors(text),
+            vec![("37006f".into(), 2, BlockKind::ListItem, 0, 2)]
+        );
+        let nested = "- Gemmy\n    - Unhelpful assistant\n        ^37006f\n";
+        assert_eq!(
+            anchors(nested),
+            vec![("37006f".into(), 2, BlockKind::ListItem, 1, 2)],
+            "the innermost item, not the outer one"
+        );
     }
 
     #[test]

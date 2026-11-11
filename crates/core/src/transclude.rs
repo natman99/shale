@@ -20,6 +20,7 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
+use crate::markdown::Anchor;
 use crate::mdstyle::object::{heading_lines, HeadingLine};
 use crate::vault::{Vault, VaultEntry};
 
@@ -36,9 +37,10 @@ pub const MAX_DEPTH: usize = 3;
 pub struct EmbedRef {
     /// The link target, without its `#anchor` or `|alias`.
     pub target: String,
-    /// The heading the embed asks for. `None` is the whole note; Obsidian's
-    /// bare `![[note#]]` means the same thing and parses to `None`.
-    pub anchor: Option<String>,
+    /// What the embed asks for inside the note: a section, or one block (P4.9).
+    /// `None` is the whole note; Obsidian's bare `![[note#]]` means the same thing and
+    /// parses to `None`.
+    pub anchor: Option<Anchor>,
     /// The `|alias`, kept for the badge and the embed's own label. Not used to
     /// resolve: a link resolves by its target.
     pub alias: Option<String>,
@@ -47,6 +49,11 @@ pub struct EmbedRef {
 /// The embed a line is, if the line is nothing but one.
 pub fn line_embed(line: &str) -> Option<EmbedRef> {
     let trimmed = line.trim();
+    // An embed line may carry its own block id (`![[a]] ^x`), and the id is the note's
+    // claim on the line, not part of the link. Cutting it first is what keeps adding an
+    // id from silently un-embedding a working transclusion: the id is what a `#^x` link
+    // elsewhere names, and the embed is still an embed.
+    let trimmed = crate::mdstyle::without_block_anchor(trimmed);
     let rest = trimmed.strip_prefix("![[")?.strip_suffix("]]")?;
     // A nested bracket is a mistake, not a link.
     if rest.contains('[') || rest.contains(']') {
@@ -56,14 +63,9 @@ pub fn line_embed(line: &str) -> Option<EmbedRef> {
         Some((link, alias)) => (link, Some(alias.trim().to_string())),
         None => (rest, None),
     };
-    let (target, anchor) = match link.split_once('#') {
-        Some((target, anchor)) => (
-            target.trim().to_string(),
-            // A bare `#` asks for the whole note.
-            (!anchor.trim().is_empty()).then(|| anchor.trim().to_string()),
-        ),
-        None => (link.trim().to_string(), None),
-    };
+    // The same splitter the link scanner uses, so `gd` on `[[note#^abc]]` and an embed of
+    // `![[note#^abc]]` cannot mean two different things.
+    let (target, anchor) = crate::markdown::split_anchor(link);
     if target.is_empty() {
         return None;
     }
@@ -255,9 +257,9 @@ fn expand(
     };
     // The section the anchor names, as *rows of the note* rather than as strings,
     // so every painted row keeps the address it was cut from.
-    let wanted: Vec<(usize, &str)> = match embed.anchor.as_deref() {
+    let wanted: Vec<(usize, &str)> = match embed.anchor.as_ref() {
         None => text.lines().enumerate().collect(),
-        Some(anchor) => match section_rows(&text, anchor) {
+        Some(Anchor::Heading(heading)) => match section_rows(&text, heading) {
             Some(rows) => rows,
             // The note is there and the section is not. Say so rather than
             // painting an empty block that reads as a successful embed, and say it
@@ -266,7 +268,19 @@ fn expand(
             // 2026-11-06, and P4.6a's wording).
             None => {
                 return Body::Badge(Badge {
-                    label: format!("no section \"{anchor}\" in {}", entry.stem()),
+                    label: format!("no section \"{heading}\" in {}", entry.stem()),
+                    embed: embed.clone(),
+                });
+            }
+        },
+        // One block, cut by its id: the same rows the block map says the id names, so
+        // what an embed shows and what `:blocks` lists and what `ib` selects are one
+        // answer (ruling 46's rule, applied to blocks).
+        Some(Anchor::Block(id)) => match block_rows(&text, id) {
+            Some(rows) => rows,
+            None => {
+                return Body::Badge(Badge {
+                    label: format!("no block \"^{id}\" in {}", entry.stem()),
                     embed: embed.clone(),
                 });
             }
@@ -364,9 +378,16 @@ fn rows_of(
 /// not headings — and the answer is the sentence the note branch already uses for the
 /// same mistake, so the two surfaces cannot disagree about what went wrong.
 fn query_body(query: &VaultEntry, embed: &EmbedRef, sources: &dyn Sources) -> Body {
-    if let Some(anchor) = embed.anchor.as_deref() {
+    // A program has neither sections nor blocks: its `#` lines are SQL comments and its
+    // text holds no `^id` the scan would read. The sentence names the kind the author
+    // asked for, so the two mistakes do not read the same (EDGE-16).
+    if let Some(anchor) = embed.anchor.as_ref() {
+        let noun = match anchor {
+            Anchor::Heading(_) => "section",
+            Anchor::Block(_) => "block",
+        };
         return Body::Badge(Badge {
-            label: format!("no section \"{anchor}\" in {}", query.stem()),
+            label: format!("no {noun} \"{}\" in {}", anchor.written(), query.stem()),
             embed: embed.clone(),
         });
     }
@@ -433,6 +454,51 @@ pub fn section(text: &str, anchor: &str) -> Option<Vec<String>> {
         .map(|rows| rows.into_iter().map(|(_, line)| line.to_string()).collect())
 }
 
+/// The rows of the block a block anchor names, as `(row, line)` pairs.
+///
+/// The cousin of [`section_rows`], and the same shape on purpose: the row numbers are
+/// what make an embedded line addressable, and a block's rows are its own lines — a
+/// paragraph's soft-wrapped lines, a list item *and its sub-list*, a whole table, a
+/// whole quote, a heading line alone (ruling 4).
+///
+/// Matched on the id exactly, case-sensitively: Obsidian's ids are, and two ids that
+/// differ only in case are two ids. Two ids on one block both address it (EDGE-10) and
+/// the first in reading order wins, the way a heading match does.
+pub fn block_rows<'a>(text: &'a str, id: &str) -> Option<Vec<(usize, &'a str)>> {
+    let (first, last) = find_block(text, id)?;
+    Some(
+        text.lines()
+            .enumerate()
+            .skip(first)
+            .take_while(|(line, _)| *line <= last)
+            .collect(),
+    )
+}
+
+/// The line a block anchor names — the block's **first** line — or `None` if no block
+/// carries the id. What a jump reveals, and the same number the `blocks` table stores,
+/// so a row from the index and a row from the buffer drive the same reveal (EDGE-12/13).
+pub fn block_row(text: &str, id: &str) -> Option<usize> {
+    find_block(text, id).map(|(first, _)| first)
+}
+
+/// The block an id names, as its first and last line, from the one block scan.
+fn find_block(text: &str, id: &str) -> Option<(usize, usize)> {
+    if id.is_empty() {
+        // `[[note#^]]` names nothing (EDGE-14) — the same rule an empty heading anchor
+        // gets: refuse, rather than matching the first block that has no id.
+        return None;
+    }
+    let map = crate::mdstyle::block_map(text);
+    map.anchors
+        .iter()
+        .find(|anchor| anchor.id == id)
+        .map(|anchor| {
+            let block = &map.blocks[anchor.block];
+            (block.first_line, block.last_line)
+        })
+}
+
 /// The line a heading anchor names, or `None` if no heading matches.
 ///
 /// The same matching [`section`] uses — trimmed of `#`, case-insensitive, never a `#`
@@ -460,7 +526,9 @@ fn find_heading(text: &str, anchor: &str) -> Option<HeadingLine> {
         return None;
     }
     heading_lines(text).into_iter().find(|head| {
-        text[head.text_start..head.text_end]
+        // A heading carrying a block id is still its name's section: the id is the
+        // note's claim on the line, not part of the title (EDGE-27).
+        crate::mdstyle::without_block_anchor(&text[head.text_start..head.text_end])
             .trim()
             .eq_ignore_ascii_case(&want)
     })
@@ -490,7 +558,7 @@ mod tests {
 
         let e = line_embed("  ![[notes/morgoth#The Fall|the fall]]  ").unwrap();
         assert_eq!(e.target, "notes/morgoth");
-        assert_eq!(e.anchor.as_deref(), Some("The Fall"));
+        assert_eq!(e.anchor, Some(Anchor::Heading("The Fall".into())));
         assert_eq!(e.alias.as_deref(), Some("the fall"));
 
         // A bare `#` is the whole note, not an empty heading.
@@ -686,6 +754,74 @@ mod tests {
                 })
             }],
             "over budget: the name, not the content"
+        );
+    }
+
+    /// An embed line can carry its own block id: `![[a]] ^x` is still an embed, and the
+    /// id is what a `#^x` link elsewhere names. Requiring the line to be *only* the
+    /// embed would make adding an id silently un-embed a working transclusion.
+    #[test]
+    fn an_embed_line_can_carry_its_own_block_id() {
+        let e = line_embed("![[gift#^atom]] ^here").unwrap();
+        assert_eq!(e.target, "gift");
+        assert_eq!(e.anchor, Some(Anchor::Block("atom".into())));
+        // Without the space, the caret is not an id (the grammar asks for whitespace
+        // before it), and the line is not an embed shape either. That is the author's
+        // typo, painted as written.
+        assert_eq!(line_embed("![[gift]]^here"), None);
+    }
+
+    /// The recursion cap is the standing one, and a block anchor buys no extra levels:
+    /// host -> a -> b -> c is three levels of content, and the embed inside c's block
+    /// stops at its name (P4.9's standing rule: there is a cap).
+    #[test]
+    fn block_embeds_stop_at_the_same_depth_as_everything_else() {
+        let (_d, v, entries) = vault_with(&[
+            ("host.md", "![[a#^one]]"),
+            ("a.md", "![[b#^two]] ^one"),
+            ("b.md", "![[c#^three]] ^two"),
+            ("c.md", "![[d#^four]] ^three"),
+            ("d.md", "never painted ^four"),
+        ]);
+        let e = line_embed("![[a#^one]]").unwrap();
+        let Body::Lines(rows) = resolve(&v, &entries, &[], Path::new("host.md"), &e) else {
+            panic!("expected lines");
+        };
+        assert_eq!(
+            rows,
+            vec![EmbedLine {
+                depth: MAX_DEPTH,
+                origin: None,
+                row: EmbedRow::Badge(Badge {
+                    label: "d".into(),
+                    embed: line_embed("![[d#^four]]").unwrap(),
+                })
+            }],
+            "the fourth level is a name, not content"
+        );
+    }
+
+    /// A block that embeds its own note is cut by the chain, not by the cap: the badge
+    /// says "you are already here" at the second `a` instead of spending the whole budget
+    /// on one note.
+    #[test]
+    fn a_block_that_embeds_its_own_note_badges_instead_of_looping() {
+        let (_d, v, entries) = vault_with(&[("host.md", "![[a#^x]]"), ("a.md", "![[a#^x]] ^x\n")]);
+        let e = line_embed("![[a#^x]]").unwrap();
+        let Body::Lines(rows) = resolve(&v, &entries, &[], Path::new("host.md"), &e) else {
+            panic!("expected lines");
+        };
+        assert_eq!(
+            rows,
+            vec![EmbedLine {
+                depth: 2,
+                origin: None,
+                row: EmbedRow::Badge(Badge {
+                    label: "a".into(),
+                    embed: line_embed("![[a#^x]]").unwrap(),
+                })
+            }],
+            "the loop is cut at the second mention of the note"
         );
     }
 
@@ -1006,5 +1142,249 @@ mod tests {
             panic!("expected a stopped embed");
         };
         assert_eq!(badge.label, "no section \"hp\" in tough");
+    }
+
+    /// The anchor's **kind** comes from the link's spelling, never from what the note
+    /// happens to contain (EDGE-23): the caret claims the position, so `#^foo` asks for
+    /// a block id even in a note whose heading is literally `^foo`.
+    #[test]
+    fn the_anchor_kind_is_decided_by_the_spelling() {
+        assert_eq!(
+            line_embed("![[gift#^goblin]]").unwrap().anchor,
+            Some(Anchor::Block("goblin".into()))
+        );
+        assert_eq!(
+            line_embed("![[gift#The Fall]]").unwrap().anchor,
+            Some(Anchor::Heading("The Fall".into()))
+        );
+        // `#^` with nothing after it is still a block question, with nothing to name
+        // (EDGE-14); a bare `#` is still the whole note.
+        assert_eq!(
+            line_embed("![[gift#^]]").unwrap().anchor,
+            Some(Anchor::Block(String::new()))
+        );
+        assert_eq!(line_embed("![[gift#]]").unwrap().anchor, None);
+        // The chained form Obsidian accepts is refused in this branch's own words: the
+        // anchor reads as a heading literally named that, which no note has (ruling K).
+        assert_eq!(
+            line_embed("![[gift#The Fall#^goblin]]").unwrap().anchor,
+            Some(Anchor::Heading("The Fall#^goblin".into()))
+        );
+    }
+
+    /// A block embed cuts the block: the id's own soft-wrapped lines, and not the
+    /// paragraph next door. The id's line is part of the block — it is the note's claim,
+    /// painted and never hidden (ruling 6).
+    #[test]
+    fn an_embed_of_a_block_is_that_blocks_lines_only() {
+        let (_d, v, entries) = vault_with(&[
+            ("host.md", "![[gift#^goblin]]"),
+            (
+                "gift.md",
+                "The goblin waits\nby the door. ^goblin\n\nNot the troll.\n",
+            ),
+        ]);
+        let e = line_embed("![[gift#^goblin]]").unwrap();
+        let Body::Lines(rows) = resolve(&v, &entries, &[], Path::new("host.md"), &e) else {
+            panic!("expected lines");
+        };
+        assert_eq!(
+            rows,
+            vec![
+                EmbedLine {
+                    depth: 1,
+                    origin: at("gift.md", 0),
+                    row: EmbedRow::Text("The goblin waits".into())
+                },
+                EmbedLine {
+                    depth: 1,
+                    origin: at("gift.md", 1),
+                    row: EmbedRow::Text("by the door. ^goblin".into())
+                },
+            ],
+            "the block's rows keep their addresses in the note"
+        );
+    }
+
+    /// EDGE-7 and ruling 5: a list item's block carries its sub-list, and the id on the
+    /// parent's bullet names the whole thing.
+    #[test]
+    fn a_block_embed_of_a_list_item_carries_its_sub_list() {
+        let (_d, v, entries) = vault_with(&[
+            ("host.md", "![[gift#^kid]]"),
+            (
+                "gift.md",
+                "- Gemmy ^kid\n    - Unhelpful assistant\n- Someone else\n",
+            ),
+        ]);
+        let e = line_embed("![[gift#^kid]]").unwrap();
+        let Body::Lines(rows) = resolve(&v, &entries, &[], Path::new("host.md"), &e) else {
+            panic!("expected lines");
+        };
+        assert_eq!(
+            rows.iter()
+                .map(|r| r.origin.as_ref().map(|o| o.row))
+                .collect::<Vec<_>>(),
+            vec![Some(0), Some(1)],
+            "the parent's line and its child's, and not the next sibling"
+        );
+    }
+
+    /// EDGE-8/9: a table's id stands on its own line under the table, and names every
+    /// row of it — rows are not addressable on their own.
+    #[test]
+    fn a_block_embed_of_a_table_carries_the_whole_table() {
+        let (_d, v, entries) = vault_with(&[
+            ("host.md", "![[gift#^tbl]]"),
+            ("gift.md", "| a | b |\n| - | - |\n| 1 | 2 |\n\n^tbl\n"),
+        ]);
+        let e = line_embed("![[gift#^tbl]]").unwrap();
+        let Body::Lines(rows) = resolve(&v, &entries, &[], Path::new("host.md"), &e) else {
+            panic!("expected lines");
+        };
+        assert_eq!(rows.len(), 3, "three rows of the table, no more");
+        assert_eq!(rows[0].row, EmbedRow::Text("| a | b |".into()));
+    }
+
+    /// Ruling 4: an id on a heading line names **the line**, not its section. The two
+    /// anchor kinds have two meanings and never overlap.
+    #[test]
+    fn a_block_anchor_on_a_heading_names_the_line_and_not_the_section() {
+        let (_d, v, entries) = vault_with(&[
+            ("host.md", "![[gift#^fall]]"),
+            ("gift.md", "## The Fall ^fall\nthe city went under\n"),
+        ]);
+        let e = line_embed("![[gift#^fall]]").unwrap();
+        let Body::Lines(rows) = resolve(&v, &entries, &[], Path::new("host.md"), &e) else {
+            panic!("expected lines");
+        };
+        assert_eq!(
+            rows,
+            vec![EmbedLine {
+                depth: 1,
+                origin: at("gift.md", 0),
+                row: EmbedRow::Text("## The Fall ^fall".into())
+            }]
+        );
+        // The same note through the heading anchor is the section: two spellings, two
+        // answers, both honest.
+        let h = line_embed("![[gift#The Fall]]").unwrap();
+        let Body::Lines(rows) = resolve(&v, &entries, &[], Path::new("host.md"), &h) else {
+            panic!("expected lines");
+        };
+        assert_eq!(rows.len(), 2);
+    }
+
+    /// The refusal names the kind the author asked for, so a block miss never reads like
+    /// a heading miss. The followed-link surface uses the same sentence (M3's app half),
+    /// which is why the wording lives here and not in a view.
+    #[test]
+    fn a_missing_block_anchor_says_so_in_its_own_words() {
+        let (_d, v, entries) = vault_with(&[
+            ("host.md", "![[gift#^gone]]\n![[gift#Gone]]"),
+            ("gift.md", "text ^here\n"),
+        ]);
+        let block = line_embed("![[gift#^gone]]").unwrap();
+        let Body::Badge(badge) = resolve(&v, &entries, &[], Path::new("host.md"), &block) else {
+            panic!("expected a stopped embed");
+        };
+        assert_eq!(badge.label, "no block \"^gone\" in gift");
+        assert_eq!(
+            badge.embed.anchor,
+            Some(Anchor::Block("gone".into())),
+            "the door still carries what the note asked for"
+        );
+
+        let heading = line_embed("![[gift#Gone]]").unwrap();
+        let Body::Badge(badge) = resolve(&v, &entries, &[], Path::new("host.md"), &heading) else {
+            panic!("expected a stopped embed");
+        };
+        assert_eq!(badge.label, "no section \"Gone\" in gift");
+    }
+
+    /// EDGE-14: `#^` names nothing. It does not match the first block that happens to
+    /// have no id — the rule an empty heading anchor already gets.
+    #[test]
+    fn an_empty_block_anchor_names_nothing() {
+        let (_d, v, entries) =
+            vault_with(&[("host.md", "![[gift#^]]"), ("gift.md", "one\n\ntwo\n")]);
+        let e = line_embed("![[gift#^]]").unwrap();
+        let Body::Badge(badge) = resolve(&v, &entries, &[], Path::new("host.md"), &e) else {
+            panic!("expected a stopped embed");
+        };
+        assert_eq!(badge.label, "no block \"^\" in gift");
+    }
+
+    /// Ruling 2: ids are case-sensitive, because two ids differing only in case are two
+    /// ids. (A heading anchor stays case-insensitive: the author types a title from
+    /// memory, but an id is copied.)
+    #[test]
+    fn a_block_id_is_case_sensitive() {
+        let text = "The goblin waits. ^goblin\n";
+        assert_eq!(block_row(text, "goblin"), Some(0));
+        assert_eq!(block_row(text, "Goblin"), None);
+    }
+
+    /// Ruling 6: the standing cap bounds block embeds too. The caret does not buy a
+    /// fourth level, and the row that stops still carries the block it was asked for.
+    #[test]
+    fn block_embeds_are_bounded_by_the_same_cap() {
+        let (_d, v, entries) = vault_with(&[
+            ("host.md", "![[a#^x]]"),
+            ("a.md", "- a-one ^x\n    ![[b#^y]]\n"),
+            ("b.md", "- b-one ^y\n    ![[c#^z]]\n"),
+            ("c.md", "- c-one ^z\n    ![[d#^w]]\n"),
+            ("d.md", "d-one ^w\n"),
+        ]);
+        let e = line_embed("![[a#^x]]").unwrap();
+        let Body::Lines(rows) = resolve(&v, &entries, &[], Path::new("host.md"), &e) else {
+            panic!("expected lines");
+        };
+        let badges: Vec<&Badge> = rows
+            .iter()
+            .filter_map(|row| match &row.row {
+                EmbedRow::Badge(badge) => Some(badge),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(badges.len(), 1, "one embed stopped by the cap: {rows:?}");
+        assert_eq!(badges[0].label, "d");
+        assert_eq!(
+            badges[0].embed.anchor,
+            Some(Anchor::Block("w".into())),
+            "a stopped block embed is still a door to that block"
+        );
+        assert!(
+            rows.iter().all(|row| row.depth <= MAX_DEPTH),
+            "no row sits deeper than the cap: {rows:?}"
+        );
+    }
+
+    /// EDGE-16: a program has no blocks, and the refusal says *block* rather than
+    /// *section*, because the author asked for a block.
+    #[test]
+    fn a_block_anchor_on_a_query_embed_is_refused_as_a_block() {
+        let (_d, v, entries) = vault_with(&[
+            ("host.md", "![[tough#^hp]]"),
+            ("queries/tough.shq", "+++\n+++\nSELECT 1\n"),
+        ]);
+        let queries = v.list_queries().unwrap();
+        let e = line_embed("![[tough#^hp]]").unwrap();
+        let Body::Badge(badge) = resolve(&v, &entries, &queries, Path::new("host.md"), &e) else {
+            panic!("expected a stopped embed");
+        };
+        assert_eq!(badge.label, "no block \"^hp\" in tough");
+    }
+
+    /// The number a jump needs is the number the `blocks` table stores: the block's
+    /// **first** line. They have to agree, or the index and the buffer answer a reveal
+    /// differently (EDGE-12/13).
+    #[test]
+    fn block_row_names_the_blocks_first_line() {
+        let text = "intro\n\nThe goblin waits\nby the door. ^goblin\n\n- one\n    - two ^kid\n";
+        assert_eq!(block_row(text, "goblin"), Some(2));
+        assert_eq!(block_row(text, "kid"), Some(6));
+        assert_eq!(block_row(text, "gone"), None);
+        assert_eq!(block_row(text, ""), None);
     }
 }
