@@ -770,8 +770,10 @@ mobile, ~~Canvas~~ **reopened 2026-11-03 — see the Canvas section below and
   the first that names *this* block wins — a placement guess the scan reads as another
   block would hand the author a link that lies. And a command reaches the palette through
   its **label**, not its name: `:blocks` labelled "Jump to a block" is unreachable by the
-  word `blocks`. The block text object (ruling 10) is **owed**: `ib`/`ab` as written collide
-  with vim's `ib`/`ab` for the paren object, so it needs a key that is not taken.
+  word `blocks`. The block text object shipped as **`i^` / `a^`**, not the ruled `ib`/`ab`:
+  `b` and `B` are vim's historical letters for parens and braces, so the object would have
+  shadowed a motion for an object nobody had typed yet. The caret is the mark a block id is
+  written with, which makes the object, the anchor and the embed one named atom.
 
 ### Outline pane ✅
 - Heading tree in a sidebar: click to jump, current heading highlighted while

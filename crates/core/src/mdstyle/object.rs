@@ -19,7 +19,7 @@
 //! range from that parse.
 
 use super::inline::{find_subslice, md_link, next_char_len, wiki_link};
-use super::{quotes, style_spans, Style, StyleSpan};
+use super::{block_at, block_map, quotes, style_spans, Style, StyleSpan};
 
 /// Which markdown construct the character after `i` or `a` names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,6 +43,14 @@ pub enum Object {
     /// opening and the closing character name the same object (`i(` and `i)` are
     /// one pair), and `b` / `B` are vim's letters for parens and braces.
     Pair(Pair),
+    /// One markdown block — a paragraph, one list item with its children, one whole
+    /// quote, callout, table or code fence, one heading line: `i^` / `a^`. The caret is
+    /// the character a block id is written with, so the object and the anchor a block
+    /// answers to are named by the same mark and are the same atom (P4.9 ruling 10).
+    /// `ib` / `ab` were the first choice and are **taken**: `b` and `B` are vim's
+    /// historical letters for parens and braces, and an object that shadows a motion the
+    /// user already knows is a worse trade than an unfamiliar scope character.
+    Block,
 }
 
 /// Which bracket pair. Kept separate from [`Object`] so the pair's two
@@ -87,6 +95,9 @@ impl Object {
             // The quote object answers to the quote marks themselves as well as to
             // `q`, because that is what a vim user's fingers type.
             '"' | '\'' => Some(Self::Quote),
+            // The block object is named by the mark a block id is written with. `b` and
+            // `B` — the letters ruling 10 first proposed — stay vim's parens and braces.
+            '^' => Some(Self::Block),
             _ => None,
         }
     }
@@ -103,6 +114,7 @@ pub fn range(text: &str, offset: usize, object: Object, inner: bool) -> Option<(
         Object::Code => code_range(text, offset, inner),
         Object::Quote => quotes::range(text, offset, inner, &style_spans(text)),
         Object::Pair(pair) => pair_range(text, offset, pair, inner),
+        Object::Block => block_range(text, offset, inner),
     }
 }
 
@@ -410,6 +422,25 @@ fn section_range(text: &str, offset: usize, inner: bool) -> Option<(usize, usize
         Some((after_line(text, head).min(end), end))
     } else {
         Some((head, end))
+    }
+}
+
+/// The block under the cursor, innermost first: a caret inside a nested list item names
+/// that item and not its parent. This is the same scan `:block-id` writes into and
+/// `#^id` resolves through — the object, the anchor and the embed are one atom, which is
+/// the whole point of ruling 10. `inner` is the block as written — its indent and its
+/// `-` or `>` or `|` markers included — because the block is the atom and half a bullet is
+/// not: `di^` on a list item takes the bullet with it, which is what deleting an item
+/// means. The outer range adds the block's line break, so `da^` takes the block and the
+/// gap it left, the way `ap` takes a paragraph and its blank line.
+fn block_range(text: &str, offset: usize, inner: bool) -> Option<(usize, usize)> {
+    let map = block_map(text);
+    let index = block_at(&map, offset)?;
+    let block = map.blocks.get(index)?;
+    if inner {
+        Some((block.start, block.end))
+    } else {
+        Some((block.start, after_line(text, block.end)))
     }
 }
 
@@ -813,5 +844,102 @@ mod tests {
         assert_eq!(Object::from_char('p'), None);
         assert_eq!(Object::from_char('t'), None);
         assert_eq!(Object::from_char('l'), None);
+        // The block object is `^`, the mark a block id is written with. `b` and `B`
+        // stay what vim uses them for (ruling 10's first letters, and the reason it
+        // could not keep them).
+        assert_eq!(Object::from_char('^'), Some(Object::Block));
+        assert_eq!(Object::from_char('b'), Some(Object::Pair(Pair::Paren)));
+        assert_eq!(Object::from_char('B'), Some(Object::Pair(Pair::Brace)));
+    }
+
+    #[test]
+    fn the_block_object_is_the_paragraph_under_the_caret() {
+        let text = "intro line\nwrapped line\n\nnext para\n";
+        let at = text.find("wrapped").unwrap();
+        assert_eq!(
+            cut(text, at, Object::Block, true),
+            "intro line\nwrapped line",
+            "a soft-wrapped paragraph is one object, wherever the caret sits in it"
+        );
+        assert_eq!(
+            cut(text, at, Object::Block, false),
+            "intro line\nwrapped line\n",
+            "`a^` takes the block's line break with it, the way `ap` takes the gap"
+        );
+    }
+
+    #[test]
+    fn the_block_object_names_the_innermost_list_item() {
+        let text = "- parent\n    - child\n    - second child\n- next\n";
+        assert_eq!(
+            cut(
+                text,
+                text.find("second child").unwrap(),
+                Object::Block,
+                true
+            ),
+            "    - second child",
+            "the item the caret is in, not its parent, its indent as written"
+        );
+        assert_eq!(
+            cut(text, text.find("parent").unwrap(), Object::Block, true),
+            "- parent\n    - child\n    - second child",
+            "an item's object holds its children (ruling 5)"
+        );
+    }
+
+    #[test]
+    fn a_table_a_quote_and_a_fence_are_each_one_block() {
+        let text = "| a | b |\n| - | - |\n| 1 | 2 |\n\n> quoted\n\n```\nfenced\n```\n";
+        assert_eq!(
+            cut(text, text.find("1 | 2").unwrap(), Object::Block, true),
+            "| a | b |\n| - | - |\n| 1 | 2 |",
+            "the whole table, because the table is the atom (ruling 5)"
+        );
+        assert_eq!(
+            cut(text, text.find("quoted").unwrap(), Object::Block, true),
+            "> quoted"
+        );
+        assert_eq!(
+            cut(text, text.find("fenced").unwrap(), Object::Block, true),
+            "```\nfenced\n```"
+        );
+    }
+
+    #[test]
+    fn a_heading_line_is_its_own_block_object() {
+        // Ruling 4: an id on a heading names the heading line, and so does the object.
+        let text = "# The Fall ^fall\nbody\n";
+        assert_eq!(cut(text, 2, Object::Block, true), "# The Fall ^fall");
+    }
+
+    #[test]
+    fn the_block_object_cancels_on_a_blank_line() {
+        // No block, no object — the operator cancels the way a find that matches
+        // nothing does, rather than taking the block above by surprise.
+        let text = "one\n\nthree\n";
+        assert!(range(text, text.find("\n\n").unwrap() + 1, Object::Block, true).is_none());
+    }
+
+    #[test]
+    fn the_block_object_and_a_block_id_name_the_same_atom() {
+        // The point of ruling 10: `i^` and `#^id` are the same thing seen from two ends,
+        // so this asserts they read one scan rather than two guesses.
+        let text = "the goblin waits ^goblin\n\nnext\n";
+        let map = block_map(text);
+        let anchor = map.anchors.first().expect("the id was read");
+        let block = &map.blocks[anchor.block];
+        let (lo, hi) = range(
+            text,
+            text.find("goblin waits").unwrap(),
+            Object::Block,
+            true,
+        )
+        .unwrap();
+        assert_eq!(
+            (lo, hi),
+            (block.start, block.end),
+            "the object's range is the block the anchor names"
+        );
     }
 }

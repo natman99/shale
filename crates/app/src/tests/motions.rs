@@ -442,6 +442,26 @@ fn markdown_text_objects(cx: &mut TestAppContext) {
         "# Top\nintro with [[Two]] here\n\n> [!warning] Watch out\n> first\n\n\n# Other\ntail\n",
         "`` da` `` should take the fences with the code"
     );
+
+    // `di^` on a paragraph: the block the caret is in, which is the same atom a `^id`
+    // names and the same span `:block-id` would write onto.
+    reset(&editor, cx);
+    cx.simulate_keystrokes("0 j d i ^");
+    assert_eq!(
+        text(cx).lines().nth(1),
+        Some(""),
+        "`di^` should take the paragraph and leave its line"
+    );
+
+    // `da^` from the callout's header line: the box as one block, and the line break
+    // under it, leaving the blank line the note already had.
+    reset(&editor, cx);
+    cx.simulate_keystrokes("0 j j j d a ^");
+    assert_eq!(
+        text(cx),
+        "# Top\nintro with [[Two]] here\n\n\n```\nlet x = 1;\n```\n\n# Other\ntail\n",
+        "`da^` should take the block the caret is in, markers included"
+    );
 }
 
 /// The `q` object through the real keymap: a quoted span, with its marks or

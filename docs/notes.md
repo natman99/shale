@@ -145,6 +145,9 @@ paste into a link), refuses an id outside that grammar, and refuses an id anothe
 the vault already uses. A heading can carry one too; it names the heading line, not the
 section, and the heading still answers its own name.
 
+The block is a text object while it is nameless: `i^` / `a^` act on exactly the span an id
+would sit on, so `di^` deletes what `:block-id` labels (see *Keys*).
+
 Backlinks are computed (the index keeps them, and the graph draws them), and an
 agent can ask for them with the `backlinks` MCP tool. There is no backlinks panel
 in the window yet.

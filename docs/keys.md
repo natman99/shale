@@ -100,6 +100,16 @@ parentheses, `i[` `i]`, `i{` `i}` `iB`, `i<` `i>`. Either character of a pair na
 anything between the two. Examples: `diw`, `ci(`, `da"`, `diW`.
 In visual mode the same keys widen the selection instead.
 
+The markdown constructs have their own objects: `iL` / `aL` (a link), `i#` / `a#` (a
+section, from its heading to the next one of the same level or higher), `i*` / `a*` (a
+callout box), `` i` `` / `` a` `` (a fenced block, or an inline span when the cursor is not
+in one), `iq` / `aq` (a quoted span), `it` / `at` (a table cell), and `i^` / `a^` — **one
+block**: a paragraph, one list item with its children, a whole quote, callout, table or
+code fence, or one heading line. That is the same span a `^id` names, so `:block-id` writes
+an id on exactly what `di^` would take. `^` and not `b` because `ib` / `ab` are already
+vim's parentheses: an object that shadows a motion the hand already knows costs more than an
+unfamiliar scope letter.
+
 A count before the object reaches further, and vim counts *units* (object, gap, object)
 rather than objects: `d2iw` takes the word and the space after it but not
 the next word, while `d2aw` takes both words and the space between them. Brackets

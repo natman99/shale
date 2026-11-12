@@ -396,9 +396,26 @@ Split by dependency; each closes with the workspace gate green and its falsifica
   fault**: `if !pattern.is_empty() {` appears twice in `index.rs` — the `sections` branch
   and the `blocks` branch — and the mutation replaced the first. A mutation must anchor on
   text unique to the branch it means, not on the first match.
-- **M5 — docs and the demo vault.** `docs/notes.md` prose + the `:block-id`/`:blocks`
-  palette rows (regenerate `docs/commands.md` unfiltered), a block ref in the demo tour,
-  roadmap/brainstorm writeback in the same commit.
+- **M5 — docs and the demo vault. CLOSED (2026-11-11).** `docs/notes.md` prose (the link
+  grammar, the embed's missing-block sentence, `:blocks` in Finding things), the
+  `:block-id`/`:blocks` palette rows in `docs/commands.md` (regenerated unfiltered), and a
+  real block ref in the demo tour: `Welcome.md`'s first paragraph is `^start`, linked and
+  embedded from `Markdown Tour.md`. The demo content was checked through the real resolver
+  rather than trusted — the id reads as a Paragraph anchor, the embed line parses as
+  `Block("start")`, and the block's rows are the paragraph's two lines.
+- **M6 — the block text object (ruling 10). CLOSED (2026-11-11).** `i^` / `a^`, **not** the
+  `ib` / `ab` the ruling named: `Object::from_char` already answers `b` and `B` as vim's
+  historical letters for parens and braces, so the ruling's letters would have shadowed a
+  motion the hand already knows for an object nobody has typed yet. `^` is the mark a block
+  id is written with, so the object and the anchor are named by one character and are one
+  atom — pinned by a test that asserts the object's range *is* the block the anchor names,
+  both read from the same scan. `inner` is the block as written, indent and markers
+  included: `di^` on a bullet takes the bullet, because half an item is not an item. `a^`
+  adds the block's line break the way `ap` adds a paragraph's gap. A caret on a blank line
+  cancels the operator rather than iding the block above by surprise. 7 core tests and 2
+  keystroke cases (`di^`, `da^`) — the keystroke cases matter because `^` is also a vim
+  motion, and the scope letter had to be shown reaching a pending operator rather than
+  becoming one.
 
 ## 7. Not here
 
