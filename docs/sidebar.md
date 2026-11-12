@@ -149,6 +149,7 @@ The strip's keys are the tree's, because the two strips are one family:
 | `shift-k` / `shift-j` | move this section up / down |
 | `Tab` / `shift-Tab` | one level up / down for it and its subtree |
 | `[` / `]` | which view is showing (a view with rows opens on its first one) |
+| `p` | stick the strip to this note, or let it follow the tabs again |
 | `escape` | back to the note |
 | `space b` | put the strip away |
 
@@ -160,13 +161,27 @@ strip has nowhere to go: it spans the window's height.
 The full binding list is generated in [keymap.md](keymap.md) under the `sidebar` context;
 the commands are in [commands.md](commands.md).
 
+## Pinning it to one note
+
+`p` (with the keyboard in the strip) sticks the strip to the note it is describing. The
+header grows a `◆` and the strip stops following the tabs: switch notes, close the tab, open
+three others — the strip keeps answering about the pinned note, reading its file when it is
+not on screen. `p` again lets it follow.
+
+That is the whole of it: a way to hold one note's outline, links or tags open in the corner
+while you work through other notes. The pin rides the session, so a window that opens with
+one pinned opens pinned. A pin to a note that has since been deleted is kept rather than
+quietly dropped — the strip reports the read failure the same way a restored tab would.
+
 ## What comes back
 
-Whether the strip was open, and which view it was on, ride the session file — they are
-decisions you made, not facts about the notes. A session written before the strip existed
+Whether the strip was open, which view it was on, and what it was pinned to ride the session
+file — they are decisions you made, not facts about the notes. A session written before the strip existed
 restores a window without one, and the first `space b` opens it.
 
 ## Not yet
 
-`:pin` (holding the strip on one note while you look at another) and resizing. They are
-specced in `sidebar-plan.md` and on the roadmap under P4.13.
+Resizing, and the other half of the pin the plan sketched: `:pin` on a **tab**, meaning "do
+not replace me" — a jump that would reuse this tab opens a new one instead. The strip's half
+is built (`p`); the tab's half changes how every jump behaves, so it waits for its own
+ruling. Both are on the roadmap under P4.13.

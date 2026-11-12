@@ -223,6 +223,7 @@ keyboard (`ctrl-w l` from the note, when it is open):
 | `shift-k` `shift-j` | move this section up / down among its siblings, subtree included |
 | `tab` `shift-tab` | one level up / down for this heading and everything under it |
 | `[` `]` | which view the strip is showing |
+| `p` | stick the strip to the note it is describing, or let it follow the tabs again |
 | `space b` | hide the strip (works from inside it) |
 | `escape` | hand the keyboard back to the note |
 
@@ -233,7 +234,9 @@ out leaves the note where it was; the outline, tags and properties all read the 
 and the tag census wait for the index. The structure keys belong to the Outline and refuse
 out loud — a `#` cannot be promoted, a section cannot be moved out from under its parent, and a
 row in a link view is a place in a list of *other* notes, not a line in this one — each
-refusal one line in the status bar. Details in [sidebar.md](sidebar.md).
+refusal one line in the status bar. The strip's header carries a `◆` while it is pinned to one note
+(`p`), and a pinned strip keeps describing that note while the tabs move on. Details in
+[sidebar.md](sidebar.md).
 
 ## Pickers and prompts
 

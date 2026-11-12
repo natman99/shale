@@ -454,6 +454,17 @@ rewritten, because the first version of that test passed with the rule deleted.
 - `docs/sidebar.md`: the shape, the five views, the focus grammar, and the buffer-vs-index
   rule. `keymap.md` and `commands.md` regenerate themselves.
 
+**Built (2026-11-11).** The strip's pin is `p` in its own keymap context, not `:pin`: the
+plan's "one verb, two subjects picked by which surface has the keyboard" cannot work while
+neither strip claims `:`, because reaching the command line from the strip means escaping to
+the note first and the context has moved by then. The mark is `style::GLYPH_PIN` in the
+header beside the view name and count. `sidebar_subject` is the one place the pin bites, so
+every view, the caret mark and the scrub follow it for free. The session keeps the pin in the
+spelling the tabs use. **The tab half of `:pin` ("do not replace me") was left unbuilt on
+purpose**: it changes what every jump does to the tab under the reader, which is a ruling
+about tabs rather than a detail of this milestone — it is written into `docs/sidebar.md`'s
+"Not yet" and the roadmap. Three falsifications, all red.
+
 ## Not here
 
 - Block-level backlinks (parked below), block ids in the outline (ruling 5), a gutter mark

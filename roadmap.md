@@ -1784,6 +1784,22 @@ edges, query nodes, MCP canvas tools) is P6.10.
   counting the note itself, and the frontmatter half dropped from the merge — the last one
   only after the new core test was rewritten, which had been written too weakly to bite and
   said so on its own.
+  **M5 closed (2026-11-11): the pin, and the strip is complete.** `p` inside the strip sticks
+  it to the note it is describing — the header grows `◆` (`style::GLYPH_PIN`, the chrome's
+  mark named rather than a character typed inline), `sidebar_subject` answers with the pinned
+  note before it asks what is on screen, and a pinned subject that is not on screen is still
+  answered, by reading its file. `p` again lets it follow. The pin rides the session
+  (`sidebar_pinned`, in the same spelling the tabs use, so a restored pin and a restored tab
+  name one note the same way), and a pin to a deleted note is kept rather than quietly
+  dropped — the strip reports the read failure the way a restored tab does. **One delta from
+  the plan:** the plan's `:pin` was one verb with two subjects chosen by which surface had
+  the keyboard, but neither strip claims `:` — from the strip you escape to the note first,
+  and by then the context has moved — so the strip's pin is its own key, `p`, in the same
+  context as its other keys. The tab half ("do not replace me") is **not built**: it changes
+  what every jump does to the tab on screen, so it waits for its own ruling rather than
+  riding in on a sidebar milestone. Three falsifications, all red: the pin remembered but
+  ignored by the subject, the pin not written to the session, and `p` pinning without ever
+  letting go.
 - **P4.14 Search operators** (brainstorm ✅). **Added by the audit.** `tag:`, `path:`,
   `link:`, `modified:` and friends in vault search, over the P1 index. **One grammar,
   one parser, shared with `.shq` (P4.3)** — inventing it twice is how the two surfaces
