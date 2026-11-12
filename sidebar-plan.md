@@ -48,6 +48,22 @@ gutter) and the cue chip both ride GM machinery from P7.x. Deferred by ruling 7 
 10. **A block embed does not get a gutter mark** naming the block it took. The `![[…#^id]]`
     line already states it.
 
+**Round 2 (2026-11-11):**
+
+11. **One view at a time.** The strip shows a single view — outline, links to here, links
+    from here, tags, or properties — not a stack. The view is *chosen*; the header strip
+    names it and counts what it holds.
+12. **`Tab` / `shift-Tab` relevel a heading** (add or remove a `#`), taking its subtree
+    with it. The outliner idiom, and free in the strip's own keymap context.
+13. **The strip joins `ctrl-w h/j/k/l` the way the file tree does** — one focus grammar
+    for the window: tree, panes, sidebar.
+14. **The outline follows the caret**: the current section is marked with coloured text and
+    scrolled into view when it is off-screen, and the list's own selection carries the
+    standard focus highlight. The two marks are different things and look different.
+15. **Relevel is a structure edit with the same discipline as the move**: one grouped edit,
+    one `u` restores the whole subtree, the marker run is the only thing that changes, and
+    the caps are refused rather than clamped.
+
 ## Edge ledger (settled so far)
 
 - **EDGE-S1.** The sidebar's subject is a *note*, not a tab. A tab that holds no note
@@ -72,17 +88,46 @@ gutter) and the cue chip both ride GM machinery from P7.x. Deferred by ruling 7 
   picture is a fact about the note, not a reason to hide a row (P4.16's posture for
   ghosts in a lens).
 
+- **EDGE-S8.** Relevel shifts the subtree the scan found **before** the change. Demoting
+  `## A` while a `### E` follows it would otherwise make `E` a sibling and quietly drop it
+  out of A's section; shifting every heading in the pre-change extent by the same delta
+  keeps the tree identical and moves only its depth.
+- **EDGE-S9.** The caps are refused, not clamped: a `#` heading cannot promote (there is no
+  level above one), and a `######` cannot demote (a seventh `#` is text, not a heading).
+  One sentence each.
+- **EDGE-S10.** Relevel rewrites the marker run and nothing else on the line, so
+  `## The Fall ^fall` keeps its id and still answers `#The Fall` (EDGE-27). `#heading`
+  anchors elsewhere match by text, not level, so a relevel breaks no link and moves no edge.
+- **EDGE-S11.** Following the caret never fights the user. The mark follows the caret
+  always; the **scroll** fires only when the mark *changed* — the caret crossed into a
+  different section — and only if that row is off-screen. A scroll the user made themselves
+  is never undone, because nothing about their scroll changes the mark. While the strip has
+  the keyboard, the caret does not move the list at all; the selection does.
+- **EDGE-S12.** `ctrl-w j`/`k` from the strip stay in the strip: it spans the window's
+  height, so there is nothing above or below it — the same answer the file tree gives.
+- **EDGE-S13.** A sidebar jump is a jump like any other: it goes through `load_target`, so
+  it never reads a note over unsaved work, and it reuses a tab that already holds the note.
+  The strip's own scrolling never moves the caret, and revealing a heading is not a caret
+  move — the caret only moves on `enter`.
+
 ## Milestones (dependency order)
 
-- **M1 — the shell.** `sidebar_visible`, its own `FocusHandle` and `"sidebar"` keymap
-  context, `ctrl-w l` in / `escape` out, the subject rule (EDGE-S1), `:pin`, session
-  fields. Ships with the **outline** view only.
-- **M2 — links.** `Db::backlinks(rel)` and `Db::outgoing(rel)` readers; the schema bump
-  that lets a backlink row land on the line that links (open question C).
-- **M3 — tags.** The note's tags, each row asking `tag:x`.
-- **M4 — properties.** `Db::note_props` rows; a link-shaped value opens its note.
-- **M5 — the move.** `shift+j`/`shift+k` on the outline: one core act returning the text
-  edit, the sidebar as its first door.
+- **M1 — the shell and the outline view.** `sidebar_visible`, its own `FocusHandle` and
+  `"sidebar"` keymap context, `ctrl-w h/j/k/l` in and out (EDGE-S12), `space b` / `:sidebar`,
+  the subject rule (EDGE-S1), the header strip naming the view and its count, the heading
+  list with nesting, the caret-follow mark and its conditional scroll (EDGE-S11), and
+  `enter` jumping into the note (EDGE-S13). The first thing a user can try, and the shape
+  everything else hangs on.
+- **M2 — the structure acts.** `mdstyle::move_section` and `mdstyle::relevel_section` in
+  core — pure text edits, table-tested like every mdstyle act (EDGE-S8…S10) — with the
+  strip's `shift+j`/`shift+k` and `Tab`/`shift-Tab` as their first doors. The note's own
+  keys are a later commit.
+- **M3 — links.** `Db::backlinks(rel)` and `Db::outgoing(rel)` readers, and the schema v6
+  column that lets a backlink row land on the line that links.
+- **M4 — tags and properties.** The note's tags with their census, each row asking `tag:x`;
+  `Db::note_props` rows, where a link-shaped value opens its note.
+- **M5 — `:pin`, session, docs.** One verb with two subjects, the session fields, and the
+  prose in `docs/`.
 
 ## Not here
 
@@ -104,63 +149,58 @@ gutter) and the cue chip both ride GM machinery from P7.x. Deferred by ruling 7 
   schema change plus a re-index, not a view. Reopen when someone wants block provenance in
   the window; the sidebar's links section is where it would appear.
 
-## Open questions (round 2 — recommendation attached to each)
+## Round 2 status (2026-11-11)
 
-**A. One list or four views?**
-(a) one continuous list whose rows belong to collapsible sections (`Outline`, `Links to
-here`, `Links from here`, `Tags`, `Properties`), `j`/`k` walking across section
-boundaries and `h`/`l` collapsing a section — the tree's grammar exactly, and no mode;
-(b) one view at a time behind a command.
-**Recommend (a).** A mode is the thing this repo rations, and the tree already teaches
-`h`/`l` over a list of sections.
+**Settled by the round:**
 
-**B. Section order and defaults.** Recommend fixed order Outline → Links to here → Links
-from here → Tags → Properties, all open, each collapsed state saved per window.
+- **A/B — one view at a time** (ruling 11). Not a stack, not a scroll-through of five
+  sections. The header strip names the view and its count.
+- **C — row meanings** as proposed, including `links.line` (schema v6) so a backlink row
+  lands on the line that links.
+- **D — counts** live in the header strip (the view's own count) and on tag rows (how many
+  other notes carry the tag).
+- **E — `space b` and `:sidebar`** toggle the strip.
+- **F — one `:pin` verb**, two subjects.
+- **G — fixed width** matching the tree; resizing waits on the tree's own width work.
+- **H — session fields**: `sidebar_visible`, the active view, the per-view collapsed state,
+  and the pinned subject.
+- **I — move neighbours**: swap with the next sibling at the same level under the same
+  parent; refuse rather than skip to a different parent.
+- **I (relevel) — `Tab`/`shift-Tab`**, subtree shifts together, caps refused (EDGE-S8…S10).
+- **J — one core act, two doors**: `mdstyle::move_section` and `mdstyle::relevel_section`
+  return the text edit; the strip is the first door, the note's keys are a later commit.
+- **K — no staleness badge**; the header's count is the honesty.
+- **L — follow the caret** with the anti-fight rule (EDGE-S11).
+- **M — `enter` on an outline row jumps the note to that heading and the keyboard follows
+  into the note**, which is exactly what the file tree does today (`tree.rs:186`:
+  `open_note` then `focus_editor`), so "mirror the tree bindings" gives it for free. The
+  jump is a jump: it goes through `load_target` (the unsaved-work rule from `60d6a29`) and
+  lands on the heading's line, where a trailing `^block-id` still resolves (EDGE-27). What
+  one-view costs is a way to *choose* the view, which is question N.
 
-**C. What a row is, and what `enter` does.**
-- Outline row → jump the note to that heading.
-- Backlink row → open the linking note. **Sub-question:** land on the line that holds the
-  link? That needs `links.line` (schema v6) — one column, written by the same per-note
-  writer that already records the link. **Recommend yes**: a backlink list that opens the
-  top of a 400-line note is half a feature, and `PickerTarget::Hit` already carries
-  path+line.
-- Outgoing row → open the target (a ghost row is marked and `enter` offers the create
-  that P6.x's unresolved-link→create plans).
-- Tag row → put `tag:x` in the search field (the `PropKey` precedent).
-- Property row → `prop:key` in the search field; a whole-`[[…]]` value opens its note
-  instead (the frontmatter ruling on what is link-shaped).
+**Still open:**
 
-**D. Row counts.** Recommend: tags show how many *other* notes carry them (one
-`GROUP BY`), the links sections show their count in the header, the outline shows none.
+**N. How is the view chosen?**
+(a) `[` / `]` cycle through the views inside the strip, plus `:sidebar <name>` for the
+direct jump (`:sidebar` alone stays the toggle); (b) digits `1`–`5` for direct selection,
+with the header showing the number beside each name; (c) `space`-leader chords in the
+strip's context (`space o` outline, `space l` links, `space t` tags, `space p` properties),
+matching the `space e` tree habit.
+**Recommend (a)**, and (b) as an easy addition later — cycling is one pair of keys and the
+command line is where a name is typed.
 
-**E. The toggle key and the command.** `space e` is the tree's. Recommend `space b` and
-`:sidebar` for the toggle, with no per-section commands — the sections are not doors,
-they are what is there.
+**O. Where does `ctrl-w h` from the strip land?** The tree currently goes to the **leftmost
+pane** (`mod.rs:846`), not to the pane that last had the keyboard. For the strip, the
+symmetric answer is "the pane that last had the keyboard" (the seat). Recommend: **the seat
+for the strip**, and unify the tree to the same rule in the same commit — one rule, and it
+is what "go back the way you came" means.
 
-**F. `:pin` shape.** One verb, two subjects: in a note tab it means "do not replace me"
-(P3.2's unbuilt note pinning), in the sidebar it means "do not follow the tab switch".
-Same mark glyph. **Recommend one verb**; two verbs for one idea is how they drift.
+**P. Is the header strip a row in the list or chrome above it?** Recommend **chrome**: `j`
+starts on the first real row, and the header is not something you can get stuck on. It
+carries the view name, its count, and the pin mark.
 
-**G. Width.** The tree is fixed-width today. Recommend the sidebar match it (fixed,
-same measure) and leave resizing to whatever config work the tree's width eventually
-gets.
-
-**H. Session fields.** `sidebar_visible`, the per-section collapsed set, and the pinned
-subject. **Recommend yes** — the session file already stores the tree's expanded folders,
-and adding fields to `shale_core::Session` breaking the app's test literals is the
-designed consequence.
-
-**I. Move neighbours.** `shift+j` swaps a section with the next **sibling at the same
-level under the same parent**, skipping nothing: if the next section at that level belongs
-to a different parent, refuse (EDGE-S2). Alternative: move it to the end of the parent's
-children. **Recommend refuse** — the skip is a guess about intent, and a moved section in
-the wrong place costs the author a scan to find it.
-
-**J. Does the buffer get the same motion?** Recommend: build it as one core act
-(`mdstyle::move_section` returning the edit), sidebar door in M5, buffer door (`]#`/`[#`)
-as a later commit — the same labour split that made `:block-id` and `#^id` share a scan.
-
-**K. Stale index, honest or silent?** Backlinks land only after the note is written and
-re-indexed. Recommend: no staleness badge (the watcher indexes on save, so the lag is one
-beat), but the section header counts what it shows, so a missing row is visible as a
-count.
+**Q. Does the list selection scrub the note?** While the strip has the keyboard, moving the
+selection in the Outline view *reveals* that heading in the note — scroll only, the caret
+untouched. It is the mirror of ruling L: the note's caret drives the strip when the note has
+the keyboard, and the strip's selection drives the note when the strip has it. Recommend
+**yes for the Outline view only** (a links row has no position in this note to reveal).
