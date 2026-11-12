@@ -1702,6 +1702,22 @@ edges, query nodes, MCP canvas tools) is P6.10.
   and `docs/sidebar.md`. **One behaviour change outside the strip:** `record_jump` refuses a
   same-note jump today (`jumps.rs:274`); the spec narrows that to "same note *and* same
   position" so `ctrl-o` walks between sections of one note (EDGE-S14).
+  **M1 closed (2026-11-11):** the strip is on screen — `crates/app/src/sidebar.rs` (the
+  model: the five view names, the buffer-sourced outline, the caret→section map) and
+  `crates/app/src/workspace/sidebar.rs` (the hosting: focus, visibility, keys, rows drawn
+  in the frame that shows them). `space b` / `:sidebar [on|off]` / `:sidebar <view>`, the
+  palette rows, and `space b` in the strip's own context; `[`/`]` cycle the five names and
+  the four unbuilt views say "this view is not built yet" rather than going quiet. The
+  `ctrl-w` edges are unified on the seat and `first_pane`/`first_leaf` went with them;
+  `ctrl-w j`/`k` from the strip stay put. The mark follows the caret and scrolls the list
+  once, and the anti-fight rule is tested with a real wheel event, not by reading the code.
+  `enter` is a pure reveal: the test asserts the buffer's `Rc` identity, not just the caret.
+  Session fields (`sidebar_visible`, `sidebar_view`) are `Option`, so a pre-strip file
+  restores without one. `docs/sidebar.md` arrived here rather than at M5. **Two deltas from
+  the plan:** the width is a constant 260px (ruling G deferred resizing, so there is no
+  `sidebar_width` field to restore yet), and the strip's subject guard means `ctrl-w l` from
+  a graph, blank or query tab refuses rather than focusing an empty surface — the pane tests
+  that assert that keystroke's old behaviour stay green.
 - **P4.14 Search operators** (brainstorm ✅). **Added by the audit.** `tag:`, `path:`,
   `link:`, `modified:` and friends in vault search, over the P1 index. **One grammar,
   one parser, shared with `.shq` (P4.3)** — inventing it twice is how the two surfaces

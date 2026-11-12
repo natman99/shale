@@ -89,6 +89,7 @@ The user-facing docs live in [`docs/`](docs/) - start with
 | [notes.md](docs/notes.md) | notes, folders, the tree, saving and naming, wiki-links, search, word counts |
 | [windows-panes-tabs.md](docs/windows-panes-tabs.md) | windows, vaults, splits, tabs, and what comes back next launch |
 | [graph.md](docs/graph.md) | the link graph: flat, projected 3D, the local neighbourhood |
+| [sidebar.md](docs/sidebar.md) | the right-hand strip: the outline, the mark, scrubbing and jumping |
 | [mcp.md](docs/mcp.md) | the MCP surface: tools, profiles and scopes, the review queue |
 | [config.md](docs/config.md) | `<vault>/.shale/config.toml`, themes, fonts |
 | [state-files.md](docs/state-files.md) | everything Shale writes to disk, and what is safe to delete |

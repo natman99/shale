@@ -326,6 +326,22 @@ must go red. Fire the scroll on "mark off-screen" instead of "mark changed" → 
 test must go red. Read the outline from the index instead of the buffer → the unsaved-heading
 test must go red.
 
+**Built (2026-11-11).** All three falsifications were run and went red; the tests are in
+`crates/app/src/tests/sidebar.rs` and the model's own in `sidebar.rs`. Three things the plan
+did not know it would need:
+
+- The mark is a heading's **line**, and the scroll container wants the row's **index** —
+  the same number is not both, and using the line as an index silently no-ops the scroll on
+  any note with more rows than the mark's line.
+- `focus_sidebar` seeds the selection on the first row when the strip takes the keyboard,
+  which is the tree's behaviour; `j` then moves to the *second* row. Tests written against
+  "first `j` selects the first row" read the seeding as a move.
+- The strip's context does not bind `:` — neither does the tree's — so a test that wants a
+  command line has to `escape` out first. That is the product rule, not a test workaround.
+
+The width is a constant (ruling G deferred resizing), so there is no `sidebar_width` field
+yet; the session carries visibility and view only.
+
 ### M2 — the structure acts
 
 - `mdstyle::move_section` and `mdstyle::relevel_section` in core: pure text edits returning

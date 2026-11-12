@@ -21,18 +21,18 @@ and all of it is safe to delete. See [state-files.md](state-files.md).
 ## The window
 
 ```
-┌───────────┬───────────────────────────────────────────┐
-│ file tree │  tab bar  (one chip per tab, dirty dot)   │
-│  space e  ├───────────────────────────────────────────┤
-│           │                                           │
-│  j/k move │              the note                     │
-│  h/l fold │      (or the graph, in a graph tab)       │
-│  enter    │                                           │
-│           ├───────────────────────────────────────────┤
-│           │  review strip — only when edits wait      │
-├───────────┴───────────────────────────────────────────┤
-│ mode · checker count · dirty · path · row:col         │
-└───────────────────────────────────────────────────────┘
+┌───────────┬─────────────────────────────┬──────────┐
+│ file tree │ tab bar (one chip per tab,  │ sidebar  │
+│  space e  │  dirty dot)                 │ space b  │
+│           ├─────────────────────────────┤          │
+│  j/k move │         the note            │  j/k     │
+│  h/l fold │   (or the graph, in a       │  enter   │
+│  enter    │    graph tab)               │  [/]     │
+│           ├─────────────────────────────┤          │
+│           │ review strip — edits wait   │          │
+├───────────┴─────────────────────────────┴──────────┤
+│ mode · checker count · dirty · path · row:col      │
+└────────────────────────────────────────────────────┘
 ```
 
 The file tree is the vault's folders and notes. The tab bar belongs to a pane,
@@ -42,7 +42,10 @@ and go: the mode, the checker's count, a dirty dot, the note's path, and the
 cursor's display row and column.
 
 `ctrl-w h` puts the keyboard in the tree, `ctrl-w l` puts it back on the note.
-`space e` hides the tree and shows it again.
+`space e` hides the tree and shows it again. The strip on the right is the tree's
+mirror — it answers about the note you are looking at rather than about the vault —
+and `ctrl-w l` walks into it when it is open
+([sidebar.md](sidebar.md)); `space b` hides it and shows it again.
 
 ## Modes, and the first note
 

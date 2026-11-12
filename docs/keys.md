@@ -47,7 +47,7 @@ authority on ids and `:` spellings.
 
 | keys | what |
 | --- | --- |
-| `ctrl-w h` `j` `k` `l` | step the keyboard between panels and panes |
+| `ctrl-w h` `j` `k` `l` | step the keyboard between panels and panes (the file tree and the sidebar are stops, like the panes) |
 | `ctrl-w s` / `ctrl-w v` | split the pane in hand, stacked / side by side |
 | `ctrl-w S` / `ctrl-w V` | the same, **with the note you are looking at** in the new pane |
 | `ctrl-w >` / `ctrl-w <` (also `+` / `-`) | the pane in hand takes more / less of the space its split offers |
@@ -209,6 +209,24 @@ While the tree has the keyboard (`ctrl-w h`):
 | `shift-d` | delete |
 | `space e` | hide the tree (works from inside it, which is how you get out) |
 | `escape` | hand the keyboard back to the note |
+
+## The sidebar
+
+The strip on the right (`space b`) answers about the note on screen. While it has the
+keyboard (`ctrl-w l` from the note, when it is open):
+
+| keys | what |
+| --- | --- |
+| `j` `k`, `up` `down` | move the selection |
+| `h` `left` / `l` `right` | close / open the section under it — the note's own fold |
+| `enter` | jump the note to that heading, and follow the keyboard into it |
+| `[` `]` | which view the strip is showing |
+| `space b` | hide the strip (works from inside it) |
+| `escape` | hand the keyboard back to the note |
+
+The keys are the tree's on purpose: the two strips are one family. Moving the selection
+in the Outline scrolls the note to that section **without moving its caret**, so backing
+out leaves the note where it was. Details in [sidebar.md](sidebar.md).
 
 ## Pickers and prompts
 
