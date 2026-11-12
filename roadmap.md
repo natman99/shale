@@ -1638,9 +1638,12 @@ edges, query nodes, MCP canvas tools) is P6.10.
   (2026-11-11):** `docs/notes.md` says what a block is, where an id sits and what refuses;
   the demo tour carries a real one — `Welcome.md`'s first paragraph is `^start`, linked and
   embedded from the tour — and the probe that checked it read the demo files through the
-  same resolver the window uses. **What P4.9 still owes is one key**: ruling 10's `ib`/`ab`
-  block text object collides with vim's `ib`/`ab` for the paren object, so the object is
-  built on the scan and waits for a scope character that is free.
+  same resolver the window uses. **M6 closed (2026-11-11): the block text object**,
+  ruling 10's — as `i^` / `a^` rather than the ruled `ib` / `ab`, because `b` and `B` are
+  vim's letters for parens and braces and the object would have shadowed a motion the hand
+  already knows. The caret is the mark a block id is written with, so `di^` deletes exactly
+  the span `:block-id` labels and `#^id` resolves, one scan answering both. **P4.9 is
+  closed.**
   Two edges the plan did not have: **a heading that carries an id still answers its name**
   (EDGE-27 — the id is cut before heading matching), and **an embed line can carry its own
   id** (EDGE-28 — `![[a]] ^x` was not an embed at all, so labelling a working transclusion
@@ -1789,6 +1792,17 @@ edges, query nodes, MCP canvas tools) is P6.10.
   **Worth landing on its own:** it is also what makes a preview pane beside a live editor,
   the same note in two panes, and cross-window consistency possible at all, and it retires
   the last-writer-wins hazard between a dirty tab and an outside write.
+  **Followed up 2026-11-11, and the follow-up was not cosmetic:** that `Weak` design made
+  every jump a data-loss door. A jump reads the arriving note into the tab on screen, so
+  jumping out of a note nobody had written yet dropped its last view — the buffer died,
+  the note left the bar, no dot lit for it, and `ctrl-o` back served the file on disk.
+  The rule now sits in one place, `Workspace::load_target`: the tab on screen takes the
+  arriving note unless it is the **only view** holding a note with unsaved edits, in
+  which case the arriving note gets a tab of its own. `Workspace::views_of` counts views
+  across panes, because the buffer belongs to the window — `ctrl-t`'s copy and
+  `ctrl-w S`'s split make a note held twice safe to jump away from, which is what keeps
+  the rule from growing a tab for nothing. `step_jump` goes to the tab that already holds
+  the jump's destination rather than loading a second copy of it.
 
 **Exit criteria:** restore any note to any retained point; a `.shq` embedded in
 three notes renders live and refreshes on edit; tag rename rewrites every note

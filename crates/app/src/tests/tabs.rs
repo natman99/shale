@@ -236,6 +236,79 @@ fn opening_an_open_note_finds_its_tab(cx: &mut TestAppContext) {
     assert_eq!(marker(&window, &mut cx), 0, "and the frame moved");
 }
 
+/// A jump out of a note nobody has written yet does not read the arriving note over
+/// that note's tab. The tab is unsaved work's only home: the note registry holds a
+/// `Weak` per path, so the moment a tab stops holding a note its buffer is gone and the
+/// next open re-reads the file. The report was a block jump doing exactly that — the bar
+/// lost the note, no dot lit for it, and `ctrl-o` served the version on disk.
+#[gpui::test]
+fn a_jump_out_of_an_unsaved_note_opens_a_new_tab(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = two_notes(cx);
+    cx.simulate_keystrokes("A");
+    cx.simulate_input(" typed");
+    show(&mut cx, &window, "b.md");
+
+    assert_eq!(
+        tabs(&window, &mut cx),
+        vec![("a.md".into(), true), ("b.md".into(), false)],
+        "the unsaved note keeps its tab and its dot"
+    );
+    assert_eq!(
+        marker(&window, &mut cx),
+        1,
+        "and the jump went where it was asked"
+    );
+
+    // The keyboard follows a tab change one frame later, so the keystroke has to
+    // arrive after that frame or it lands in the tab that already left.
+    repaint(&mut cx);
+    cx.simulate_keystrokes("ctrl-o");
+    assert_eq!(
+        buffer(&window, &mut cx),
+        "first typed\n",
+        "and coming back finds the edits, not the copy on disk"
+    );
+    assert_eq!(
+        tabs(&window, &mut cx),
+        vec![("a.md".into(), true), ("b.md".into(), false)],
+        "and the way back goes to the tab that was there, rather than adding a third"
+    );
+}
+
+/// Asking for the note that is already on screen is a reload, not a jump: it stays in
+/// its own tab even with edits in it, because the tab and the buffer are the same pair
+/// and there is nothing to move. Without this the rule would answer `:e` on a dirty
+/// note by putting a second copy of it on the bar.
+#[gpui::test]
+fn reloading_a_dirty_note_keeps_its_tab(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = two_notes(cx);
+    cx.simulate_keystrokes("A");
+    cx.simulate_input(" typed");
+    show(&mut cx, &window, "a.md");
+    assert_eq!(
+        tabs(&window, &mut cx),
+        vec![("a.md".into(), true)],
+        "one tab, not two"
+    );
+    assert_eq!(
+        buffer(&window, &mut cx),
+        "first typed\n",
+        "and the edits are intact"
+    );
+}
+
+/// The rule is about unsaved work, not about jumps. A jump out of a note that is
+/// written to disk still reads the arriving note into the tab on screen, so following
+/// links does not pile tabs up — the invariant `opening_an_open_note_finds_its_tab`
+/// pins, which this would break if the new tab were unconditional.
+#[gpui::test]
+fn a_jump_out_of_a_saved_note_still_reads_over_the_tab(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = two_notes(cx);
+    show(&mut cx, &window, "b.md");
+    assert_eq!(tabs(&window, &mut cx), vec![("b.md".into(), false)]);
+    assert_eq!(marker(&window, &mut cx), 0, "one tab, not two");
+}
+
 /// `:tabclose` writes the note before the tab goes. A tab the user closed is not a
 /// wish to lose the note, and a write that fails keeps the tab open.
 #[gpui::test]

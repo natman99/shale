@@ -88,6 +88,15 @@ travel with it. The pane it left gets a blank tab rather than closing. (Ruled 20
 "found, and brought here" replaces "found, and the keyboard goes there".) The graph tab
 is exempt, because there is one per window and it stays where it is.
 
+**A jump never reads a note over unsaved work.** Following a link, a `:blocks` row, a
+search hit, a tree click or `ctrl-o` puts the note it arrived at in the tab on screen —
+unless that tab is the only view holding a note nobody has written yet. Then the arriving
+note takes a tab of its own and the unsaved one stays on the bar with its dot, because a
+tab is where unsaved work lives: the window's buffer for a note goes when the last view
+of it does. `ctrl-t`'s copy and `ctrl-w S`'s split count as views, so a note held twice
+is safe to jump away from, and `ctrl-o` goes to the tab that already holds where it came
+from rather than adding a second one.
+
 A tab holds a **kind** of content: a note, or the graph. Because a graph tab has no note,
 the parts of the window that need a note say so: `:raw` on the graph answers *no note
 open*, the bar's note-shaped segments go empty, and the badge reads `graph`. Opening a

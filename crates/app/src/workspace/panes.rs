@@ -481,6 +481,22 @@ impl Workspace {
         })
     }
 
+    /// How many tabs in this window hold `path`. A note has one buffer per window
+    /// (P4.17), so this is how many things are keeping that buffer alive: `ctrl-t` puts
+    /// a second view on the same note, and turning one of *those* into another note
+    /// loses nothing, while turning the only one loses the edits it is holding.
+    pub(crate) fn views_of(&self, path: &std::path::Path) -> usize {
+        self.panes
+            .iter()
+            .map(|pane| {
+                pane.tabs
+                    .iter()
+                    .filter(|tab| tab.path().is_some_and(|p| p == path))
+                    .count()
+            })
+            .sum()
+    }
+
     // The `ctrl-w` alphabet (roadmap P3.2). Every handler asks
     // `overlay_owns_keys` first for the same reason `window_left` does: these
     // bindings are context-free, and a prompt or picker under the user owns

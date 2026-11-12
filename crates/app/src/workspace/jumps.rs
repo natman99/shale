@@ -311,6 +311,22 @@ impl Workspace {
             cx.notify();
             return;
         };
+        // A tab that already holds the destination is found, not copied. The chain
+        // remembers *places*, and since a jump out of unsaved work leaves that note on
+        // the bar (see [`Workspace::load_target`]), `ctrl-o` back arrives at a note the
+        // window never let go of; loading it again would put one note on the bar twice.
+        if let Some((pix, tix)) = self.tab_for_path_anywhere(&path) {
+            if pix != self.active_pane {
+                self.steal_tab(pix, tix, cx);
+            } else if tix != self.pane().active {
+                self.show_tab(tix, cx);
+            }
+            if let Some(editor) = self.editor().cloned() {
+                editor.update(cx, |editor, cx| editor.reveal_offset(jump.cursor, cx));
+            }
+            cx.notify();
+            return;
+        }
         // The entry has already moved to the other half, so a note that cannot be
         // read (deleted outside Shale, a path the chain outlived) costs the user one
         // press and one step, and the read error is on the status line.

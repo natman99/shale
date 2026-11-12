@@ -1229,3 +1229,48 @@ fn the_palette_offers_both_block_verbs(cx: &mut TestAppContext) {
         cx.simulate_keystrokes("escape");
     }
 }
+
+/// The door the data-loss report came in through: a `:blocks` jump out of a note with
+/// unsaved edits leaves that note on the bar. The tab is where unsaved work lives — the
+/// note registry holds a `Weak` per path, so a jump that read the target over the tab
+/// took the buffer's last holder with it, and coming back served the file on disk.
+#[gpui::test]
+fn a_block_jump_out_of_an_unsaved_note_keeps_its_tab(cx: &mut TestAppContext) {
+    let (_dir, window) = indexed_vault(
+        cx,
+        &[
+            ("Lair.md", "the goblin waits ^goblin\n"),
+            ("Host.md", "my draft\n"),
+        ],
+    );
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    open_note(&window, cx, "Host.md");
+    cx.simulate_keystrokes("A");
+    cx.simulate_input(" unsaved");
+
+    type_command("blocks gob", cx);
+    cx.simulate_keystrokes("enter");
+
+    let bar = window
+        .update(cx, |ws, _window, cx| {
+            ws.tab_paths(cx)
+                .into_iter()
+                .map(|(path, dirty)| {
+                    (
+                        path.map(|path| path.display().to_string())
+                            .unwrap_or_else(|| "\u{2014}".to_string()),
+                        dirty,
+                    )
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap();
+    assert_eq!(
+        bar,
+        vec![
+            ("Host.md".to_string(), true),
+            ("Lair.md".to_string(), false)
+        ],
+        "the draft keeps its tab and its dot, and the jump got a tab of its own"
+    );
+}

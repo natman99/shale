@@ -308,8 +308,10 @@ impl Workspace {
         // closing.
         self.clear_search(cx);
         // The graph tab is never turned into a note tab, so a note opened while the
-        // graph is on screen moves the frame first (see [`Workspace::note_tab`]).
-        let index = self.note_tab(cx);
+        // graph is on screen moves the frame first (see [`Workspace::note_tab`]), and a
+        // tab holding unsaved edits is never turned into another note's tab at all (see
+        // [`Workspace::load_target`]).
+        let index = self.load_target(cx);
         // The note list an embed target resolves against, taken before the tab is
         // borrowed (roadmap P4.0a).
         let notes = self.entries.clone();
@@ -365,6 +367,52 @@ impl Workspace {
         // the note the user is leaving. Mark again, once the path is set.
         self.mark_note_mru(cx);
         true
+    }
+
+    /// The tab a note is about to be read into: the one on screen, unless that tab is
+    /// the **only view** holding a note nobody has written yet — then a new tab beside
+    /// it, and the arriving note gets a tab of its own.
+    ///
+    /// Ruling Q1 says unsaved work always has a visible home, and in this window the
+    /// home is the *tab*, not the buffer: the note registry holds a `Weak` per path, so
+    /// the moment the last view lets go of a note its buffer is gone and the next open
+    /// re-reads the file. Every jump door (`gd`, a picker row, `:blocks`, `:sections`, a
+    /// tree click, the agent, `ctrl-o` on the jump chain) used to read the arriving note
+    /// over the tab on screen, so jumping out of a note nobody had written yet took away
+    /// the only thing holding it: the tab bar lost the note, no dot lit for it, and
+    /// coming back served the version on disk. Silent data loss, from a keystroke that
+    /// asked only to go somewhere.
+    ///
+    /// Two tests decide it, and both have to hold or the tab pile grows for nothing.
+    /// The dirty test is the editor's transitive one (ruling 17): a host whose embedded
+    /// note holds unwritten edits is a tab that is somebody's home too. The view count
+    /// is P4.17's doing: `ctrl-t` puts a second tab on one buffer, so turning *that* tab
+    /// into another note is safe — the edits are still named on the bar — and only the
+    /// last view of them is load-bearing. A fresh or clean tab is neither, which is what
+    /// keeps `:e`, the split-with-buffer door and the session restore reading one tab
+    /// instead of stacking them up. A door that asks for the note already on screen
+    /// never gets here: every one of them asks [`Workspace::tab_for_path_anywhere`]
+    /// first and goes to the tab it finds.
+    fn load_target(&mut self, cx: &mut Context<Self>) -> usize {
+        let index = self.note_tab(cx);
+        let (leaving, dirty) = match &self.pane().tabs[index].content {
+            TabContent::Note { path, editor, .. } => (
+                path.clone(),
+                editor.read_with(cx, |editor, _cx| editor.is_dirty()),
+            ),
+            // A graph tab has no note and nothing unsaved; `note_tab` has already
+            // moved the frame off it in every case that matters.
+            _ => (None, false),
+        };
+        if dirty
+            && leaving
+                .as_ref()
+                .is_some_and(|here| self.views_of(here) <= 1)
+        {
+            self.add_tab(cx)
+        } else {
+            index
+        }
     }
 
     /// Open the note and put the cursor on `line` (1-based, the way a search hit

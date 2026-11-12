@@ -882,3 +882,26 @@ fn a_pane_tree_that_does_not_fit_its_panes_is_dropped(cx: &mut TestAppContext) {
         "the tabs are not lost: they land in the one pane the window has"
     );
 }
+
+/// The window owns a note's buffer, not the pane: a note open in two panes is held
+/// twice, so jumping away from one of them is not the last view letting go. The edits
+/// stay where the other pane is showing them, and the pane with the keyboard takes the
+/// arriving note in the tab it already has rather than growing a second one.
+#[gpui::test]
+fn a_jump_away_from_a_note_another_pane_holds_needs_no_new_tab(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = two_notes(cx);
+    cx.simulate_keystrokes("A");
+    cx.simulate_input(" typed");
+    cx.simulate_keystrokes("ctrl-w S");
+    show(&mut cx, &window, "b.md");
+    assert_eq!(
+        pane_tabs(&window, &mut cx, 1),
+        vec!["b.md"],
+        "the pane with the keyboard reused its own tab"
+    );
+    assert_eq!(
+        pane_tabs(&window, &mut cx, 0),
+        vec!["a.md"],
+        "and the other pane still holds the note with the edits in it"
+    );
+}
