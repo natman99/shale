@@ -37,3 +37,5 @@ Do a massive grammar and text overhaul on like everything for consistency and se
 Mouse drag text select.
 
 Text selection in picker.
+
+Add a little clickable button in the top left that will close/open the file tree and show if it's open or not.
