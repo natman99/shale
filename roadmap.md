@@ -1718,6 +1718,27 @@ edges, query nodes, MCP canvas tools) is P6.10.
   `sidebar_width` field to restore yet), and the strip's subject guard means `ctrl-w l` from
   a graph, blank or query tab refuses rather than focusing an empty surface — the pane tests
   that assert that keystroke's old behaviour stay green.
+  **M2 closed (2026-11-11):** the two structure acts live in `crates/core/src/mdstyle/section.rs`
+  and are **pure** — they answer with byte-range replacements or with the reason the text
+  will not take them, so the whole rule set is table-tested without a buffer (17 tests:
+  fence, blockquote, list, table, setext-looking `---`, bare marker, trailing `^block-id`,
+  both caps). The window applies the answer as one grouped edit, so one `u` restores a whole
+  relevelled subtree. The doors are the strip's keys and nothing else: `shift-j`/`shift-k`
+  move, `tab`/`shift-tab` relevel, and every refusal is one line in the status bar
+  ("“E” has no sibling under the same parent, so it cannot move up"). **Four things the plan
+  did not know it would need:** the line a moved heading lands on has to be *counted*, not
+  borrowed from the sibling's old line number — the two sections are almost never the same
+  length, and a selection keyed to the wrong line moves the wrong section on the next
+  keystroke; the seam between two swapped sections is normalised to exactly one blank line,
+  because moving the last section of a note that ends without a trailing blank would
+  otherwise glue a heading onto the line above it; Shale's scanner styles a heading only when
+  the `#` opens the line, so an indented `#` is not a section here either rather than a looser
+  rule kept just for this module; and `Editor::is_read_only()` exists so a preview refuses out
+  loud instead of the buffer's own guard swallowing the keystroke. `HeadingLine` gained
+  `line_start` so touching a marker run does not rebuild the line table. All five of the
+  plan's falsifications went red as intended: subtree computed after the change, clamp
+  instead of refuse, whole-line rewrite instead of the marker run, the parent check removed,
+  and the read-only guard removed.
 - **P4.14 Search operators** (brainstorm ✅). **Added by the audit.** `tag:`, `path:`,
   `link:`, `modified:` and friends in vault search, over the P1 index. **One grammar,
   one parser, shared with `.shq` (P4.3)** — inventing it twice is how the two surfaces

@@ -360,6 +360,37 @@ surface refuses.
 Clamp instead of refuse at the caps → the cap tests go red. Rewrite the whole heading line
 instead of the marker run → the block-id test goes red.
 
+**Built (2026-11-11).** `crates/core/src/mdstyle/section.rs` (`sections`, `move_section`,
+`relevel_section`, `Refusal`, `StructureEdit`) — 17 table tests, no buffer. The doors are
+four actions bound in the `sidebar` context only (`shift-j`/`shift-k`, `tab`/`shift-tab`);
+`sidebar_structure` in `workspace/sidebar.rs` holds the guards they share (the strip's note
+must be the one on screen, the surface must accept edits, the selected row must still be a
+heading) and each refusal is one status line. All three planned falsifications went red, and
+two more were run: the parent check removed → EDGE-S2's test red; the read-only guard removed
+→ the preview test red.
+
+Three things the plan did not know it would need:
+
+- **The landing line is counted, not borrowed.** `StructureEdit::heading_line` cannot be the
+  sibling's old line number: the two sections are almost never the same height, so the moved
+  heading lands somewhere else entirely. It is computed from the newlines before the pair plus
+  the newlines in whatever now sits in front of the heading. A selection keyed to the wrong
+  line moves the wrong section on the next keystroke, so this is a correctness field, not a
+  nicety — and it is tested in both directions.
+- **The seam is normalised.** The two chunks move verbatim, spacing included, but the join
+  between them always gets exactly one blank line. Without that, moving the last section of a
+  note that ends without a trailing blank line glues a heading onto the line above it, and a
+  reorder should not cost the note its formatting. The spacing *inside* each section, and the
+  blank line the moved section used to have in front of the next one, travel with it — so a
+  moved-to-last section can leave the note ending in a blank line. That is the section's own
+  spacing, and rewriting it would be the act inventing formatting instead of moving text.
+- **An indented `#` is not a heading.** Shale's scanner styles a heading only when the `#`
+  opens the line, so the acts inherit that rather than keeping CommonMark's three-space
+  allowance for themselves. One answer, same as the fold and the index.
+
+`HeadingLine` gained `line_start`, and `Editor::is_read_only()` was added so a preview refuses
+out loud instead of the buffer's own guard swallowing the keystroke.
+
 ### M3 — links, both directions
 
 - Schema **v6**: `links` gains `line` (the line the link sits on). The cost is a

@@ -60,6 +60,33 @@ unsaved edits, which is the one thing a navigation surface must never do. (Jumpi
 heading in a note that is *not* on screen goes through the same door every other jump
 uses, which refuses to overwrite the only view of a note that is ahead of its file.)
 
+## Reshaping the note
+
+The strip is an outliner as well as a table of contents. With the keyboard in it:
+
+| key | |
+| --- | --- |
+| `shift-k` / `shift-j` | move this section up / down among its siblings |
+| `Tab` / `shift-Tab` | one level up / down for this heading **and everything under it** |
+
+A move takes the section whole: everything nested under the heading goes with it, and it
+swaps with a sibling — a section under the *same* parent. A move that would lift a section
+out from under its heading is refused rather than done; re-parenting is a different act
+than a reorder, and the two keys should not be confusable.
+
+A relevel keeps the shape of the subtree. Promoting `## Notes` promotes `### Today` with
+it, so `### Today` is still under `Notes` afterwards; the heading that follows at the old
+level is not part of the subtree and does not move. The edit is the `#` markers and nothing
+else, so a heading's text and its trailing `^block-id` survive — an anchor that stopped
+resolving because someone changed a heading's level would break a link in another note.
+
+Both are **one edit**: one `u` in the note puts a whole relevelled subtree back.
+
+The caps refuse. `#` has no level above it and `######` has none below it, and a keystroke
+that looked like it worked and did nothing is worse than one that says
+"“Notes” is already a top-level heading". A move with no sibling on that side, and a
+preview, which is read to be read, say so the same way.
+
 ## The keyboard
 
 The strip's keys are the tree's, because the two strips are one family:
@@ -69,6 +96,8 @@ The strip's keys are the tree's, because the two strips are one family:
 | `j` / `k` | move the selection |
 | `h` / `l` | close / open the section under it |
 | `enter` | jump to it, and follow the keyboard into the note |
+| `shift-k` / `shift-j` | move this section up / down |
+| `Tab` / `shift-Tab` | one level up / down for it and its subtree |
 | `[` / `]` | which view is showing |
 | `escape` | back to the note |
 | `space b` | put the strip away |
@@ -90,6 +119,4 @@ restores a window without one, and the first `space b` opens it.
 ## Not yet
 
 The other four views, `:pin` (holding the strip on one note while you look at another),
-the structure edits (`Tab`/`shift-Tab` to relevel a heading and its subtree, `shift-j/k`
-to move a section), and resizing. They are specced in `sidebar-plan.md` and on the
-roadmap under P4.13.
+and resizing. They are specced in `sidebar-plan.md` and on the roadmap under P4.13.

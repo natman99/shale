@@ -220,13 +220,17 @@ keyboard (`ctrl-w l` from the note, when it is open):
 | `j` `k`, `up` `down` | move the selection |
 | `h` `left` / `l` `right` | close / open the section under it — the note's own fold |
 | `enter` | jump the note to that heading, and follow the keyboard into it |
+| `shift-k` `shift-j` | move this section up / down among its siblings, subtree included |
+| `tab` `shift-tab` | one level up / down for this heading and everything under it |
 | `[` `]` | which view the strip is showing |
 | `space b` | hide the strip (works from inside it) |
 | `escape` | hand the keyboard back to the note |
 
 The keys are the tree's on purpose: the two strips are one family. Moving the selection
 in the Outline scrolls the note to that section **without moving its caret**, so backing
-out leaves the note where it was. Details in [sidebar.md](sidebar.md).
+out leaves the note where it was. The structure keys refuse out loud — a `#` cannot be
+promoted, a section cannot be moved out from under its parent — and each refusal is one
+line in the status bar. Details in [sidebar.md](sidebar.md).
 
 ## Pickers and prompts
 
