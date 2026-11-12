@@ -409,6 +409,22 @@ view says there is no index.
 **Falsification.** Drop `line` from the reader → the jump-to-line test goes red. Filter
 ghosts out → the ghost test goes red.
 
+**Built (2026-11-11).** Schema v6 landed as specced — `line INTEGER NOT NULL`, no default,
+because every writer is this crate's own and a row without a line would answer the column's
+purpose with a lie — and the same-target-twice question was decided **one row** holding the
+**first** occurrence, which is what the docs now say. Five falsifications, all red: the line
+thrown away, ghosts filtered out, the line kept in the *outgoing* direction (where it sits in
+the note the reader came from, so it cannot steer a jump into the target), the outline-only
+guard on the structure keys removed, and the index-off sentence removed. Three things the
+plan did not know it would need: `Row.line` had to become `Row.key` beside an explicit
+`Act::{Reveal, Open}`, because a link row's key is its place in a list of other notes and
+read as a buffer line it would move a section nobody pointed at; the structure keys are
+pinned to the Outline view for the same reason; and switching views seeds the new view's
+first row, because a cleared selection made `enter` straight after `]` a dead key that said
+nothing. `index_key` exists because a tab may hold a path in either spelling while the
+index's keys are vault-relative. The index-off sentence is one shared constant
+(`shale_core::db::NO_INDEX`) rather than a third copy of the wording.
+
 ### M4 — tags and properties
 
 - The tag census reader (`tag` → how many other notes carry it) and the tag view; a row asks

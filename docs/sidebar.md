@@ -16,8 +16,8 @@ through the five; `:sidebar <name>` jumps to one directly.
 | view | header | `:sidebar` word | built |
 | --- | --- | --- | --- |
 | Outline | Outline · *n* | `outline` | yes |
-| Backlinks | Links to here | `backlinks` | not yet |
-| Outgoing links | Links from here | `links` | not yet |
+| Backlinks | Links to here | `backlinks` | yes |
+| Outgoing links | Links from here | `links` | yes |
 | Tags | Tags | `tags` | not yet |
 | Properties | Properties | `props` | not yet |
 
@@ -87,6 +87,27 @@ that looked like it worked and did nothing is worse than one that says
 "“Notes” is already a top-level heading". A move with no sibling on that side, and a
 preview, which is read to be read, say so the same way.
 
+## The links, both directions
+
+**Links to here** lists the notes that link this one; **Links from here** lists what this
+note links. They read the vault index, not the buffer — these are notes this window does
+not hold — and they answer for whatever is saved, so an unsaved heading is not in them yet.
+
+A backlink row knows the **line** the link sits on, and `enter` opens the note there rather
+than at its top: the row exists to show you that line. An outgoing row opens its target at
+the top, because the line the index holds for that direction sits in the note you came from,
+and using it would throw away the fact the row exists to show.
+
+A link to a name that is not a note is still a row, in the palette's quiet colour, with the
+name exactly as it was typed. That is a fact about the note — a hole in the picture is part
+of the picture — and `enter` on it says `"Nowhere" is not a note in this vault` instead of
+inventing a file from a typo. Attachments and `.shq` queries get rows like any other target;
+they are the author's own files, not missing ones.
+
+With `index.enabled = false` these two views have nothing to answer with, and they say so
+rather than showing an empty list, which would read as "nothing links here" — a claim about
+the vault that the setting never made. The Outline is unaffected: it reads the buffer.
+
 ## The keyboard
 
 The strip's keys are the tree's, because the two strips are one family:
@@ -95,10 +116,10 @@ The strip's keys are the tree's, because the two strips are one family:
 | --- | --- |
 | `j` / `k` | move the selection |
 | `h` / `l` | close / open the section under it |
-| `enter` | jump to it, and follow the keyboard into the note |
+| `enter` | jump to it — a heading here, or the other note, at the line that links |
 | `shift-k` / `shift-j` | move this section up / down |
 | `Tab` / `shift-Tab` | one level up / down for it and its subtree |
-| `[` / `]` | which view is showing |
+| `[` / `]` | which view is showing (a view with rows opens on its first one) |
 | `escape` | back to the note |
 | `space b` | put the strip away |
 
@@ -118,5 +139,6 @@ restores a window without one, and the first `space b` opens it.
 
 ## Not yet
 
-The other four views, `:pin` (holding the strip on one note while you look at another),
-and resizing. They are specced in `sidebar-plan.md` and on the roadmap under P4.13.
+The Tags and Properties views, `:pin` (holding the strip on one note while you look at
+another), and resizing. They are specced in `sidebar-plan.md` and on the roadmap under
+P4.13.

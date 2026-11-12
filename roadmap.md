@@ -1739,6 +1739,30 @@ edges, query nodes, MCP canvas tools) is P6.10.
   plan's falsifications went red as intended: subtree computed after the change, clamp
   instead of refuse, whole-line rewrite instead of the marker run, the parent check removed,
   and the read-only guard removed.
+  **M3 closed (2026-11-11): the links, both directions.** Schema **v6** is live: `links`
+  gains `line INTEGER NOT NULL`, one row per (source, target, kind) holding the **first**
+  occurrence's line, and — as planned — no migration, the old index is dropped and rebuilt
+  (`SCHEMA_V5` survives as a `#[cfg(test)]` copy so the rebuild is a tested path).
+  `Db::backlinks` and `Db::outgoing` are the first production readers of that table by
+  target and by source: the graph walks the vault and `Vault::backlinks` is a filesystem
+  scan, so neither surface had anything that could answer "which line links". A backlink row
+  opens its note **on that line**; an outgoing row opens at the top, because the line the
+  index holds in that direction sits in the note the reader came from. A link to a name that
+  is no note keeps its row, spelled exactly as typed, and `enter` says so rather than
+  inventing a file — attachments and `.shq` targets are rows too, being the author's own
+  files rather than holes. `Row.line` became `Row.key` beside an explicit
+  `Act::{Reveal, Open}`: a link row's key is its place in a list of *other* notes, and read
+  as a buffer line it would move a section nobody pointed at. **Three things the plan did not
+  know it would need:** the structure keys had to be pinned to the Outline view, which is the
+  only one whose rows are this note's headings; switching views now opens on the new view's
+  first row, because a cleared selection made `enter` straight after `]` a dead key that said
+  nothing; and `index_key` exists because a tab may hold a path in either spelling while the
+  index's keys are vault-relative. The index-off sentence is now one constant
+  (`shale_core::db::NO_INDEX`) shared by `:props` and the strip, so an index-backed view with
+  no index says which feature is missing instead of claiming "nothing links here". All five
+  falsifications went red as intended: the line thrown away, ghosts filtered out, the line
+  kept in the wrong direction, the outline-only guard removed, and the index-off sentence
+  removed.
 - **P4.14 Search operators** (brainstorm ✅). **Added by the audit.** `tag:`, `path:`,
   `link:`, `modified:` and friends in vault search, over the P1 index. **One grammar,
   one parser, shared with `.shq` (P4.3)** — inventing it twice is how the two surfaces
