@@ -5,11 +5,14 @@
 //! module is the part that needs no window — the view list, and the outline's rows worked
 //! out from a note's text and its fold decisions.
 //!
-//! The outline reads the **buffer**, never the index (EDGE-S5): a heading typed a second
-//! ago is a row immediately, because it is real text the reader is looking at and the
-//! index has not caught up with it. The two link views are the other half of the same
-//! ruling: they describe *other* notes, which no buffer in this window holds, so they
-//! read the index and land when the note is written.
+//! Three of the five views read the **buffer**, never the index (EDGE-S5): the outline,
+//! the tags and the properties all describe the note in hand, and a heading, tag or
+//! property typed a second ago is a row immediately, because it is real text the reader
+//! is looking at and the index has not caught up with it. The two link views are the other
+//! half of the same ruling: they describe *other* notes, which no buffer in this window
+//! holds, so they read the index and land when the note is written. The tag **census** is
+//! the one number a buffer view carries from the index — it is a question about the rest of
+//! the vault — and with no index it is simply absent, not zero.
 //!
 //! This module stays free of windows and databases: the workspace hands it a note's text
 //! or the index's rows, and the rules about what a row means are all here.
@@ -17,7 +20,11 @@
 use std::path::{Path, PathBuf};
 
 use shale_core::fold::{fold_regions, FoldState};
+use shale_core::frontmatter::{Kind, Prop};
 use shale_core::mdstyle::object::heading_lines;
+
+use crate::workspace::index::shown;
+use crate::workspace::open::{prop_token, tag_token};
 
 /// The key context the strip's bindings live in, active while it has the keyboard
 /// (see `Workspace::focus_sidebar`).
@@ -98,23 +105,27 @@ impl View {
             View::Outline => "no sections in this note",
             View::Backlinks => "nothing links here",
             View::Outgoing => "this note links nothing",
-            View::Tags | View::Properties => "",
+            View::Tags => "no tags in this note",
+            View::Properties => "no properties in this note",
         }
     }
 
-    /// Whether this view answers from the index rather than from the note in hand. With
-    /// the index off it has nothing to answer with, and says so.
+    /// Whether this view has nothing at all to answer with when the vault has no index.
+    ///
+    /// The two link views describe other notes and live or die by the index. Tags and
+    /// properties describe *this* note — the rows come from the buffer — so with the index
+    /// off they still answer, only without the census number.
     pub fn index_backed(self) -> bool {
-        matches!(
-            self,
-            View::Backlinks | View::Outgoing | View::Tags | View::Properties
-        )
+        matches!(self, View::Backlinks | View::Outgoing)
     }
 
-    /// Whether this view has rows. The rest answer honestly that they are not built
-    /// yet, so the verb is complete before the views are (ruling 16).
+    /// Whether this view has rows. A view that is planned but not built is still
+    /// selectable and says so, so the verb is complete before the views are (ruling 16).
     pub fn built(self) -> bool {
-        matches!(self, View::Outline | View::Backlinks | View::Outgoing)
+        matches!(
+            self,
+            View::Outline | View::Backlinks | View::Outgoing | View::Tags | View::Properties
+        )
     }
 }
 
@@ -143,6 +154,10 @@ pub struct Row {
     /// marked, because a hole in the picture is a fact about the note; `enter` on it
     /// says so rather than opening a note that does not exist.
     pub ghost: bool,
+    /// A number the row carries: how many **other** notes carry this tag. `None` is not
+    /// zero — it means there was no index to ask, which is a different fact and gets
+    /// drawn as nothing rather than as a lonely-looking `0`.
+    pub count: Option<usize>,
     /// What `enter` does with this row.
     pub act: Act,
 }
@@ -158,6 +173,11 @@ pub enum Act {
     /// backlink row lands on the line that links, an outgoing row names the target and
     /// leaves the reader at its top.
     Open { path: PathBuf, line: Option<usize> },
+    /// Ask this question of the vault: the search field gets the query, so the reader can
+    /// widen it instead of retyping it. This is the `:keys` picker's rule for a census row
+    /// (`PickerTarget::PropKey`) — the next question is a vault question, and the search is
+    /// the surface that answers it.
+    Ask(String),
 }
 
 /// The Outline view's rows for a note's text, honouring the note's fold decisions.
@@ -188,6 +208,7 @@ pub fn outline(text: &str, folds: &FoldState) -> Vec<Row> {
             foldable: region.is_some(),
             closed,
             ghost: false,
+            count: None,
             act: Act::Reveal(head.line),
         });
         if closed {
@@ -235,9 +256,87 @@ pub fn link_rows(ends: &[(PathBuf, String, usize)], to_here: bool) -> Vec<Row> {
                 foldable: false,
                 closed: false,
                 ghost,
+                count: None,
                 act: Act::Open {
                     path: other.clone(),
                     line: if to_here { Some(*line) } else { None },
+                },
+            }
+        })
+        .collect()
+}
+
+/// The Tags view's rows: the tags this note carries, each carrying how many **other**
+/// notes carry it.
+///
+/// The tags themselves come from the buffer (its `#tags` and its `tags:` frontmatter,
+/// through `shale_core::graph::note_tags`), so a tag typed a second ago is a row before
+/// the index has heard of it. `census` is what `Db::tag_census` answered, or `None` when
+/// the vault has no index — and then the rows carry no number at all rather than a zero,
+/// because "nobody else writes this" and "nothing was asked" are different facts.
+///
+/// `enter` asks `tag:x` of the search field: the tag is this note's, but "who else?" is a
+/// vault question, and the search is the surface that answers vault questions.
+pub fn tag_rows(tags: &[String], census: Option<&[(String, usize)]>) -> Vec<Row> {
+    tags.iter()
+        .enumerate()
+        .map(|(index, tag)| Row {
+            key: index,
+            depth: 1,
+            text: tag.clone(),
+            foldable: false,
+            closed: false,
+            ghost: false,
+            count: census
+                .and_then(|rows| rows.iter().find(|(name, _)| name == tag))
+                .map(|(_, notes)| *notes),
+            act: Act::Ask(tag_token(tag)),
+        })
+        .collect()
+}
+
+/// The Properties view's rows: this note's frontmatter, as authored, in authored order —
+/// including a property typed a second ago, because the source is the buffer.
+///
+/// A link-shaped value (`ally: [[Goblin]]`) is a link the author wrote, so `enter` opens
+/// its note. Anything else asks `prop:key` of the search field, which is the `:keys`
+/// picker's rule: the value is here, and "who else writes this key?" is a vault question.
+///
+/// `resolve` is the window's link resolver — the same three file rules, aliases and saved
+/// queries `gd` walks — because the value names a note the way a wiki-link does, not the
+/// way an index row does. A value that resolves to nothing keeps its row and is marked
+/// (EDGE-S7 again): an ally that is not a note is a plot hole worth seeing.
+pub fn prop_rows(props: &[Prop], resolve: &dyn Fn(&str) -> Option<PathBuf>) -> Vec<Row> {
+    props
+        .iter()
+        .enumerate()
+        .map(|(index, prop)| {
+            let target = (prop.kind == Kind::Link)
+                .then(|| shale_core::frontmatter::wikilink(&prop.value))
+                .flatten()
+                .map(str::trim)
+                .filter(|target| !target.is_empty());
+            // Resolved now, not at `enter`: the row can then show whether the link
+            // reaches a note, which is the same fact the link views mark (EDGE-S7).
+            let opened = target.map(|target| (resolve(target), target.to_string()));
+            let ghost = opened.as_ref().is_some_and(|(path, _)| path.is_none());
+            Row {
+                key: index,
+                depth: 1,
+                text: format!("{}: {}", prop.key, shown(&prop.value)),
+                foldable: false,
+                closed: false,
+                ghost,
+                count: None,
+                act: match opened {
+                    Some((Some(path), _)) => Act::Open { path, line: None },
+                    // Unresolved: the row keeps the name as written, and is marked, so
+                    // `enter` can refuse in the strip's own words (EDGE-S7).
+                    Some((None, target)) => Act::Open {
+                        path: PathBuf::from(target),
+                        line: None,
+                    },
+                    None => Act::Ask(prop_token(&prop.key)),
                 },
             }
         })
@@ -442,7 +541,120 @@ mod tests {
         assert_eq!(View::Outline.empty_said(), "no sections in this note");
         assert_eq!(View::Backlinks.empty_said(), "nothing links here");
         assert_eq!(View::Outgoing.empty_said(), "this note links nothing");
-        // The two index-backed views that are not built yet never reach the sentence.
+        assert_eq!(View::Tags.empty_said(), "no tags in this note");
+        assert_eq!(View::Properties.empty_said(), "no properties in this note");
+        // Only the two link views live or die by the index. Tags and properties describe
+        // the note in hand, so with the index off they still answer — just without the
+        // census number (EDGE-S6).
         assert!(View::Backlinks.index_backed() && !View::Outline.index_backed());
+        assert!(!View::Tags.index_backed() && !View::Properties.index_backed());
+    }
+
+    #[test]
+    fn every_view_is_built_now() {
+        // The "this view is not built yet" sentence is for a future view, not for one of
+        // these five.
+        for view in View::ALL {
+            assert!(view.built(), "{}", view.label());
+        }
+    }
+
+    fn prop(key: &str, value: &str, kind: Kind) -> Prop {
+        Prop {
+            key: key.into(),
+            value: value.into(),
+            ordinal: None,
+            kind,
+        }
+    }
+
+    #[test]
+    fn a_tag_row_carries_how_many_other_notes_carry_it() {
+        let tags = vec!["work".to_string(), "solo".to_string()];
+        let census = vec![("work".to_string(), 2usize), ("solo".to_string(), 0)];
+        assert_eq!(
+            tag_rows(&tags, Some(&census))
+                .iter()
+                .map(|row| (row.text.as_str(), row.count))
+                .collect::<Vec<_>>(),
+            vec![("work", Some(2)), ("solo", Some(0))],
+            "a tag nobody else writes carries a real zero, which is a fact, not a gap"
+        );
+    }
+
+    #[test]
+    fn a_tag_row_with_no_index_to_ask_carries_no_number() {
+        // Absent, not zero: "nobody else writes this" and "nothing was asked" are
+        // different sentences, and drawing `0` would say the first one.
+        let tags = vec!["work".to_string()];
+        assert_eq!(tag_rows(&tags, None)[0].count, None);
+    }
+
+    #[test]
+    fn a_tag_row_asks_its_own_tag() {
+        let tags = vec!["work/deep".to_string(), "a tag".to_string()];
+        assert_eq!(
+            tag_rows(&tags, None)
+                .iter()
+                .map(|row| row.act.clone())
+                .collect::<Vec<_>>(),
+            vec![
+                Act::Ask("tag:work/deep".into()),
+                // A name with a space is quoted, the same way a key with a space is:
+                // one grammar for both operators (P4.14).
+                Act::Ask(r#"tag:"a tag""#.into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_link_shaped_property_opens_the_note_the_author_named() {
+        let props = vec![prop("ally", "[[Goblin]]", Kind::Link)];
+        let got = prop_rows(&props, &|target| {
+            (target == "Goblin").then(|| PathBuf::from("notes/Goblin.md"))
+        });
+        assert_eq!(got[0].text, "ally: [[Goblin]]", "the value as authored");
+        assert_eq!(
+            got[0].act,
+            Act::Open {
+                path: PathBuf::from("notes/Goblin.md"),
+                line: None,
+            }
+        );
+        assert!(!got[0].ghost);
+    }
+
+    #[test]
+    fn a_property_that_is_not_a_link_asks_its_key() {
+        // The indexer's rule, kept: only the `[[…]]` spelling is a link, so `name:
+        // Goblin` in a vault that has a `Goblin.md` is a string, not a pointer.
+        let props = vec![
+            prop("cr", "6", Kind::Number),
+            prop("name", "Goblin", Kind::Text),
+        ];
+        let got = prop_rows(&props, &|target| {
+            (target == "Goblin").then(|| PathBuf::from("Goblin.md"))
+        });
+        assert_eq!(got[0].text, "cr: 6");
+        assert_eq!(got[0].act, Act::Ask("prop:cr".into()));
+        assert_eq!(got[1].act, Act::Ask("prop:name".into()));
+    }
+
+    #[test]
+    fn an_unresolved_property_link_keeps_its_row_and_is_marked() {
+        let props = vec![prop("ally", "[[Nowhere]]", Kind::Link)];
+        let got = prop_rows(&props, &|_| None);
+        assert!(
+            got[0].ghost,
+            "an ally that is not a note is a plot hole worth seeing"
+        );
+        assert_eq!(
+            got[0].act,
+            Act::Open {
+                path: PathBuf::from("Nowhere"),
+                line: None,
+            },
+            "the name as written, so `enter` can say which half is missing"
+        );
     }
 }

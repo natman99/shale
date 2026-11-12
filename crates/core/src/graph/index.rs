@@ -494,10 +494,42 @@ pub fn extract_tags(text: &str) -> Vec<String> {
     out
 }
 
+/// Every tag a note carries: the `#tags` in its body **and** the frontmatter keys that
+/// mean tags (`tags:`, `tag:`), in order of first appearance and deduped.
+///
+/// This is the one merge. The index writes it and the sidebar reads it, so a tag the
+/// author wrote is in both lists — and the strip can describe a buffer the index has never
+/// seen, which is the buffer-vs-index rule in `sidebar-plan.md`.
+pub fn note_tags(text: &str, props: &[crate::frontmatter::Prop]) -> Vec<String> {
+    let mut out = extract_tags(text);
+    for prop in props {
+        if !crate::frontmatter::is_tag_key(&prop.key) {
+            continue;
+        }
+        let tag = prop.value.trim().trim_start_matches('#').trim();
+        if !tag.is_empty() && !out.iter().any(|t| t == tag) {
+            out.push(tag.to_string());
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::fs;
+
+    /// P4.13 M4: the tags a note carries are its body's `#tags` **and** the frontmatter
+    /// keys that mean tags, deduped — the one merge the index writes and the sidebar
+    /// reads, so a tag in the note is in both lists.
+    #[test]
+    fn a_frontmatter_tag_joins_the_body_tags_without_duplication() {
+        let text = "---\ntags: prep\ntag: work\n---\n\n#writing and #work\n";
+        let props = crate::frontmatter::block(text)
+            .map(|block| block.props)
+            .unwrap_or_default();
+        assert_eq!(note_tags(text, &props), vec!["writing", "work", "prep"]);
+    }
 
     /// The vault fixture from `vault.rs`'s tests, restated here so the graph
     /// tests do not reach into another module's private helper.

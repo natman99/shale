@@ -758,7 +758,7 @@ pub(crate) fn key_row(census: &KeyCensus, rename: bool) -> (PickerItem, PickerTa
 
 /// A value as it fits on one line: a nested block collapses, and anything long gets
 /// cut, because the full text is one `:raw` away.
-fn shown(value: &str) -> String {
+pub(crate) fn shown(value: &str) -> String {
     let flat = value.replace('\n', " ");
     let flat = flat.trim();
     if flat.chars().count() <= 28 {

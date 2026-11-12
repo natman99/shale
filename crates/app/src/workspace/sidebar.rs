@@ -86,7 +86,22 @@ pub(super) fn push_row(
         } else {
             gpui::rgb(state.palette.ui_fg)
         })
-        .child(label)
+        .child(
+            // A row that carries a number shows it beside the text, in the quiet colour:
+            // the count is the vault's answer, not part of the name (a tag nobody else
+            // writes shows a real `0`, and a row with no index to ask shows nothing).
+            gpui::div()
+                .flex()
+                .child(label)
+                .when_some(row.count, |d, count| {
+                    d.child(
+                        gpui::div()
+                            .pl_2()
+                            .text_color(gpui::rgb(state.palette.ui_dim))
+                            .child(count.to_string()),
+                    )
+                }),
+        )
         .on_click(cx.listener(move |this, _: &gpui::ClickEvent, _window, cx| {
             // A click does what the row is about, and takes nothing else. A row that
             // names a place in this note shows it without moving the caret (ruling 18);
@@ -100,6 +115,10 @@ pub(super) fn push_row(
                         this.open_note(path, cx);
                     }
                 }
+                // A row that asks a vault question only selects on a click. Asking would
+                // open the search field, and the search field takes the keyboard — which
+                // is the one thing a click in this strip does not do. `enter` asks.
+                sidebar::Act::Ask(_) => {}
             }
             cx.notify();
         }));
@@ -334,12 +353,23 @@ impl Workspace {
                     cx.notify();
                 }
             }
+            sidebar::Act::Ask(query) => {
+                // The row's question is about the vault, so it goes to the surface that
+                // answers vault questions with the query already in its field — the
+                // `:keys` picker's rule for a census row, in a strip.
+                self.search_vault_with(&query, window, cx);
+            }
             sidebar::Act::Open { path, line } => {
                 if row.ghost {
                     // The row is real — the note really does link to this name — and the
                     // name is not a note. Opening it would invent a file from a typo, so
-                    // the strip says which half is missing.
-                    self.say(format!("“{}” is not a note in this vault", row.text), cx);
+                    // the strip says which half is missing. It names the **target**, not
+                    // the row: a property row reads `ally: Goblin`, and `Goblin` is the
+                    // half that is missing.
+                    self.say(
+                        format!("“{}” is not a note in this vault", path.display()),
+                        cx,
+                    );
                     cx.notify();
                     return;
                 }
@@ -636,7 +666,8 @@ impl Workspace {
         match self.sidebar_view {
             View::Outline => self.sidebar_outline(cx),
             View::Backlinks | View::Outgoing => self.sidebar_links(cx),
-            View::Tags | View::Properties => Vec::new(),
+            View::Tags => self.sidebar_tags(cx),
+            View::Properties => self.sidebar_props(cx),
         }
     }
 
@@ -690,14 +721,58 @@ impl Workspace {
 
     /// The rows the Outline view would draw for the strip's note, from its **buffer**
     /// (EDGE-S5) and the note's own fold decisions (ruling 7).
+    /// The text the strip describes: the subject note's buffer, registered here if this
+    /// window has not opened it. The outline, the tags and the properties all read that
+    /// text rather than the index (EDGE-S5), so what the reader is looking at is what the
+    /// strip answers with — including a heading, tag or property typed a second ago.
+    fn sidebar_text(&mut self, cx: &mut Context<Self>) -> Option<String> {
+        let path = self.sidebar_subject(cx)?;
+        self.note_entry(&path, cx)
+            .map(|note| note.buffer.borrow().text().to_string())
+    }
+
+    /// The Tags view's rows: the note's own tags, from its buffer, each carrying the
+    /// index's count of how many **other** notes carry it.
+    ///
+    /// The two halves come from different places on purpose: the tags are the note's and
+    /// the census is the vault's. With no index the rows carry no number at all — absent,
+    /// not zero, which is the difference between "nobody else writes this" and "nothing
+    /// was asked" (EDGE-S6).
+    fn sidebar_tags(&mut self, cx: &mut Context<Self>) -> Vec<sidebar::Row> {
+        let Some(text) = self.sidebar_text(cx) else {
+            return Vec::new();
+        };
+        let props = shale_core::frontmatter::block(&text)
+            .map(|block| block.props)
+            .unwrap_or_default();
+        let tags = shale_core::graph::note_tags(&text, &props);
+        let census = match (&self.db, self.sidebar_subject(cx)) {
+            (Some(db), Some(subject)) => {
+                db.tag_census(&tags, &index_key(&self.vault, &subject)).ok()
+            }
+            _ => None,
+        };
+        sidebar::tag_rows(&tags, census.as_deref())
+    }
+
+    /// The Properties view's rows: this note's frontmatter, from its buffer, in authored
+    /// order. A link-shaped value is resolved through the window's link resolver — the
+    /// door `gd` walks, file rules then aliases then saved queries — so the strip and a
+    /// wiki-link cannot mean two different files.
+    fn sidebar_props(&mut self, cx: &mut Context<Self>) -> Vec<sidebar::Row> {
+        let Some(text) = self.sidebar_text(cx) else {
+            return Vec::new();
+        };
+        let props = shale_core::frontmatter::block(&text)
+            .map(|block| block.props)
+            .unwrap_or_default();
+        sidebar::prop_rows(&props, &|target| self.resolve_target(target))
+    }
+
     pub(crate) fn sidebar_outline(&mut self, cx: &mut Context<Self>) -> Vec<sidebar::Row> {
-        let Some(path) = self.sidebar_subject(cx) else {
+        let Some(text) = self.sidebar_text(cx) else {
             return Vec::new();
         };
-        let Some(note) = self.note_entry(&path, cx) else {
-            return Vec::new();
-        };
-        let text = note.buffer.borrow().text().to_string();
         let folds = self
             .editor()
             .map(|editor| editor.read_with(cx, |editor, _cx| editor.folds()))

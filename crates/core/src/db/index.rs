@@ -26,7 +26,7 @@ use rusqlite::types::Value;
 use rusqlite::{params, Connection};
 
 use crate::frontmatter::{self, KeyCensus, Kind, Prop};
-use crate::graph::extract_tags;
+use crate::graph::note_tags;
 use crate::markdown::extract_wikilinks;
 use crate::mdstyle::object::heading_lines;
 use crate::query::Query;
@@ -333,15 +333,7 @@ fn record(
     // The projections the props feed (ruling §1.3). Both are additive: the body's
     // `#tags` and `[[links]]` keep working exactly as they did, and frontmatter adds
     // to them rather than replacing them — which is a test, not a comment.
-    let mut tags = extract_tags(&text);
-    for prop in &props {
-        if frontmatter::is_tag_key(&prop.key) {
-            let tag = prop.value.trim().trim_start_matches('#').trim();
-            if !tag.is_empty() && !tags.iter().any(|t| t == tag) {
-                tags.push(tag.to_string());
-            }
-        }
-    }
+    let tags = note_tags(&text, &props);
 
     // Only the `[[…]]` spelling is a link. The plan's looser test — "or resolves to a
     // note path" — was tried and rejected by its own consequence: a statblock that
@@ -892,6 +884,30 @@ impl Db {
         let mut out = Vec::new();
         for row in rows {
             out.push(row.context("reading the vault index's properties")?);
+        }
+        Ok(out)
+    }
+
+    /// How many **other** notes carry each of `tags`, in the order they were asked.
+    ///
+    /// This is what makes a tag row worth acting on: "3 other notes write `#work`" is the
+    /// fact that turns a label into a question. The note being described is excluded by
+    /// hand rather than subtracted from a total, because a tag typed but not saved is not
+    /// in the index yet, and a subtraction would answer "no other note" with a negative.
+    /// Every tag asked gets an answer, including zero — a tag nobody else carries is a
+    /// fact, not a missing row.
+    pub fn tag_census(&self, tags: &[String], except: &Path) -> Result<Vec<(String, usize)>> {
+        let conn = self.read()?;
+        let note = rel_text(except);
+        let mut out = Vec::with_capacity(tags.len());
+        {
+            let mut stmt = conn.prepare_cached(
+                "SELECT COUNT(DISTINCT note) FROM tags WHERE tag = ?1 AND note != ?2",
+            )?;
+            for tag in tags {
+                let count: i64 = stmt.query_row(params![tag, note], |row| row.get(0))?;
+                out.push((tag.clone(), count as usize));
+            }
         }
         Ok(out)
     }
@@ -3317,6 +3333,34 @@ mod tests {
         assert_eq!(
             db.backlinks(std::path::Path::new("a.md")).unwrap(),
             vec![(PathBuf::from("b.md"), target_kind::NOTE.to_string(), 3)]
+        );
+    }
+
+    /// P4.13 M4: the census answers "how many **other** notes write this tag", which is
+    /// the number a tag row carries. The note being described is excluded by hand rather
+    /// than subtracted from a total, so a tag typed but not saved cannot push the count
+    /// negative, and a tag nobody else carries answers zero rather than going missing.
+    #[test]
+    fn the_tag_census_counts_other_notes_and_answers_zero_for_a_lonely_tag() {
+        let (_dir, vault, db) = vault_with(&[
+            ("a.md", "one #work #solo\n"),
+            ("b.md", "two #work\n"),
+            ("c.md", "three #work #other\n"),
+        ]);
+        db.reconcile(&vault).unwrap();
+        let tags = vec![
+            "work".to_string(),
+            "solo".to_string(),
+            "missing".to_string(),
+        ];
+        assert_eq!(
+            db.tag_census(&tags, std::path::Path::new("a.md")).unwrap(),
+            vec![
+                ("work".to_string(), 2),
+                ("solo".to_string(), 0),
+                ("missing".to_string(), 0),
+            ],
+            "every tag asked gets an answer, in the order it was asked"
         );
     }
 

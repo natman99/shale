@@ -583,6 +583,20 @@ impl Workspace {
 /// tokens on whitespace and reads `<`, `>`, `=`, `!` as a comparison: `prop:Max HP`
 /// would ask for a key called `Max` and a value `HP`, and `prop:cr<5` for a key
 /// called `cr<5`... which is to say it would ask for nothing at all.
+/// A tag as a search token: `tag:work`, quoted when the name holds something the query
+/// grammar would otherwise read as its own syntax. The same rule as [`prop_token`],
+/// because the two operators are one grammar (P4.14).
+pub(crate) fn tag_token(tag: &str) -> String {
+    let quote = tag
+        .chars()
+        .any(|c| c.is_whitespace() || matches!(c, ':' | '<' | '>' | '=' | '!' | '"'));
+    if quote {
+        format!("tag:\"{tag}\"")
+    } else {
+        format!("tag:{tag}")
+    }
+}
+
 pub(crate) fn prop_token(key: &str) -> String {
     let quote = key
         .chars()

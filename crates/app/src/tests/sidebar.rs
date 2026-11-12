@@ -88,6 +88,12 @@ fn text(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> String 
         .unwrap()
 }
 
+fn counts(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> Vec<Option<usize>> {
+    window
+        .update(cx, |ws, _window, _cx| ws.sidebar_counts())
+        .unwrap()
+}
+
 fn status(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> String {
     window.update(cx, |ws, _window, _cx| ws.status()).unwrap()
 }
@@ -572,7 +578,7 @@ fn scrubbing_moves_the_notes_scroll_and_not_its_caret(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn the_view_keys_cycle_and_an_unbuilt_view_says_so(cx: &mut TestAppContext) {
+fn the_view_keys_cycle_through_every_view(cx: &mut TestAppContext) {
     let (_dir, window, mut cx) = strip_over(cx, OUTLINE);
     let view = |cx: &mut VisualTestContext| {
         window
@@ -607,10 +613,9 @@ fn the_view_keys_cycle_and_an_unbuilt_view_says_so(cx: &mut TestAppContext) {
          not the same kind of thing"
     );
 
-    // A view M1 does not build is still a view the user can select: the header names it
-    // and the body says what is missing, rather than the key doing nothing. The command
-    // line is the note's verb, so `escape` first — the strip's own keys are the tree's,
-    // and neither strip claims `:`.
+    // The command line names a view directly, which is how a view three steps away is
+    // reached without walking. The command line is the note's verb, so `escape` first —
+    // the strip's own keys are the tree's, and neither strip claims `:`.
     cx.simulate_keystrokes("escape");
     cx.run_until_parked();
     cx.simulate_keystrokes(":");
@@ -1115,5 +1120,179 @@ fn an_index_backed_view_says_there_is_no_index(cx: &mut TestAppContext) {
         said(crate::sidebar::View::Outline, &mut cx),
         "no sections in this note",
         "the outline reads the buffer, so the index being off changes nothing about it"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// M4: tags and properties
+// ---------------------------------------------------------------------------
+
+/// A note with two tags in its body and one in its frontmatter, and another note that
+/// carries one of them.
+const TAGGED: &str = "---\ntags: prep\n---\n\nnotes #work and #solo\n";
+
+#[gpui::test]
+fn the_tags_view_lists_the_notes_tags_with_their_census(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) =
+        strip_over_indexed(cx, &[("a.md", TAGGED), ("b.md", "more #work\n")], "a.md");
+    cx.simulate_keystrokes("space b");
+    repaint(&mut cx);
+    cx.simulate_keystrokes("ctrl-w l");
+    repaint(&mut cx);
+    cx.simulate_keystrokes("] ] ]");
+    repaint(&mut cx);
+
+    assert_eq!(
+        rows(&window, &mut cx),
+        vec![
+            (0, 1, "work".to_string()),
+            (1, 1, "solo".to_string()),
+            (2, 1, "prep".to_string()),
+        ],
+        "the body's tags first, then the frontmatter's, in the order the note carries them"
+    );
+    assert_eq!(
+        counts(&window, &mut cx),
+        vec![Some(1), Some(0), Some(0)],
+        "how many **other** notes carry each: `work` is in b.md, and a lonely tag says so \
+         with a real zero"
+    );
+}
+
+#[gpui::test]
+fn a_tag_row_hands_its_tag_to_the_search(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) =
+        strip_over_indexed(cx, &[("a.md", TAGGED), ("b.md", "more #work\n")], "a.md");
+    cx.simulate_keystrokes("space b");
+    repaint(&mut cx);
+    cx.simulate_keystrokes("ctrl-w l");
+    repaint(&mut cx);
+    cx.simulate_keystrokes("] ] ]");
+    repaint(&mut cx);
+
+    // The view opens on its first row, so `enter` asks that one.
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+    let picked = window
+        .update(&mut cx, |ws, _window, cx| ws.picker_rows(cx))
+        .unwrap();
+    assert_eq!(
+        picked,
+        vec!["a.md", "b.md", "save tag:work"],
+        "the tag goes to the surface that answers vault questions, with its query already \
+         in the field — the `:keys` picker's rule, not a second list of notes"
+    );
+}
+
+#[gpui::test]
+fn an_unsaved_tag_is_a_row_before_the_index_hears_of_it(cx: &mut TestAppContext) {
+    // EDGE-S5 for the Tags view: the tags are the note's own, so a tag typed a second
+    // ago is a row immediately. Only the census waits for the index.
+    let (_dir, window, mut cx) = strip_over(cx, "notes\n");
+    cx.simulate_keystrokes("G");
+    cx.simulate_keystrokes("A");
+    cx.simulate_input(" #fresh");
+    cx.simulate_keystrokes("escape");
+    cx.run_until_parked();
+    repaint(&mut cx);
+    cx.simulate_keystrokes("space b");
+    repaint(&mut cx);
+    cx.simulate_keystrokes("ctrl-w l");
+    repaint(&mut cx);
+    cx.simulate_keystrokes("] ] ]");
+    repaint(&mut cx);
+
+    assert_eq!(rows(&window, &mut cx), vec![(0, 1, "fresh".to_string())]);
+}
+
+#[gpui::test]
+fn a_tag_view_with_no_index_still_lists_the_tags(cx: &mut TestAppContext) {
+    // The rows are the buffer's; only the number is the vault's answer. No index means
+    // no number — not a screenful of zeros, which would claim nobody else writes them.
+    let (_dir, window, mut cx) = strip_over(cx, "notes #work\n");
+    cx.simulate_keystrokes("space b");
+    repaint(&mut cx);
+    cx.simulate_keystrokes("ctrl-w l");
+    repaint(&mut cx);
+    cx.simulate_keystrokes("] ] ]");
+    repaint(&mut cx);
+
+    assert_eq!(rows(&window, &mut cx), vec![(0, 1, "work".to_string())]);
+    assert_eq!(counts(&window, &mut cx), vec![None]);
+}
+
+const PROPS: &str = "---\ncr: 6\nally: [[Goblin]]\n---\n\n# Goblin\n";
+
+#[gpui::test]
+fn the_properties_view_lists_the_frontmatter_in_authored_order(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) =
+        strip_over_indexed(cx, &[("a.md", PROPS), ("Goblin.md", "# Goblin\n")], "a.md");
+    cx.simulate_keystrokes("space b");
+    repaint(&mut cx);
+    cx.simulate_keystrokes("ctrl-w l");
+    repaint(&mut cx);
+    cx.simulate_keystrokes("] ] ] ]");
+    repaint(&mut cx);
+
+    assert_eq!(
+        rows(&window, &mut cx),
+        vec![
+            (0, 1, "cr: 6".to_string()),
+            (1, 1, "ally: [[Goblin]]".to_string()),
+        ],
+        "as authored, in authored order — the value keeps the brackets the author wrote"
+    );
+}
+
+#[gpui::test]
+fn a_link_shaped_property_opens_the_note_it_names(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) =
+        strip_over_indexed(cx, &[("a.md", PROPS), ("Goblin.md", "# Goblin\n")], "a.md");
+    cx.simulate_keystrokes("space b");
+    repaint(&mut cx);
+    cx.simulate_keystrokes("ctrl-w l");
+    repaint(&mut cx);
+    cx.simulate_keystrokes("] ] ] ]");
+    repaint(&mut cx);
+    cx.simulate_keystrokes("j");
+    repaint(&mut cx);
+
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+    assert_eq!(note(&window, &mut cx), Some(PathBuf::from("Goblin.md")));
+}
+
+#[gpui::test]
+fn a_property_that_is_not_a_link_does_not_open_anything(cx: &mut TestAppContext) {
+    // The indexer's rule, kept in the strip: only the `[[…]]` spelling is a link. A
+    // statblock that says `name: Goblin` in a vault that has a `Goblin.md` is a string.
+    let (_dir, window, mut cx) = strip_over_indexed(
+        cx,
+        &[
+            ("a.md", "---\nname: Goblin\n---\n\nplain\n"),
+            ("Goblin.md", "# Goblin\n"),
+        ],
+        "a.md",
+    );
+    cx.simulate_keystrokes("space b");
+    repaint(&mut cx);
+    cx.simulate_keystrokes("ctrl-w l");
+    repaint(&mut cx);
+    cx.simulate_keystrokes("] ] ] ]");
+    repaint(&mut cx);
+
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+    assert_eq!(
+        note(&window, &mut cx),
+        Some(PathBuf::from("a.md")),
+        "the note did not move"
+    );
+    let picked = window
+        .update(&mut cx, |ws, _window, cx| ws.picker_rows(cx))
+        .unwrap();
+    assert!(
+        picked.last().is_some_and(|row| row == "save prop:name"),
+        "the row asked its key instead: {picked:?}"
     );
 }

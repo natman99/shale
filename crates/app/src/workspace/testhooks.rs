@@ -223,6 +223,12 @@ impl Workspace {
             .map(|row| (row.key, row.depth, row.text.clone()))
             .collect()
     }
+    /// The numbers the last frame's rows carried, in row order: the census a tag row
+    /// shows. `None` is a row with no number to carry, which is not a row carrying zero.
+    #[cfg(test)]
+    pub(crate) fn sidebar_counts(&self) -> Vec<Option<usize>> {
+        self.sidebar_rows.iter().map(|row| row.count).collect()
+    }
     /// The section the caret is in, as of the last frame: the mark.
     #[cfg(test)]
     pub(crate) fn sidebar_mark(&self) -> Option<usize> {
