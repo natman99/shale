@@ -1681,8 +1681,27 @@ edges, query nodes, MCP canvas tools) is P6.10.
   units `da#` operates on; the `headings` table (P4.3b, closed 2026-11-10) is what lets
   it speak about notes it has not opened, and the buffer stays the source for the open
   one, because an unsaved heading is not in the index yet. Distinct from the canvas
-  outline view in P5.6 — do not build one and call it both. **The findings, the round-1
-  rulings, the edge ledger and the round-2 questions are in `sidebar-plan.md`.**
+  outline view in P5.6 — do not build one and call it both.
+  **Round 2 settled the shape (2026-11-11).** **One view at a time**, chosen with `[`/`]`
+  inside the strip or `:sidebar <name>` from anywhere (`:sidebar` alone stays the toggle,
+  `space b` shows and hides). The strip is a stop in the window's `ctrl-w h/j/k/l` grammar:
+  `ctrl-w l` at the right edge falls back to it the way `ctrl-w h` at the left edge falls
+  back to the tree, and **both edges are unified on the seat** — the pane that last had the
+  keyboard — with no wrapping. `Tab`/`shift-Tab` relevel a heading **and its subtree** (the
+  children are whatever the scan found *before* the change, or a demotion re-parents a
+  heading out from under itself). The outline follows the caret: the current section is
+  marked in colour always, the list scrolls only when the mark itself moved, and while the
+  strip has the keyboard its selection scrubs the note **without moving the caret** — `enter`
+  is what moves it, and a heading jump inside the note on screen is a pure reveal, never a
+  second tab and never a re-read. The header strip is chrome and carries the view's count.
+  **Five milestones**, each with acceptance criteria and its own falsification pass, in
+  `sidebar-plan.md`: M1 shell + outline (buffer-sourced, session-restored), M2 the two core
+  structure acts (`mdstyle::move_section`, `mdstyle::relevel_section`), M3 links both ways
+  (schema **v6**: `links.line`, so a backlink row lands on the line that links — a version
+  bump and a rebuild, since the index is never migrated), M4 tags and properties, M5 `:pin`
+  and `docs/sidebar.md`. **One behaviour change outside the strip:** `record_jump` refuses a
+  same-note jump today (`jumps.rs:274`); the spec narrows that to "same note *and* same
+  position" so `ctrl-o` walks between sections of one note (EDGE-S14).
 - **P4.14 Search operators** (brainstorm ✅). **Added by the audit.** `tag:`, `path:`,
   `link:`, `modified:` and friends in vault search, over the P1 index. **One grammar,
   one parser, shared with `.shq` (P4.3)** — inventing it twice is how the two surfaces
