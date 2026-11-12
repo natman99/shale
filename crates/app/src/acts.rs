@@ -157,6 +157,19 @@ actions!(
         // Put the file tree away, or bring it back (`space e`, `:tree`). The note takes
         // the width the tree had; nvim-tree and NERDTree answer `<leader>e` the same way.
         TreeToggle,
+        // The right-hand strip: show it, hide it, or put the keyboard in it
+        // (`space b`, `:sidebar`, `ctrl-w l`). One action for the toggle, because the
+        // way out is the same two keys as the way in (`space e`'s rule).
+        SidebarToggle,
+        FocusSidebar,
+        SidebarUp,
+        SidebarDown,
+        SidebarOpen,
+        SidebarCollapse,
+        SidebarExpand,
+        // `[` and `]` inside the strip: the other view (sidebar-plan.md ruling 16).
+        SidebarPrevView,
+        SidebarNextView,
         QuickOpen,
         // Walking the chain of notes the user came from (`ctrl-o` back, `ctrl-i`
         // forward), the way vim and neovim do.

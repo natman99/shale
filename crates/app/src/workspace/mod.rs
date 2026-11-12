@@ -28,6 +28,7 @@ mod review;
 mod search;
 mod services;
 mod session;
+mod sidebar;
 mod start;
 mod tabs;
 #[cfg(test)]
@@ -301,6 +302,27 @@ pub(crate) struct Workspace {
     /// The rows the last frame drew, top to bottom, which is what `j`/`k` step
     /// through: a collapsed folder's children are skipped for free.
     tree_rows: Vec<PathBuf>,
+    // ---- the right-hand strip (roadmap P4.13) ---------------------------
+    // Hosted the way the file tree is: its own focus, keymap context, scroll handle,
+    // visibility flag and session fields (sidebar-plan.md ruling 13).
+    /// The strip's own focus, so it can be driven from the keyboard.
+    sidebar_focus: gpui::FocusHandle,
+    /// Its scroll position: the wheel moves it, and the keyboard has to be told.
+    sidebar_scroll: gpui::ScrollHandle,
+    /// Whether the strip is drawn. `space b` / `:sidebar` move it.
+    sidebar_visible: bool,
+    /// Which of the five views it shows — one at a time (ruling 11).
+    sidebar_view: crate::sidebar::View,
+    /// The heading line the keyboard has selected. A **line** rather than a row index,
+    /// because typing changes how many rows there are and a line survives a row being
+    /// added above it.
+    sidebar_selection: Option<usize>,
+    /// The rows the last frame drew, which is what `j`/`k` step through.
+    sidebar_rows: Vec<crate::sidebar::Row>,
+    /// The section the caret is in, as of the last frame. This is the mark, and it is
+    /// also the fact the conditional scroll is keyed to: the list follows the caret when
+    /// this **changes**, never merely because the mark is off screen (EDGE-S11).
+    sidebar_mark: Option<usize>,
     /// The open prompt, and what it is asking for.
     prompt: Option<(prompt::PromptKind, Entity<prompt::Prompt>)>,
     /// The `/` search: the query, what it matched in the open note, and which
@@ -623,6 +645,15 @@ impl Workspace {
             // hides it again for a vault whose user had it hidden.
             tree_visible: true,
             tree_rows: Vec::new(),
+            // A new surface does not take width from the note until the user asks for
+            // it; `restore_session` puts back whatever this window had showing.
+            sidebar_focus: cx.focus_handle(),
+            sidebar_scroll: gpui::ScrollHandle::default(),
+            sidebar_visible: false,
+            sidebar_view: crate::sidebar::View::Outline,
+            sidebar_selection: None,
+            sidebar_rows: Vec::new(),
+            sidebar_mark: None,
             prompt: None,
             prompt_return_focus: None,
             search: search::SearchState::default(),
@@ -843,6 +874,10 @@ impl Workspace {
     /// tree. The command is ignored while a prompt or a picker is up, because
     /// those own the keyboard and moving focus out from under them would leave
     /// them open and unreachable.
+    ///
+    /// From the right-hand strip it goes to **the seat** — the pane that last had the
+    /// keyboard — rather than stepping left through the tiling: the key means "back the
+    /// way I came" (sidebar-plan.md ruling 17).
     pub(super) fn window_left(
         &mut self,
         _: &WindowLeft,
@@ -850,6 +885,10 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         if self.overlay_owns_keys() {
+            return;
+        }
+        if self.sidebar_focus.contains_focused(window, cx) {
+            self.focus_editor(&FocusEditor, window, cx);
             return;
         }
         if self.focus_pane_relative(-1, 0, window, cx) {
@@ -860,9 +899,13 @@ impl Workspace {
 
     /// `ctrl-w l`: move the keyboard to the note.
     ///
-    /// From the sidebar this enters the leftmost pane; from a pane it steps to
-    /// the pane on the right, and the rightmost pane keeps the keyboard on its
-    /// note — the old two-panel behaviour survives as the edge case.
+    /// From the sidebar this enters the pane that last had the keyboard — the seat, not
+    /// the leftmost pane, which is the rule the strip uses too and what "back the way I
+    /// came" means (ruling 17). From a pane it steps to the pane on the right, and the
+    /// rightmost pane's right neighbour is the right-hand strip: the same fallback shape
+    /// the tree has at the left edge, which is how a chrome surface joins `ctrl-w h/j/k/l`
+    /// without being a pane in the tiling. From the strip there is nothing further right,
+    /// and nothing wraps.
     pub(super) fn window_right(
         &mut self,
         _: &WindowRight,
@@ -872,16 +915,15 @@ impl Workspace {
         if self.overlay_owns_keys() {
             return;
         }
+        if self.sidebar_focus.contains_focused(window, cx) {
+            return;
+        }
         if self.tree_focus.contains_focused(window, cx) {
-            if let Some(ix) = self.first_pane() {
-                self.active_pane = ix;
-                self.hover_stale = true;
-            }
             self.focus_editor(&FocusEditor, window, cx);
             return;
         }
         if !self.focus_pane_relative(1, 0, window, cx) {
-            self.focus_editor(&FocusEditor, window, cx);
+            self.focus_sidebar(&FocusSidebar, window, cx);
         }
     }
 

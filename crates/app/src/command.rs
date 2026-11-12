@@ -488,6 +488,26 @@ const ALL: &[Command] = &[
         action: Some(|| Box::new(TreeToggle)),
     },
     Command {
+        id: "sidebar.toggle",
+        label: "Show or hide the right-hand strip",
+        keys: "space b",
+        // The bare form is the toggle; `on|off` and a view word (`:sidebar outline`) are
+        // answered in the ex parser.
+        ex: &["sidebar"],
+        args: "[on|off|<view>]",
+        in_palette: true,
+        action: Some(|| Box::new(SidebarToggle)),
+    },
+    Command {
+        id: "sidebar.focus",
+        label: "Focus the right-hand strip",
+        keys: "ctrl-w l",
+        ex: &[],
+        args: "",
+        in_palette: true,
+        action: Some(|| Box::new(FocusSidebar)),
+    },
+    Command {
         id: "window.left",
         label: "Focus the file tree",
         keys: "ctrl-w h",

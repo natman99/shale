@@ -226,6 +226,15 @@ pub struct Session {
     /// predates the toggle restores a window with its tree. Like focus mode, this is a
     /// decision made inside a window rather than a setting to edit by hand.
     pub tree_visible: Option<bool>,
+    /// Whether the right-hand strip was showing. `None` is hidden, so a session file
+    /// that predates the strip restores a window without it: a new surface does not take
+    /// width from the note until the user asks (sidebar-plan.md ruling 22).
+    pub sidebar_visible: Option<bool>,
+    /// Which view the strip was showing, by its word (`outline`, `backlinks`, `links`,
+    /// `tags`, `properties`). `None` is the outline. A word rather than an enum so a
+    /// session file stays plain text a person can edit, and an unknown word restores the
+    /// outline rather than failing.
+    pub sidebar_view: Option<String>,
     /// The jump chain: the notes behind the user (oldest first) and the ones
     /// ahead, the way `ctrl-o`/`ctrl-i` walk them.
     pub jumps_back: Vec<Jump>,
@@ -381,6 +390,8 @@ mod tests {
             focus_scope: Some("section".into()),
             typewriter: Some(true),
             tree_visible: Some(false),
+            sidebar_visible: None,
+            sidebar_view: None,
             jumps_back: vec![Jump {
                 path: Some(PathBuf::from("Welcome.md")),
                 cursor: 7,

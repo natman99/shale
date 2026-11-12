@@ -8,10 +8,12 @@ use gpui::{anchored, div, prelude::*, px, AnchoredPositionMode, Context, MouseBu
 use crate::acts::*;
 use crate::editor::View;
 use crate::prompt;
+use crate::sidebar;
 use crate::style::CHIP_RADIUS;
 use crate::tree;
 
 use super::bar::{mode_label, save_indicator, word_badge};
+use super::sidebar::{push_row, RowState};
 use super::tabs::TabContent;
 use super::tree::{push_node, TreeState};
 use super::Workspace;
@@ -413,6 +415,58 @@ impl Render for Workspace {
             push_node(&mut rows, &mut paths, node, 0, &state, &mut idx, cx);
         }
         self.tree_rows = paths;
+        // The right-hand strip's rows (roadmap P4.13), built in the frame that draws
+        // them for the tree's reason: `j`/`k` step over exactly what the user can see,
+        // so a folded heading's children are skipped for free.
+        let sidebar_focused = self.sidebar_focus.is_focused(window);
+        let outline_rows: Vec<sidebar::Row> = if self.sidebar_visible && self.sidebar_view.built() {
+            self.sidebar_outline(cx)
+        } else {
+            Vec::new()
+        };
+        self.sidebar_rows = outline_rows;
+        // The current-section mark, and the conditional scroll (EDGE-S11). The list
+        // follows the caret when the **mark changes** — the caret crossed into another
+        // section — and only when that row is off screen. A scroll the user made is
+        // never undone, because their scroll does not change the mark. And while the
+        // strip has the keyboard, the caret does not move the list at all: the selection
+        // does, and the two would fight (ruling 15).
+        let mark = self
+            .sidebar_caret_line(cx)
+            .and_then(|line| sidebar::section_of(&self.sidebar_rows, line));
+        if mark != self.sidebar_mark && !sidebar_focused {
+            // The mark is a heading's **line**; the scroll container wants the row's
+            // index within the list it laid out, which is a different number.
+            let index =
+                mark.and_then(|line| self.sidebar_rows.iter().position(|row| row.line == line));
+            if let Some(index) = index {
+                let (top, bottom) = (
+                    self.sidebar_scroll.top_item(),
+                    self.sidebar_scroll.bottom_item(),
+                );
+                if index < top || index > bottom {
+                    self.sidebar_scroll.scroll_to_item(index);
+                }
+            }
+        }
+        self.sidebar_mark = mark;
+        // The selection is only drawn as a cursor while the strip has the keyboard: a
+        // stale selection must not look like a caret the user did not ask for.
+        let mut sidebar_elements: Vec<gpui::AnyElement> = Vec::new();
+        if self.sidebar_visible {
+            let state = RowState {
+                selected: if sidebar_focused {
+                    self.sidebar_selection
+                } else {
+                    None
+                },
+                mark,
+                palette: &self.palette,
+            };
+            for (index, row) in self.sidebar_rows.iter().enumerate() {
+                push_row(&mut sidebar_elements, row, index, &state, cx);
+            }
+        }
         let prompt = self
             .prompt
             .as_ref()
@@ -599,6 +653,9 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::add_properties))
             .on_action(cx.listener(Self::add_block_id))
             .on_action(cx.listener(Self::focus_tree))
+            // The strip's own focus verb, so the palette row and `ctrl-w l` at the right
+            // edge run the same door.
+            .on_action(cx.listener(Self::focus_sidebar))
             .on_action(cx.listener(Self::focus_editor))
             .on_action(cx.listener(Self::window_left))
             .on_action(cx.listener(Self::window_right))
@@ -651,6 +708,9 @@ impl Render for Workspace {
             // `space e` starts in the note, and the palette and the command line reach
             // it too.
             .on_action(cx.listener(Self::toggle_tree))
+            // The right-hand strip: same reason. `space b` starts in the note, and
+            // `:sidebar` and the palette reach it from the window too.
+            .on_action(cx.listener(Self::toggle_sidebar))
             .on_action(cx.listener(Self::command_palette))
             .on_action(cx.listener(Self::command_line))
             .on_action(cx.listener(Self::change_theme))
@@ -839,7 +899,91 @@ impl Render for Workspace {
                                         .child(field),
                                 )
                             }),
-                    ),
+                    )
+                    // The right-hand strip (roadmap P4.13): the file tree's
+                    // mirror. Same chrome card, same radius, same width — the two
+                    // strips are one family, and the note is what they both give
+                    // room to. It is `flex_none` inside the row, so it takes width
+                    // from the note and never moves the panes' borders.
+                    .when(self.sidebar_visible, |d| {
+                        d.child(
+                            div()
+                                .flex_none()
+                                .w(px(260.))
+                                .h_full()
+                                .flex()
+                                .flex_col()
+                                .bg(gpui::rgb(self.palette.ui_status_bg))
+                                .rounded(crate::style::PANE_RADIUS)
+                                // The header strip is chrome, not a row (ruling 20):
+                                // `j` starts on the first real row, and the view's
+                                // name and count live here rather than in a row the
+                                // keyboard can get stuck on.
+                                .child(
+                                    div()
+                                        .px_2()
+                                        .pt_2()
+                                        .pb_1()
+                                        .font_weight(gpui::FontWeight::BOLD)
+                                        .text_color(gpui::rgb(self.palette.ui_fg))
+                                        .child(format!(
+                                            "{} · {}",
+                                            self.sidebar_view.label(),
+                                            self.sidebar_rows.len()
+                                        )),
+                                )
+                                .when(!self.sidebar_view.built(), |d| {
+                                    // A view that is planned but not built says so,
+                                    // in the quiet colour, rather than showing an
+                                    // empty box read as "nothing in this note".
+                                    d.child(
+                                        div()
+                                            .px_2()
+                                            .text_color(gpui::rgb(self.palette.ui_dim))
+                                            .child("this view is not built yet"),
+                                    )
+                                })
+                                .when(
+                                    self.sidebar_view.built() && self.sidebar_rows.is_empty(),
+                                    |d| {
+                                        d.child(
+                                            div()
+                                                .px_2()
+                                                .text_color(gpui::rgb(self.palette.ui_dim))
+                                                .child("no sections in this note"),
+                                        )
+                                    },
+                                )
+                                .child(
+                                    div()
+                                        .id("sidebar-scroll")
+                                        .flex_1()
+                                        .min_h_0()
+                                        .overflow_scroll()
+                                        .track_scroll(&self.sidebar_scroll)
+                                        .key_context(sidebar::CONTEXT)
+                                        .track_focus(&self.sidebar_focus)
+                                        .on_action(cx.listener(|this, _: &SidebarDown, _, cx| {
+                                            this.move_sidebar_selection(1, cx)
+                                        }))
+                                        .on_action(cx.listener(|this, _: &SidebarUp, _, cx| {
+                                            this.move_sidebar_selection(-1, cx)
+                                        }))
+                                        .on_action(cx.listener(Self::sidebar_open))
+                                        .on_action(cx.listener(Self::sidebar_collapse))
+                                        .on_action(cx.listener(Self::sidebar_expand))
+                                        .on_action(cx.listener(Self::sidebar_prev_view))
+                                        .on_action(cx.listener(Self::sidebar_next_view))
+                                        // `escape` leaves the strip for the note, the
+                                        // way the tree's does.
+                                        .on_action(cx.listener(Self::focus_editor))
+                                        .p_2()
+                                        .pt_1()
+                                        .text_size(crate::style::TEXT_SM)
+                                        .children(sidebar_elements),
+                                ),
+                        )
+                    }),
             )
             // The review strip: the last thing before the status bar, so it sits
             // **above** it, and only when something is waiting (roadmap P2.5a). The

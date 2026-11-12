@@ -38,6 +38,8 @@ as you would type it.
 | `focus.toggle` | Dim everything but the block the cursor is in | `space d` | `:focus [on|off|block|section]`, `:dim [on|off|block|section]` | `[on|off|block|section]` |
 | `typewriter.toggle` | Keep the cursor's line near the middle of the window | — | `:typewriter [on|off]` | `[on|off]` |
 | `tree.toggle` | Show or hide the file tree | `space e` | `:tree [on|off]` | `[on|off]` |
+| `sidebar.toggle` | Show or hide the right-hand strip | `space b` | `:sidebar [on|off|<view>]` | `[on|off|<view>]` |
+| `sidebar.focus` | Focus the right-hand strip | `ctrl-w l` | — | — |
 | `window.left` | Focus the file tree | `ctrl-w h` | — | — |
 | `window.right` | Focus the pane to the right | `ctrl-w l` | — | — |
 | `note.undo` | Undo | `u, ctrl-z` | — | — |

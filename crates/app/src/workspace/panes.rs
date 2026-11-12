@@ -53,15 +53,6 @@ pub(crate) enum Node {
 }
 
 impl Node {
-    /// The first leaf under this node — the pane `ctrl-w l` from the sidebar
-    /// lands in.
-    pub(crate) fn first_leaf(&self) -> Option<usize> {
-        match self {
-            Node::Leaf(ix) => Some(*ix),
-            Node::Split { kids, .. } => kids.first()?.first_leaf(),
-        }
-    }
-
     /// The tree as the session file keeps it: the same shape, the same fractions, and
     /// the leaves as leaves (roadmap P3.2). The leaf *indices* are not written — the
     /// file's `panes` list is the leaves, in this tree's leaf order.
@@ -446,11 +437,6 @@ impl Workspace {
         true
     }
 
-    /// The leftmost pane, for `window_right` from the sidebar.
-    pub(crate) fn first_pane(&self) -> Option<usize> {
-        self.layout.first_leaf()
-    }
-
     /// `ctrl-w =`: every pane gets its share back.
     pub(crate) fn equalize_panes(&mut self, cx: &mut Context<Self>) {
         self.layout.equalize();
@@ -583,6 +569,11 @@ impl Workspace {
         if self.overlay_owns_keys() {
             return;
         }
+        // The strip spans the window's height, so there is nothing above it and the
+        // keyboard stays where it is (sidebar-plan.md EDGE-S12).
+        if self.sidebar_focus.contains_focused(window, cx) {
+            return;
+        }
         self.focus_pane_relative(0, -1, window, cx);
     }
 
@@ -593,6 +584,9 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         if self.overlay_owns_keys() {
+            return;
+        }
+        if self.sidebar_focus.contains_focused(window, cx) {
             return;
         }
         self.focus_pane_relative(0, 1, window, cx);

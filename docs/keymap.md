@@ -255,6 +255,24 @@ in hand. `docs/keys.md` is the human map of both halves.
 | `r` | Rename the selected note | `RenameNote` | `note.rename` |
 | `shift-d` | Delete the selected note | `DeleteNote` | `note.delete` |
 
+### while `sidebar` has the keyboard
+
+| keys | what it does | action | runs |
+| --- | --- | --- | --- |
+| `j` | move the selection down | `SidebarDown` | — |
+| `k` | move the selection up | `SidebarUp` | — |
+| `down` | move the selection down | `SidebarDown` | — |
+| `up` | move the selection up | `SidebarUp` | — |
+| `h` | fold this section in the note | `SidebarCollapse` | — |
+| `l` | unfold this section in the note | `SidebarExpand` | — |
+| `left` | fold this section in the note | `SidebarCollapse` | — |
+| `right` | unfold this section in the note | `SidebarExpand` | — |
+| `enter` | jump the note to this section | `SidebarOpen` | — |
+| `[` | show the previous view in the strip | `SidebarPrevView` | — |
+| `]` | show the next view in the strip | `SidebarNextView` | — |
+| `space b` | Show or hide the right-hand strip | `SidebarToggle` | `sidebar.toggle` |
+| `escape` | hand the keyboard to the tab on screen | `FocusEditor` | — |
+
 ### while `prompt` has the keyboard
 
 | keys | what it does | action | runs |

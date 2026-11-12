@@ -202,6 +202,11 @@ impl MarkdownEditor {
             // `space e`: the window owns the frame, so the tree goes away by asking the
             // same command the palette and `:tree` run.
             Outcome::ToggleTree => window.dispatch_action(TreeToggle.boxed_clone(), cx),
+            // `space b`: the strip is the frame's, so the chord asks the same command
+            // `:sidebar` and the palette will run.
+            Outcome::ToggleSidebar => {
+                window.dispatch_action(crate::acts::SidebarToggle.boxed_clone(), cx)
+            }
             Outcome::Stay | Outcome::Unhandled => {}
         }
         // The mirror, part 2: whatever the engine put in its register is now on the

@@ -45,6 +45,12 @@ pub(crate) enum Ex {
     /// `tree on|1` / `tree off|0`, or bare `tree` to turn it around: put the file
     /// tree away, or bring it back. The note takes the width either way.
     Tree(Option<bool>),
+    /// `sidebar on|1` / `sidebar off|0`, or bare `sidebar` to turn it around: put the
+    /// right-hand strip away, or bring it back. The note takes the width either way.
+    Sidebar(Option<bool>),
+    /// `sidebar outline|backlinks|links|tags|properties`: show that view. The strip shows
+    /// one view at a time, so this is a switch rather than a scroll.
+    SidebarView(crate::sidebar::View),
     /// `theme` with nothing after it: the theme picker.
     ThemePicker,
     /// `vault`: the vault switcher — the vaults this app remembers, or a
@@ -177,6 +183,10 @@ impl Ex {
             Ex::Focus(_) | Ex::FocusScope(_) => "focus.toggle",
             Ex::Typewriter(_) => "typewriter.toggle",
             Ex::Tree(_) => "tree.toggle",
+            // The same shape as the tree's: the bare word and the on/off form are one
+            // command; `:sidebar <view>` names a view and keeps its handling in the
+            // workspace.
+            Ex::Sidebar(None) | Ex::Sidebar(Some(_)) | Ex::SidebarView(_) => "sidebar.toggle",
             Ex::ThemePicker | Ex::Theme(_) => "theme.change",
             Ex::VaultPicker => "vault.switch",
             Ex::NewWindow => "window.new",
@@ -232,6 +242,7 @@ impl Ex {
             | Ex::Focus(None)
             | Ex::Typewriter(None)
             | Ex::Tree(None)
+            | Ex::Sidebar(None)
             | Ex::ThemePicker
             | Ex::VaultPicker
             | Ex::NewWindow
@@ -346,6 +357,20 @@ pub(crate) fn parse(line: &str) -> Ex {
             Some(on) => Ex::Tree(Some(on)),
             None if rest.is_empty() => Ex::Tree(None),
             None => Ex::Unknown(format!("{word} {rest}")),
+        },
+        // The right-hand strip. Bare `sidebar` is the toggle, the same shape `:tree`
+        // takes; a view word switches what the strip shows. `:sidebar sideways` is
+        // refused rather than guessed at, because a wrong view is a confusing answer to
+        // a command that was spelled with intent.
+        "sidebar" => match rest {
+            "" => Ex::Sidebar(None),
+            rest => match bool_word(rest) {
+                Some(on) => Ex::Sidebar(Some(on)),
+                None => match crate::sidebar::View::from_word(rest) {
+                    Some(view) => Ex::SidebarView(view),
+                    None => Ex::Unknown(format!("{word} {rest}")),
+                },
+            },
         },
         // The three views. `source` and `src` are there because that is the word
         // other markdown editors use for the same view, and `view` because the

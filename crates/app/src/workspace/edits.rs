@@ -169,6 +169,8 @@ impl Workspace {
             ex::Ex::FocusScope(word) => self.set_focus_scope(&word, cx),
             ex::Ex::Typewriter(Some(on)) => self.set_typewriter(on, cx),
             ex::Ex::Tree(Some(on)) => self.set_tree_visible(on, window, cx),
+            ex::Ex::Sidebar(Some(on)) => self.set_sidebar_visible(on, window, cx),
+            ex::Ex::SidebarView(view) => self.show_sidebar_view(view, cx),
             ex::Ex::Theme(name) => match self.set_theme(&name, cx) {
                 Ok(()) => {
                     // A hand-written theme that loads but paints something too
@@ -225,6 +227,7 @@ impl Workspace {
             | ex::Ex::Focus(None)
             | ex::Ex::Typewriter(None)
             | ex::Ex::Tree(None)
+            | ex::Ex::Sidebar(None)
             | ex::Ex::ThemePicker
             | ex::Ex::VaultPicker
             | ex::Ex::NewWindow

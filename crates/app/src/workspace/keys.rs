@@ -409,6 +409,32 @@ fn build() -> (Vec<KeyBinding>, Vec<KeymapRow>) {
         "r" => RenameNote,
         "shift-d" => DeleteNote,
     ]);
+    // The right-hand strip, while it has the keyboard (`ctrl-w l` from the rightmost
+    // pane). The motion keys are the tree's, because the two strips are one family and
+    // the user should not have to learn a second set (`design-language.md` §4). `h`/`l`
+    // fold and unfold the section under the selection — the same decision the note's own
+    // `zc`/`zo` make, so the outline and the gutter can never disagree. `[`/`]` choose
+    // which of the five views is showing; the strip shows one at a time.
+    // `Tab`/`shift-Tab` are deliberately **not** bound here: they are the relevel keys,
+    // and that is roadmap P4.13 M2's work, not a binding to a verb that does not exist.
+    bind!(b, Some("sidebar"), [
+        "j" => SidebarDown,
+        "k" => SidebarUp,
+        "down" => SidebarDown,
+        "up" => SidebarUp,
+        "h" => SidebarCollapse,
+        "l" => SidebarExpand,
+        "left" => SidebarCollapse,
+        "right" => SidebarExpand,
+        "enter" => SidebarOpen,
+        "[" => SidebarPrevView,
+        "]" => SidebarNextView,
+        // Same reasoning as the tree's: a lone `space` in this context would sit for the
+        // pending timeout before any `space` leader could fire, so the strip's toggle is
+        // the two-key chord and nothing else claims the prefix.
+        "space b" => SidebarToggle,
+        "escape" => FocusEditor,
+    ]);
     // The one-line prompt. Printable characters never reach a keybinding — they
     // arrive through the input handler — so only the keys that are not text are
     // bound here.
@@ -684,6 +710,13 @@ fn action_note(name: &str) -> Option<&'static str> {
         "TreeCollapse" => "collapse this folder, or step out of it",
         "TreeExpand" => "open this folder, or step into it",
         "TreeOpen" => "open this note",
+        "SidebarDown" => "move the selection down",
+        "SidebarUp" => "move the selection up",
+        "SidebarCollapse" => "fold this section in the note",
+        "SidebarExpand" => "unfold this section in the note",
+        "SidebarOpen" => "jump the note to this section",
+        "SidebarPrevView" => "show the previous view in the strip",
+        "SidebarNextView" => "show the next view in the strip",
         "FocusEditor" => "hand the keyboard to the tab on screen",
         "FieldSubmit" => "accept what is typed",
         "FieldCancel" => "dismiss without accepting",

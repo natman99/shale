@@ -1376,6 +1376,67 @@ impl MarkdownEditor {
         cx.notify();
     }
 
+    /// Scroll buffer row `row` into view **without moving the caret** — the sidebar
+    /// scrubber (sidebar-plan.md ruling 18).
+    ///
+    /// The cousin of [`Self::reveal_line`] with the caret left exactly where it was,
+    /// which is the whole point: the strip can show a section the reader has not
+    /// committed to yet, and backing out of the strip leaves the note where it was.
+    /// The scroll is the same one the wheel drives, so a scrub the user did by hand is
+    /// never undone by this.
+    pub(crate) fn preview_line(&mut self, row: usize, cx: &mut Context<Self>) {
+        let index = {
+            let buffer = self.buffer.borrow();
+            let row = row.min(buffer.line_count() - 1);
+            buffer.display_index_for(&self.slot, buffer.line_start(row))
+        };
+        self.scroll_handle.scroll_to_item(index);
+        cx.notify();
+    }
+
+    /// The caret's buffer row. What the sidebar's current-section mark follows.
+    pub(crate) fn caret_row(&self) -> usize {
+        let buffer = self.buffer.borrow();
+        buffer.row_col(buffer.cursor()).0
+    }
+
+    /// The address of the buffer this view draws. Two reads that match are the same
+    /// `Rc<RefCell<Buffer>>` — which is what a heading jump inside the note already on
+    /// screen must leave alone (sidebar-plan.md ruling 19): a jump that re-opened the
+    /// note would hand back a different address with identical text.
+    #[cfg(test)]
+    pub(crate) fn buffer_address(&self) -> usize {
+        std::rc::Rc::as_ptr(&self.buffer) as *const () as usize
+    }
+
+    /// How far this view has been scrolled, in gpui's own units and sign. The strip's
+    /// scrubber moves it without touching the caret, which is the whole point of it.
+    #[cfg(test)]
+    pub(crate) fn scroll_offset(&self) -> f32 {
+        self.scroll_handle.offset().y.as_f32()
+    }
+
+    /// Close (`zc`) or open (`zo`) the fold that the row `row` opens — the sidebar's
+    /// `h`/`l`, which is the same decision the note's own fold keys make, so the
+    /// outline and the gutter can never disagree (sidebar-plan.md ruling 7).
+    pub(crate) fn fold_section_at(&mut self, row: usize, close: bool, cx: &mut Context<Self>) {
+        let text = self.buffer.borrow().text().to_string();
+        let change_id = self.buffer.borrow().change_id();
+        if close {
+            self.slot.fold_close_at(&text, change_id, row);
+        } else {
+            self.slot.fold_open_at(&text, change_id, row);
+        }
+        // Closing a fold can hide the row the caret is on, and the note's rule is that
+        // the caret comes to rest on a row the view actually paints. Same clamp the
+        // note's own `zc` runs, so the strip cannot leave the caret inside a fold.
+        self.buffer
+            .borrow_mut()
+            .clamp_cursor_out_of_folds(&mut self.slot);
+        self.ensure_cursor_visible();
+        cx.notify();
+    }
+
     /// Move the caret to the heading an anchor names and scroll it into view.
     ///
     /// Returns whether the heading was found. The caller decides what to say when it

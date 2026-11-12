@@ -109,6 +109,8 @@ impl Workspace {
             focus_scope: seat.as_ref().map(|seat| seat.4.clone()),
             typewriter: seat.as_ref().map(|seat| seat.5),
             tree_visible: Some(self.tree_visible),
+            sidebar_visible: Some(self.sidebar_visible),
+            sidebar_view: Some(self.sidebar_view.word().to_string()),
             jumps_back: back
                 .into_iter()
                 .map(|jump| CoreJump {
@@ -261,6 +263,18 @@ impl Workspace {
         // away should never have had one painted first to move it out of the way.
         if let Some(visible) = session.tree_visible {
             self.tree_visible = visible;
+        }
+
+        // The right-hand strip, same place in the order and for the same reason: a
+        // window that opens with the strip away should never have had one painted first
+        // to move it out of the way. The view is restored by its word, and a word this
+        // build does not know falls back to the outline rather than failing the file
+        // (sidebar-plan.md EDGE-S3).
+        if let Some(visible) = session.sidebar_visible {
+            self.sidebar_visible = visible;
+        }
+        if let Some(word) = session.sidebar_view.as_deref() {
+            self.sidebar_view = crate::sidebar::View::from_word(word).unwrap_or_default();
         }
 
         // The graph filter, before any tab is opened: the graph tab's first frame is

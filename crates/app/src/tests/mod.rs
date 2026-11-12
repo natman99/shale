@@ -80,6 +80,7 @@ mod quotes;
 mod review;
 mod search;
 mod session;
+mod sidebar;
 mod spell;
 mod start;
 mod status;

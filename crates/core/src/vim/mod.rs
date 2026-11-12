@@ -201,6 +201,11 @@ pub enum Outcome {
     /// `e` is what the expanded vim file browsers answer with `<leader>e`, which is the
     /// shape a user reaching for this is reaching for.
     ToggleTree,
+    /// `space b` was typed: put the right-hand strip away, or bring it back. The window's
+    /// answer, not the engine's — it changes what the frame draws, and the note takes the
+    /// width the strip had. `b` because the strip is the note's *back* side, and because
+    /// it is the leader letter the tree, focus, graph and clipboard chords have not taken.
+    ToggleSidebar,
 }
 
 /// What an operation did to the text it took, which decides which of vim's
@@ -569,6 +574,9 @@ impl Vim {
             // and `e` is the last leader letter that no view, clipboard or graph chord
             // has taken.
             (true, Key::Char('e')) => Some(Outcome::ToggleTree),
+            // The right-hand strip (roadmap P4.13). The mirror of the tree's chord: the
+            // way out is the same two keys as the way in.
+            (true, Key::Char('b')) => Some(Outcome::ToggleSidebar),
             // The fold. `z` because it is vim's fold letter, and because in
             // preview `za` is swallowed with every other caret motion: the
             // leader is the one key route a reading view still has.

@@ -202,6 +202,65 @@ impl Workspace {
     pub(crate) fn tree_focus(&self) -> gpui::FocusHandle {
         self.tree_focus.clone()
     }
+    // ----- the right-hand strip (roadmap P4.13) ------------------------
+    /// Whether the strip is drawn, for the `space b`, `:sidebar` and session tests.
+    #[cfg(test)]
+    pub(crate) fn sidebar_visible(&self) -> bool {
+        self.sidebar_visible
+    }
+    /// Which view the strip is showing, by its word.
+    #[cfg(test)]
+    pub(crate) fn sidebar_view(&self) -> &'static str {
+        self.sidebar_view.word()
+    }
+    /// The rows the last frame drew: buffer line, depth, text. Asserted by **which**
+    /// rows, never by how many — two notes with the same heading count are not the same
+    /// outline, and a row's line is what a jump and a mark are both keyed to.
+    #[cfg(test)]
+    pub(crate) fn sidebar_rows(&self) -> Vec<(usize, u8, String)> {
+        self.sidebar_rows
+            .iter()
+            .map(|row| (row.line, row.depth, row.text.clone()))
+            .collect()
+    }
+    /// The section the caret is in, as of the last frame: the mark.
+    #[cfg(test)]
+    pub(crate) fn sidebar_mark(&self) -> Option<usize> {
+        self.sidebar_mark
+    }
+    /// The heading line the strip's keyboard is on.
+    #[cfg(test)]
+    pub(crate) fn sidebar_selection(&self) -> Option<usize> {
+        self.sidebar_selection
+    }
+    /// How far the strip has been scrolled, in pixels; the reading the tree's own
+    /// scroll test uses.
+    #[cfg(test)]
+    pub(crate) fn sidebar_scroll_offset(&self) -> f32 {
+        self.sidebar_scroll.offset().y.as_f32()
+    }
+    /// The strip's keyboard, for the tests that check where the keys go.
+    #[cfg(test)]
+    pub(crate) fn sidebar_focus(&self) -> gpui::FocusHandle {
+        self.sidebar_focus.clone()
+    }
+    /// How far the note has been scrolled, in pixels; negative is scrolled down. The
+    /// strip's scrubber moves this without touching the caret (sidebar-plan.md ruling Q).
+    #[cfg(test)]
+    pub(crate) fn note_scroll_offset<C: gpui::AppContext>(&self, cx: &C) -> f32 {
+        self.editor()
+            .map(|editor| editor.read_with(cx, |editor, _cx| editor.scroll_offset()))
+            .unwrap_or(0.)
+    }
+    /// The identity of the buffer behind the note on screen: two reads that match are
+    /// the same `Rc<RefCell<Buffer>>`, which is what a heading jump inside the note
+    /// already on screen must leave alone (sidebar-plan.md ruling 19). A tab that
+    /// re-opened the note would hand back a different address even with identical text.
+    #[cfg(test)]
+    pub(crate) fn buffer_identity<C: gpui::AppContext>(&self, cx: &C) -> Option<usize> {
+        self.editor()
+            .map(|editor| editor.read_with(cx, |editor, _cx| editor.buffer_address()))
+    }
     #[cfg(test)]
     /// How many display lines the note on screen is laid out as. The overlay's phantom
     /// rows are deliberately **not** in this number (roadmap P2.5b).

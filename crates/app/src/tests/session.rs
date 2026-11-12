@@ -88,6 +88,8 @@ fn a_session_reopens_the_vault_where_the_user_left_it(cx: &mut TestAppContext) {
         typewriter: Some(true),
         // A sidebar the user had put away comes back put away.
         tree_visible: Some(false),
+        sidebar_visible: None,
+        sidebar_view: None,
         jumps_back: vec![Jump {
             path: Some(PathBuf::from("a.md")),
             cursor: 6,

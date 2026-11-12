@@ -24,6 +24,7 @@ mod popup;
 mod preview;
 mod prompt;
 mod review;
+mod sidebar;
 mod style;
 mod table_view;
 mod theme;

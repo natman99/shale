@@ -509,6 +509,8 @@ fn a_session_reopens_every_tab(cx: &mut TestAppContext) {
         focus_scope: None,
         typewriter: None,
         tree_visible: None,
+        sidebar_visible: None,
+        sidebar_view: None,
         jumps_back: vec![],
         jumps_forward: vec![],
         tabs: vec![
@@ -577,6 +579,8 @@ fn a_session_tab_whose_note_is_gone_is_dropped(cx: &mut TestAppContext) {
         focus_scope: None,
         typewriter: None,
         tree_visible: None,
+        sidebar_visible: None,
+        sidebar_view: None,
         jumps_back: vec![Jump {
             path: Some(PathBuf::from("a.md")),
             cursor: 0,
