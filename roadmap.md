@@ -210,9 +210,10 @@ link resolver + renderer (exist) ──► P4.0 transclusion ──┬─► ![[
                                                         ├─► hover preview (P6.2)
                                                         └─► P4.9 block refs ──► canvas C3
 props index (P4.3a) ──► .shq columns, `prop:` operator (P4.14), typed edges (fills
-                        `edges`), tag tree + graph hues from frontmatter, GM toolkit
-headings index (P4.3b, AFTER P4.3a) ──► section-grouped chips (P7.10), outline pane from
-                        the index, block cards (C3), `#heading` anchors
+                        `edges`), tag tree + graph hues from frontmatter, GM toolkit,
+                        sidebar tags/properties (P4.13)
+headings index (P4.3b, AFTER P4.3a) ──► section-grouped chips (P7.10), sidebar outline
+                        (P4.13) from the index, block cards (C3), `#heading` anchors
 relative queries (P4.3) ──► scene cards, cue/counter lists, per-session prep,
                         graph lenses (P4.16: a lens IS a saved .shq)
 ```
@@ -1662,13 +1663,26 @@ edges, query nodes, MCP canvas tools) is P6.10.
   config) → insert `![[name]]`. The embed *renderer* exists (`line_image_embed`); the
   capture half does not. Two known renderer leftovers ride along: an embed inside a
   paragraph is not drawn as a picture, and a `|alias` suffix reads as "no size".
-- **P4.13 Outline pane** (brainstorm ✅). **Added by the audit.** The open note's heading
-  tree as a pane, click to jump, current section marked; the heading knowledge comes
-  from `mdstyle`/`mdlayout`, the same units `da#` operates on. Distinct from the
-  canvas outline view in P5.6 — do not build one and call it both.
-  **Pointer (2026-11-08):** once **P4.3b** lands the `headings` table, the pane can read
-  the tree from the index for notes it has not opened; the buffer path stays the source
-  for the *open* note, because an unsaved heading is not in the index yet.
+- **P4.13 Sidebar — outline, links, tags, properties** (brainstorm ✅). **Added by the
+  audit; reshaped by the sidebar round of 2026-11-11 from "an outline pane" into a strip
+  that answers four questions about one note.** A fixed strip on the **right**, opposite
+  the file tree, mirroring the tree's hosting pattern (its own `FocusHandle`, its own
+  keymap context, its own visibility toggle, session-restored) and its keyboard
+  (`j k h l enter`, `escape` back to the note). It describes the focused note, or the
+  note the pane last had when the strip itself has the keyboard (`Pane::note_mru`), and
+  `:pin` sticks it to one note. Its sections: the heading tree (click to jump, current
+  section marked on caret moves **and** on scroll, mirroring the note's folds, no block
+  ids), **links to here** and **links from here** (backlinks have no window surface today
+  — `docs/notes.md:151` says so out loud — and `links(source, target, target_kind)` has
+  neither a `Db` reader nor a line column, which is M2's schema question), the note's
+  tags, and its properties. `shift+j`/`shift+k` move a heading, taking its deeper
+  sub-headings with it (`section_range` is already depth-aware), never re-parenting and
+  never changing a level. The heading knowledge comes from `mdstyle`/`mdlayout`, the same
+  units `da#` operates on; the `headings` table (P4.3b, closed 2026-11-10) is what lets
+  it speak about notes it has not opened, and the buffer stays the source for the open
+  one, because an unsaved heading is not in the index yet. Distinct from the canvas
+  outline view in P5.6 — do not build one and call it both. **The findings, the round-1
+  rulings, the edge ledger and the round-2 questions are in `sidebar-plan.md`.**
 - **P4.14 Search operators** (brainstorm ✅). **Added by the audit.** `tag:`, `path:`,
   `link:`, `modified:` and friends in vault search, over the P1 index. **One grammar,
   one parser, shared with `.shq` (P4.3)** — inventing it twice is how the two surfaces

@@ -775,10 +775,31 @@ mobile, ~~Canvas~~ **reopened 2026-11-03 — see the Canvas section below and
   shadowed a motion for an object nobody had typed yet. The caret is the mark a block id is
   written with, which makes the object, the anchor and the embed one named atom.
 
-### Outline pane ✅
-- Heading tree in a sidebar: click to jump, current heading highlighted while
-  scrolling, respects folds. Distinct from outliner *editing* — this is
-  navigation. Reuses the parser's heading spans.
+### Sidebar views ✅ (sidebar round, 2026-11-11; roadmap **P4.13**)
+- A fixed strip on the **right**, opposite the file tree, answering four questions about
+  one note — **outline**, **links to here**, **links from here**, **tags**,
+  **properties** — as one continuous list with collapsible sections, not four pickers.
+  The policy the user set: *"they can share the same general style and layout, but I do
+  want not just a picker."*
+- **Outline:** heading tree, click to jump, current heading marked while scrolling *and*
+  on caret moves, mirrors the note's folds. **No block ids** — `:blocks` is the block
+  inventory. Distinct from outliner *editing* (P6.1): this is navigation plus one motion.
+- **Move:** `shift+j`/`shift+k` move a heading and take its deeper sub-headings with it
+  (`section_range` is already depth-aware). One grouped edit, so one `u` puts it back.
+  **Never re-parents, never changes a level** — a move that would is refused.
+- **Subject:** the focused note; when the strip has the keyboard, the note the pane last
+  had (`Pane::note_mru`). `:pin` sticks it to one note — one verb, two subjects: in a tab
+  it means "do not replace me", here "do not follow the tab switch".
+- **Keys mirror the tree's** (`j k h l enter`, `escape` back to the note), because the
+  tree is already a sidebar with exactly that grammar (`keys.rs:385`).
+- **Truth rule:** anything describing the open note reads the **buffer** (an unsaved
+  heading, tag or property is real and the index does not know it); backlinks and
+  outgoing links read the index. With the index off, an index-backed section says so
+  rather than showing nothing.
+- **Parked, look again:** block-level backlinks ("which notes embed this block") — refused
+  2026-11-11 because `links` rows are note-level and the anchor is dropped for resolution,
+  so it is a schema change plus a re-index, not a view. Reopen when block provenance is
+  wanted in the window; the links section is where it would appear.
 
 ### Unresolved link → create note ✅
 - The editor half of ghost nodes: command on cursor-over-link (`ctrl-enter`
@@ -1439,7 +1460,7 @@ idea, only a phase number attached to a ruling that already existed:
 | Trash ✅ ("very important") | **P4.10** |
 | Daily notes ✅ | **P4.11** |
 | Attachment capture ✅ | **P4.12** |
-| Outline pane ✅ | **P4.13** |
+| Sidebar views — outline, links, tags, props ✅ | **P4.13** |
 | Search operators ✅ | **P4.14** |
 | Inline computed surfaces ✅ | **P4.15** |
 | Graph lenses ✅, tag-node coloring ✅ | **P4.16** (colour rides P4.4) |
