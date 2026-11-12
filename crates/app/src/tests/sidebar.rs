@@ -640,3 +640,290 @@ fn the_strip_refuses_the_keyboard_when_it_has_no_note_to_describe(cx: &mut TestA
         "and the strip never holds the window's focus either"
     );
 }
+// ----- the structure acts (sidebar-plan.md M2) ---------------------
+
+/// The note's text as the editor holds it, unsaved edits included: the structure acts
+/// edit the buffer, and a test that read the file on disk would be testing a save.
+fn body(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> String {
+    window
+        .update(cx, |ws, _window, cx| ws.buffer_text(cx))
+        .unwrap()
+}
+
+/// What the status line said last, which is how a refusal is checked: the act's other
+/// half is the sentence, and a keystroke that does nothing quietly is the failure mode
+/// the plan called out (EDGE-S9).
+fn said(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> String {
+    window.update(cx, |ws, _window, _cx| ws.status()).unwrap()
+}
+
+/// The strip with the keyboard in it, and its selection walked down `to` rows.
+fn enter_strip(cx: &mut VisualTestContext, to: usize) {
+    cx.simulate_keystrokes("ctrl-w l");
+    cx.run_until_parked();
+    for _ in 0..to {
+        cx.simulate_keystrokes("j");
+        cx.run_until_parked();
+    }
+    repaint(cx);
+}
+
+#[gpui::test]
+fn shift_j_moves_a_section_and_everything_nested_under_it(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = strip_over(cx, OUTLINE);
+    enter_strip(&mut cx, 1); // `## Second`
+    assert_eq!(selection(&window, &mut cx), Some(4));
+
+    cx.simulate_keystrokes("shift-j");
+    cx.run_until_parked();
+    repaint(&mut cx);
+
+    assert_eq!(
+        body(&window, &mut cx),
+        "# Top\n\nintro\n\n## Fourth\n\nlast\n\n## Second\n\nmore\n\n### Third\n\ntext\n\n",
+        "the section moved whole: `### Third` went with its parent, not after it"
+    );
+    // The selection followed the heading to the line it landed on. A selection left on
+    // the line it vacated is how the next keystroke moves the wrong section.
+    assert_eq!(selection(&window, &mut cx), Some(8));
+    // And the rows the strip draws are the note's, in the note's new order.
+    assert_eq!(
+        rows(&window, &mut cx)
+            .iter()
+            .map(|(_, _, text)| text.as_str())
+            .collect::<Vec<_>>(),
+        vec!["Top", "Fourth", "Second", "Third"]
+    );
+    assert!(
+        said(&window, &mut cx).contains("moved"),
+        "and the strip said what it did: {}",
+        said(&window, &mut cx)
+    );
+}
+
+#[gpui::test]
+fn shift_k_moves_a_section_up_past_its_sibling(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = strip_over(cx, OUTLINE);
+    enter_strip(&mut cx, 3); // `## Fourth` (rows: Top, Second, Third, Fourth)
+    assert_eq!(selection(&window, &mut cx), Some(12));
+
+    cx.simulate_keystrokes("shift-k");
+    cx.run_until_parked();
+    repaint(&mut cx);
+
+    assert_eq!(
+        body(&window, &mut cx),
+        "# Top\n\nintro\n\n## Fourth\n\nlast\n\n## Second\n\nmore\n\n### Third\n\ntext\n\n",
+        "up is the same swap, from the other side"
+    );
+    assert_eq!(selection(&window, &mut cx), Some(4));
+}
+
+#[gpui::test]
+fn a_move_never_lifts_a_section_out_from_under_its_parent(cx: &mut TestAppContext) {
+    // EDGE-S2: `## E`'s nearest same-level heading above is `## B`, but B lives under
+    // `# A`. Moving E up would re-parent it, which is a different act than a reorder.
+    const NESTED: &str = "# A\n\n## B\n\nb\n\n# D\n\n## E\n\ne\n";
+    let (_dir, window, mut cx) = strip_over(cx, NESTED);
+    enter_strip(&mut cx, 3); // `## E`
+    assert_eq!(selection(&window, &mut cx), Some(8));
+
+    cx.simulate_keystrokes("shift-k");
+    cx.run_until_parked();
+    repaint(&mut cx);
+
+    assert_eq!(
+        body(&window, &mut cx),
+        NESTED,
+        "the note is untouched by a move it refused"
+    );
+    assert_eq!(
+        said(&window, &mut cx),
+        "“E” has no sibling under the same parent, so it cannot move up"
+    );
+}
+
+#[gpui::test]
+fn tab_relevels_a_heading_and_its_subtree_as_one_edit(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = strip_over(cx, OUTLINE);
+    enter_strip(&mut cx, 1); // `## Second`
+
+    cx.simulate_keystrokes("tab");
+    cx.run_until_parked();
+    repaint(&mut cx);
+
+    assert_eq!(
+        body(&window, &mut cx),
+        "# Top\n\nintro\n\n# Second\n\nmore\n\n## Third\n\ntext\n\n## Fourth\n\nlast\n",
+        "the heading went up a level and `### Third` came with it, keeping the shape"
+    );
+    assert_eq!(
+        rows(&window, &mut cx)
+            .iter()
+            .map(|(_, depth, _)| *depth)
+            .collect::<Vec<_>>(),
+        vec![1, 1, 2, 2],
+        "and the strip's own rows agree with the note"
+    );
+
+    // One grouped edit: a single `u` in the note puts the whole subtree back. If the
+    // relevel had gone in as four separate edits, this would restore one heading and
+    // leave the rest of the subtree changed.
+    cx.simulate_keystrokes("escape");
+    cx.run_until_parked();
+    cx.simulate_keystrokes("u");
+    cx.run_until_parked();
+    assert_eq!(
+        body(&window, &mut cx),
+        OUTLINE,
+        "one `u`, the whole subtree"
+    );
+}
+
+#[gpui::test]
+fn shift_tab_demotes_a_heading(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = strip_over(cx, OUTLINE);
+    enter_strip(&mut cx, 1); // `## Second`
+
+    cx.simulate_keystrokes("shift-tab");
+    cx.run_until_parked();
+    repaint(&mut cx);
+
+    assert_eq!(
+        body(&window, &mut cx),
+        "# Top\n\nintro\n\n### Second\n\nmore\n\n#### Third\n\ntext\n\n## Fourth\n\nlast\n",
+        "and down takes the subtree the same way up does"
+    );
+    assert!(said(&window, &mut cx).contains("###"));
+}
+
+#[gpui::test]
+fn a_top_level_heading_cannot_be_promoted(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = strip_over(cx, OUTLINE);
+    enter_strip(&mut cx, 0); // `# Top`
+
+    cx.simulate_keystrokes("tab");
+    cx.run_until_parked();
+    repaint(&mut cx);
+
+    assert_eq!(
+        body(&window, &mut cx),
+        OUTLINE,
+        "there is no level above `#`"
+    );
+    assert_eq!(
+        said(&window, &mut cx),
+        "“Top” is already a top-level heading"
+    );
+}
+
+#[gpui::test]
+fn a_sixth_level_heading_cannot_be_demoted(cx: &mut TestAppContext) {
+    // The other end of the scale. The refusal is the same shape — a reason, not silence.
+    const DEEP: &str = "###### Six\n\nbody\n";
+    let (_dir, window, mut cx) = strip_over(cx, DEEP);
+    enter_strip(&mut cx, 0);
+
+    cx.simulate_keystrokes("shift-tab");
+    cx.run_until_parked();
+    repaint(&mut cx);
+
+    assert_eq!(body(&window, &mut cx), DEEP);
+    assert_eq!(
+        said(&window, &mut cx),
+        "“Six” or something under it is already ######"
+    );
+}
+
+#[gpui::test]
+fn a_relevel_keeps_the_headings_block_id_and_it_still_names_the_block(cx: &mut TestAppContext) {
+    // EDGE-S10: the edit is the marker run, not the heading line. Rewriting the line is
+    // the shortcut that would silently drop the anchor — and an anchor that stops
+    // resolving because a heading changed level is a broken link in every other note.
+    const ANCHORED: &str = "## The Fall ^fall\n\nbody\n";
+    let (_dir, window, mut cx) = strip_over(cx, ANCHORED);
+    enter_strip(&mut cx, 0);
+
+    cx.simulate_keystrokes("tab");
+    cx.run_until_parked();
+    repaint(&mut cx);
+
+    let text = body(&window, &mut cx);
+    assert_eq!(text, "# The Fall ^fall\n\nbody\n");
+    let map = shale_core::mdstyle::block_map(&text);
+    assert!(
+        map.anchors.iter().any(|anchor| anchor.id == "fall"),
+        "and `^fall` still names a block in the relevelled note: {map:?}",
+    );
+}
+
+#[gpui::test]
+fn a_move_carries_the_headings_block_id_with_it(cx: &mut TestAppContext) {
+    const ANCHORED: &str = "## A ^one\n\na\n\n## B ^two\n\nb\n";
+    let (_dir, window, mut cx) = strip_over(cx, ANCHORED);
+    enter_strip(&mut cx, 1); // `## B ^two`
+
+    cx.simulate_keystrokes("shift-k");
+    cx.run_until_parked();
+    repaint(&mut cx);
+
+    let text = body(&window, &mut cx);
+    // The chunks move verbatim, so the blank line that used to separate them now trails
+    // the note: the spacing belongs to the section that had it.
+    assert_eq!(text, "## B ^two\n\nb\n\n## A ^one\n\na\n\n");
+    let map = shale_core::mdstyle::block_map(&text);
+    for id in ["two", "one"] {
+        assert!(
+            map.anchors.iter().any(|anchor| anchor.id == id),
+            "`^{id}` still names a block after the move: {map:?}",
+        );
+    }
+}
+
+#[gpui::test]
+fn the_structure_keys_refuse_a_read_only_surface(cx: &mut TestAppContext) {
+    // A preview is read **to be read**. The buffer's own guard would drop the edit in
+    // silence, so the strip asks first and says what it would have done.
+    let (_dir, window, mut cx) = strip_over(cx, OUTLINE);
+    cx.simulate_keystrokes("escape");
+    cx.run_until_parked();
+    cx.simulate_keystrokes(":");
+    cx.simulate_input("preview");
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+    enter_strip(&mut cx, 1); // `## Second`
+
+    cx.simulate_keystrokes("tab");
+    cx.run_until_parked();
+    repaint(&mut cx);
+
+    assert_eq!(
+        body(&window, &mut cx),
+        OUTLINE,
+        "the preview's text is untouched"
+    );
+    assert_eq!(
+        said(&window, &mut cx),
+        "this note is read-only: cannot promote"
+    );
+}
+
+#[gpui::test]
+fn the_structure_keys_are_the_strips_and_not_the_notes(cx: &mut TestAppContext) {
+    // `Tab` is bound in the strip's context only. In the note it must still be whatever
+    // the note does with it — a context leak here would make `Tab` relevel headings from
+    // inside the buffer, which is not what anyone pressed.
+    let (_dir, window, mut cx) = strip_over(cx, OUTLINE);
+    cx.simulate_keystrokes("tab");
+    cx.run_until_parked();
+    repaint(&mut cx);
+    assert_eq!(
+        body(&window, &mut cx),
+        OUTLINE,
+        "Tab in the note did not relevel anything"
+    );
+    assert!(
+        selection(&window, &mut cx).is_none(),
+        "and the strip never acted, because it never had the keyboard"
+    );
+}

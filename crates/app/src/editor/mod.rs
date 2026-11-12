@@ -1151,6 +1151,13 @@ impl MarkdownEditor {
         self.note.buffer.borrow().text().to_string()
     }
 
+    /// Whether this surface's text is protected — preview mode, an embedded note seen
+    /// through its host (P4.17). A door that would edit it asks this first and says so,
+    /// rather than letting the buffer's own guard swallow the keystroke in silence.
+    pub fn is_read_only(&self) -> bool {
+        self.slot.is_read_only()
+    }
+
     /// The text of whichever buffer the caret is in — which is what the checker is
     /// holding, and what a change has to be sent as.
     pub fn caret_text(&self) -> String {

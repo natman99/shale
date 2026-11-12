@@ -415,8 +415,10 @@ fn build() -> (Vec<KeyBinding>, Vec<KeymapRow>) {
     // fold and unfold the section under the selection — the same decision the note's own
     // `zc`/`zo` make, so the outline and the gutter can never disagree. `[`/`]` choose
     // which of the five views is showing; the strip shows one at a time.
-    // `Tab`/`shift-Tab` are deliberately **not** bound here: they are the relevel keys,
-    // and that is roadmap P4.13 M2's work, not a binding to a verb that does not exist.
+    // `Tab`/`shift-Tab` are the relevel keys (ruling 10): the outliner's idiom, and free
+    // in this context because the strip is not a text field and does not indent. They
+    // take the heading's whole subtree with it, which is what makes them safe to fire
+    // from a row you have only looked at.
     bind!(b, Some("sidebar"), [
         "j" => SidebarDown,
         "k" => SidebarUp,
@@ -427,6 +429,10 @@ fn build() -> (Vec<KeyBinding>, Vec<KeymapRow>) {
         "left" => SidebarCollapse,
         "right" => SidebarExpand,
         "enter" => SidebarOpen,
+        "shift-j" => SidebarSectionDown,
+        "shift-k" => SidebarSectionUp,
+        "tab" => SidebarPromote,
+        "shift-tab" => SidebarDemote,
         "[" => SidebarPrevView,
         "]" => SidebarNextView,
         // Same reasoning as the tree's: a lone `space` in this context would sit for the
@@ -717,6 +723,10 @@ fn action_note(name: &str) -> Option<&'static str> {
         "SidebarOpen" => "jump the note to this section",
         "SidebarPrevView" => "show the previous view in the strip",
         "SidebarNextView" => "show the next view in the strip",
+        "SidebarSectionUp" => "move this section up among its siblings",
+        "SidebarSectionDown" => "move this section down among its siblings",
+        "SidebarPromote" => "one level up for this heading and its subtree",
+        "SidebarDemote" => "one level down for this heading and its subtree",
         "FocusEditor" => "hand the keyboard to the tab on screen",
         "FieldSubmit" => "accept what is typed",
         "FieldCancel" => "dismiss without accepting",

@@ -170,6 +170,15 @@ actions!(
         // `[` and `]` inside the strip: the other view (sidebar-plan.md ruling 16).
         SidebarPrevView,
         SidebarNextView,
+        // The structure acts (roadmap P4.13 M2, ruling 9 and 10): `shift-j`/`shift-k`
+        // move a section among its siblings, `Tab`/`shift-Tab` add or remove a level
+        // from a heading and everything nested under it. Four actions rather than two
+        // carrying a direction, because the keymap binds actions by name and a
+        // direction-shaped payload would have to be spelled at the binding anyway.
+        SidebarSectionUp,
+        SidebarSectionDown,
+        SidebarPromote,
+        SidebarDemote,
         QuickOpen,
         // Walking the chain of notes the user came from (`ctrl-o` back, `ctrl-i`
         // forward), the way vim and neovim do.

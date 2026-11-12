@@ -34,6 +34,12 @@ pub mod quotes;
 // which answer "what is the construct under this offset" from the same scan.
 pub mod object;
 
+// The structure acts the sidebar's outliner keys ask for: move a section among its
+// siblings, add or remove a level from a heading and its subtree. Pure text, so the
+// rules are table-tested without a buffer, and applied as one grouped edit by the
+// window that asks.
+pub mod section;
+
 use block::{callout_header_range, scan_line};
 
 // The block map: which parts of a note a `^id` can name. The index files ids from

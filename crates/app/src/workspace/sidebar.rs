@@ -12,6 +12,9 @@ use gpui::{Context, Window};
 
 use crate::acts::*;
 use crate::sidebar::{self, View};
+use shale_core::mdstyle::section::{
+    move_section, relevel_section, Direction, Refusal, StructureEdit,
+};
 
 use super::Workspace;
 
@@ -83,6 +86,23 @@ pub(super) fn push_row(
             cx.notify();
         }));
     rows.push(row_widget.into_any());
+}
+
+/// The reason the text would not take the edit, in the user's language.
+///
+/// Every one of these is said out loud. A structure key that does nothing and says
+/// nothing is how a user decides the feature is broken; a key that says "that one is
+/// already first under its parent" is a key they learn from.
+fn refusal_said(name: &str, what: &str, refusal: Refusal) -> String {
+    match refusal {
+        Refusal::NotAHeading => format!("that row is not a heading to {what}"),
+        Refusal::AlreadyTop => format!("“{name}” is already a top-level heading"),
+        Refusal::AlreadyDeepest => format!("“{name}” or something under it is already ######"),
+        Refusal::DifferentParent => {
+            format!("“{name}” has no sibling under the same parent, so it cannot {what}")
+        }
+        Refusal::NoNeighbour => format!("“{name}” has no section to {what} past"),
+    }
 }
 
 impl Workspace {
@@ -292,6 +312,123 @@ impl Workspace {
         cx.notify();
     }
 
+    // ----- the structure acts (roadmap P4.13 M2) ---------------------
+
+    /// `shift-k` / `shift-j`: move the selected section among its siblings, taking
+    /// everything nested under it with it (ruling 9).
+    ///
+    /// A move never re-parents: the core act refuses when the neighbour on that side
+    /// belongs to a different heading, and the refusal is said out loud.
+    pub(super) fn sidebar_move_section(&mut self, way: Direction, cx: &mut Context<Self>) {
+        let word = match way {
+            Direction::Up => "up",
+            Direction::Down => "down",
+        };
+        let done = self.sidebar_structure(
+            &format!("move {word}"),
+            |text, line| move_section(text, line, way),
+            cx,
+        );
+        if let Some((_, row)) = done {
+            self.say(format!("moved “{}” {word}", row.text), cx);
+        }
+    }
+
+    /// `Tab` / `shift-Tab`: add or remove a `#` from the selected heading and every
+    /// heading nested under it, keeping the shape of the subtree (ruling 10).
+    pub(super) fn sidebar_relevel(&mut self, delta: isize, cx: &mut Context<Self>) {
+        let word = if delta < 0 { "promote" } else { "demote" };
+        let done =
+            self.sidebar_structure(word, |text, line| relevel_section(text, line, delta), cx);
+        if let Some((_, row)) = done {
+            // The hashes, because that is what the row now opens with, and the strip is
+            // a surface made of headings.
+            let depth = row.depth as isize + delta;
+            self.say(
+                format!("“{}” is now {}", row.text, "#".repeat(depth as usize)),
+                cx,
+            );
+        }
+    }
+
+    /// The half the two structure acts share: the guards, the core act, the grouped
+    /// edit, and the selection following the heading it acted on. The caller says what
+    /// happened, because only the caller knows which act ran.
+    ///
+    /// Three guards, all of them a lie if skipped. The strip's note has to be the one on
+    /// screen: an outline row from a note that is not there is not a position in it. The
+    /// surface has to accept edits: a preview is read **to be read**, and the buffer's
+    /// own guard would otherwise swallow the keystroke without a word. And the selected
+    /// row has to still be a heading — the note may have been edited since the row was
+    /// drawn, and acting on a row that no longer matches is how the wrong section moves.
+    fn sidebar_structure(
+        &mut self,
+        what: &str,
+        ask: impl FnOnce(&str, usize) -> Result<StructureEdit, Refusal>,
+        cx: &mut Context<Self>,
+    ) -> Option<(StructureEdit, sidebar::Row)> {
+        let Some(line) = self.sidebar_selection else {
+            self.say(format!("no heading selected to {what}"), cx);
+            cx.notify();
+            return None;
+        };
+        let Some(row) = self
+            .sidebar_rows
+            .iter()
+            .find(|row| row.line == line)
+            .cloned()
+        else {
+            self.say(format!("no heading selected to {what}"), cx);
+            cx.notify();
+            return None;
+        };
+        if self.sidebar_subject(cx) != self.note() {
+            self.say(format!("the strip's note is not on screen to {what}"), cx);
+            cx.notify();
+            return None;
+        }
+        let Some(editor) = self.editor().cloned() else {
+            // No note on screen at all: the guards above already said why for the strip's
+            // own cases, and this one is the window having no editor to act on.
+            return None;
+        };
+        let (editable, text) =
+            editor.read_with(cx, |editor, _cx| (!editor.is_read_only(), editor.text()));
+        if !editable {
+            self.say(format!("this note is read-only: cannot {what}"), cx);
+            cx.notify();
+            return None;
+        }
+        match ask(&text, line) {
+            Err(refusal) => {
+                self.say(refusal_said(&row.text, what, refusal), cx);
+                cx.notify();
+                None
+            }
+            Ok(edit) => {
+                // One grouped edit, so one `u` puts the whole subtree back.
+                let applied = editor.update(cx, |editor, cx| editor.apply_edits(&edit.edits, cx));
+                if !applied {
+                    return None;
+                }
+                // The selection follows the heading rather than the line it was on. A
+                // moved section's heading is now somewhere else, and a selection left on
+                // the line it vacated is how the next keystroke moves the wrong section.
+                self.sidebar_selection = Some(edit.heading_line);
+                self.sidebar_rows = self.sidebar_outline(cx);
+                if let Some(index) = self
+                    .sidebar_rows
+                    .iter()
+                    .position(|row| row.line == edit.heading_line)
+                {
+                    self.sidebar_scroll.scroll_to_item(index);
+                }
+                cx.notify();
+                Some((edit, row))
+            }
+        }
+    }
+
     /// `enter` in the strip's keymap: the jump.
     pub(super) fn sidebar_open(
         &mut self,
@@ -340,6 +477,46 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         self.sidebar_step_view(1, cx);
+    }
+
+    /// `shift-k` in the strip's keymap.
+    pub(super) fn sidebar_section_up(
+        &mut self,
+        _: &SidebarSectionUp,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.sidebar_move_section(Direction::Up, cx);
+    }
+
+    /// `shift-j` in the strip's keymap.
+    pub(super) fn sidebar_section_down(
+        &mut self,
+        _: &SidebarSectionDown,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.sidebar_move_section(Direction::Down, cx);
+    }
+
+    /// `Tab` in the strip's keymap: one level up.
+    pub(super) fn sidebar_promote(
+        &mut self,
+        _: &SidebarPromote,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.sidebar_relevel(-1, cx);
+    }
+
+    /// `shift-Tab` in the strip's keymap: one level down.
+    pub(super) fn sidebar_demote(
+        &mut self,
+        _: &SidebarDemote,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.sidebar_relevel(1, cx);
     }
 
     // ----- what the strip is about -------------------------------------

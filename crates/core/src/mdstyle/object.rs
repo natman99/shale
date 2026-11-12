@@ -362,6 +362,9 @@ pub fn heading_spans(text: &str) -> Vec<HeadingSpan> {
 #[derive(Debug, PartialEq, Eq)]
 pub struct HeadingLine {
     pub line: usize,
+    /// The byte the line the heading sits on starts at, so a caller that needs to
+    /// touch the marker run does not rebuild the line table to find it.
+    pub line_start: usize,
     pub text_start: usize,
     pub text_end: usize,
     pub depth: u8,
@@ -388,6 +391,7 @@ pub fn heading_lines(text: &str) -> Vec<HeadingLine> {
         }
         out.push(HeadingLine {
             line,
+            line_start: span.line_start,
             text_start: span.text_start,
             text_end: span.text_end,
             depth: span.depth,

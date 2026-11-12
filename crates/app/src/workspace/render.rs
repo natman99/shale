@@ -974,6 +974,10 @@ impl Render for Workspace {
                                         .on_action(cx.listener(Self::sidebar_expand))
                                         .on_action(cx.listener(Self::sidebar_prev_view))
                                         .on_action(cx.listener(Self::sidebar_next_view))
+                                        .on_action(cx.listener(Self::sidebar_section_up))
+                                        .on_action(cx.listener(Self::sidebar_section_down))
+                                        .on_action(cx.listener(Self::sidebar_promote))
+                                        .on_action(cx.listener(Self::sidebar_demote))
                                         // `escape` leaves the strip for the note, the
                                         // way the tree's does.
                                         .on_action(cx.listener(Self::focus_editor))

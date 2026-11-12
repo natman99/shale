@@ -268,6 +268,10 @@ in hand. `docs/keys.md` is the human map of both halves.
 | `left` | fold this section in the note | `SidebarCollapse` | — |
 | `right` | unfold this section in the note | `SidebarExpand` | — |
 | `enter` | jump the note to this section | `SidebarOpen` | — |
+| `shift-j` | move this section down among its siblings | `SidebarSectionDown` | — |
+| `shift-k` | move this section up among its siblings | `SidebarSectionUp` | — |
+| `tab` | one level up for this heading and its subtree | `SidebarPromote` | — |
+| `shift-tab` | one level down for this heading and its subtree | `SidebarDemote` | — |
 | `[` | show the previous view in the strip | `SidebarPrevView` | — |
 | `]` | show the next view in the strip | `SidebarNextView` | — |
 | `space b` | Show or hide the right-hand strip | `SidebarToggle` | `sidebar.toggle` |
