@@ -1,0 +1,5 @@
++++
+name = "monster"
++++
+-- Saved from the search: tag:monster
+SELECT path AS note FROM notes n WHERE 1=1 AND EXISTS (SELECT 1 FROM tags t WHERE t.note = n.path AND t.tag = 'monster' COLLATE NOCASE) ORDER BY path
