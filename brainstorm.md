@@ -778,7 +778,9 @@ mobile, ~~Canvas~~ **reopened 2026-11-03 — see the Canvas section below and
 ### Sidebar views ✅ (sidebar round, 2026-11-11; roadmap **P4.13**)
 - A fixed strip on the **right**, opposite the file tree, answering four questions about
   one note — **outline**, **links to here**, **links from here**, **tags**,
-  **properties** — as one continuous list with collapsible sections, not four pickers.
+  **properties** — **one view at a time**, chosen rather than stacked, not four pickers.
+  It joins the window's `ctrl-w h/j/k/l` focus grammar the way the file tree does: the tree
+  is the fallback at the left edge, the strip is it at the right.
   The policy the user set: *"they can share the same general style and layout, but I do
   want not just a picker."*
 - **Outline:** heading tree, click to jump, current heading marked while scrolling *and*
@@ -787,6 +789,14 @@ mobile, ~~Canvas~~ **reopened 2026-11-03 — see the Canvas section below and
 - **Move:** `shift+j`/`shift+k` move a heading and take its deeper sub-headings with it
   (`section_range` is already depth-aware). One grouped edit, so one `u` puts it back.
   **Never re-parents, never changes a level** — a move that would is refused.
+- **Relevel:** `Tab`/`shift-Tab` add or remove a `#` from a heading **and every heading in
+  its subtree**, so the tree keeps its shape and only its depth moves. The children are
+  whatever the scan found *before* the change — otherwise a demotion quietly re-parents a
+  heading that ends up shallower than the new level. Caps are refused, not clamped; only
+  the marker run changes, so a trailing `^block-id` rides along.
+- **Follows the caret:** the current section is marked in colour always, and the list
+  scrolls only when the mark itself moved and the row is off-screen — so a scroll the user
+  made is never undone. The list's own selection carries the standard focus highlight.
 - **Subject:** the focused note; when the strip has the keyboard, the note the pane last
   had (`Pane::note_mru`). `:pin` sticks it to one note — one verb, two subjects: in a tab
   it means "do not replace me", here "do not follow the tab switch".
