@@ -10,11 +10,9 @@ make `:e` take file paths
 
 Docs mistake: says `space` is vim's move right motion when it is only used for chords.
 
-Let's change the default theme to match the system theme, else fallback to dark, instead of being mocha which is just my own preference.
-
 Why does pressing escape in the graph view move to a different tab?
 
-Update docs about the DB being safely removable once it's storing more valuable information
+Update docs about the DB being safely removable once it's storing more valuable information like timeline
 
 Do a cargo deny pass later
 
@@ -23,8 +21,6 @@ Commands to insert callouts and tables at the cursor and props at the note head.
 Test multiple search operators again manually
 
 Update project to Rust 2024
-
-Tab key doesn't work?
 
 Make :q close a pane/tab, not the whole app. Add :wqall + related `all` commands and logic following neovim.
 
@@ -35,3 +31,9 @@ Top `---` of properties doesn't render colored, bottom does.
 Make arrow keys move the cursor.
 
 What is `ctrl-t` even bound to? It duplicates the current note in a new tab.
+
+Do a massive grammar and text overhaul on like everything for consistency and sense.
+
+Mouse drag text select.
+
+Text selection in picker.
