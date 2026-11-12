@@ -1296,3 +1296,107 @@ fn a_property_that_is_not_a_link_does_not_open_anything(cx: &mut TestAppContext)
         "the row asked its key instead: {picked:?}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// M5: the pin
+// ---------------------------------------------------------------------------
+
+/// What the strip is stuck to, if anything: the fact the header's mark carries.
+fn pinned(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> Option<PathBuf> {
+    window
+        .update(cx, |ws, _window, _cx| ws.sidebar_pinned())
+        .unwrap()
+}
+
+#[gpui::test]
+fn the_strip_pins_to_a_note_and_stops_following(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("a.md", OUTLINE), ("b.md", "# Other\n")]);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show_at(&mut cx, &window, "a.md");
+    cx.run_until_parked();
+    cx.simulate_keystrokes("space b");
+    repaint(&mut cx);
+    cx.simulate_keystrokes("ctrl-w l");
+    repaint(&mut cx);
+
+    cx.simulate_keystrokes("p");
+    cx.run_until_parked();
+    assert_eq!(pinned(&window, &mut cx), Some(PathBuf::from("a.md")));
+    assert_eq!(status(&window, &mut cx), "the strip is pinned to a.md");
+
+    // A tab switch is the whole reason the pin exists: the note on screen moves on, and
+    // the strip does not.
+    show_at(&mut cx, &window, "b.md");
+    repaint(&mut cx);
+    assert_eq!(note(&window, &mut cx), Some(PathBuf::from("b.md")));
+    assert_eq!(
+        rows(&window, &mut cx),
+        vec![
+            (0, 1, "Top".to_string()),
+            (4, 2, "Second".to_string()),
+            (8, 3, "Third".to_string()),
+            (12, 2, "Fourth".to_string()),
+        ],
+        "the rows are still a.md's outline, not the note that is on screen now"
+    );
+}
+
+#[gpui::test]
+fn pinned_again_lets_the_strip_follow_the_note_again(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("a.md", OUTLINE), ("b.md", "# Other\n")]);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show_at(&mut cx, &window, "a.md");
+    cx.run_until_parked();
+    cx.simulate_keystrokes("space b");
+    repaint(&mut cx);
+    cx.simulate_keystrokes("ctrl-w l");
+    repaint(&mut cx);
+
+    cx.simulate_keystrokes("p p");
+    cx.run_until_parked();
+    assert_eq!(pinned(&window, &mut cx), None);
+    assert_eq!(status(&window, &mut cx), "the strip follows the note again");
+
+    show_at(&mut cx, &window, "b.md");
+    repaint(&mut cx);
+    assert_eq!(rows(&window, &mut cx), vec![(0, 1, "Other".to_string())]);
+}
+
+#[gpui::test]
+fn the_pin_survives_a_session_round_trip(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("a.md", OUTLINE)]);
+    let snapshot = {
+        let cx = &mut VisualTestContext::from_window(window.into(), cx);
+        window
+            .update(cx, |ws, _window, cx| {
+                ws.open_note(&PathBuf::from("a.md"), cx)
+            })
+            .unwrap();
+        cx.run_until_parked();
+        cx.simulate_keystrokes("space b");
+        cx.run_until_parked();
+        cx.simulate_keystrokes("ctrl-w l");
+        cx.run_until_parked();
+        cx.simulate_keystrokes("p");
+        cx.run_until_parked();
+        window
+            .update(cx, |ws, _window, cx| ws.session_snapshot(cx))
+            .unwrap()
+    };
+    assert_eq!(
+        snapshot.sidebar_pinned.as_deref(),
+        Some("a.md"),
+        "a pinned subject is a decision the user made, so it rides the session"
+    );
+
+    let (_dir2, restored) = vault_with_session(cx, &[("a.md", OUTLINE)], &snapshot);
+    let cx = &mut VisualTestContext::from_window(restored.into(), cx);
+    cx.run_until_parked();
+    assert_eq!(
+        restored
+            .update(cx, |ws, _window, _cx| ws.sidebar_pinned())
+            .unwrap(),
+        Some(PathBuf::from("a.md")),
+        "and it is pinned again in the window that opens from the file"
+    );
+}

@@ -426,6 +426,7 @@ fn a_session_reopens_the_graph_tab(cx: &mut TestAppContext) {
         tree_visible: None,
         sidebar_visible: None,
         sidebar_view: None,
+        sidebar_pinned: None,
         jumps_back: vec![],
         jumps_forward: vec![],
         tabs: vec![

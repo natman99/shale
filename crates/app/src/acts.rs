@@ -170,6 +170,9 @@ actions!(
         // `[` and `]` inside the strip: the other view (sidebar-plan.md ruling 16).
         SidebarPrevView,
         SidebarNextView,
+        // `p` inside the strip: stick it to the note it is describing, or let it follow
+        // the tabs again (sidebar-plan.md M5).
+        PinSidebar,
         // The structure acts (roadmap P4.13 M2, ruling 9 and 10): `shift-j`/`shift-k`
         // move a section among its siblings, `Tab`/`shift-Tab` add or remove a level
         // from a heading and everything nested under it. Four actions rather than two

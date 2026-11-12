@@ -274,6 +274,7 @@ in hand. `docs/keys.md` is the human map of both halves.
 | `shift-tab` | one level down for this heading and its subtree | `SidebarDemote` | — |
 | `[` | show the previous view in the strip | `SidebarPrevView` | — |
 | `]` | show the next view in the strip | `SidebarNextView` | — |
+| `p` | stick the strip to the note it is describing, or let it follow again | `PinSidebar` | — |
 | `space b` | Show or hide the right-hand strip | `SidebarToggle` | `sidebar.toggle` |
 | `escape` | hand the keyboard to the tab on screen | `FocusEditor` | — |
 

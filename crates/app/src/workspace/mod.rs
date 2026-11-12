@@ -317,6 +317,10 @@ pub(crate) struct Workspace {
     /// because typing changes how many rows there are and a line survives a row being
     /// added above it.
     sidebar_selection: Option<usize>,
+    /// The note the strip is **pinned** to: `Some` and the strip stops following the
+    /// tabs, describing this note until it is unpinned. `None` is the ordinary state,
+    /// where the subject is the note under the reader.
+    sidebar_pinned: Option<std::path::PathBuf>,
     /// The rows the last frame drew, which is what `j`/`k` step through.
     sidebar_rows: Vec<crate::sidebar::Row>,
     /// The section the caret is in, as of the last frame. This is the mark, and it is
@@ -652,6 +656,7 @@ impl Workspace {
             sidebar_visible: false,
             sidebar_view: crate::sidebar::View::Outline,
             sidebar_selection: None,
+            sidebar_pinned: None,
             sidebar_rows: Vec::new(),
             sidebar_mark: None,
             prompt: None,

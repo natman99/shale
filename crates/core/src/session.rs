@@ -235,6 +235,10 @@ pub struct Session {
     /// session file stays plain text a person can edit, and an unknown word restores the
     /// outline rather than failing.
     pub sidebar_view: Option<String>,
+    /// The note the strip was **pinned** to — describing one note while the tabs move on
+    /// (sidebar-plan.md M5). Kept in the spelling the tab held it, exactly like a tab's
+    /// own `path`, so a restored pin and a restored tab name the same note the same way.
+    pub sidebar_pinned: Option<String>,
     /// The jump chain: the notes behind the user (oldest first) and the ones
     /// ahead, the way `ctrl-o`/`ctrl-i` walk them.
     pub jumps_back: Vec<Jump>,
@@ -392,6 +396,7 @@ mod tests {
             tree_visible: Some(false),
             sidebar_visible: None,
             sidebar_view: None,
+            sidebar_pinned: None,
             jumps_back: vec![Jump {
                 path: Some(PathBuf::from("Welcome.md")),
                 cursor: 7,

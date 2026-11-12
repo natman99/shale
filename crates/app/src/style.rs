@@ -193,6 +193,10 @@ pub(crate) const GLYPH_DIRTY: &str = "●";
 /// Closing one tab.
 pub(crate) const GLYPH_CLOSE: &str = "×";
 
+/// The pin mark: a surface is fixed to one thing and has stopped following. The strip
+/// shows it when it is stuck to a note; a pinned tab would show the same mark.
+pub(crate) const GLYPH_PIN: &str = "◆";
+
 /// One key-chip: the key in a small boxed rule, then what it does in plain words.
 ///
 /// `design-language.md` §9 asks for keymap legends to render as boxed chips rather than

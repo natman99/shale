@@ -642,9 +642,48 @@ impl Workspace {
     /// outline is the one on screen), or the tab's. `None` is a tab with no note — the
     /// blank tab or the graph — which leaves the strip showing nothing rather than
     /// guessing (EDGE-S1).
+    /// The note the strip is describing: the **pinned** note when there is one, and
+    /// otherwise the note under the reader — the caret's note, falling back to the tab on
+    /// screen. A pinned subject that is not on screen is still answered, by reading its
+    /// file: the pin asked for an answer about that note, so it gets one.
     pub(crate) fn sidebar_subject(&self, cx: &mut Context<Self>) -> Option<PathBuf> {
+        if let Some(pinned) = &self.sidebar_pinned {
+            return Some(pinned.clone());
+        }
         self.caret_note(cx)
             .or_else(|| self.pane().active_tab().path().map(|p| p.to_path_buf()))
+    }
+
+    /// `p` inside the strip: stick it to the note it is describing, or let it follow
+    /// again. The pinned subject survives a tab switch — that is the whole point — and the
+    /// header shows the mark while it holds.
+    pub(super) fn toggle_sidebar_pin(&mut self, cx: &mut Context<Self>) {
+        let subject = self.sidebar_subject(cx);
+        match subject {
+            None => self.say("the strip has no note to pin to", cx),
+            Some(subject) if self.sidebar_pinned.as_deref() == Some(subject.as_path()) => {
+                self.sidebar_pinned = None;
+                self.say("the strip follows the note again", cx);
+            }
+            Some(subject) => {
+                self.say(format!("the strip is pinned to {}", subject.display()), cx);
+                self.sidebar_pinned = Some(subject);
+            }
+        }
+        // The rows may belong to a different note now, and a row key is a place in *its*
+        // view — the same reason switching views drops the selection.
+        self.sidebar_selection = None;
+        cx.notify();
+    }
+
+    /// The action behind `p` in the strip's own keymap context.
+    pub(super) fn pin_sidebar(
+        &mut self,
+        _: &crate::acts::PinSidebar,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.toggle_sidebar_pin(cx);
     }
 
     /// The caret's buffer row in the strip's note, which is what the current-section

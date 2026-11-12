@@ -435,6 +435,7 @@ fn build() -> (Vec<KeyBinding>, Vec<KeymapRow>) {
         "shift-tab" => SidebarDemote,
         "[" => SidebarPrevView,
         "]" => SidebarNextView,
+        "p" => PinSidebar,
         // Same reasoning as the tree's: a lone `space` in this context would sit for the
         // pending timeout before any `space` leader could fire, so the strip's toggle is
         // the two-key chord and nothing else claims the prefix.
@@ -726,6 +727,7 @@ fn action_note(name: &str) -> Option<&'static str> {
         "SidebarSectionUp" => "move this section up among its siblings",
         "SidebarSectionDown" => "move this section down among its siblings",
         "SidebarPromote" => "one level up for this heading and its subtree",
+        "PinSidebar" => "stick the strip to the note it is describing, or let it follow again",
         "SidebarDemote" => "one level down for this heading and its subtree",
         "FocusEditor" => "hand the keyboard to the tab on screen",
         "FieldSubmit" => "accept what is typed",

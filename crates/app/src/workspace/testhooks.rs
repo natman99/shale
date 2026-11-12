@@ -229,6 +229,11 @@ impl Workspace {
     pub(crate) fn sidebar_counts(&self) -> Vec<Option<usize>> {
         self.sidebar_rows.iter().map(|row| row.count).collect()
     }
+    /// The note the strip is pinned to, if it is pinned: what the header's mark means.
+    #[cfg(test)]
+    pub(crate) fn sidebar_pinned(&self) -> Option<PathBuf> {
+        self.sidebar_pinned.clone()
+    }
     /// The section the caret is in, as of the last frame: the mark.
     #[cfg(test)]
     pub(crate) fn sidebar_mark(&self) -> Option<usize> {

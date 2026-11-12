@@ -111,6 +111,10 @@ impl Workspace {
             tree_visible: Some(self.tree_visible),
             sidebar_visible: Some(self.sidebar_visible),
             sidebar_view: Some(self.sidebar_view.word().to_string()),
+            sidebar_pinned: self
+                .sidebar_pinned
+                .as_ref()
+                .map(|path| path.display().to_string()),
             jumps_back: back
                 .into_iter()
                 .map(|jump| CoreJump {
@@ -275,6 +279,13 @@ impl Workspace {
         }
         if let Some(word) = session.sidebar_view.as_deref() {
             self.sidebar_view = crate::sidebar::View::from_word(word).unwrap_or_default();
+        }
+        // The pin, in the same spelling the tabs use. A pin to a note that has since been
+        // deleted is kept rather than dropped: the strip reports the read failure the same
+        // way a restored tab does, which is louder and more honest than quietly deciding
+        // the user did not mean it.
+        if let Some(pinned) = session.sidebar_pinned.as_deref() {
+            self.sidebar_pinned = Some(std::path::PathBuf::from(pinned));
         }
 
         // The graph filter, before any tab is opened: the graph tab's first frame is

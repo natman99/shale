@@ -931,10 +931,18 @@ impl Render for Workspace {
                                         .pb_1()
                                         .font_weight(gpui::FontWeight::BOLD)
                                         .text_color(gpui::rgb(self.palette.ui_fg))
+                                        // The pin mark rides the header, not a row: the
+                                        // strip is fixed to one note and has stopped
+                                        // following the tabs (sidebar-plan.md M5).
                                         .child(format!(
-                                            "{} · {}",
+                                            "{} · {}{}",
                                             self.sidebar_view.label(),
-                                            self.sidebar_rows.len()
+                                            self.sidebar_rows.len(),
+                                            if self.sidebar_pinned.is_some() {
+                                                format!(" · {}", crate::style::GLYPH_PIN)
+                                            } else {
+                                                String::new()
+                                            }
                                         )),
                                 )
                                 .when(!self.sidebar_view.built(), |d| {
@@ -983,6 +991,7 @@ impl Render for Workspace {
                                         .on_action(cx.listener(Self::sidebar_section_down))
                                         .on_action(cx.listener(Self::sidebar_promote))
                                         .on_action(cx.listener(Self::sidebar_demote))
+                                        .on_action(cx.listener(Self::pin_sidebar))
                                         // `escape` leaves the strip for the note, the
                                         // way the tree's does.
                                         .on_action(cx.listener(Self::focus_editor))
