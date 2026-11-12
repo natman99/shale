@@ -1763,6 +1763,27 @@ edges, query nodes, MCP canvas tools) is P6.10.
   falsifications went red as intended: the line thrown away, ghosts filtered out, the line
   kept in the wrong direction, the outline-only guard removed, and the index-off sentence
   removed.
+  **M4 closed (2026-11-11): tags and properties.** All five views are built. The Tags view
+  lists the note's `#tags` **and** its `tags:`/`tag:` frontmatter through
+  `shale_core::graph::note_tags` — a new shared merge, because the indexer was restating
+  that loop by hand and the strip must not disagree with the index about what a note carries
+  — and each row carries `Db::tag_census`, the new reader for "how many **other** notes write
+  this", which excludes the described note by hand rather than subtracting, so a tag typed
+  but not saved cannot push the count negative. The Properties view lists the frontmatter as
+  authored, from the buffer; a value written `[[like this]]` is a link and opens through
+  `resolve_target` (file rules, aliases, saved queries — the door `gd` walks), and anything
+  else asks `prop:key` of the search, the `:keys` picker's hand-off, with a new `tag_token`
+  beside `prop_token` so both operators quote the same way (P4.14's one grammar).
+  **Three decisions the plan left open:** the census number is `Option` and drawn as nothing
+  when there is no index, because a screenful of zeros would claim "nobody else writes this"
+  about a vault nothing looked at; a click on a row that asks a vault question only selects
+  it, since the search field takes the keyboard and a click in this strip never does; and an
+  unresolved property link is marked at build time rather than at `enter`, so the row shows
+  the hole the way an unresolved wiki-link does. Five falsifications, all red: no-index
+  drawn as zero, the Tags view gated on the index, every value treated as a link, the census
+  counting the note itself, and the frontmatter half dropped from the merge — the last one
+  only after the new core test was rewritten, which had been written too weakly to bite and
+  said so on its own.
 - **P4.14 Search operators** (brainstorm ✅). **Added by the audit.** `tag:`, `path:`,
   `link:`, `modified:` and friends in vault search, over the P1 index. **One grammar,
   one parser, shared with `.shq` (P4.3)** — inventing it twice is how the two surfaces

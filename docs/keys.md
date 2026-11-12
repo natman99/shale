@@ -219,7 +219,7 @@ keyboard (`ctrl-w l` from the note, when it is open):
 | --- | --- |
 | `j` `k`, `up` `down` | move the selection |
 | `h` `left` / `l` `right` | close / open the section under it — the note's own fold |
-| `enter` | jump the note to that heading — or, on a link row, open the other note at the line that links — and follow the keyboard into it |
+| `enter` | do what the row is about: jump to a heading, open the linked note at the line that links, open the note a property names, or put `tag:x` / `prop:key` in the vault search |
 | `shift-k` `shift-j` | move this section up / down among its siblings, subtree included |
 | `tab` `shift-tab` | one level up / down for this heading and everything under it |
 | `[` `]` | which view the strip is showing |
@@ -228,8 +228,10 @@ keyboard (`ctrl-w l` from the note, when it is open):
 
 The keys are the tree's on purpose: the two strips are one family. Moving the selection
 in the Outline scrolls the note to that section **without moving its caret**, so backing
-out leaves the note where it was. The structure keys belong to the Outline and refuse out
-loud — a `#` cannot be promoted, a section cannot be moved out from under its parent, and a
+out leaves the note where it was; the outline, tags and properties all read the note's
+**buffer**, so what you have typed but not saved is already in them, and only the link views
+and the tag census wait for the index. The structure keys belong to the Outline and refuse
+out loud — a `#` cannot be promoted, a section cannot be moved out from under its parent, and a
 row in a link view is a place in a list of *other* notes, not a line in this one — each
 refusal one line in the status bar. Details in [sidebar.md](sidebar.md).
 

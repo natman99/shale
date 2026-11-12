@@ -18,8 +18,8 @@ through the five; `:sidebar <name>` jumps to one directly.
 | Outline | Outline · *n* | `outline` | yes |
 | Backlinks | Links to here | `backlinks` | yes |
 | Outgoing links | Links from here | `links` | yes |
-| Tags | Tags | `tags` | not yet |
-| Properties | Properties | `props` | not yet |
+| Tags | Tags | `tags` | yes |
+| Properties | Properties | `props` | yes |
 
 A view that is planned but not built is still selectable: the header names it and the
 body says it is not built yet, rather than the key doing nothing or an empty box reading
@@ -108,6 +108,35 @@ With `index.enabled = false` these two views have nothing to answer with, and th
 rather than showing an empty list, which would read as "nothing links here" — a claim about
 the vault that the setting never made. The Outline is unaffected: it reads the buffer.
 
+## The tags
+
+The Tags view lists the tags this note carries — the `#tags` in its body **and** the
+`tags:`/`tag:` keys in its frontmatter, in the order the note carries them. They come from
+the **buffer**, so a tag you typed a second ago is a row before the index has heard of it.
+
+Each row carries a number: how many **other** notes carry that tag. That one number is the
+vault's answer, not the note's, so it comes from the index — and with the index off the rows
+carry no number at all rather than a screenful of zeros, because "nobody else writes this"
+and "nothing was asked" are different sentences. A tag nobody else writes shows a real `0`.
+
+`enter` asks `tag:x` of the vault search: the tag is this note's, but "who else?" is a vault
+question, and the search is the surface that answers those and can be widened from there.
+This is the same hand-off the `:keys` picker makes for a property key.
+
+## The properties
+
+The Properties view lists this note's frontmatter, as authored and in authored order —
+`cr: 6`, `ally: [[Goblin]]` — read from the **buffer**, so an edit you have not saved is
+already in the list.
+
+A value written as a wiki-link is a link the author wrote, so `enter` opens its note,
+resolved by the same rules `gd` uses (file rules, then aliases, then saved queries), which
+is what stops the strip and a wiki-link meaning two different files. A value that resolves
+to nothing keeps its row and is marked, and `enter` says which half is missing rather than
+making a file. Anything that is not written as a link is a string — `name: Goblin` in a
+vault that happens to have a `Goblin.md` is a string — and `enter` asks `prop:name` of the
+search instead.
+
 ## The keyboard
 
 The strip's keys are the tree's, because the two strips are one family:
@@ -116,7 +145,7 @@ The strip's keys are the tree's, because the two strips are one family:
 | --- | --- |
 | `j` / `k` | move the selection |
 | `h` / `l` | close / open the section under it |
-| `enter` | jump to it — a heading here, or the other note, at the line that links |
+| `enter` | do what the row is about: jump to a heading, open the other note at the line that links, ask `tag:x` or `prop:key`, or open the note a property names |
 | `shift-k` / `shift-j` | move this section up / down |
 | `Tab` / `shift-Tab` | one level up / down for it and its subtree |
 | `[` / `]` | which view is showing (a view with rows opens on its first one) |
@@ -139,6 +168,5 @@ restores a window without one, and the first `space b` opens it.
 
 ## Not yet
 
-The Tags and Properties views, `:pin` (holding the strip on one note while you look at
-another), and resizing. They are specced in `sidebar-plan.md` and on the roadmap under
-P4.13.
+`:pin` (holding the strip on one note while you look at another) and resizing. They are
+specced in `sidebar-plan.md` and on the roadmap under P4.13.

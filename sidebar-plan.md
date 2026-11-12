@@ -432,6 +432,21 @@ index's keys are vault-relative. The index-off sentence is one shared constant
 - The properties view over `Db::note_props` plus the buffer's frontmatter; a link-shaped
   value opens its note, anything else asks `key:`.
 
+**Built (2026-11-11).** The census reader is `Db::tag_census(tags, except)` — one cached
+query per tag, every tag asked answered including zero — and the merge the index writes is
+now a function, `shale_core::graph::note_tags`, rather than a loop the indexer owned alone;
+the strip reads the same one so the two cannot disagree about what a note carries. The
+properties view reads the **buffer's** frontmatter, not `Db::note_props`: for the note in
+hand the buffer is the fresher answer, and `note_props` stays the vault-wide door the picker
+and `prop:` use. A link-shaped value is decided by the indexer's rule — only the `[[…]]`
+spelling — and resolved by `resolve_target`, the door `gd` walks. The search hand-off reuses
+`search_vault_with` and adds `tag_token` beside `prop_token`. **Three things the plan left
+open, decided here:** the census is `Option` and absent rather than zero when the index is
+off; a click on an asking row selects only, because asking would take the keyboard; and an
+unresolved property link is marked when the rows are built, not when `enter` is pressed.
+Five falsifications, all red — and one of them (the merge) only after its own test was
+rewritten, because the first version of that test passed with the rule deleted.
+
 ### M5 — `:pin`, polish, docs
 
 - `:pin` as one verb with two subjects, the mark in the header, and the pinned subject
