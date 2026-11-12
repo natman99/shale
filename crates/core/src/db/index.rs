@@ -188,7 +188,10 @@ struct Record {
     /// Tag names without the `#`, deduped, in the order they appear.
     tags: Vec<String>,
     /// Link targets, deduped, each paired with its [`target_kind`].
-    links: Vec<(String, &'static str)>,
+    /// `(target, kind, line)` — one entry per (target, kind), holding the line of its
+    /// **first** occurrence. The sidebar's link views jump to a line, which is what the
+    /// `links.line` column (schema v6) is for.
+    links: Vec<(String, &'static str, usize)>,
     /// The frontmatter block's properties, as authored and then declared.
     props: Vec<Prop>,
     /// Typed edges the frontmatter asserts: `(kind, target)` per link-shaped value,
@@ -270,7 +273,7 @@ fn record(
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
 
-    let mut links: Vec<(String, &'static str)> = Vec::new();
+    let mut links: Vec<(String, &'static str, usize)> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
     for link in extract_wikilinks(&text) {
         let target = link.target.trim();
@@ -298,8 +301,11 @@ fn record(
         };
         // One row per (source, target, kind): a note that links to the same note
         // three times has one link. The separator keeps `a|b` and `a\u{0}b` apart.
+        // The line is that first occurrence's, which is where a jump from the other
+        // note's backlink list lands.
         if seen.insert(format!("{stored}\u{0}{kind}")) {
-            links.push((stored, kind));
+            let line = text[..link.start].matches('\n').count();
+            links.push((stored, kind, line));
         }
     }
 
@@ -484,14 +490,21 @@ fn write_record(conn: &Connection, note: &Record, provenance: Provenance) -> Res
     }
     conn.execute("DELETE FROM links WHERE source = ?1", params![note.path])
         .with_context(|| format!("indexing {}", note.path))?;
-    for (target, kind) in &note.links {
+    for (target, kind, line) in &note.links {
         let first_seen = previous
             .remove(&(target.to_string(), kind.to_string()))
             .unwrap_or(note.modified_at);
         conn.execute(
-            "INSERT INTO links (source, target, target_kind, first_seen_at, last_seen_at)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![note.path, target, kind, first_seen, note.modified_at],
+            "INSERT INTO links (source, target, target_kind, first_seen_at, last_seen_at, line)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                note.path,
+                target,
+                kind,
+                first_seen,
+                note.modified_at,
+                *line as i64
+            ],
         )
         .with_context(|| format!("indexing {}", note.path))?;
     }
@@ -1016,6 +1029,28 @@ impl Db {
         Ok(out)
     }
 
+    /// Every note that links `target`: `(the note holding the link, what the link
+    /// resolved to, the line it sits on)`, sorted by path.
+    ///
+    /// The first production reader the `links` table has by `target` outside the writer's
+    /// own diff. The graph walks the vault rather than reading this table, and
+    /// [`Vault::backlinks`](crate::Vault::backlinks) is a filesystem scan that cannot
+    /// answer the "and where" half — which is the half the sidebar's Links-to-here view
+    /// needs, because a backlink row that opens a note at its top is a row that lost the
+    /// fact it exists to show.
+    pub fn backlinks(&self, target: &Path) -> Result<Vec<(PathBuf, String, usize)>> {
+        link_rows(self, "target", "source", rel_text(target))
+    }
+
+    /// Every note `source` links, same shape the other way: `(the target, what it
+    /// resolved to, the line the link sits on in the note we came from)`.
+    ///
+    /// A `target_kind` of ghost is a row the index could not resolve, and it comes back
+    /// like any other: a hole in the picture is a fact about the note (EDGE-S7).
+    pub fn outgoing(&self, source: &Path) -> Result<Vec<(PathBuf, String, usize)>> {
+        link_rows(self, "source", "target", rel_text(source))
+    }
+
     /// The shared body of every incremental pass.
     ///
     /// `events` is false only for [`Db::reconcile`], where "this note is new to the
@@ -1211,6 +1246,34 @@ fn answered_paths(conn: &Connection) -> Result<BTreeMap<String, String>> {
             }
         }
     }
+    Ok(out)
+}
+
+/// One direction of the `links` table: the rows whose `key` column is `rel`, read as
+/// `(the other end, what it resolved to, the line)` and sorted by that other end, so a
+/// list built from them does not reorder between frames.
+///
+/// The two column names are this crate's own constants, never anything typed, which is
+/// what makes building the statement from them safe.
+fn link_rows(
+    db: &Db,
+    key: &str,
+    other: &str,
+    rel: String,
+) -> Result<Vec<(PathBuf, String, usize)>> {
+    let conn = db.read()?;
+    let sql = format!("SELECT {other}, target_kind, line FROM links WHERE {key} = ?1");
+    let mut stmt = conn.prepare(&sql)?;
+    let mut out: Vec<(PathBuf, String, usize)> = stmt
+        .query_map(params![rel], |row| {
+            Ok((
+                PathBuf::from(row.get::<_, String>(0)?),
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)? as usize,
+            ))
+        })?
+        .collect::<Result<_, _>>()?;
+    out.sort();
     Ok(out)
 }
 
@@ -1701,7 +1764,9 @@ fn escape_like(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::schema::{SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_VERSION};
+    use crate::db::schema::{
+        SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_VERSION,
+    };
     use std::fs::{File, FileTimes};
 
     /// A vault whose notes are written by hand, and its index. The `TempDir` is
@@ -3151,6 +3216,107 @@ mod tests {
             column(&db, "SELECT CAST(COUNT(*) AS TEXT) FROM blocks"),
             vec!["0"],
             "the table exists, and it is empty until the notes are read again"
+        );
+    }
+
+    /// P4.13 M3: an index written by v5 is dropped and rebuilt, and the `links` table it
+    /// comes back with has the `line` column v6 added. Nothing is migrated: the index is a
+    /// cache the notes can always rebuild.
+    #[test]
+    fn an_index_at_v5_gains_the_link_line_by_rebuild() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join(".shale")).unwrap();
+        {
+            let conn = Connection::open(dir.path().join(".shale/shale.db")).unwrap();
+            conn.execute_batch(SCHEMA_V5).unwrap();
+            conn.execute_batch("PRAGMA user_version = 5;").unwrap();
+        }
+        let db = Db::open(dir.path()).unwrap();
+        assert_eq!(db.schema_version(), SCHEMA_VERSION);
+        assert_eq!(
+            column(&db, "SELECT CAST(COUNT(line) AS TEXT) FROM links"),
+            vec!["0"],
+            "the column exists, and it is empty until the notes are read again"
+        );
+    }
+
+    /// P4.13 M3: a backlink row carries the line the link sits on. That is the half
+    /// `Vault::backlinks` could not answer, and the half the sidebar needs: a backlink
+    /// row that opens a note at its top has lost the fact it exists to show.
+    #[test]
+    fn a_backlink_row_carries_the_line_the_link_sits_on() {
+        let (_dir, vault, db) = vault_with(&[
+            ("a.md", "intro\n\nsee [[b]]\n\nmore\n"),
+            ("b.md", "the target\n"),
+        ]);
+        db.reconcile(&vault).unwrap();
+        assert_eq!(
+            db.backlinks(std::path::Path::new("b.md")).unwrap(),
+            vec![(PathBuf::from("a.md"), target_kind::NOTE.to_string(), 2)],
+            "line 2, where the link is, not line 0, where the note starts"
+        );
+    }
+
+    /// P4.13 M3: the row's identity is unchanged by the new column. Three links to one
+    /// note are one link, and the line stored is the first one — the place a jump lands.
+    /// (Listing every occurrence is parked in `sidebar-plan.md`.)
+    #[test]
+    fn a_note_that_links_the_same_target_twice_is_one_row_at_its_first_line() {
+        let (_dir, vault, db) = vault_with(&[
+            ("a.md", "zero\n\none [[b]]\n\ntwo [[b]]\n\nthree [[b]]\n"),
+            ("b.md", "the target\n"),
+        ]);
+        db.reconcile(&vault).unwrap();
+        assert_eq!(
+            db.backlinks(std::path::Path::new("b.md")).unwrap(),
+            vec![(PathBuf::from("a.md"), target_kind::NOTE.to_string(), 2)]
+        );
+    }
+
+    /// P4.13 M3: the other direction reads the line in the note the row came **from**,
+    /// which is the note the strip is describing.
+    #[test]
+    fn outgoing_reads_the_line_in_the_note_it_came_from() {
+        let (_dir, vault, db) = vault_with(&[("a.md", "x\n\n[[b]]\n"), ("b.md", "y\n")]);
+        db.reconcile(&vault).unwrap();
+        assert_eq!(
+            db.outgoing(std::path::Path::new("a.md")).unwrap(),
+            vec![(PathBuf::from("b.md"), target_kind::NOTE.to_string(), 2)]
+        );
+    }
+
+    /// P4.13 M3: a target that resolves to nothing is a row like any other, keyed by what
+    /// the author wrote. The strip marks it (EDGE-S7); the index does not hide it.
+    #[test]
+    fn an_unresolved_target_comes_back_as_a_ghost_row() {
+        let (_dir, vault, db) = vault_with(&[("a.md", "x\n\n[[Nowhere]]\n")]);
+        db.reconcile(&vault).unwrap();
+        assert_eq!(
+            db.outgoing(std::path::Path::new("a.md")).unwrap(),
+            vec![(PathBuf::from("Nowhere"), target_kind::GHOST.to_string(), 2)]
+        );
+    }
+
+    /// P4.13 M3: the two directions are one table read from each end, so a link between
+    /// two notes shows up in both lists with the same line basis.
+    #[test]
+    fn both_directions_agree_on_the_link_and_disagree_on_the_line() {
+        let (_dir, vault, db) = vault_with(&[
+            ("a.md", "one\n\n[[b]]\n"),
+            ("b.md", "two\nthree\n\n[[a]]\n"),
+        ]);
+        db.reconcile(&vault).unwrap();
+        assert_eq!(
+            db.outgoing(std::path::Path::new("a.md")).unwrap(),
+            vec![(PathBuf::from("b.md"), target_kind::NOTE.to_string(), 2)]
+        );
+        assert_eq!(
+            db.outgoing(std::path::Path::new("b.md")).unwrap(),
+            vec![(PathBuf::from("a.md"), target_kind::NOTE.to_string(), 3)]
+        );
+        assert_eq!(
+            db.backlinks(std::path::Path::new("a.md")).unwrap(),
+            vec![(PathBuf::from("b.md"), target_kind::NOTE.to_string(), 3)]
         );
     }
 

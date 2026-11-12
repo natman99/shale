@@ -220,7 +220,7 @@ impl Workspace {
     pub(crate) fn sidebar_rows(&self) -> Vec<(usize, u8, String)> {
         self.sidebar_rows
             .iter()
-            .map(|row| (row.line, row.depth, row.text.clone()))
+            .map(|row| (row.key, row.depth, row.text.clone()))
             .collect()
     }
     /// The section the caret is in, as of the last frame: the mark.

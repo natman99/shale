@@ -420,7 +420,7 @@ impl Render for Workspace {
         // so a folded heading's children are skipped for free.
         let sidebar_focused = self.sidebar_focus.is_focused(window);
         let outline_rows: Vec<sidebar::Row> = if self.sidebar_visible && self.sidebar_view.built() {
-            self.sidebar_outline(cx)
+            self.sidebar_rows_for(cx)
         } else {
             Vec::new()
         };
@@ -431,14 +431,19 @@ impl Render for Workspace {
         // never undone, because their scroll does not change the mark. And while the
         // strip has the keyboard, the caret does not move the list at all: the selection
         // does, and the two would fight (ruling 15).
-        let mark = self
-            .sidebar_caret_line(cx)
-            .and_then(|line| sidebar::section_of(&self.sidebar_rows, line));
+        let mark = if self.sidebar_view == sidebar::View::Outline {
+            self.sidebar_caret_line(cx)
+                .and_then(|line| sidebar::section_of(&self.sidebar_rows, line))
+        } else {
+            // The mark is "which section is the caret in", and a link view has no
+            // sections to be in.
+            None
+        };
         if mark != self.sidebar_mark && !sidebar_focused {
             // The mark is a heading's **line**; the scroll container wants the row's
             // index within the list it laid out, which is a different number.
             let index =
-                mark.and_then(|line| self.sidebar_rows.iter().position(|row| row.line == line));
+                mark.and_then(|line| self.sidebar_rows.iter().position(|row| row.key == line));
             if let Some(index) = index {
                 let (top, bottom) = (
                     self.sidebar_scroll.top_item(),
@@ -950,7 +955,7 @@ impl Render for Workspace {
                                             div()
                                                 .px_2()
                                                 .text_color(gpui::rgb(self.palette.ui_dim))
-                                                .child("no sections in this note"),
+                                                .child(self.sidebar_empty_said(self.sidebar_view)),
                                         )
                                     },
                                 )

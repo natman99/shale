@@ -41,9 +41,11 @@ pub(super) fn push_row(
 ) {
     use gpui::prelude::*;
     let indent = gpui::px(12. * row.depth.saturating_sub(1) as f32);
-    let is_selected = state.selected == Some(row.line);
-    let is_mark = state.mark == Some(row.line);
-    let line = row.line;
+    let is_selected = state.selected == Some(row.key);
+    let is_mark = state.mark == Some(row.key);
+    let key = row.key;
+    let act = row.act.clone();
+    let ghost = row.ghost;
     let label = format!(
         "{} {}",
         if row.foldable {
@@ -76,13 +78,29 @@ pub(super) fn push_row(
         })
         .when(is_mark, |d| d.bg(gpui::rgb(state.palette.ui_active_bg)))
         .hover(|s| s.bg(gpui::rgb(state.palette.ui_hover_bg)))
+        // A ghost link is shown and marked (EDGE-S7): the same colour the note gives a
+        // link that resolves to nothing, so the strip and the text agree about what the
+        // row means without a second vocabulary of warning.
+        .text_color(if ghost {
+            gpui::rgb(state.palette.link_unresolved)
+        } else {
+            gpui::rgb(state.palette.ui_fg)
+        })
         .child(label)
         .on_click(cx.listener(move |this, _: &gpui::ClickEvent, _window, cx| {
-            // A click selects and scrubs; it does not move the caret. The strip is a
-            // surface you read, and the pointer should not cost the reader the place
-            // their caret was — `enter` is the door that commits to a section.
-            this.sidebar_selection = Some(line);
-            this.sidebar_scrub(line, cx);
+            // A click does what the row is about, and takes nothing else. A row that
+            // names a place in this note shows it without moving the caret (ruling 18);
+            // a row that names another note opens it, which is the file tree's rule for a
+            // file row. Neither takes the keyboard: `enter` is the door that commits.
+            this.sidebar_selection = Some(key);
+            match &act {
+                sidebar::Act::Reveal(line) => this.sidebar_scrub(*line, cx),
+                sidebar::Act::Open { path, .. } => {
+                    if !ghost {
+                        this.open_note(path, cx);
+                    }
+                }
+            }
             cx.notify();
         }));
     rows.push(row_widget.into_any());
@@ -90,6 +108,17 @@ pub(super) fn push_row(
 
 /// The reason the text would not take the edit, in the user's language.
 ///
+/// The path the index knows a note by: vault-relative.
+///
+/// A tab may hold either spelling — the path as it was opened, or the resolved absolute
+/// one — and both name the same note. The index's keys are the relative form, so the
+/// strip asks the vault for it and falls back to what the tab holds.
+fn index_key(vault: &shale_core::vault::Vault, path: &std::path::Path) -> std::path::PathBuf {
+    vault
+        .relativize(path)
+        .unwrap_or_else(|_| path.to_path_buf())
+}
+
 /// Every one of these is said out loud. A structure key that does nothing and says
 /// nothing is how a user decides the feature is broken; a key that says "that one is
 /// already first under its parent" is a key they learn from.
@@ -155,11 +184,23 @@ impl Workspace {
     /// strip appearing on screen is its own report, so this does not go through
     /// [`Self::set_sidebar_visible`] for the showing half.
     pub(crate) fn show_sidebar_view(&mut self, view: View, cx: &mut Context<Self>) {
-        self.sidebar_view = view;
         self.sidebar_visible = true;
-        // The rows are a different question now, so the old selection does not carry:
-        // a heading row and a backlink row are not the same kind of thing.
+        self.set_sidebar_view(view, cx);
+    }
+
+    /// The one place a view becomes the view.
+    ///
+    /// The rows are a different question now, so the old selection does not carry: a
+    /// heading row and a backlink row are not the same kind of thing. And the strip with
+    /// the keyboard sits on a row — the same rule as taking focus — so a view that has
+    /// rows opens on its first one, and `enter` after `]` does the obvious thing instead
+    /// of nothing at all.
+    fn set_sidebar_view(&mut self, view: View, cx: &mut Context<Self>) {
+        self.sidebar_view = view;
         self.sidebar_selection = None;
+        if let Some(first) = self.sidebar_rows_for(cx).first() {
+            self.sidebar_selection = Some(first.key);
+        }
         self.say(format!("sidebar: {}", view.label()), cx);
         cx.notify();
     }
@@ -167,10 +208,7 @@ impl Workspace {
     /// `[` and `]` inside the strip: one view either way.
     pub(super) fn sidebar_step_view(&mut self, delta: isize, cx: &mut Context<Self>) {
         let view = self.sidebar_view.step(delta);
-        self.sidebar_view = view;
-        self.sidebar_selection = None;
-        self.say(format!("sidebar: {}", view.label()), cx);
-        cx.notify();
+        self.set_sidebar_view(view, cx);
     }
 
     /// `ctrl-w l` at the right edge: give the strip the keyboard.
@@ -195,7 +233,7 @@ impl Workspace {
         }
         self.sidebar_visible = true;
         if self.sidebar_selection.is_none() {
-            self.sidebar_selection = self.sidebar_rows.first().map(|row| row.line);
+            self.sidebar_selection = self.sidebar_rows.first().map(|row| row.key);
         }
         window.focus(&self.sidebar_focus, cx);
         cx.notify();
@@ -214,12 +252,12 @@ impl Workspace {
         let last = self.sidebar_rows.len() - 1;
         let current = self
             .sidebar_selection
-            .and_then(|line| self.sidebar_rows.iter().position(|row| row.line == line));
+            .and_then(|key| self.sidebar_rows.iter().position(|row| row.key == key));
         let next = match current {
             Some(index) => (index as isize + delta).clamp(0, last as isize) as usize,
             None => 0,
         };
-        let line = self.sidebar_rows[next].line;
+        let line = self.sidebar_rows[next].key;
         self.sidebar_selection = Some(line);
         // The row index is the scroll container's item index, as in the tree: `j` past
         // the bottom edge brings the row back rather than leaving the selection off
@@ -240,6 +278,18 @@ impl Workspace {
         if !self.sidebar_view.built() || self.sidebar_subject(cx) != self.note() {
             return;
         }
+        // Only a row that points at a place in *this* note has a place to show. A row
+        // naming another note is keyed by its position in its own list, and scrolling the
+        // note to that number would be a lie.
+        if !matches!(
+            self.sidebar_rows
+                .iter()
+                .find(|row| row.key == line)
+                .map(|row| &row.act),
+            Some(sidebar::Act::Reveal(_))
+        ) {
+            return;
+        }
         if let Some(editor) = self.editor().cloned() {
             editor.update(cx, |editor, cx| editor.preview_line(line, cx));
         }
@@ -256,34 +306,56 @@ impl Workspace {
     /// no tab, no read. When it is not, `open_note` finds the tab that holds it or opens
     /// one, and `load_target` still refuses to overwrite the only view of a dirty note.
     pub(super) fn open_sidebar_row(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(line) = self.sidebar_selection else {
+        let Some(key) = self.sidebar_selection else {
             return;
         };
-        let Some(row) = self
-            .sidebar_rows
-            .iter()
-            .find(|row| row.line == line)
-            .cloned()
-        else {
+        let Some(row) = self.sidebar_rows.iter().find(|row| row.key == key).cloned() else {
             return;
         };
-        let subject = self.sidebar_subject(cx);
-        let on_screen = self.note();
-        if subject != on_screen {
-            if let Some(path) = subject {
-                self.open_note(&path, cx);
+        match row.act {
+            sidebar::Act::Reveal(line) => {
+                let subject = self.sidebar_subject(cx);
+                let on_screen = self.note();
+                if subject != on_screen {
+                    if let Some(path) = subject {
+                        self.open_note(&path, cx);
+                    }
+                }
+                let found = self.editor().is_some_and(|editor| {
+                    editor.update(cx, |editor, cx| editor.reveal_section(line, &row.text, cx))
+                });
+                if found {
+                    self.focus_editor(&FocusEditor, window, cx);
+                } else {
+                    // The heading moved out from under the strip between frames — the
+                    // note was edited while the row was drawn. Say so rather than sit on
+                    // a stale row.
+                    self.say(format!("no “{}” section to jump to", row.text), cx);
+                    cx.notify();
+                }
             }
-        }
-        let found = self.editor().is_some_and(|editor| {
-            editor.update(cx, |editor, cx| editor.reveal_section(line, &row.text, cx))
-        });
-        if found {
-            self.focus_editor(&FocusEditor, window, cx);
-        } else {
-            // The heading moved out from under the strip between frames — the note was
-            // edited while the row was drawn. Say so rather than sit on a stale row.
-            self.say(format!("no “{}” section to jump to", row.text), cx);
-            cx.notify();
+            sidebar::Act::Open { path, line } => {
+                if row.ghost {
+                    // The row is real — the note really does link to this name — and the
+                    // name is not a note. Opening it would invent a file from a typo, so
+                    // the strip says which half is missing.
+                    self.say(format!("“{}” is not a note in this vault", row.text), cx);
+                    cx.notify();
+                    return;
+                }
+                // `open_note` finds the tab that already holds the note or opens one; it
+                // never duplicates a tab, and `load_target` still refuses to overwrite the
+                // only view of a note that is ahead of its file (ruling 19).
+                self.open_note(&path, cx);
+                if let Some(line) = line {
+                    // A backlink row lands on the line that links. A row that opened the
+                    // note at its top would have thrown away the fact it exists to show.
+                    if let Some(editor) = self.editor().cloned() {
+                        editor.update(cx, |editor, cx| editor.reveal_line(line, cx));
+                    }
+                }
+                self.focus_editor(&FocusEditor, window, cx);
+            }
         }
     }
 
@@ -293,10 +365,10 @@ impl Workspace {
     /// outline mirrors the note, so folding there hides the rows here and `zc`/`zo` in
     /// the note hide them too. One decision, two surfaces.
     pub(super) fn sidebar_fold(&mut self, close: bool, cx: &mut Context<Self>) {
-        let Some(line) = self.sidebar_selection else {
+        let Some(key) = self.sidebar_selection else {
             return;
         };
-        let Some(row) = self.sidebar_rows.iter().find(|row| row.line == line) else {
+        let Some(row) = self.sidebar_rows.iter().find(|row| row.key == key) else {
             return;
         };
         if !row.foldable {
@@ -307,7 +379,9 @@ impl Workspace {
             return;
         }
         if let Some(editor) = self.editor().cloned() {
-            editor.update(cx, |editor, cx| editor.fold_section_at(line, close, cx));
+            // A foldable row only exists in the Outline view, where the key *is* the
+            // heading's buffer line.
+            editor.update(cx, |editor, cx| editor.fold_section_at(key, close, cx));
         }
         cx.notify();
     }
@@ -367,6 +441,20 @@ impl Workspace {
         ask: impl FnOnce(&str, usize) -> Result<StructureEdit, Refusal>,
         cx: &mut Context<Self>,
     ) -> Option<(StructureEdit, sidebar::Row)> {
+        // The structure acts edit **this note's headings**. A row in a link view is keyed
+        // by its position in a list of other notes, and treating that number as a buffer
+        // line would move a section nobody pointed at.
+        if self.sidebar_view != View::Outline {
+            self.say(
+                format!(
+                    "the strip is showing {}, not the outline",
+                    self.sidebar_view.label()
+                ),
+                cx,
+            );
+            cx.notify();
+            return None;
+        }
         let Some(line) = self.sidebar_selection else {
             self.say(format!("no heading selected to {what}"), cx);
             cx.notify();
@@ -375,7 +463,7 @@ impl Workspace {
         let Some(row) = self
             .sidebar_rows
             .iter()
-            .find(|row| row.line == line)
+            .find(|row| row.key == line)
             .cloned()
         else {
             self.say(format!("no heading selected to {what}"), cx);
@@ -419,7 +507,7 @@ impl Workspace {
                 if let Some(index) = self
                     .sidebar_rows
                     .iter()
-                    .position(|row| row.line == edit.heading_line)
+                    .position(|row| row.key == edit.heading_line)
                 {
                     self.sidebar_scroll.scroll_to_item(index);
                 }
@@ -539,6 +627,65 @@ impl Workspace {
         }
         let editor = self.editor()?.clone();
         Some(editor.read_with(cx, |editor, _cx| editor.caret_row()))
+    }
+
+    /// The rows for whichever view is showing, from wherever that view's truth lives:
+    /// the buffer for the outline (EDGE-S5), the index for the two link views, which
+    /// describe notes no buffer in this window holds.
+    pub(crate) fn sidebar_rows_for(&mut self, cx: &mut Context<Self>) -> Vec<sidebar::Row> {
+        match self.sidebar_view {
+            View::Outline => self.sidebar_outline(cx),
+            View::Backlinks | View::Outgoing => self.sidebar_links(cx),
+            View::Tags | View::Properties => Vec::new(),
+        }
+    }
+
+    /// The link views' rows, from the `links` table. Schema v6's `line` column is what
+    /// lets a backlink row land on the line that links rather than at the top of the note.
+    ///
+    /// With the index off there is nothing to read, and the view says so rather than
+    /// showing an empty list that would read as "nothing links here" (EDGE-S6): the
+    /// render asks [`View::index_backed`] and [`Workspace::index_off`] before it prints an
+    /// emptiness sentence.
+    fn sidebar_links(&mut self, cx: &mut Context<Self>) -> Vec<sidebar::Row> {
+        let Some(subject) = self.sidebar_subject(cx) else {
+            return Vec::new();
+        };
+        let Some(db) = self.db.clone() else {
+            return Vec::new();
+        };
+        let rel = index_key(&self.vault, &subject);
+        let to_here = self.sidebar_view == View::Backlinks;
+        let ends = if to_here {
+            db.backlinks(&rel)
+        } else {
+            db.outgoing(&rel)
+        };
+        match ends {
+            Ok(ends) => sidebar::link_rows(&ends, to_here),
+            Err(err) => {
+                tracing::warn!("the strip could not read the link table: {err:#}");
+                Vec::new()
+            }
+        }
+    }
+
+    /// Whether this window has no index to ask (EDGE-S6).
+    pub(crate) fn index_off(&self) -> bool {
+        self.db.is_none()
+    }
+
+    /// The sentence the strip prints when the view it is showing has no rows.
+    ///
+    /// With the index off, an index-backed view has nothing to answer with, and "nothing
+    /// links here" would be a claim about the vault that `index.enabled = false` never
+    /// made — so the setting is what gets said instead (EDGE-S6).
+    pub(crate) fn sidebar_empty_said(&self, view: sidebar::View) -> &'static str {
+        if view.index_backed() && self.index_off() {
+            shale_core::db::NO_INDEX
+        } else {
+            view.empty_said()
+        }
     }
 
     /// The rows the Outline view would draw for the strip's note, from its **buffer**

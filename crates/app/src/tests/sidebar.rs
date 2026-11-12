@@ -74,6 +74,24 @@ fn caret_row(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> us
         .unwrap()
 }
 
+/// The note on screen, its text, and what the window last said. The link views change
+/// all three, so the M3 tests read them side by side.
+fn note(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> Option<PathBuf> {
+    window
+        .update(cx, |ws, _window, _cx| ws.active_path())
+        .unwrap()
+}
+
+fn text(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> String {
+    window
+        .update(cx, |ws, _window, cx| ws.buffer_text(cx))
+        .unwrap()
+}
+
+fn status(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> String {
+    window.update(cx, |ws, _window, _cx| ws.status()).unwrap()
+}
+
 fn strip_scroll(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> f32 {
     window
         .update(cx, |ws, _window, _cx| ws.sidebar_scroll_offset())
@@ -925,5 +943,177 @@ fn the_structure_keys_are_the_strips_and_not_the_notes(cx: &mut TestAppContext) 
     assert!(
         selection(&window, &mut cx).is_none(),
         "and the strip never acted, because it never had the keyboard"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// M3: the links, both directions
+// ---------------------------------------------------------------------------
+
+/// The strip over a vault **with** an index. The link views answer from the index, and
+/// the fixture every other sidebar test uses runs with it off — the same reason `:props`
+/// says it cannot look there.
+fn strip_over_indexed(
+    cx: &mut TestAppContext,
+    notes: &[(&str, &str)],
+    open: &str,
+) -> (
+    tempfile::TempDir,
+    WindowHandle<Workspace>,
+    VisualTestContext,
+) {
+    let (dir, window) = indexed_vault(cx, notes);
+    show_at(cx, &window, open);
+    cx.run_until_parked();
+    let cx = VisualTestContext::from_window(window.into(), cx);
+    (dir, window, cx)
+}
+
+/// A note that links, and the note it links to. The link is on line 2.
+const LINKER: &str = "intro\n\nlinks to [[Target]] here\n";
+const TARGET: &str = "# Target\n\nbeing linked\n";
+
+#[gpui::test]
+fn the_backlinks_view_lists_the_note_that_links_here(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = strip_over_indexed(
+        cx,
+        &[("linker.md", LINKER), ("target.md", TARGET)],
+        "target.md",
+    );
+    cx.simulate_keystrokes("space b");
+    repaint(&mut cx);
+    cx.simulate_keystrokes("ctrl-w l");
+    repaint(&mut cx);
+    cx.simulate_keystrokes("]");
+    repaint(&mut cx);
+
+    assert_eq!(
+        rows(&window, &mut cx),
+        vec![(0, 1, "linker".to_string())],
+        "the row names the note that links, without the `.md` a reader knows is there"
+    );
+}
+
+#[gpui::test]
+fn a_backlink_row_jumps_to_the_line_that_links(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = strip_over_indexed(
+        cx,
+        &[("linker.md", LINKER), ("target.md", TARGET)],
+        "target.md",
+    );
+    cx.simulate_keystrokes("space b");
+    repaint(&mut cx);
+    cx.simulate_keystrokes("ctrl-w l");
+    repaint(&mut cx);
+    cx.simulate_keystrokes("]");
+    repaint(&mut cx);
+
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+    assert_eq!(note(&window, &mut cx), Some(PathBuf::from("linker.md")));
+    assert_eq!(
+        caret_row(&window, &mut cx),
+        2,
+        "the strip opened the note at the line the link is on, not at its top: the row \\\n         exists to show that line"
+    );
+}
+
+#[gpui::test]
+fn the_outgoing_view_lists_what_this_note_links(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = strip_over_indexed(
+        cx,
+        &[("linker.md", LINKER), ("target.md", TARGET)],
+        "linker.md",
+    );
+    cx.simulate_keystrokes("space b");
+    repaint(&mut cx);
+    cx.simulate_keystrokes("ctrl-w l");
+    repaint(&mut cx);
+    cx.simulate_keystrokes("] ]");
+    repaint(&mut cx);
+
+    assert_eq!(rows(&window, &mut cx), vec![(0, 1, "target".to_string())]);
+    // The row's key is its place in the list, not a line in either note: the line the
+    // index holds for this direction sits in the note we came from.
+    assert_eq!(selection(&window, &mut cx), Some(0));
+}
+
+#[gpui::test]
+fn a_ghost_link_is_a_row_and_refuses_to_open(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) =
+        strip_over_indexed(cx, &[("g.md", "see [[Nowhere]] here\n")], "g.md");
+    cx.simulate_keystrokes("space b");
+    repaint(&mut cx);
+    cx.simulate_keystrokes("ctrl-w l");
+    repaint(&mut cx);
+    cx.simulate_keystrokes("] ]");
+    repaint(&mut cx);
+
+    assert_eq!(
+        rows(&window, &mut cx),
+        vec![(0, 1, "Nowhere".to_string())],
+        "EDGE-S7: the hole in the picture is a fact about the note, and the name shown is \\\n         what the author typed"
+    );
+
+    let before = window
+        .update(&mut cx, |ws, _window, cx| ws.tab_paths(cx))
+        .unwrap();
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+
+    assert_eq!(
+        status(&window, &mut cx),
+        "“Nowhere” is not a note in this vault",
+        "the row is real and the name is not a note; opening it would invent a file from a typo"
+    );
+    assert_eq!(note(&window, &mut cx), Some(PathBuf::from("g.md")));
+    assert_eq!(
+        window
+            .update(&mut cx, |ws, _window, cx| ws.tab_paths(cx))
+            .unwrap(),
+        before,
+        "and no tab was invented for a name that has no note"
+    );
+}
+
+#[gpui::test]
+fn the_structure_keys_refuse_when_the_strip_is_not_showing_the_outline(cx: &mut TestAppContext) {
+    // A link row's key is its place in a list of other notes. Read as a buffer line, that
+    // number would move a section nobody pointed at.
+    let (_dir, window, mut cx) = strip_over_indexed(cx, &[("a.md", OUTLINE)], "a.md");
+    cx.simulate_keystrokes("space b");
+    repaint(&mut cx);
+    cx.simulate_keystrokes("ctrl-w l");
+    repaint(&mut cx);
+    cx.simulate_keystrokes("]");
+    repaint(&mut cx);
+
+    cx.simulate_keystrokes("tab");
+    cx.run_until_parked();
+    assert_eq!(
+        status(&window, &mut cx),
+        "the strip is showing Links to here, not the outline"
+    );
+    assert_eq!(text(&window, &mut cx), OUTLINE, "the note was not touched");
+}
+
+#[gpui::test]
+fn an_index_backed_view_says_there_is_no_index(cx: &mut TestAppContext) {
+    // The default fixture runs with the index off. An empty list there would claim
+    // "nothing links here" about a vault nothing looked at (EDGE-S6).
+    let (_dir, window, mut cx) = strip_over(cx, OUTLINE);
+    let said = |view, cx: &mut VisualTestContext| {
+        window
+            .update(cx, |ws, _window, _cx| ws.sidebar_empty_said(view))
+            .unwrap()
+    };
+    assert_eq!(
+        said(crate::sidebar::View::Backlinks, &mut cx),
+        shale_core::db::NO_INDEX
+    );
+    assert_eq!(
+        said(crate::sidebar::View::Outline, &mut cx),
+        "no sections in this note",
+        "the outline reads the buffer, so the index being off changes nothing about it"
     );
 }

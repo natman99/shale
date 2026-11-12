@@ -47,6 +47,12 @@ pub use query::{
 };
 pub use schema::SCHEMA_VERSION;
 
+/// What every surface says when the vault has no index to read.
+///
+/// The setting is the fact, not the vault: "nothing links here" would be a claim about
+/// the notes that `index.enabled = false` never made (EDGE-14, EDGE-25, EDGE-S6).
+pub const NO_INDEX: &str = "there is no vault index to read (index.enabled = false)";
+
 /// The directory Shale keeps its per-vault state in: the config, the themes, the
 /// session file and this index.
 pub const STATE_DIR: &str = ".shale";

@@ -1038,7 +1038,7 @@ impl MarkdownEditor {
             // a lie about the vault rather than about the setting.
             None => Answer {
                 rows: shale_core::db::Rows::default(),
-                error: Some("there is no vault index to read (index.enabled = false)".into()),
+                error: Some(shale_core::db::NO_INDEX.into()),
             },
             Some(db) => {
                 // The query itself decides what the surface owes it (M5): a body that
