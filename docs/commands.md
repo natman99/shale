@@ -31,7 +31,7 @@ as you would type it.
 | `theme.export` | Write the palette on screen to a theme file | — | `:theme export <name>` | `<name>` |
 | `checker.on` | Turn the spellchecker on | — | `:harper on`, `:harper 1`, `:spellcheck on`, `:spell on` | — |
 | `checker.off` | Turn the spellchecker off | — | `:harper off`, `:harper 0`, `:spellcheck off`, `:spell off` | — |
-| `checker.show` | Show the checker's note for the word here | `K` | — | — |
+| `checker.show` | Show the checker's note for the word here, or its card | `K` | — | — |
 | `view.raw` | Show the note as markdown source | `space r` | `:raw`, `:source`, `:src` | — |
 | `view.live` | Show the note with live preview | `space l` | `:live` | — |
 | `view.preview` | Preview the note, without editing it | `space p` | `:preview`, `:view` | — |

@@ -1960,6 +1960,15 @@ edges, query nodes, MCP canvas tools) is P6.10.
   bar gate, the silenced refusal and the peak-relative bar — the entered-block guard is
   defensive and **not** pinned by a falsification, because the hit test's offsets never
   reach it.
+  **The keyboard verb landed with it** (asked for the same day): `K` over a link or a `!p`
+  line opens the same card. Ruled: **the checker answers first** — a word with a squiggle
+  under it has a specific answer and `K` over it is asking that question. The pointer runs
+  the other way round, and deliberately: a link is one thing to hover, and the squiggle is
+  already on screen saying the checker has something, which is the difference between asking
+  and being told. Three tests, including the one case where both surfaces want the same
+  cursor — a marked word inside a link that resolves — because a fixture whose link points
+  at nothing cannot distinguish the two orders and let a card-first implementation pass
+  unnoticed the first time it was falsified.
   **Named instance (2026-11-08):** "the cue for the section the caret is in" (brainstorm
   "Session-linked chips") is a legitimate one — a line-level fact painted near the block,
   **not** in the status bar — and it is the *only* cue-aware surface allowed: no

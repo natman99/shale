@@ -182,7 +182,9 @@ note is open in a tab, the card shows it as you have it, not as the disk has it.
 says how many lines it left out, it hangs under the link rather than under the line it is
 written on, and it never takes the keyboard: your next keystroke is still meant for the
 note. It closes when the pointer leaves the link, and on `escape`, which is there for the case
-where you start typing without touching the mouse and need to see the text under the card. Scrolling moves the card with its link and then asks the pointer again what it is
+where you start typing without touching the mouse and need to see the text under the card.
+`K` over the link opens the same card from the keyboard — the checker answers first, since a
+word with a squiggle under it has a specific answer. Scrolling moves the card with its link and then asks the pointer again what it is
 on: still on the card or the link, it stays; somewhere else in the note, it goes. The same
 rule runs for the spelling popup, which follows its word the same way.
 
@@ -350,7 +352,7 @@ readout is drawn, and taking it away is deleting the line that asked.
   sentence. If even that has no room, the line's gutter takes a small die mark and the
   figure comes back when you hover the line.
 
-**Hovering the line opens the long form.** The card is the same surface a wiki-link opens,
+**Hovering the line, or `K` on it, opens the long form.** The card is the same surface a wiki-link opens,
 and it says what the margin has no room for: the average and the range, the target's chance
 in the words the line itself used, the d20's exceptions (`needs 13+`, `advantage`), and every
 total drawn as a bar — when there are twelve or fewer of them, which is the point where a

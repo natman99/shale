@@ -155,6 +155,12 @@ opens the embedded note in this tab, the way it does for any other link.
 **Checker.** `K` opens the checker's note for the word under the cursor, with the
 fixes it offers. Resting the pointer on a marked word does the same.
 
+**Cards.** With nothing marked under the cursor, `K` asks the app the other question the
+same position can raise: the note a `[[wiki-link]]` points at, or the distribution a `!p`
+line asks for — the card the pointer already opens, from the keyboard. The checker answers
+first: a word with a squiggle under it has a specific answer, and `K` over it is asking
+that question.
+
 **Tables.** A table changes what the ordinary motions mean rather than adding a
 mode: inside one, `h` `l` `w` `b` `e` move cell to cell, `0` `^` `$` go to the
 cell's ends, and `j` `k` step between rows in the same column (outside a table,
