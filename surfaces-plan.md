@@ -130,8 +130,7 @@ room for.
 All three visual questions above are answered: the chip has its own palette role, the narrow
 pane has its short form and gutter mark, and the named distribution has a surface.
 
-**Still open, and small:** the card has no keyboard verb. `K` asks the checker about the word
-under the cursor; a link — or a `!p` line — has no equivalent. Ruled as a question for the
-user rather than invented: the natural spelling is `K` over a link or a request line, since
-`K` already means "what does this word mean to the app?" and the checker only answers when it
-has something to say.
+**Closed the same day:** the card's keyboard verb. `K` over a link or a `!p` line opens it.
+Ruled by the user: **the checker wins** when both want the same cursor. The pointer keeps its
+opposite order — a link is one thing to hover, and the squiggle is already on screen — which
+is the difference between asking and being told.
