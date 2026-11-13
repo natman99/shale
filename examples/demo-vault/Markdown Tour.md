@@ -2,6 +2,7 @@
 tags: reference
 ---
 
+
 # Markdown Tour
 
 Live-preview styling, one construct per line. Links: [[Welcome]], [[Another Note]],
@@ -12,7 +13,7 @@ Live-preview styling, one construct per line. Links: [[Welcome]], [[Another Note
 **strong**, *emphasis*, ~~strikethrough~~, ==highlight==, `inline code`,
 #tags and a [external link](https://example.com).
 
-## Lists and tasks
+## Lists and Tasks
 
 - a bullet
 - [ ] an open task
