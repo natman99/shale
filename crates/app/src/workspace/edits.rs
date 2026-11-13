@@ -162,6 +162,13 @@ impl Workspace {
                 // on the way out.
                 self.write_quit(window, cx);
             }
+            ex::Ex::WriteAllQuit => {
+                // `:wqall`: the write first, and the quit re-reads the dirty state
+                // rather than trusting it, so a note the write could not move refuses
+                // the exit with the reason the write already gave.
+                self.write_all_windows(cx);
+                self.quit_all(false, cx);
+            }
             // `:w <name>`: name the note in hand, then write it. Only a tab with no
             // file takes the name -- see [`Workspace::write_note_as`].
             ex::Ex::WriteAs(name) => self.write_note_as(&name, cx),
@@ -222,6 +229,9 @@ impl Workspace {
             ex::Ex::Write
             | ex::Ex::Quit
             | ex::Ex::QuitForce
+            | ex::Ex::QuitAll
+            | ex::Ex::QuitAllForce
+            | ex::Ex::WriteAll
             | ex::Ex::Open
             | ex::Ex::Checker(_)
             | ex::Ex::Focus(None)

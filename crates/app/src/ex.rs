@@ -20,13 +20,25 @@ pub(crate) enum Ex {
     Empty,
     /// `w` / `write`: write the open note.
     Write,
-    /// `q` / `quit`: close Shale, writing the note first if it is unsaved.
+    /// `q` / `quit`: close the tab in hand. It is a cascade, vim's shape: the last
+    /// tab of a pane closes that pane, the last pane closes the window, and the last
+    /// window ends the run. A dirty note is refused rather than written or dropped —
+    /// `:wq` writes on purpose and `:q!` discards on purpose.
     Quit,
-    /// `q!` / `quit!`: close Shale and throw the note's unsaved edits away. The bang
-    /// is the user saying they know; without it a quit never loses work.
+    /// `q!` / `quit!`: the same cascade, throwing the unsaved edits away. The bang
+    /// is the user saying they know; without it a close never loses work.
     QuitForce,
-    /// `wq` / `x`: write, then close.
+    /// `wq` / `x`: write, then the same cascade.
     WriteQuit,
+    /// `qall` / `qa`: quit every window this Shale holds, every vault.
+    QuitAll,
+    /// `qall!` / `qa!`: quit every window, discarding unsaved edits.
+    QuitAllForce,
+    /// `wall` / `wa`: write every dirty note in every window, and change nothing
+    /// else — the note stays open, which is the whole point of the split from `:wqall`.
+    WriteAll,
+    /// `wqall` / `wqa`: write everything, then quit every window.
+    WriteAllQuit,
     /// `e` / `open`: the quick-open picker.
     Open,
     /// `harper on|1` / `harper off|0`: the spell and grammar checker.
@@ -178,9 +190,13 @@ impl Ex {
         Some(match self {
             Ex::Empty | Ex::Unknown(_) => return None,
             Ex::Write | Ex::WriteAs(_) => "note.save",
-            Ex::Quit => "app.quit",
-            Ex::QuitForce => "app.quit-force",
-            Ex::WriteQuit => "note.write-quit",
+            Ex::Quit => "tab.close",
+            Ex::QuitForce => "tab.close-force",
+            Ex::WriteQuit => "tab.write-close",
+            Ex::QuitAll => "app.quit",
+            Ex::QuitAllForce => "app.quit-force",
+            Ex::WriteAll => "note.write-all",
+            Ex::WriteAllQuit => "app.write-quit",
             Ex::Open => "note.open",
             Ex::Checker(true) => "checker.on",
             Ex::Checker(false) => "checker.off",
@@ -213,7 +229,7 @@ impl Ex {
             Ex::TabNew => "tab.new",
             Ex::TabNext => "tab.next",
             Ex::TabPrev => "tab.prev",
-            Ex::TabClose => "tab.close",
+            Ex::TabClose => "tab.close-write",
             Ex::TabOnly => "tab.only",
             Ex::Pin => "tab.pin",
             Ex::TabMove(_) => "tab.move",
@@ -242,6 +258,9 @@ impl Ex {
             Ex::Write
             | Ex::Quit
             | Ex::QuitForce
+            | Ex::QuitAll
+            | Ex::QuitAllForce
+            | Ex::WriteAll
             | Ex::Open
             | Ex::Checker(_)
             | Ex::Focus(None)
@@ -299,6 +318,12 @@ pub(crate) fn parse(line: &str) -> Ex {
         // one command, and so does this.
         "q!" | "quit!" => Ex::QuitForce,
         "wq" | "x" | "xit" | "exit" => Ex::WriteQuit,
+        // The `all` family is what leaves the building: plain `:q` closes a tab, and
+        // these are the spellings that mean every window in every vault.
+        "qall" | "qa" => Ex::QuitAll,
+        "qall!" | "qa!" => Ex::QuitAllForce,
+        "wall" | "wa" => Ex::WriteAll,
+        "wqall" | "wqa" => Ex::WriteAllQuit,
         "e" | "edit" | "open" => Ex::Open,
         "harper" | "spellcheck" | "spell" => match rest.to_ascii_lowercase().as_str() {
             "on" | "1" | "true" | "yes" => Ex::Checker(true),

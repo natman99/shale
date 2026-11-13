@@ -25,8 +25,9 @@ use std::time::Duration;
 
 use gpui::{Context, Window};
 
-use crate::acts::{Quit, QuitForce};
+use crate::acts::{CloseTab, CloseTabForce, Quit, QuitForce, WriteAll};
 
+use super::vaults::VaultWindows;
 use super::Workspace;
 
 /// How often the window looks to see whether the process was asked to stop. Long
@@ -68,114 +69,217 @@ impl Workspace {
         self.leave(cx);
     }
 
-    /// Quit, writing the open note first when it holds unsaved edits.
+    /// `:q`: close the tab in hand, and let the cascade go as far as it needs to.
+    /// The last tab of a pane closes that pane; the last pane closes the window; the
+    /// last window ends the run. `ctrl-q` and the palette's *Quit Shale* are `:qall`,
+    /// below — the key was always "end this run", never "lose this tab".
     ///
-    /// Autosave usually has already written it, but a quit can come in the middle
-    /// of the countdown, and work the user can see on screen must not be lost to a
-    /// keystroke timing. `ctrl-q`, `:q` and the palette all come through here
-    /// because the danger is the same. Closing the window from outside Shale — the
-    /// window manager's button — does not reach this action, so `attach_window`
-    /// makes the same promise there.
+    /// **A dirty note refuses it.** `:q` promises neither a save nor a discard, so
+    /// when the thing about to go is ahead of its file the status bar names that note
+    /// and nothing moves. `:wq` writes on purpose; `:q!` discards on purpose. Autosave
+    /// does not change the answer: the refusal is one keystroke wide, and a quit that
+    /// lands in the middle of the countdown is the one that used to lose work.
     ///
-    /// **With autosave off, a dirty note is refused.** Autosave on means the disk is
-    /// never more than a pause behind the screen, so writing on the way out is what
-    /// the user meant. Autosave off means they chose to save by hand, and a quit that
-    /// quietly writes — or quietly drops — a note they have not saved is a surprise
-    /// either way. `:q!` is the way out they asked for, and `:wq` writes on purpose.
-    ///
-    /// **A queue of agent proposals is refused too** (roadmap P2.5a). Nothing is lost
-    /// by quitting with one — the files are on disk and are offered again next launch —
-    /// but walking away from unanswered proposals without knowing you did is the
-    /// failure this feature exists to prevent, and the answer costs one keypress.
-    /// `:q!` leaves them queued; the window manager's close and a signal are not
-    /// refused, because an exit the user did not type never argues with them.
-    pub(super) fn quit(&mut self, _: &Quit, window: &mut Window, cx: &mut Context<Self>) {
-        let dirty = self.any_dirty(cx);
-        if dirty && !self.config.editor.autosave {
-            self.say(
-                "unsaved edits: `:w` to keep them, `:q!` to throw them away",
-                cx,
-            );
-            cx.notify();
+    /// **The check covers exactly what would go.** Closing one tab is not a reason to
+    /// argue about a note three tabs away; closing a pane is a reason to ask about
+    /// that pane's tabs, and closing the window is a reason to ask about all of them.
+    pub(super) fn quit_tab(&mut self, force: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let last_tab = self.pane().tabs.len() == 1;
+        let last_pane = self.panes.len() == 1;
+        let dirty = if last_tab && last_pane {
+            self.first_dirty_note(cx)
+        } else if last_tab {
+            self.first_dirty_note_in_pane(self.active_pane, cx)
+        } else {
+            self.dirty_note_in_tab(self.pane().active, cx)
+        };
+        if let Some(note) = dirty {
+            if !force {
+                self.say(
+                    format!("unsaved edits in {note}: `:w` to keep them, `:q!` to throw them away"),
+                    cx,
+                );
+                cx.notify();
+                return;
+            }
+            // Findable afterwards: an exit that throws work away should be in the log,
+            // and with tabs open it can be more than one note.
+            tracing::warn!(note, "close discarded unsaved edits");
+        }
+        if last_tab && last_pane {
+            // The window's turn. `leave` writes the session and drains the index; it
+            // does not write notes, because the question above settled that one.
+            self.leave(cx);
             return;
         }
-        // Every tab that is ahead of its note on disk, and the quit is off if any
-        // write failed: the save said why in the status bar, and quitting now would
-        // throw that note away.
-        if dirty && !self.write_all_tabs(cx) {
-            cx.notify();
+        if last_tab {
+            self.close_pane(!force, window, cx);
             return;
         }
-        // Read the queue rather than trusting the last beat: a proposal that landed a
-        // moment ago is exactly the one the user is about to walk away from.
-        self.scan_pending(cx);
-        if self.review_active(cx) {
-            self.say(
-                "agent edits are waiting in the review strip: `:review` to see them, `:q!` to leave them queued",
-                cx,
-            );
-            cx.notify();
-            return;
-        }
-        // With panes, `:q` closes the one it was typed in — vim's `:quit` closes the
-        // window it was typed in too — and the window goes only when the last pane
-        // does. A window that quits because a pane closed is a surprise; one that
-        // quits because the last pane went is what the key was for.
-        if self.panes.len() > 1 {
-            self.close_pane(window, cx);
-            return;
-        }
-        self.leave(cx);
+        self.close_tab(self.pane().active, !force, window, cx);
+        self.focus_active_tab(window, cx);
     }
 
-    /// `:q!`: quit and throw the open note's unsaved edits away. The bang is the
-    /// user saying they know, so nothing is asked and nothing is written; the note
-    /// on the disk stays as it was. The session still goes, because it is where the
-    /// window stood, not what the note said.
-    pub(super) fn quit_forced(
-        &mut self,
-        _: &QuitForce,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        // Logged rather than left unsaid: an exit that throws work away should be
-        // findable in the log afterwards, and with tabs open it can be more than one
-        // note being thrown away.
-        for tab in self.pane().tabs.iter() {
-            if let Some(path) = tab.path() {
-                if tab
-                    .editor()
-                    .is_some_and(|editor| editor.read_with(cx, |editor, _cx| editor.is_dirty()))
-                {
-                    tracing::warn!(path = %path.display(), "quit discarded unsaved edits");
+    /// `:qall` / `ctrl-q`: quit every window this process holds, in every vault.
+    ///
+    /// One decision about the whole run, so the dirty check is the whole run's: a note
+    /// ahead of its file in *any* window refuses the quit and names the first one.
+    /// `:qall!` is the bang that says they know. A queue of agent proposals is refused
+    /// too, for the reason in P2.5a: walking away from unanswered proposals without
+    /// knowing is the failure that feature exists to prevent.
+    pub(super) fn quit_all(&mut self, force: bool, cx: &mut Context<Self>) {
+        let handles = VaultWindows::all_windows(cx);
+        // A window the registry never learned about (a test built without it) is its
+        // own whole run, so the questions below are asked of it directly.
+        let dirty = if handles.is_empty() {
+            self.first_dirty_note(cx)
+        } else {
+            handles.iter().find_map(|handle| {
+                handle
+                    .read_with(cx, |ws, cx| ws.first_dirty_note(cx))
+                    .ok()
+                    .flatten()
+            })
+        };
+        if let Some(note) = dirty.as_ref() {
+            if !force {
+                self.say(
+                    format!(
+                        "unsaved edits in {note}: `:w` to keep them, `:qall!` to throw them away"
+                    ),
+                    cx,
+                );
+                cx.notify();
+                return;
+            }
+            tracing::warn!(note = %note, "quit discarded unsaved edits");
+        }
+        // Only a run that is ahead of its files owes a write; a clean one goes
+        // straight to the questions below, and writing nothing means a refused quit
+        // does not leave a session file behind.
+        if !force && dirty.is_some() {
+            for handle in &handles {
+                let written = handle
+                    .update(cx, |ws, _window, cx| ws.write_all_tabs(cx))
+                    .unwrap_or(false);
+                if !written {
+                    cx.notify();
+                    return;
                 }
             }
         }
-        // The same shape as `:q`: with panes, the bang closes the one it was typed in.
-        if self.panes.len() > 1 {
-            self.close_pane(window, cx);
+        // Read the queue rather than trusting the last beat: a proposal that landed a
+        // moment ago is exactly the one the user is about to walk away from.
+        if !force {
+            self.scan_pending(cx);
+            if self.review_active(cx) {
+                self.say(
+                    "agent edits are waiting in the review strip: `:review` to see them, `:qall!` to leave them queued",
+                    cx,
+                );
+                cx.notify();
+                return;
+            }
+        }
+        // Each window leaves by its own door, so each writes its own session and
+        // drains what it owns; the run ends when the last window goes.
+        if handles.is_empty() {
+            self.leave(cx);
             return;
         }
-        self.leave(cx);
+        for handle in &handles {
+            let _ = handle.update(cx, |ws, _window, cx| ws.leave(cx));
+        }
     }
 
-    /// `:wq`: the write the user asked for, then the exit. Not one action — the
-    /// write is unconditional and the exit depends on it having worked. If the note
-    /// is still dirty the write failed, `write_note` already said why, and the
-    /// window stays open with that message in it.
+    /// `:wall` / `:wa`: every dirty note in every window to the disk, and nothing
+    /// else changes. The count is the point of saying anything: a `:wall` that writes
+    /// four notes should report four, and one that writes nothing should not look like
+    /// it did something.
+    pub(super) fn write_all_windows(&mut self, cx: &mut Context<Self>) {
+        let handles = VaultWindows::all_windows(cx);
+        let written = if handles.is_empty() {
+            usize::from(self.write_all_tabs(cx))
+        } else {
+            let count = handles.iter().fold(0usize, |sum, handle| {
+                sum + handle
+                    .read_with(cx, |ws, cx| ws.dirty_tab_count(cx))
+                    .unwrap_or(0)
+            });
+            for handle in &handles {
+                let _ = handle.update(cx, |ws, _window, cx| ws.write_all_tabs(cx));
+            }
+            count
+        };
+        self.say(
+            match written {
+                0 => "nothing to write".to_string(),
+                1 => "wrote 1 note".to_string(),
+                n => format!("wrote {n} notes"),
+            },
+            cx,
+        );
+        cx.notify();
+    }
+
+    /// `:wq`: the write the user asked for, then the same cascade `:q` runs. Not one
+    /// action — the write is unconditional and the exit depends on it having worked.
+    /// If a note is still dirty the write failed, `write_note` already said why, and
+    /// the tab stays open with that message in it.
     pub(super) fn write_quit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        // Every tab: `:wq` writes the session's notes, not the one under the cursor.
+        // Every tab this window holds, not only the note under the cursor: the
+        // cascade can take a pane or a window, and those carry tabs with them.
         if !self.write_all_tabs(cx) {
             cx.notify();
             return;
         }
-        // And the exit is the same one `:q` gives: the pane in hand first, the window
-        // only when the last pane goes.
-        if self.panes.len() > 1 {
-            self.close_pane(window, cx);
-            return;
-        }
-        self.leave(cx);
+        self.quit_tab(false, window, cx);
+    }
+
+    /// The `Quit` action: `:qall` / `:qa`, and `ctrl-q`. The key was always "end this
+    /// run", which is why the tab cascade never took it.
+    pub(super) fn quit(&mut self, _: &Quit, _window: &mut Window, cx: &mut Context<Self>) {
+        self.quit_all(false, cx);
+    }
+
+    /// The `QuitForce` action: `:qall!` / `:qa!`.
+    pub(super) fn quit_forced(
+        &mut self,
+        _: &QuitForce,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.quit_all(true, cx);
+    }
+
+    /// The `CloseTab` action: `:q` / `:quit`.
+    pub(super) fn close_tab_quitting(
+        &mut self,
+        _: &CloseTab,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.quit_tab(false, window, cx);
+    }
+
+    /// The `CloseTabForce` action: `:q!` / `:quit!`.
+    pub(super) fn close_tab_forced(
+        &mut self,
+        _: &CloseTabForce,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.quit_tab(true, window, cx);
+    }
+
+    /// The `WriteAll` action: `:wall` / `:wa`.
+    pub(super) fn write_all_notes(
+        &mut self,
+        _: &WriteAll,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.write_all_windows(cx);
     }
 
     /// The part of every exit that is not the note: the index drained and

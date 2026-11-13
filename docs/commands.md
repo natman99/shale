@@ -13,9 +13,13 @@ as you would type it.
 | id | what it does | keys | command line | args |
 | --- | --- | --- | --- | --- |
 | `note.save` | Save the note | `ctrl-s` | `:w [name]`, `:write [name]` | `[name]` |
-| `app.quit` | Quit Shale | `ctrl-q` | `:q`, `:quit` | — |
-| `app.quit-force` | Quit Shale, discarding the note's unsaved edits | — | `:q!`, `:quit!` | — |
-| `note.write-quit` | Write the note, then quit | — | `:wq`, `:x`, `:xit`, `:exit` | — |
+| `tab.close` | Close this tab | — | `:q`, `:quit` | — |
+| `tab.close-force` | Close this tab, discarding its unsaved edits | — | `:q!`, `:quit!` | — |
+| `tab.write-close` | Write the note, then close this tab | — | `:wq`, `:x`, `:xit`, `:exit` | — |
+| `app.quit` | Quit Shale | `ctrl-q` | `:qall`, `:qa` | — |
+| `app.quit-force` | Quit Shale, discarding unsaved edits | — | `:qall!`, `:qa!` | — |
+| `note.write-all` | Write every dirty note | — | `:wall`, `:wa` | — |
+| `app.write-quit` | Write every note, then quit Shale | — | `:wqall`, `:wqa` | — |
 | `note.new` | New note | `ctrl-n, n in the tree` | — | — |
 | `folder.new` | New folder | `ctrl-shift-n, shift-n in the tree` | — | — |
 | `note.add-properties` | Add frontmatter properties to the top of the note | — | — | — |
@@ -65,7 +69,7 @@ as you would type it.
 | `tab.new` | Open this note in a new tab | `ctrl-t` | `:tabnew`, `:tabedit` | — |
 | `tab.next` | Go to the next tab | `gt` | `:tabnext`, `:tabn` | — |
 | `tab.prev` | Go to the previous tab | `gT` | `:tabprev`, `:tabp` | — |
-| `tab.close` | Close this tab, writing its note first | `the tab's ×` | `:tabclose`, `:tabc` | — |
+| `tab.close-write` | Close this tab, writing its note first | `the tab's ×` | `:tabclose`, `:tabc` | — |
 | `tab.only` | Close every tab but this one | — | `:tabonly`, `:tabo` | — |
 | `tab.pin` | Pin this tab: a jump opens a new tab instead | — | `:pin` | — |
 | `window.split` | Split this pane, stacked | `ctrl-w s` | `:split`, `:sp` | — |
@@ -79,8 +83,10 @@ as you would type it.
 | `graph.global` | Graph: the whole vault again | `\ (graph)` | `:graph-global` | — |
 | `graph.projected` | Graph: projected 3D view | `3 (graph)` | `:graph3d` | — |
 
-The palette does not list `app.quit-force`, `note.write-quit`, `theme.export`, `review.next`, `review.prev`, `review.accept`, `review.reject`, `review.open-note`, `review.collapse`, `tab.next`, `tab.prev`, `tab.only`, `window.only`, `tab.move`: `note.write-quit` is save and then quit, two
-actions rather than one, `app.quit-force` is the exit that throws unsaved
-edits away (not a row to offer next to *Quit Shale* in a list you pick
-from), and the `review.*` keys other than `review.focus` mean nothing while
-the review strip is off screen — which is only when nothing is waiting.
+The palette does not list `tab.close-force`, `tab.write-close`, `app.quit-force`, `app.write-quit`, `theme.export`, `review.next`, `review.prev`, `review.accept`, `review.reject`, `review.open-note`, `review.collapse`, `tab.next`, `tab.prev`, `tab.only`, `window.only`, `tab.move`: `tab.close-force` and `tab.write-close` are the
+two halves of a promise (`:q!`, `:wq`) rather than rows to browse,
+`app.quit-force` and `app.write-quit` are the exit that throws unsaved edits
+away and the one that keeps them (not a row to offer next to *Quit Shale* in
+a list you pick from), and the `review.*` keys other than `review.focus` mean
+nothing while the review strip is off screen — which is only when nothing is
+waiting.

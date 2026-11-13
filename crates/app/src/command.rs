@@ -222,11 +222,13 @@ impl Command {
             .collect();
         out.push_str(&format!(
             "\n\
-             The palette does not list {}: `note.write-quit` is save and then quit, two\n\
-             actions rather than one, `app.quit-force` is the exit that throws unsaved\n\
-             edits away (not a row to offer next to *Quit Shale* in a list you pick\n\
-             from), and the `review.*` keys other than `review.focus` mean nothing while\n\
-             the review strip is off screen — which is only when nothing is waiting.\n",
+             The palette does not list {}: `tab.close-force` and `tab.write-close` are the\n\
+             two halves of a promise (`:q!`, `:wq`) rather than rows to browse,\n\
+             `app.quit-force` and `app.write-quit` are the exit that throws unsaved edits\n\
+             away and the one that keeps them (not a row to offer next to *Quit Shale* in\n\
+             a list you pick from), and the `review.*` keys other than `review.focus` mean\n\
+             nothing while the review strip is off screen — which is only when nothing is\n\
+             waiting.\n",
             hidden.join(", "),
         ));
         out
@@ -248,35 +250,77 @@ const ALL: &[Command] = &[
         in_palette: true,
         action: Some(|| Box::new(Save)),
     },
+    // `:q` closes the tab it was typed in — vim's shape, and the one the user's hand
+    // already knows. The cascade (pane, then window, then the run) is in the handler;
+    // the table's job is to say what the word asks for.
     Command {
-        id: "app.quit",
-        label: "Quit Shale",
-        keys: "ctrl-q",
+        id: "tab.close",
+        label: "Close this tab",
+        keys: "",
         ex: &["q", "quit"],
         args: "",
         in_palette: true,
-        action: Some(|| Box::new(Quit)),
+        action: Some(|| Box::new(CloseTab)),
     },
-    // The bang version: the same exit without the write. Not in the palette — a list
-    // you choose from should not offer "throw the work away" next to "Quit Shale" —
+    // The bang version: the same close without the write. Not in the palette — a list
+    // you choose from should not offer "throw the work away" next to "Close this tab" —
     // so the command line is the only way in, and the bang the user types is what
     // says they meant it.
     Command {
-        id: "app.quit-force",
-        label: "Quit Shale, discarding the note's unsaved edits",
+        id: "tab.close-force",
+        label: "Close this tab, discarding its unsaved edits",
         keys: "",
         ex: &["q!", "quit!"],
         args: "",
         in_palette: false,
-        action: Some(|| Box::new(QuitForce)),
+        action: Some(|| Box::new(CloseTabForce)),
     },
     // A command-line composite, not one action, and no palette row: it is here so
     // the docs list it and the parity test covers `:wq`.
     Command {
-        id: "note.write-quit",
-        label: "Write the note, then quit",
+        id: "tab.write-close",
+        label: "Write the note, then close this tab",
         keys: "",
         ex: &["wq", "x", "xit", "exit"],
+        args: "",
+        in_palette: false,
+        action: None,
+    },
+    // Leaving the building has its own words now. `ctrl-q` keeps its meaning: the key
+    // was always "end this run", never "lose this tab".
+    Command {
+        id: "app.quit",
+        label: "Quit Shale",
+        keys: "ctrl-q",
+        ex: &["qall", "qa"],
+        args: "",
+        in_palette: true,
+        action: Some(|| Box::new(Quit)),
+    },
+    Command {
+        id: "app.quit-force",
+        label: "Quit Shale, discarding unsaved edits",
+        keys: "",
+        ex: &["qall!", "qa!"],
+        args: "",
+        in_palette: false,
+        action: Some(|| Box::new(QuitForce)),
+    },
+    Command {
+        id: "note.write-all",
+        label: "Write every dirty note",
+        keys: "",
+        ex: &["wall", "wa"],
+        args: "",
+        in_palette: true,
+        action: Some(|| Box::new(WriteAll)),
+    },
+    // Also a composite: the write is unconditional and the exit depends on it.
+    Command {
+        id: "app.write-quit",
+        label: "Write every note, then quit Shale",
+        keys: "",
+        ex: &["wqall", "wqa"],
         args: "",
         in_palette: false,
         action: None,
@@ -755,7 +799,7 @@ const ALL: &[Command] = &[
         action: Some(|| Box::new(TabPrev)),
     },
     Command {
-        id: "tab.close",
+        id: "tab.close-write",
         label: "Close this tab, writing its note first",
         keys: "the tab's ×",
         ex: &["tabclose", "tabc"],

@@ -139,10 +139,18 @@ actions!(
     shale,
     [
         Save,
+        // `:qall` / `:qa`, and `ctrl-q`: every window Shale holds, every vault.
         Quit,
-        // `:q!`. No key is bound to it: the command line is the only way in, and the
-        // bang the user types is the whole point of it.
+        // `:qall!` / `:qa!`. No key is bound to it: the command line is the only way
+        // in, and the bang the user types is the whole point of it.
         QuitForce,
+        // `:q` / `:quit`: the tab in hand, cascading to its pane, its window, and the
+        // run when each of those is the last one. A dirty note refuses it.
+        CloseTab,
+        // `:q!`: the same cascade, discarding unsaved edits.
+        CloseTabForce,
+        // `:wall` / `:wa`: write every dirty note, change nothing else.
+        WriteAll,
         NewNote,
         NewFolder,
         RenameNote,

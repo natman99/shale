@@ -124,7 +124,7 @@ impl Workspace {
     /// Whether any tab is ahead of its note on disk.
     #[cfg(test)]
     pub(crate) fn any_tab_is_dirty(&self, cx: &gpui::App) -> bool {
-        self.any_dirty(cx)
+        self.first_dirty_note(cx).is_some()
     }
     /// What the status bar shows for the save state: how a test checks that the
     /// dot is lit while the note is ahead of the disk and gone once it is not.
@@ -852,7 +852,7 @@ impl Workspace {
     #[cfg(test)]
     pub(crate) fn close_active_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let index = self.pane().active;
-        self.close_tab(index, window, cx)
+        self.close_tab(index, true, window, cx)
     }
     /// Move the frame to tab `index`, for the same reason: a test that needs the
     /// keyboard on a tab no key reaches from where the keyboard already is.

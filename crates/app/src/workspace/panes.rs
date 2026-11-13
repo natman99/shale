@@ -315,7 +315,14 @@ impl Workspace {
     /// closing a tab, one level up: a failed write keeps the pane. The last
     /// pane cannot be closed; the status bar says so rather than the window
     /// vanishing under the user.
-    pub(crate) fn close_pane(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// `write_first` again: a close that owes the pane's notes a write, and `:q!`,
+    /// which has been told to drop them.
+    pub(crate) fn close_pane(
+        &mut self,
+        write_first: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.panes.len() <= 1 {
             self.say("this is the only pane", cx);
             return;
@@ -325,18 +332,20 @@ impl Workspace {
         // not is the one state a close must never leave.
         let ix = self.active_pane;
         let n = self.panes[ix].tabs.len();
-        for tab_ix in 0..n {
-            let dirty = self.panes[ix].tabs[tab_ix]
-                .editor()
-                .is_some_and(|editor| editor.read_with(cx, |editor, _cx| editor.is_dirty()));
-            if dirty {
-                self.write_tab(tab_ix, cx);
-                let still = self.panes[ix].tabs[tab_ix]
+        if write_first {
+            for tab_ix in 0..n {
+                let dirty = self.panes[ix].tabs[tab_ix]
                     .editor()
                     .is_some_and(|editor| editor.read_with(cx, |editor, _cx| editor.is_dirty()));
-                if still {
-                    self.say("the pane stayed open: a write failed", cx);
-                    return;
+                if dirty {
+                    self.write_tab(tab_ix, cx);
+                    let still = self.panes[ix].tabs[tab_ix].editor().is_some_and(|editor| {
+                        editor.read_with(cx, |editor, _cx| editor.is_dirty())
+                    });
+                    if still {
+                        self.say("the pane stayed open: a write failed", cx);
+                        return;
+                    }
                 }
             }
         }
@@ -365,7 +374,7 @@ impl Workspace {
             let Some(victim) = victim else { break };
             let before = self.panes.len();
             self.active_pane = victim;
-            self.close_pane(window, cx);
+            self.close_pane(true, window, cx);
             if self.panes.len() == before {
                 self.active_pane = kept.min(self.panes.len() - 1);
                 return;
@@ -545,7 +554,7 @@ impl Workspace {
         if self.overlay_owns_keys() {
             return;
         }
-        self.close_pane(window, cx);
+        self.close_pane(true, window, cx);
     }
 
     pub(crate) fn window_only(

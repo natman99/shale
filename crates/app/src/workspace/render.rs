@@ -655,6 +655,9 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::save))
             .on_action(cx.listener(Self::quit))
             .on_action(cx.listener(Self::quit_forced))
+            .on_action(cx.listener(Self::close_tab_quitting))
+            .on_action(cx.listener(Self::close_tab_forced))
+            .on_action(cx.listener(Self::write_all_notes))
             // Into the embed under the caret (`ctrl-]`); `ctrl-o` walks back out, and
             // that handler already exists as the jump chain (roadmap P4.0b).
             .on_action(cx.listener(Self::enter_embed_key))

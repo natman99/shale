@@ -38,7 +38,7 @@ authority on ids and `:` spellings.
 | `ctrl-o` / `ctrl-i` | jump back / forward through the notes you came from |
 | mouse back / forward button | the same jump list, browser-style (quiet while a picker or prompt holds the keyboard) |
 | `ctrl-s` | save (`:w`) |
-| `ctrl-q` | quit (`:q`) |
+| `ctrl-q` | quit every window (`:qall`) |
 | `ctrl-w h` / `ctrl-w l` | keyboard to the file tree / back to the note |
 | `ctrl-z`, `ctrl-r`, `ctrl-y`, `ctrl-shift-z` | undo, redo |
 | `ctrl-shift-c`, `ctrl-shift-v` | system clipboard copy, paste |

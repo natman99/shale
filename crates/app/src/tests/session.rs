@@ -211,8 +211,10 @@ fn the_autosave_beat_saves_the_session_too(cx: &mut TestAppContext) {
     assert_eq!(session.view.as_deref(), Some("live"));
 }
 
-/// `:q` is a graceful exit, and a graceful exit leaves the session behind —
-/// even though the test platform's `quit()` itself does nothing observable.
+/// `:wqall` is a graceful exit, and a graceful exit leaves the session behind —
+/// even though the test platform's `quit()` itself does nothing observable. It is
+/// `:wqall` rather than `:q` because the note is dirty here, and plain `:q` refuses
+/// a dirty note rather than writing it.
 #[gpui::test]
 fn quitting_saves_where_the_window_stood(cx: &mut TestAppContext) {
     let (dir, window) = workspace(cx, &["a.md"]);
@@ -225,7 +227,9 @@ fn quitting_saves_where_the_window_stood(cx: &mut TestAppContext) {
 
     cx.simulate_keystrokes("i");
     cx.simulate_input("typed, then quit");
-    cx.simulate_keystrokes("escape ctrl-q");
+    cx.simulate_keystrokes("escape :");
+    cx.simulate_input("wqall");
+    cx.simulate_keystrokes("enter");
 
     let session = Session::load(dir.path()).unwrap();
     assert_eq!(session.open_note.as_deref(), Some(Path::new("a.md")));
@@ -237,5 +241,27 @@ fn quitting_saves_where_the_window_stood(cx: &mut TestAppContext) {
     assert_eq!(
         std::fs::read_to_string(dir.path().join("a.md")).unwrap(),
         "typed, then quit"
+    );
+}
+
+/// The cascade's end: `:q` on the last clean tab of the last pane closes the window,
+/// and closing the window is what writes the session. The session file is removed
+/// first so the assertion is about this exit and not one earlier.
+#[gpui::test]
+fn q_on_the_last_clean_tab_closes_the_window(cx: &mut TestAppContext) {
+    let (dir, window) = workspace(cx, &["a.md"]);
+    window
+        .update(cx, |ws, _window, cx| {
+            ws.open_note(&PathBuf::from("a.md"), cx)
+        })
+        .unwrap();
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    let _ = std::fs::remove_file(shale_core::session::session_path(dir.path()));
+    cx.simulate_keystrokes("escape : q enter");
+    let session = Session::load(dir.path()).unwrap();
+    assert_eq!(
+        session.open_note.as_deref(),
+        Some(Path::new("a.md")),
+        "the window left, and leaving wrote where it stood"
     );
 }

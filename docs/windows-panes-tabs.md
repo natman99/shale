@@ -54,10 +54,14 @@ on: a pane you are not looking at can still be told things (a tab can be moved
 into it, a note can be opened in it by clicking its start block), but the keys
 always go to the one you chose.
 
-`:q`, `:q!` and `:wq` close **the pane the command was typed in** when there is
-more than one; the window goes only with the last pane. Closing the last tab in a pane
-closes that pane, with the last pane as the exception: there the tab is cleared, so a
-window never quits because a tab closed.
+`:q` is a cascade and not an exit. It closes **the tab under the keyboard**; the
+last tab in a pane closes that pane, the last pane closes the window, and the run
+ends with the last window. A note ahead of its file refuses, and says so with the
+note's name: `:w` first, or `:q!` to throw the edits away. The dirty question is
+asked only of what the word would actually take down, so a dirty note in another
+pane never blocks this pane's last clean tab. `:wq` writes this tab and closes it;
+`:qall` (which is also `ctrl-q`) asks the whole run at once, `:wqall` writes
+everything and leaves, and `:wall` writes everything and stays.
 
 ## Tabs
 

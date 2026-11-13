@@ -906,3 +906,55 @@ fn a_jump_away_from_a_note_another_pane_holds_needs_no_new_tab(cx: &mut TestAppC
         "and the other pane still holds the note with the edits in it"
     );
 }
+
+/// The dirty check is scoped to what `:q` would actually take down. A note ahead of
+/// its file in another pane is somebody else's problem: this pane's last clean tab
+/// closes, and the edits over there stay exactly where they were.
+#[gpui::test]
+fn q_closes_a_pane_without_touching_a_dirty_note_in_another(cx: &mut TestAppContext) {
+    let (dir, window, mut cx) = two_notes(cx);
+    cx.simulate_keystrokes("ctrl-w s");
+    // A different note in the second pane. Two panes showing one note share one
+    // buffer, and then there is no clean pane to close.
+    show(&mut cx, &window, "b.md");
+    assert_eq!(pane_tabs(&window, &mut cx, 1), vec!["b.md"]);
+    // The panes are stacked, so the keyboard steps up and down, not left and right.
+    cx.simulate_keystrokes("ctrl-w k");
+    assert_eq!(
+        active(&window, &mut cx),
+        0,
+        "the dirty note is typed in the top pane"
+    );
+    cx.simulate_keystrokes("A");
+    cx.simulate_input(" unsaved");
+    cx.simulate_keystrokes("ctrl-w j");
+    assert_eq!(
+        panes(&window, &mut cx),
+        2,
+        "the clean pane is the one under the keyboard"
+    );
+    command_line("q", &mut cx);
+    assert_eq!(panes(&window, &mut cx), 1, "the clean pane closed");
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("a.md")).unwrap(),
+        "first\n",
+        "and the dirty note in the other pane is still unsaved, as it was"
+    );
+    assert_eq!(
+        pane_tabs(&window, &mut cx, 0),
+        vec!["a.md"],
+        "which is the pane that survived"
+    );
+}
+
+/// `:q` is a cascade: the last tab of a pane takes the pane with it, which is what
+/// keeps a window from filling up with panes nobody is looking at.
+#[gpui::test]
+fn q_closes_the_pane_when_it_is_the_last_tab(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = two_notes(cx);
+    cx.simulate_keystrokes("ctrl-w s");
+    assert_eq!(panes(&window, &mut cx), 2, "a second pane, empty");
+    command_line("q", &mut cx);
+    assert_eq!(panes(&window, &mut cx), 1, "its last tab closed the pane");
+    assert_eq!(pane_tabs(&window, &mut cx, 0), vec!["a.md"]);
+}

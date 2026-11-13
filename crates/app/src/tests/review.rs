@@ -660,10 +660,10 @@ fn o_opens_the_note_the_hunk_is_about(cx: &mut TestAppContext) {
 /// files are on disk either way, so nothing is lost — but walking away from an
 /// unanswered proposal without knowing you did is the thing this feature is for.
 #[gpui::test]
-fn q_refuses_while_a_proposal_is_waiting(cx: &mut TestAppContext) {
+fn qall_refuses_while_a_proposal_is_waiting(cx: &mut TestAppContext) {
     let (dir, window, mut cx) = one_proposal(cx);
     let id = pending::list(dir.path()).edits.remove(0).id;
-    command_line("q", &mut cx);
+    command_line("qall", &mut cx);
     assert!(
         queue_file(dir.path(), &id).exists(),
         "the proposal is still queued"

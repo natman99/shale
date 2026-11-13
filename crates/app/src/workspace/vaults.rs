@@ -88,6 +88,17 @@ impl VaultWindows {
     }
 }
 
+impl VaultWindows {
+    /// Every window this process holds, across every vault: what `:qall` walks and
+    /// what `:wall` writes. The registry is the only place that knows them all — a
+    /// window can see its own tabs, but not its siblings'.
+    pub(crate) fn all_windows(cx: &gpui::App) -> Vec<gpui::WindowHandle<Workspace>> {
+        cx.try_global::<VaultWindows>()
+            .map(|registry| registry.windows.values().flatten().copied().collect())
+            .unwrap_or_default()
+    }
+}
+
 impl gpui::Global for VaultWindows {}
 
 #[cfg(test)]

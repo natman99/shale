@@ -2031,6 +2031,28 @@ edges, query nodes, MCP canvas tools) is P6.10.
   `ctrl-w S`'s split make a note held twice safe to jump away from, which is what keeps
   the rule from growing a tab for nothing. `step_jump` goes to the tab that already holds
   the jump's destination rather than loading a second copy of it.
+- **P4.18 The exit words — `:q` is a cascade, not an exit** — **closed 2026-11-13**, from
+  the user's todo sweep. `:q` closes the tab under the keyboard; the last tab in a pane
+  closes that pane, the last pane closes the window, the last window ends the run.
+  `ctrl-q` and the palette's *Quit Shale* are `:qall`, which asks the same question of
+  every window at once; `:qall!` leaves over dirty notes and a queued review strip,
+  `:wall` writes everything and stays, `:wqall` writes and leaves, `:wq` writes this tab
+  and closes it. **The design point is that the dirty question is scoped to what the word
+  would actually take down** — `dirty_note_in_tab` for one tab, `first_dirty_note_in_pane`
+  for a pane, `first_dirty_note` for the run — so a note ahead of its file in another pane
+  never blocks this pane's last clean tab, and the refusal names the note rather than
+  counting them. Two traps the work actually turned up. `close_tab` and `close_pane` wrote
+  dirty tabs unconditionally, so `:q!` wrote the very file it had been told to discard;
+  the doors now carry the difference as `write_first` — the tab's `×` and `:tabclose` owe
+  a write, `:q!` has been told in words not to pay one. And `quit_all` had to ask the
+  review question *before* its "no registered windows" shortcut, or a refused quit left a
+  session file behind and the next start claimed a window that was never closed. Six
+  falsifications, all red — two of them green on the first pass, which was the battery's
+  fault and not the code's: the pane-cascade test could not tell which door closed the
+  pane (`close_tab` closes a pane too when it empties it), so it was replaced by the
+  scoping test above, and one case named a test that did not exist and reported green
+  against zero matches. The registry grew `tab.close`, `tab.close-force`,
+  `tab.write-close` and `tab.close-write` (the `×`), and `app.quit` moved to `:qall`.
 
 **Exit criteria:** restore any note to any retained point; a `.shq` embedded in
 three notes renders live and refreshes on edit; tag rename rewrites every note

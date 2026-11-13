@@ -124,8 +124,8 @@ it is not. If the note changed underneath, the rest of the proposal is re-anchor
 line shift the accepted hunk caused and written back to the queue; when the context no
 longer matches, that row is badged `stale` instead.
 
-`:q` is refused while proposals are unanswered; `:q!` leaves them queued for the
-next window. A window-manager close or a signal is never refused, and the files
+`:qall` is refused while proposals are unanswered; `:qall!` leaves them queued for
+the next window. A window-manager close or a signal is never refused, and the files
 survive either way.
 
 ## Who owns the vault

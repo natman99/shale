@@ -413,10 +413,11 @@ fn quit_refuses_a_dirty_background_tab(cx: &mut TestAppContext) {
     );
 }
 
-/// The other half of that promise: with autosave on, a quit writes every tab, so a
-/// note edited in the background is not lost to the exit.
+/// The other half of that promise, now `:wq`'s rather than `:q`'s: a quit that was
+/// asked to write writes every tab, so a note edited in the background is not lost
+/// to the exit. `:q` on its own refuses the same situation instead.
 #[gpui::test]
-fn quit_writes_every_tab_when_autosave_is_on(cx: &mut TestAppContext) {
+fn wq_writes_every_tab_when_autosave_is_on(cx: &mut TestAppContext) {
     let (dir, window) = vault_with(cx, &[("a.md", "first\n"), ("b.md", "second\n")]);
     window
         .update(cx, |ws, _window, _cx| ws.set_autosave(true))
@@ -426,7 +427,7 @@ fn quit_writes_every_tab_when_autosave_is_on(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("A");
     cx.simulate_input(" saved");
     cx.simulate_keystrokes("ctrl-t");
-    command_line("q", &mut cx);
+    command_line("wq", &mut cx);
     assert_eq!(
         std::fs::read_to_string(dir.path().join("a.md")).unwrap(),
         "first saved\n",
@@ -868,5 +869,114 @@ fn a_pinned_tab_comes_back_pinned(cx: &mut TestAppContext) {
         pins(&restored, &mut cx),
         vec![true, false],
         "and the first is still pinned: a jump out of it opens a new tab"
+    );
+}
+
+/// `:q` on a tab whose note is ahead of its file refuses, and names the note. The
+/// word promises neither a save nor a discard, so the tab stays where it was and the
+/// status bar says which of the two words the user meant.
+#[gpui::test]
+fn q_refuses_a_dirty_tab_and_names_it(cx: &mut TestAppContext) {
+    let (dir, window, mut cx) = two_notes(cx);
+    cx.simulate_keystrokes("A");
+    cx.simulate_input(" unsaved");
+    command_line("q", &mut cx);
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("a.md")).unwrap(),
+        "first\n",
+        "nothing was written"
+    );
+    assert_eq!(
+        tabs(&window, &mut cx),
+        vec![("a.md".into(), true)],
+        "and the tab is where it was"
+    );
+    let said = say(&window, &mut cx);
+    assert!(said.contains("a.md"), "the refusal names the note: {said}");
+    assert!(said.contains(":q!"), "and the way through: {said}");
+}
+
+/// `:q!` is the bang that says they know: the tab goes, and the file stays exactly as
+/// it was. The note on disk is not the user's to rewrite on someone else's word.
+#[gpui::test]
+fn q_force_closes_the_tab_and_leaves_the_file(cx: &mut TestAppContext) {
+    let (dir, window, mut cx) = two_notes(cx);
+    cx.simulate_keystrokes("A");
+    cx.simulate_input(" unsaved");
+    // A second tab of the same note, so closing one leaves the pane standing.
+    cx.simulate_keystrokes("ctrl-t");
+    command_line("q!", &mut cx);
+    assert_eq!(
+        tabs(&window, &mut cx),
+        vec![("a.md".into(), true)],
+        "one tab went and the other is still ahead of the disk"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("a.md")).unwrap(),
+        "first\n",
+        "the bang writes nothing"
+    );
+}
+
+/// A clean tab has nothing to argue about: `:q` closes it and the keyboard lands on
+/// the tab beside it.
+#[gpui::test]
+fn q_closes_a_clean_tab(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = two_notes(cx);
+    cx.simulate_keystrokes("ctrl-t");
+    command_line("q", &mut cx);
+    assert_eq!(tabs(&window, &mut cx), vec![("a.md".into(), false)]);
+}
+
+/// `:qall` is the whole run, and the whole run takes the same argument as `:q`: a
+/// note ahead of its file stops it and names itself.
+#[gpui::test]
+fn qall_refuses_while_a_note_is_ahead_of_its_file(cx: &mut TestAppContext) {
+    let (dir, window, mut cx) = two_notes(cx);
+    cx.simulate_keystrokes("A");
+    cx.simulate_input(" unsaved");
+    command_line("qall", &mut cx);
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("a.md")).unwrap(),
+        "first\n",
+        "nothing was written"
+    );
+    let said = say(&window, &mut cx);
+    assert!(said.contains("a.md"), "the refusal names the note: {said}");
+    assert!(said.contains(":qall!"), "and the way through: {said}");
+}
+
+/// `:wall` is the write half of that word: every dirty note in every window goes to
+/// the disk, and the window stays exactly where it was.
+#[gpui::test]
+fn wall_writes_every_tab_and_stays(cx: &mut TestAppContext) {
+    let (dir, window, mut cx) = two_notes(cx);
+    cx.simulate_keystrokes("A");
+    cx.simulate_input(" unsaved");
+    command_line("wall", &mut cx);
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("a.md")).unwrap(),
+        "first unsaved\n",
+        "the note is on disk"
+    );
+    assert_eq!(
+        tabs(&window, &mut cx),
+        vec![("a.md".into(), false)],
+        "and the window is still here, with nothing ahead of its file"
+    );
+}
+
+/// `:wqall` is the word that means the whole run: every window, and the dirty notes
+/// with them. Plain `:q` refused this situation; this one writes and leaves.
+#[gpui::test]
+fn wqall_writes_and_leaves(cx: &mut TestAppContext) {
+    let (dir, _window, mut cx) = two_notes(cx);
+    cx.simulate_keystrokes("A");
+    cx.simulate_input(" unsaved");
+    command_line("wqall", &mut cx);
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("a.md")).unwrap(),
+        "first unsaved\n",
+        "the write happened"
     );
 }

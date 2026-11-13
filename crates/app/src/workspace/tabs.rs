@@ -514,9 +514,13 @@ impl Workspace {
     /// **A write that fails keeps the tab open.** The user can see the reason in the
     /// status bar, and a tab that closes on a failed write is work that vanished
     /// because of it.
+    /// `write_first` is the difference between the doors: the tab's `×` and
+    /// `:tabclose` owe the note a write, and `:q!` has been told in words to throw the
+    /// edits away. `:q` reaches neither branch with a dirty tab — it refuses first.
     pub(super) fn close_tab(
         &mut self,
         index: usize,
+        write_first: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
@@ -525,7 +529,8 @@ impl Workspace {
         }
         // A tab holding a note writes it before it goes; an empty tab has nothing to
         // write, and nothing to fail at writing. The graph tab has no note either.
-        if self.pane().tabs[index].path().is_some()
+        if write_first
+            && self.pane().tabs[index].path().is_some()
             && self.pane().tabs[index]
                 .editor()
                 .is_some_and(|editor| editor.read_with(cx, |editor, _cx| editor.is_dirty()))
@@ -545,7 +550,7 @@ impl Workspace {
                 // Obsidian's rule): a split should not fill up with panes nobody is
                 // looking at. The last pane is the exception — see below — so a window
                 // never quits because a tab closed.
-                self.close_pane(window, cx);
+                self.close_pane(write_first, window, cx);
                 return true;
             }
             // The last tab of the last pane: cleared rather than removed, so the window
@@ -710,7 +715,7 @@ impl Workspace {
     /// same promise a quit makes with autosave on — a tab the user closes is not a
     /// wish to lose the note.
     pub(super) fn tab_close(&mut self, _: &TabClose, window: &mut Window, cx: &mut Context<Self>) {
-        self.close_tab(self.pane().active, window, cx);
+        self.close_tab(self.pane().active, true, window, cx);
         self.focus_active_tab(window, cx);
     }
 
@@ -756,7 +761,7 @@ impl Workspace {
         let others: Vec<usize> = (0..self.pane().tabs.len()).filter(|n| *n != keep).collect();
         let mut closed = 0;
         for index in others.into_iter().rev() {
-            if self.close_tab(index, window, cx) {
+            if self.close_tab(index, true, window, cx) {
                 closed += 1;
             }
         }
@@ -811,7 +816,7 @@ impl Workspace {
         let Some(index) = self.tab_for_id(id) else {
             return;
         };
-        self.close_tab(index, window, cx);
+        self.close_tab(index, true, window, cx);
         self.focus_active_tab(window, cx);
     }
 
@@ -847,17 +852,52 @@ impl Workspace {
         clean
     }
 
-    /// Whether any tab is ahead of its note on disk, which is what `:q` asks with
-    /// autosave off, and what the tab bar's dots show. The graph tab is never dirty:
-    /// it has no note to be ahead of.
-    pub(super) fn any_dirty(&self, cx: &gpui::App) -> bool {
+    /// The first note this window holds that is ahead of its file, named the way the
+    /// status bar names it. What `:q` and `:qall` refuse with: a refusal that says
+    /// "unsaved edits" without saying *which* note leaves the user guessing, and with
+    /// tabs open there can be several.
+    pub(crate) fn first_dirty_note(&self, cx: &gpui::App) -> Option<String> {
+        (0..self.panes.len()).find_map(|pane| self.first_dirty_note_in_pane(pane, cx))
+    }
+
+    /// The same question about one pane, which is what `:q` asks when it is about to
+    /// close that pane and nothing else.
+    pub(crate) fn first_dirty_note_in_pane(&self, pane: usize, cx: &gpui::App) -> Option<String> {
+        self.panes
+            .get(pane)?
+            .tabs
+            .iter()
+            .find_map(|tab| Self::dirty_note(tab, cx))
+    }
+
+    /// The same question about one tab.
+    pub(crate) fn dirty_note_in_tab(&self, tab: usize, cx: &gpui::App) -> Option<String> {
+        self.pane()
+            .tabs
+            .get(tab)
+            .and_then(|tab| Self::dirty_note(tab, cx))
+    }
+
+    /// How many tabs hold a note ahead of its file: what `:wall` reports, so a write
+    /// that did four things says it did four and one that did nothing says that.
+    pub(crate) fn dirty_tab_count(&self, cx: &gpui::App) -> usize {
         self.panes
             .iter()
             .flat_map(|pane| pane.tabs.iter())
-            .any(|tab| {
-                tab.editor()
-                    .is_some_and(|editor| editor.read_with(cx, |editor, _cx| editor.is_dirty()))
-            })
+            .filter(|tab| Self::dirty_note(tab, cx).is_some())
+            .count()
+    }
+
+    /// A tab's note, named, when the tab is ahead of its file. A graph tab has no
+    /// path and no editor, so it is never the answer.
+    fn dirty_note(tab: &Tab, cx: &gpui::App) -> Option<String> {
+        let dirty = tab
+            .editor()
+            .is_some_and(|editor| editor.read_with(cx, |editor, _cx| editor.is_dirty()));
+        dirty
+            .then(|| tab.path())
+            .flatten()
+            .map(|path| path.display().to_string())
     }
 
     /// The tabs as the tab bar and the session file want them: whether the tab is the
