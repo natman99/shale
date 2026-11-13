@@ -1944,6 +1944,22 @@ edges, query nodes, MCP canvas tools) is P6.10.
   spellings, and a plain link keeping its card with the setting off; three falsifications, all
   red — the cache resolving without aliases, the gate removed, and the resolver never naming
   the alias rule.
+  **M3 closed the same day: the hover surface.** A `!p` line's long form opens on the same
+  card a wiki-link already opens — no new surface, no interactions, no keyboard — and it is
+  where ruling D's named distribution finally lives: the average and range, the target's
+  chance in the line's own words, the d20's exceptions, and every total drawn as a bar
+  **when there are twelve or fewer**, the same gate `named_shape` uses so the two surfaces
+  cannot disagree about what "worth reading" means. The hit test is the **line**, not the
+  chip: the chip can be shortened to `40%` or reduced to a gutter mark, and the only part of
+  the request always under the reader's hand is the expression they wrote. A refused line
+  gets a card too — the sentence the chip had no room for, which is the other half of why a
+  refusal keeps its gutter mark. `percent`/`number`, `TargetWord::verb` and `Advantage::label`
+  moved to core so the chip and the card cannot say the same fact in two voices. Four hover
+  tests (the distribution, the line-level hit test, a refusal, and a borrowed block's line
+  getting neither) and nine core tests for the wording; falsifications red for the offer, the
+  bar gate, the silenced refusal and the peak-relative bar — the entered-block guard is
+  defensive and **not** pinned by a falsification, because the hit test's offsets never
+  reach it.
   **Named instance (2026-11-08):** "the cue for the section the caret is in" (brainstorm
   "Session-linked chips") is a legitimate one — a line-level fact painted near the block,
   **not** in the status bar — and it is the *only* cue-aware surface allowed: no

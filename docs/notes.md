@@ -350,6 +350,19 @@ readout is drawn, and taking it away is deleting the line that asked.
   sentence. If even that has no room, the line's gutter takes a small die mark and the
   figure comes back when you hover the line.
 
+**Hovering the line opens the long form.** The card is the same surface a wiki-link opens,
+and it says what the margin has no room for: the average and the range, the target's chance
+in the words the line itself used, the d20's exceptions (`needs 13+`, `advantage`), and every
+total drawn as a bar — when there are twelve or fewer of them, which is the point where a
+distribution is a shape a reader can hold rather than a curve. A wider roll stops at the
+summary. A line the grammar refused gets the sentence the chip had no room for.
+
+The card belongs to the **line**, not to the readout at its end: the pointer can be anywhere
+on it, including when the readout has been shortened to `40%` or pushed into the gutter. A
+`!p` written inside another note's block gets neither readout nor card — the borrowed lines
+belong to the note that holds them, and answering from the wrong buffer would be a lie about
+the vault.
+
 This is not a probability calculator. Improved-crit ranges, exploding dice and rerolls are
 refused rather than invented; there are websites for that.
 
