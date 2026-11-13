@@ -501,6 +501,20 @@ way down from the marked word stays inside that area even when the popup is
 clamped to the text column and the word is beside it. `:harper off` / `:harper on` switch it without a
 restart. A server that is not installed simply means nothing gets underlined.
 
+What gets underlined is prose, and only prose. The checker stays off a properties
+block, a callout's `[!type]` header, a `!p` dice line, a `[[link]]` or `![[embed]]`
+(both halves of an aliased one), a `#tag`, and a trailing `^blockid`: a note name, a
+tag and an id are things the app indexes rather than sentences it reads, and the
+checker has no standing over how you spell them. Each of those spans comes from the
+same scanner the rest of the app uses for that construct, so the underlines cannot
+start disagreeing with the sidebar or the index about what counts as markup. A note
+that only leans on one of those edges stays, because part of what it covers is prose.
+
+The underlines also stay while the checker thinks. It is debounced, so after an edit
+the previous notes remain until the new ones land, rather than the note going blank
+and refilling — which reads as the filter switching on and off. They are one keystroke
+out of date, not wrong, and the next answer replaces them wholesale.
+
 ## Reading with less noise
 
 - `space l` — **live**: the syntax of a row you are not on is hidden.

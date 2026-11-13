@@ -78,7 +78,10 @@ pub(crate) fn range(
 /// callouts and reads the type name as prose; a note that only touches the
 /// marker's edge is kept, because then part of it is about prose. The same
 /// entirely-inside rule drops notes inside a frontmatter block (YAML, not prose) and
-/// notes on a `!p` dice-request line (a question for the app, not prose).
+/// notes on a `!p` dice-request line (a question for the app, not prose). The same rule
+/// drops notes inside a `[[link]]` or `![[embed]]`, inside a `#tag`, and on a `^blockid`
+/// token: all four are names the app indexes or syntax it acts on, and the checker has
+/// no standing over how an author spells a note name, a tag, or an id.
 pub(crate) fn diagnostics(params: &Value, text: &str) -> Vec<Diagnostic> {
     let Some(list) = params.get("diagnostics").and_then(Value::as_array) else {
         return Vec::new();
@@ -104,6 +107,25 @@ pub(crate) fn diagnostics(params: &Value, text: &str) -> Vec<Diagnostic> {
         }
         at += line.len();
     }
+    // Names the app owns rather than prose the checker has standing to judge: a
+    // `[[link]]` or `![[embed]]`, whose text is a note name; a `#tag`, whose
+    // spelling the index owns; and a `^blockid` token, which is syntax in the
+    // same sense the `!p` line is. Each span comes from the scanner the rest of
+    // the app already uses for that construct — the index's link extraction, the
+    // style spans the sidebar colours by, the block map the resolver cuts with —
+    // so the checker cannot start disagreeing with them about what is markup.
+    let mut names: Vec<(usize, usize)> = Vec::new();
+    for link in shale_core::markdown::extract_wikilinks(text) {
+        names.push((link.start, link.end));
+    }
+    for span in shale_core::mdstyle::style_spans(text) {
+        if span.style == shale_core::mdstyle::Style::Tag {
+            names.push((span.start, span.end));
+        }
+    }
+    for anchor in shale_core::mdstyle::block_map(text).anchors {
+        names.push((anchor.start, anchor.end));
+    }
     let mut out = Vec::with_capacity(list.len());
     for entry in list {
         let Some(start) = position(entry, "start") else {
@@ -128,6 +150,9 @@ pub(crate) fn diagnostics(params: &Value, text: &str) -> Vec<Diagnostic> {
             .iter()
             .any(|&(from, to)| from <= start && end <= to)
         {
+            continue;
+        }
+        if names.iter().any(|&(from, to)| from <= start && end <= to) {
             continue;
         }
         out.push(Diagnostic {
@@ -486,6 +511,139 @@ mod tests {
     #[test]
     fn a_payload_without_diagnostics_is_not_an_error() {
         assert!(diagnostics(&serde_json::json!({ "uri": "file:///a.md" }), "text").is_empty());
+    }
+
+    /// A link's text is a note name, not a word the checker has standing to judge:
+    /// the vault is full of names like `Zhentarim`, and a squiggle on every one of
+    /// them trains the reader to ignore squiggles. The alias half of
+    /// `[[target|label]]` goes with it — the author chose that text too.
+    #[test]
+    fn a_note_inside_a_wikilink_is_dropped() {
+        let text = "Meet [[Zhentarim]] and [[Xanathar|the qween]].\nBut this prose stays.\n";
+        let params = serde_json::json!({
+            "diagnostics": [
+                {
+                    "message": "Did you mean to spell `Zhentarim` this way?",
+                    "code": "SpellCheck",
+                    "range": { "start": { "line": 0, "character": 7 },
+                               "end": { "line": 0, "character": 16 } }
+                },
+                {
+                    "message": "Did you mean to spell `qween` this way?",
+                    "code": "SpellCheck",
+                    "range": { "start": { "line": 0, "character": 31 },
+                               "end": { "line": 0, "character": 36 } }
+                },
+                {
+                    "message": "Did you mean to spell `this` this way?",
+                    "code": "SpellCheck",
+                    "range": { "start": { "line": 1, "character": 4 },
+                               "end": { "line": 1, "character": 8 } }
+                }
+            ]
+        });
+        let found = diagnostics(&params, text);
+        assert_eq!(
+            found.len(),
+            1,
+            "both link halves go, the prose note stays: {found:?}"
+        );
+        assert_eq!(&text[found[0].start..found[0].end], "this");
+    }
+
+    /// An embed is the same construct with a `!` in front of it, so it gets the
+    /// same answer — one scanner, one rule.
+    #[test]
+    fn a_note_inside_an_embed_is_dropped() {
+        let text = "![[Zhentarim]]\n";
+        let params = serde_json::json!({
+            "diagnostics": [
+                {
+                    "message": "Did you mean to spell `Zhentarim` this way?",
+                    "code": "SpellCheck",
+                    "range": { "start": { "line": 0, "character": 3 },
+                               "end": { "line": 0, "character": 12 } }
+                }
+            ]
+        });
+        assert!(diagnostics(&params, text).is_empty());
+    }
+
+    /// A range that only leans on the link's edge stays: part of what it covers is
+    /// ordinary prose, which is the same edge rule the callout header uses.
+    #[test]
+    fn a_note_touching_a_links_edge_is_kept() {
+        let text = "Meet [[Zhentarim]] here.\n";
+        let params = serde_json::json!({
+            "diagnostics": [
+                {
+                    "message": "spans the closing brackets",
+                    "code": "SpellCheck",
+                    "range": { "start": { "line": 0, "character": 14 },
+                               "end": { "line": 0, "character": 21 } }
+                }
+            ]
+        });
+        assert_eq!(diagnostics(&params, text).len(), 1);
+    }
+
+    /// A tag is a name the index files and the sidebar colours; how its author
+    /// spells it is not a spelling question.
+    #[test]
+    fn a_note_inside_a_tag_is_dropped() {
+        let text = "A tag #xanatharGuild and #dnd/lair here.\n";
+        let params = serde_json::json!({
+            "diagnostics": [
+                {
+                    "message": "Did you mean to spell `xanatharGuild` this way?",
+                    "code": "SpellCheck",
+                    "range": { "start": { "line": 0, "character": 7 },
+                               "end": { "line": 0, "character": 20 } }
+                },
+                {
+                    "message": "Did you mean to spell `lair` this way?",
+                    "code": "SpellCheck",
+                    "range": { "start": { "line": 0, "character": 30 },
+                               "end": { "line": 0, "character": 34 } }
+                }
+            ]
+        });
+        assert!(diagnostics(&params, text).is_empty(), "both tags go");
+    }
+
+    /// A trailing `^id` is app syntax — the handle a block reference resolves by —
+    /// so it is judged by the block map, not the checker. A caret-token the block
+    /// map does not read as an id (`2^10`) is ordinary text and stays checked.
+    #[test]
+    fn a_note_on_a_block_id_is_dropped() {
+        let text = "A paragraph here. ^goblinHit\n";
+        let params = serde_json::json!({
+            "diagnostics": [
+                {
+                    "message": "Did you mean to spell `goblinHit` this way?",
+                    "code": "SpellCheck",
+                    "range": { "start": { "line": 0, "character": 19 },
+                               "end": { "line": 0, "character": 28 } }
+                }
+            ]
+        });
+        assert!(diagnostics(&params, text).is_empty());
+    }
+
+    #[test]
+    fn a_caret_that_is_not_a_block_id_stays_checked() {
+        let text = "The exponent 2^10 is a number.\n";
+        let params = serde_json::json!({
+            "diagnostics": [
+                {
+                    "message": "Did you mean to spell `exponent` this way?",
+                    "code": "SpellCheck",
+                    "range": { "start": { "line": 0, "character": 4 },
+                               "end": { "line": 0, "character": 12 } }
+                }
+            ]
+        });
+        assert_eq!(diagnostics(&params, text).len(), 1);
     }
 
     /// The byte-for-LSP-position translation, which is what a `codeAction` request

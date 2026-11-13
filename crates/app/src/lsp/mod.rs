@@ -245,10 +245,15 @@ impl Spell {
             return;
         };
         self.send(&frame);
-        // The old notes are about text that no longer exists, and so is any
-        // `codeAction` answer still on its way: a popup filled from text the user
-        // has since edited would offer fixes for words that are not there.
-        self.diagnostics.clear();
+        // The squiggles stay. They are about text one keystroke out of date rather
+        // than text that has gone away, and clearing them here made the checker look
+        // dead for the moment between an edit and the answer — the note went blank and
+        // refilled, which reads as the filter switching on and off. The next publish
+        // replaces them wholesale.
+        //
+        // The offered fixes do go, and so does any `codeAction` answer still on its
+        // way: a popup filled from text the user has since edited would offer fixes for
+        // words that are not there.
         self.fixes.clear();
         self.pending.retain(|(_, kind)| *kind != Pending::Fixes);
         cx.notify();
