@@ -87,3 +87,34 @@ contract; it is written after M2 so it describes built code.
 - Encounter budgeting (Hard vs Deadly) — the scope guard from the brainstorm stands.
 - Improved-crit ranges, exploding dice, dice pools with rerolls, any roll the grammar does
   not spell.
+
+## Where it stands (2026-11-12)
+
+**M1 closed** (`372c93d`): `shale_core::dice` — grammar, exact distribution, the readout's
+numbers. Eight falsifications, all red.
+
+**M2 closed** (`b9bb95d`): the readout painted after its line. It is **not** spliced into the
+line's runs — the piece map, caret and selection are measured against buffer text, so a
+synthetic character in the run list would move the caret off its character. It is shaped on
+its own, like a fold marker, and keyed to where the line **ends** so a wrapped line carries
+it on the segment where its text stops. The fence decision is the render pass's, not the
+cache's. Twelve tests read what a frame painted (`HitLine.chip`); five falsifications, all
+red.
+
+### What the reader's eye still has to decide
+
+These are visual, not arithmetic, and they are the reason to look at a live window before
+M3 writes the contract:
+
+1. **Colour.** The chip is `palette.dim` today — quieter than the prose. Whether it should
+   instead read as a computed thing (a colour of its own, like `tag` or `agent`) is a call
+   about whether the chip belongs to the note's voice or to the app's.
+2. **A long line.** The chip is painted after the row's shaped text and can run past the
+   right edge; a wrapped line's chip lands on its last segment. The plan's gutter fallback
+   is unbuilt. Whether to clip, wrap the chip onto its own display row, or move it to the
+   gutter is the open question, and it is the one place this design could still fight the
+   wrap model.
+3. **The named distribution.** `Stats::shape` names the totals when there are few enough to
+   read (ruling D) and is computed but not shown: a margin is not where a distribution
+   belongs. It wants a surface — a hover card or `g`-style peek — and that is a consumer for
+   the host contract, not a wider chip.
