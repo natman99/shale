@@ -118,3 +118,20 @@ M3 writes the contract:
    read (ruling D) and is computed but not shown: a margin is not where a distribution
    belongs. It wants a surface — a hover card or `g`-style peek — and that is a consumer for
    the host contract, not a wider chip.
+
+**M3 closed the same day (`6fec596`): the hover surface.** The card is the wiki-link card,
+reused rather than cloned — title plus text rows, no interactions — and it carries the
+distribution ruling D named: summary, target in the line's own words, the d20's exceptions,
+and the totals as bars when there are twelve or fewer (`named_shape`'s gate, so the two
+surfaces cannot disagree). The hit test is the **line**, not the chip, because the chip is the
+part that shrinks or moves to the gutter. A refused line gets the sentence the chip had no
+room for.
+
+All three visual questions above are answered: the chip has its own palette role, the narrow
+pane has its short form and gutter mark, and the named distribution has a surface.
+
+**Still open, and small:** the card has no keyboard verb. `K` asks the checker about the word
+under the cursor; a link — or a `!p` line — has no equivalent. Ruled as a question for the
+user rather than invented: the natural spelling is `K` over a link or a request line, since
+`K` already means "what does this word mean to the app?" and the checker only answers when it
+has something to say.
