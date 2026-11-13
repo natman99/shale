@@ -63,11 +63,18 @@ pub(crate) struct PlacedPopup {
 impl Workspace {
     // ----- asking for a popup -------------------------------------------
 
-    /// vim's `K`: what does the checker say about the word the cursor is on?
+    /// vim's `K`: what does the app say about the word the cursor is on?
     ///
     /// Nothing is asked of the server: the notes are already in hand (they are
     /// what drew the wavy underlines), which is what makes this work while the
     /// server is thinking and with no server at all.
+    ///
+    /// The checker answers **first**. A word with a squiggle under it has a specific
+    /// answer, and `K` over it is asking that question; the card — the note a link points
+    /// at, the distribution a `!p` line asks for — is the fallback for the word the
+    /// checker had nothing to say about. The pointer runs the other way round (a link is
+    /// one thing to hover, and the squiggle is already on screen telling you the checker
+    /// has something), which is the difference between asking and being told.
     pub(super) fn show_note(&mut self, _: &ShowNote, window: &mut Window, cx: &mut Context<Self>) {
         if self.prompt.is_some() || self.picker.is_some() {
             return;
@@ -86,7 +93,14 @@ impl Workspace {
         // block being edited it is a row of the other note, and a panel anchored
         // by number alone would hang it off this window's line of the same number.
         let line = handle.read_with(cx, |editor, _cx| editor.caret_line());
-        self.open_popup_for(offset, line, false, window, cx);
+        if self.note_at(offset).is_some() {
+            self.open_popup_for(offset, line, false, window, cx);
+            return;
+        }
+        // Nothing marked: ask the other question the same cursor position can raise.
+        // `open_card_for` answers nothing when the cursor is on neither a link nor a
+        // request line, which is `K`'s long-standing behaviour on a plain word.
+        self.open_card_for(offset, line, window, cx);
     }
 
     /// The pointer moved over the note and landed on buffer offset `offset` of

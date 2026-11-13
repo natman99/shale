@@ -422,7 +422,7 @@ const ALL: &[Command] = &[
     },
     Command {
         id: "checker.show",
-        label: "Show the checker's note for the word here",
+        label: "Show the checker's note for the word here, or its card",
         keys: "K",
         ex: &[],
         args: "",

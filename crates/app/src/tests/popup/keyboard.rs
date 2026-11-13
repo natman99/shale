@@ -40,6 +40,79 @@ fn k_on_a_plain_word_shows_nothing(cx: &mut TestAppContext) {
     assert!(!shown(cx, &window));
 }
 
+/// `K` over a wiki-link asks the app the other question: where does this go? The card is
+/// the pointer's card, opened from the keyboard, and it takes no keyboard of its own.
+#[gpui::test]
+fn k_over_a_link_shows_the_card(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(
+        cx,
+        &[
+            ("host.md", "see [[gift]] here\n"),
+            ("gift.md", "alpha\nbeta\n"),
+        ],
+    );
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    show_at(cx, &window, "host.md");
+    paint(cx);
+    // Four `l` from the line's start puts the caret on the link's first `[`.
+    cx.simulate_keystrokes("^ l l l l");
+    cx.simulate_keystrokes("shift-k");
+    assert!(
+        !shown(cx, &window),
+        "no checker panel, which has nothing to say"
+    );
+    let opened = card(&window, cx).expect("a card for a link the cursor is on");
+    assert_eq!(opened.0, "gift");
+    assert_eq!(opened.1, vec!["alpha", "beta"]);
+}
+
+/// `K` over a `!p` line shows its distribution — the same card the pointer opens.
+#[gpui::test]
+fn k_over_a_request_line_shows_its_distribution(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("host.md", "!p 2d6 vs 8\nplain line\n")]);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    show_at(cx, &window, "host.md");
+    paint(cx);
+    cx.simulate_keystrokes("^ shift-k");
+    let opened = card(&window, cx).expect("the line the cursor is on asks a question");
+    assert_eq!(opened.0, "2d6 vs 8");
+    assert_eq!(opened.1[0], "avg 7 · 2–12");
+}
+
+/// The checker answers first. A misspelt word inside a link is the one place both
+/// surfaces want the same cursor, and the squiggle means there is a specific answer:
+/// the panel gets it, and the card stays closed.
+#[gpui::test]
+fn the_checker_answers_before_the_card(cx: &mut TestAppContext) {
+    // The link has to point at a note that exists, or the card would never be a
+    // candidate and the test would prove nothing about the order.
+    let (_dir, window) = vault_with(
+        cx,
+        &[
+            ("a.md", "see [[gift]] here\n"),
+            ("gift.md", "alpha\nbeta\n"),
+        ],
+    );
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    show_at(cx, &window, "a.md");
+    paint(cx);
+    window
+        .update(cx, |ws, _window, cx| {
+            ws.set_checker_notes(
+                notes_from(&[("Did you mean to spell `gift` this way?", 6, 10)]),
+                cx,
+            )
+        })
+        .unwrap();
+    // `gift` begins at byte 6, inside the link's span (4..12).
+    cx.simulate_keystrokes("^ l l l l l l shift-k");
+    assert!(
+        shown(cx, &window),
+        "the checker has something to say about this word"
+    );
+    assert_eq!(card(&window, cx), None, "so the card keeps out of its way");
+}
+
 /// Only one panel is ever up: asking about a second word replaces the first
 /// rather than laying a second panel over the note.
 #[gpui::test]
