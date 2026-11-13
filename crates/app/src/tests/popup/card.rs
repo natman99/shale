@@ -48,6 +48,87 @@ fn resting_on_a_link_shows_what_it_points_at(cx: &mut TestAppContext) {
     assert_eq!(shown.2, 0, "nothing was left out of a two-line note");
 }
 
+/// The fourth rule — the `aliases:` property — reaches the card as well as the jump.
+/// A note that answers to `anon` gets a card over `[[anon]]`; the bug this pins is the
+/// card resolving without the aliases and showing nothing while `gd` on the very same
+/// link opened the note (report, 2026-11-12).
+#[gpui::test]
+fn resting_on_an_aliased_link_shows_the_note_that_declares_the_alias(cx: &mut TestAppContext) {
+    let (_dir, window) = indexed_vault(
+        cx,
+        &[
+            ("host.md", "see [[anon]] here\n"),
+            ("masked.md", "---\naliases:\n  - anon\n---\nalpha\nbeta\n"),
+        ],
+    );
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show_at(&mut cx, &window, "host.md");
+    paint(&mut cx);
+    hover_at(&mut cx, &window, 0, 8);
+    let shown = card(&window, &mut cx).expect("the alias names a note the vault has");
+    assert_eq!(
+        shown.0, "masked",
+        "titled for the file that declares the alias"
+    );
+    // The card previews the note as it is written, frontmatter and all — that is how
+    // every other card previews. What this test is about is *which* note it is.
+    assert_eq!(
+        shown.1,
+        vec!["---", "aliases:", "  - anon", "---", "alpha", "beta"],
+        "and previewed as that note"
+    );
+}
+
+/// `links.hover_aliased = false` takes the card away from a link whose shown text is
+/// not the note's name — the `|label` an author types, and the alias a note declares.
+/// Following the link is untouched either way; this is only about the surface that
+/// appears without being asked.
+#[gpui::test]
+fn an_aliased_link_keeps_its_card_to_itself_when_the_setting_is_off(cx: &mut TestAppContext) {
+    let mut config = test_config();
+    config.links.hover_aliased = false;
+    let (_dir, window) = indexed_vault_with(
+        cx,
+        &[
+            ("host.md", "see [[anon]] here and [[masked|named]] too\n"),
+            ("masked.md", "---\naliases:\n  - anon\n---\nalpha\nbeta\n"),
+        ],
+        config,
+    );
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show_at(&mut cx, &window, "host.md");
+    paint(&mut cx);
+    // Offset 8 is inside `[[anon]]` (the declared alias) and 31 inside `[[masked|named]]`
+    // (the typed one). Both are aliased links, so both stay quiet.
+    hover_at(&mut cx, &window, 0, 8);
+    assert_eq!(
+        card(&window, &mut cx),
+        None,
+        "the declared alias stays quiet"
+    );
+    hover_at(&mut cx, &window, 0, 31);
+    assert_eq!(card(&window, &mut cx), None, "the typed label stays quiet");
+}
+
+/// The setting is about aliased links, not about cards: a plain `[[note]]` keeps its
+/// card with the setting off, and so does an aliased link with it on.
+#[gpui::test]
+fn a_plain_link_keeps_its_card_when_the_alias_setting_is_off(cx: &mut TestAppContext) {
+    let mut config = test_config();
+    config.links.hover_aliased = false;
+    let (_dir, window) = indexed_vault_with(
+        cx,
+        &[("host.md", "see [[gift]] here\n"), ("gift.md", GIFT)],
+        config,
+    );
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show_at(&mut cx, &window, "host.md");
+    paint(&mut cx);
+    hover_at(&mut cx, &window, 0, 8);
+    let shown = card(&window, &mut cx).expect("a plain link is not what the setting is for");
+    assert_eq!(shown.0, "gift");
+}
+
 /// A link to a note the vault does not have gets no card: the card would be
 /// promising a note that is not there.
 #[gpui::test]

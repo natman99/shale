@@ -687,7 +687,13 @@ impl Workspace {
                 // The disk moved, so every embed body this note is showing is a guess
                 // about another file (roadmap P4.0a). `set_embed_context` refreshes the
                 // note list; `invalidate_embeds` drops the bodies the old list answered.
-                editor.set_embed_context(path.as_deref(), notes, self.queries.clone(), cx);
+                editor.set_embed_context(
+                    path.as_deref(),
+                    notes,
+                    self.queries.clone(),
+                    self.aliases.clone(),
+                    cx,
+                );
                 editor.invalidate_embeds(cx);
                 // The index just moved, so a query note's table has to ask again:
                 // handing over the same `Db` clears the cached answer rather than

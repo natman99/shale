@@ -171,23 +171,35 @@ impl LinkResolver {
     /// [`Vault::resolve_link`]: exact path (or `.md` appended), then
     /// case-insensitive stem with the shortest path winning.
     pub fn resolve_link(&self, target: &str) -> Option<&VaultEntry> {
+        self.resolve_link_ruled(target).map(|(entry, _)| entry)
+    }
+
+    /// As [`resolve_link`](Self::resolve_link), and says **which rule** answered it.
+    ///
+    /// The rule is the only way a caller can tell that the name on screen is not the
+    /// name of the note: a surface that shows the reader where a link goes can ask that
+    /// question (the hover card's `links.hover_aliased` setting does), and comparing the
+    /// target text with the resolved file name would guess — a link written as a path,
+    /// or a stem that matches case-insensitively, would look aliased when it is not.
+    #[must_use]
+    pub fn resolve_link_ruled(&self, target: &str) -> Option<(&VaultEntry, Rule)> {
         let target = target.trim();
         if target.is_empty() {
             return None;
         }
         let as_path = PathBuf::from(target);
         if let Some(&index) = self.exact.get(&as_path) {
-            return Some(self.entry(index));
+            return Some((self.entry(index), Rule::File));
         }
         if let Some(&index) = self.exact.get(&as_path.with_extension("md")) {
-            return Some(self.entry(index));
+            return Some((self.entry(index), Rule::File));
         }
         if let Some(&index) = self.by_stem.get(&target.to_lowercase()) {
-            return Some(self.entry(index));
+            return Some((self.entry(index), Rule::File));
         }
         self.by_alias
             .get(&target.to_lowercase())
-            .map(|&index| self.entry(index))
+            .map(|&index| (self.entry(index), Rule::Alias))
     }
 
     /// The entry an embed target refers to, with the same rules as
@@ -209,6 +221,17 @@ impl LinkResolver {
             .get(&target.to_lowercase())
             .map(|&index| self.entry(index))
     }
+}
+
+/// Which rule answered a link target — see [`LinkResolver::resolve_link_ruled`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Rule {
+    /// One of the three file rules. The name the reader sees is the note's own name.
+    File,
+    /// The `aliases:` property. The name the reader sees is **not** the note's name,
+    /// which is the one case where a link's shown text and its target differ for
+    /// reasons other than what the author typed between `[[` and `|`.
+    Alias,
 }
 
 /// Insert `index` under `key`, keeping the shortest path; an exact tie

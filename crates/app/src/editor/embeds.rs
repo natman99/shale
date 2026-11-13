@@ -281,6 +281,12 @@ pub(crate) struct Cache {
     /// The vault's saved queries (`.shq`), which is what `![[Creature ratings]]` can
     /// name when no note of that name exists. The window already holds this list too.
     queries: Vec<VaultEntry>,
+    /// The aliases the vault's notes declare, as `(alias, vault-relative path)` — the
+    /// same pairs the jump path hands its resolver. An embed, a hover card and a followed
+    /// link resolve one target through one rule set; when only two of them knew about
+    /// `aliases:`, `![[anon]]` and the card said "no such note" while `gd` opened the note
+    /// that declares it (bug report, 2026-11-12).
+    aliases: Vec<(String, String)>,
     /// The note holding the embeds, so the resolver's chain catches a self-embed.
     host: PathBuf,
     bodies: HashMap<Key, Body>,
@@ -359,6 +365,7 @@ impl Cache {
         Self {
             entries: Vec::new(),
             queries: Vec::new(),
+            aliases: Vec::new(),
             host: PathBuf::new(),
             bodies: HashMap::new(),
             stamp: 0,
@@ -389,6 +396,20 @@ impl Cache {
         &self.queries
     }
 
+    /// The aliases the notes declare. A new alias re-files a link that named it, so a
+    /// change here changes what a target resolves to and drops the bodies keyed by the
+    /// old answer.
+    pub(crate) fn set_aliases(&mut self, aliases: Vec<(String, String)>) {
+        if aliases != self.aliases {
+            self.aliases = aliases;
+            self.bodies.clear();
+        }
+    }
+
+    pub(crate) fn aliases(&self) -> &[(String, String)] {
+        &self.aliases
+    }
+
     /// Which note this editor is showing. Its embeds are resolved relative to it, and
     /// it is the first link in the chain that stops an embed loop.
     ///
@@ -412,12 +433,7 @@ impl Cache {
     ///
     /// `Body::Nothing` rows are left out: an attachment embed is the image renderer's
     /// row, and a target that resolves to no note stays as the text the author wrote.
-    pub(crate) fn resolve(
-        &mut self,
-        vault: &Vault,
-        text: &str,
-        sources: &dyn Sources,
-    ) -> Vec<(usize, Body)> {
+    pub(crate) fn resolve(&mut self, text: &str, sources: &dyn Sources) -> Vec<(usize, Body)> {
         // Any open note's text moving — including one embedded here — retires every
         // body. The scan below re-fills only the embeds this host actually has.
         let stamp = sources.stamp();
@@ -439,9 +455,9 @@ impl Cache {
                 .entry(key)
                 .or_insert_with(|| {
                     transclude::resolve_from(
-                        vault,
                         &self.entries,
                         &self.queries,
+                        &self.aliases,
                         &self.host,
                         &embed,
                         sources,

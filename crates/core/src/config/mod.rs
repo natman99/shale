@@ -42,6 +42,8 @@ pub struct Config {
     #[serde(default)]
     pub spellcheck: SpellcheckConfig,
     #[serde(default)]
+    pub links: LinksConfig,
+    #[serde(default)]
     pub index: IndexConfig,
     #[serde(default)]
     pub mcp: McpConfig,
@@ -134,6 +136,27 @@ impl Default for SpellcheckConfig {
             enabled: true,
             command: "harper-ls".to_string(),
             args: vec!["--stdio".to_string()],
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct LinksConfig {
+    /// Show the hover card over a link whose **shown text is not the note's name**:
+    /// `[[masked|anon]]`, or `[[anon]]` where some note declares `aliases: [anon]`.
+    /// On by default — an aliased link is exactly where a reader wonders where it goes.
+    ///
+    /// Off leaves the card for plain `[[note]]` links, so a note full of aliases stays
+    /// quiet under the pointer. Following an aliased link works either way; the setting
+    /// is only about the card that appears without being asked.
+    pub hover_aliased: bool,
+}
+
+impl Default for LinksConfig {
+    fn default() -> Self {
+        Self {
+            hover_aliased: true,
         }
     }
 }
@@ -297,6 +320,14 @@ live_preview = true
 enabled = true
 command = "harper-ls"
 args = ["--stdio"]
+
+[links]
+# The card that appears when the pointer rests on a [[wiki-link]]. On covers every link,
+# including one whose shown text is not the note's name — `[[masked|anon]]`, or `[[anon]]`
+# where a note declares `aliases: [anon]`. Off leaves the card to plain links, so a note
+# written with aliases stays quiet under the pointer. Following a link is the same either
+# way.
+hover_aliased = true
 
 [index]
 # The vault index: .shale/shale.db, a cache of notes, tags, links and word counts.

@@ -221,7 +221,7 @@ impl MarkdownEditor {
                 vault: &vault,
             };
             self.embeds
-                .resolve(&vault, self.note.buffer.borrow().text(), &sources)
+                .resolve(self.note.buffer.borrow().text(), &sources)
         };
         for (row, body) in bodies {
             match body {
@@ -709,7 +709,7 @@ impl MarkdownEditor {
                 vault: &vault,
             };
             self.embeds
-                .resolve(&vault, self.note.buffer.borrow().text(), &sources)
+                .resolve(self.note.buffer.borrow().text(), &sources)
         };
         let mut painted_entered = false;
         for (row, body) in bodies {

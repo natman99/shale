@@ -90,6 +90,7 @@ impl Workspace {
         // Cloned out here: the closure below holds `&mut self` through the tab slot, so
         // asking for the list inside it would be a second borrow of the same window.
         let queries = self.queries.clone();
+        let aliases = self.aliases.clone();
         for path in owed {
             let Some(note) = self.note_entry(&path, cx) else {
                 continue;
@@ -104,7 +105,13 @@ impl Workspace {
                 *tab_path = Some(path.clone());
                 editor.update(cx, |editor, cx| {
                     editor.set_note(Rc::clone(&note), cx);
-                    editor.set_embed_context(Some(&path), notes.clone(), queries.clone(), cx);
+                    editor.set_embed_context(
+                        Some(&path),
+                        notes.clone(),
+                        queries.clone(),
+                        aliases.clone(),
+                        cx,
+                    );
                 });
             }
             tracing::debug!(path = %path.display(), "embed given a tab (ruling Q1)");
@@ -330,6 +337,7 @@ impl Workspace {
         let notes = self.entries.clone();
         // Cloned out here: the closure below holds `&mut self` through the tab slot.
         let queries = self.queries.clone();
+        let aliases = self.aliases.clone();
         // The window's one buffer for this note: read from disk the first time it
         // is asked for, borrowed from the registry every time after (P4.17). A
         // note already being edited elsewhere in the window comes with those
@@ -366,7 +374,13 @@ impl Workspace {
                 }
                 // What this note embeds is resolved relative to *it*, and its
                 // links resolve against the notes on disk now.
-                editor.set_embed_context(Some(path), notes.clone(), queries.clone(), cx);
+                editor.set_embed_context(
+                    Some(path),
+                    notes.clone(),
+                    queries.clone(),
+                    aliases.clone(),
+                    cx,
+                );
             });
         }
         // A note that has just come into the view needs its proposals now, not

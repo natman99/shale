@@ -201,7 +201,16 @@ pub(crate) fn indexed_vault(
     cx: &mut TestAppContext,
     notes: &[(&str, &str)],
 ) -> (tempfile::TempDir, WindowHandle<Workspace>) {
-    let config = test_config();
+    indexed_vault_with(cx, notes, test_config())
+}
+
+/// As [`indexed_vault`], with the config the caller chose: how a test turns the aliased
+/// link card off, or moves the index out from under a vault.
+pub(crate) fn indexed_vault_with(
+    cx: &mut TestAppContext,
+    notes: &[(&str, &str)],
+    config: Config,
+) -> (tempfile::TempDir, WindowHandle<Workspace>) {
     let dir = tempfile::tempdir().unwrap();
     for (name, text) in notes {
         let path = dir.path().join(name);

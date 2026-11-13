@@ -460,7 +460,13 @@ fn query_editor(
     window
         .update(cx, |editor, window, cx| {
             editor.set_text(text.to_string(), cx);
-            editor.set_embed_context(Some(Path::new(path)), Vec::new(), Vec::new(), cx);
+            editor.set_embed_context(
+                Some(Path::new(path)),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                cx,
+            );
             editor.set_query_db(Some(db), cx);
             let focus = editor.focus_handle(cx);
             window.focus(&focus, cx);

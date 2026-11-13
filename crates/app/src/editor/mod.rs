@@ -215,6 +215,10 @@ pub(crate) struct PreviewText {
     pub(crate) title: String,
     pub(crate) lines: Vec<String>,
     pub(crate) hidden: usize,
+    /// Whether the shown text is not the note's own name — `[[masked|anon]]`, or
+    /// `[[anon]]` where a note declares `aliases: [anon]`. The editor reports the fact;
+    /// the window decides, from `links.hover_aliased`, whether a card is wanted.
+    pub(crate) aliased: bool,
 }
 
 /// The embed this view is editing. See `MarkdownEditor::entered`.
@@ -1066,17 +1070,22 @@ impl MarkdownEditor {
         cx.notify();
     }
 
+    /// Hand the view what an embed target is looked up against: the notes, the saved
+    /// queries, and the aliases the notes declare. All three come from the window, which
+    /// is where the index already put them — the view does not read the index itself.
     pub(crate) fn set_embed_context(
         &mut self,
         host: Option<&std::path::Path>,
         notes: Vec<shale_core::vault::VaultEntry>,
         queries: Vec<shale_core::vault::VaultEntry>,
+        aliases: Vec<(String, String)>,
         cx: &mut Context<Self>,
     ) {
         self.embeds
             .set_host(host.unwrap_or(std::path::Path::new("")));
         self.embeds.set_entries(notes);
         self.embeds.set_queries(queries);
+        self.embeds.set_aliases(aliases);
         cx.notify();
     }
 
@@ -2498,10 +2507,21 @@ impl MarkdownEditor {
             notes: &self.notes,
             vault,
         };
+        // Is this a link whose shown text is not the note's name? Both spellings count:
+        // the `|label` the author typed, and the alias the *note* declared — the second
+        // is invisible on screen, which is why the resolver, not a string comparison,
+        // answers it.
+        let resolver = shale_core::vault::LinkResolver::new(self.embeds.entries())
+            .with_aliases(self.embeds.aliases());
+        let aliased = link.alias.is_some()
+            || matches!(
+                resolver.resolve_link_ruled(&link.target),
+                Some((_, shale_core::vault::Rule::Alias))
+            );
         let body = shale_core::transclude::resolve_from(
-            vault,
             self.embeds.entries(),
             self.embeds.queries(),
+            self.embeds.aliases(),
             &host,
             &embed,
             &sources,
@@ -2547,6 +2567,7 @@ impl MarkdownEditor {
                 .take(shown)
                 .collect(),
             hidden: written.len().saturating_sub(shown),
+            aliased,
         })
     }
 

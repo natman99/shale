@@ -22,7 +22,7 @@ use std::path::{Path, PathBuf};
 
 use crate::markdown::Anchor;
 use crate::mdstyle::object::{heading_lines, HeadingLine};
-use crate::vault::{Vault, VaultEntry};
+use crate::vault::{LinkResolver, Vault, VaultEntry};
 
 /// How many levels of embed expand before they become badges.
 pub const MAX_DEPTH: usize = 3;
@@ -192,6 +192,38 @@ impl Sources for Vault {
     }
 }
 
+/// What an embed target is looked up against: the vault's notes and its saved queries,
+/// each with its own [`LinkResolver`], plus the aliases the notes declare.
+///
+/// Built once per resolution rather than per embed, because the tables are O(entries) and
+/// one embed body can nest several levels deep. The aliases belong here for the same
+/// reason they belong to the jump path: an `aliases:` property is a name the note answers
+/// to, and an embed or a hover preview that refused that name while `gd` accepted it would
+/// be two surfaces disagreeing about one link (bug report, 2026-11-12).
+pub struct Targets {
+    /// The notes, with the aliases they declare.
+    notes: LinkResolver,
+    /// The saved queries. Aliases are never consulted here: an alias's owner is a note,
+    /// and a name declared by a note is not a name a query can be found by.
+    queries: LinkResolver,
+}
+
+impl Targets {
+    /// The resolver pair for one vault's lists. `aliases` is `(alias, vault-relative
+    /// path of the note that declares it)` — what the index's `props` table already
+    /// holds, so there is one source for them.
+    pub fn new(
+        entries: &[VaultEntry],
+        queries: &[VaultEntry],
+        aliases: &[(String, String)],
+    ) -> Self {
+        Self {
+            notes: LinkResolver::new(entries).with_aliases(aliases),
+            queries: LinkResolver::new(queries),
+        }
+    }
+}
+
 /// The body a note embed contributes, read from the files.
 ///
 /// `host` is the note holding the embed, so a self-embed is caught by the chain
@@ -199,45 +231,46 @@ impl Sources for Vault {
 /// markdown list the caller already holds — resolution is a table lookup, and
 /// building the table per embed would cost more than reading the note. `queries` is
 /// the same kind of list for `.shq` files: a target that names no note may still name
-/// a saved query.
+/// a saved query. `aliases` is what makes `![[anon]]` find the note that declares
+/// `anon`, exactly as `[[anon]]` does when a link is followed.
 pub fn resolve(
     vault: &Vault,
     entries: &[VaultEntry],
     queries: &[VaultEntry],
+    aliases: &[(String, String)],
     host: &Path,
     embed: &EmbedRef,
 ) -> Body {
-    resolve_from(vault, entries, queries, host, embed, vault)
+    resolve_from(entries, queries, aliases, host, embed, vault)
 }
 
 /// As [`resolve`], reading each note through `sources`.
 #[allow(clippy::too_many_arguments)]
 pub fn resolve_from(
-    vault: &Vault,
     entries: &[VaultEntry],
     queries: &[VaultEntry],
+    aliases: &[(String, String)],
     host: &Path,
     embed: &EmbedRef,
     sources: &dyn Sources,
 ) -> Body {
+    let targets = Targets::new(entries, queries, aliases);
     let mut chain = vec![host.to_path_buf()];
-    expand(vault, entries, queries, embed, 1, &mut chain, sources)
+    expand(&targets, embed, 1, &mut chain, sources)
 }
 
 #[allow(clippy::too_many_arguments)]
 fn expand(
-    vault: &Vault,
-    entries: &[VaultEntry],
-    queries: &[VaultEntry],
+    targets: &Targets,
     embed: &EmbedRef,
     depth: usize,
     chain: &mut Vec<PathBuf>,
     sources: &dyn Sources,
 ) -> Body {
-    let Some(entry) = vault.resolve_link(&embed.target, entries).ok().flatten() else {
+    let Some(entry) = targets.notes.resolve_link(&embed.target).cloned() else {
         // Not a note. It may be a saved query — and a note wins when both exist, the
         // same precedence an alias is given over a note name.
-        if let Some(query) = vault.resolve_link(&embed.target, queries).ok().flatten() {
+        if let Some(query) = targets.queries.resolve_link(&embed.target).cloned() {
             return query_body(&query, embed, sources);
         }
         // An attachment is the image renderer's row; anything else
@@ -290,9 +323,7 @@ fn expand(
     // `a -> b -> a` only stops at the depth cap, spending the whole budget on
     // two notes instead of saying "you are already here" at the second `a`.
     chain.push(path.clone());
-    let rows = rows_of(
-        vault, entries, queries, &path, &wanted, depth, chain, sources,
-    );
+    let rows = rows_of(targets, &path, &wanted, depth, chain, sources);
     chain.pop();
     if rows.is_empty() {
         return Body::Nothing;
@@ -302,9 +333,7 @@ fn expand(
 
 #[allow(clippy::too_many_arguments)]
 fn rows_of(
-    vault: &Vault,
-    entries: &[VaultEntry],
-    queries: &[VaultEntry],
+    targets: &Targets,
     note: &Path,
     wanted: &[(usize, &str)],
     depth: usize,
@@ -324,7 +353,7 @@ fn rows_of(
             // the *nested* note's origin, which is the honest one: clicking one
             // of them lands in the note it is a line of.
             Some(inner) if depth < MAX_DEPTH => {
-                match expand(vault, entries, queries, &inner, depth + 1, chain, sources) {
+                match expand(targets, &inner, depth + 1, chain, sources) {
                     Body::Lines(inner_rows) => rows.extend(inner_rows),
                     // A saved query reached through another note's body: its name and
                     // its door, not a second table inside this one. The answer belongs
@@ -629,7 +658,7 @@ mod tests {
             ("gift.md", "one\ntwo\n"),
         ]);
         let e = line_embed("![[gift]]").unwrap();
-        let body = resolve(&v, &entries, &[], Path::new("host.md"), &e);
+        let body = resolve(&v, &entries, &[], &[], Path::new("host.md"), &e);
         let Body::Lines(rows) = body else {
             panic!("expected lines, got {body:?}");
         };
@@ -657,7 +686,7 @@ mod tests {
             ("gift.md", "# Top\nno\n## Middle\nyes\n## End\nno\n"),
         ]);
         let e = line_embed("![[gift#Middle]]").unwrap();
-        let Body::Lines(rows) = resolve(&v, &entries, &[], Path::new("host.md"), &e) else {
+        let Body::Lines(rows) = resolve(&v, &entries, &[], &[], Path::new("host.md"), &e) else {
             panic!("expected lines");
         };
         assert_eq!(rows.len(), 2);
@@ -677,7 +706,7 @@ mod tests {
             ("b.md", "b-text"),
         ]);
         let e = line_embed("![[a]]").unwrap();
-        let Body::Lines(rows) = resolve(&v, &entries, &[], Path::new("host.md"), &e) else {
+        let Body::Lines(rows) = resolve(&v, &entries, &[], &[], Path::new("host.md"), &e) else {
             panic!("expected lines");
         };
         assert_eq!(
@@ -713,6 +742,7 @@ mod tests {
             &v,
             &entries,
             &[],
+            &[],
             Path::new("host.md"),
             &line_embed("![[a]]").unwrap(),
         ) else {
@@ -737,6 +767,7 @@ mod tests {
         let Body::Lines(rows) = resolve(
             &v,
             &entries,
+            &[],
             &[],
             Path::new("host.md"),
             &line_embed("![[a]]").unwrap(),
@@ -784,7 +815,7 @@ mod tests {
             ("d.md", "never painted ^four"),
         ]);
         let e = line_embed("![[a#^one]]").unwrap();
-        let Body::Lines(rows) = resolve(&v, &entries, &[], Path::new("host.md"), &e) else {
+        let Body::Lines(rows) = resolve(&v, &entries, &[], &[], Path::new("host.md"), &e) else {
             panic!("expected lines");
         };
         assert_eq!(
@@ -808,7 +839,7 @@ mod tests {
     fn a_block_that_embeds_its_own_note_badges_instead_of_looping() {
         let (_d, v, entries) = vault_with(&[("host.md", "![[a#^x]]"), ("a.md", "![[a#^x]] ^x\n")]);
         let e = line_embed("![[a#^x]]").unwrap();
-        let Body::Lines(rows) = resolve(&v, &entries, &[], Path::new("host.md"), &e) else {
+        let Body::Lines(rows) = resolve(&v, &entries, &[], &[], Path::new("host.md"), &e) else {
             panic!("expected lines");
         };
         assert_eq!(
@@ -829,7 +860,7 @@ mod tests {
     fn a_note_already_on_the_chain_badges_instead_of_looping() {
         let (_d, v, entries) = vault_with(&[("host.md", "![[a]]"), ("a.md", "text\n![[host]]")]);
         let e = line_embed("![[a]]").unwrap();
-        let Body::Lines(rows) = resolve(&v, &entries, &[], Path::new("host.md"), &e) else {
+        let Body::Lines(rows) = resolve(&v, &entries, &[], &[], Path::new("host.md"), &e) else {
             panic!("expected lines");
         };
         assert_eq!(
@@ -859,7 +890,7 @@ mod tests {
         let (_d, v, entries) = vault_with(&[("host.md", "![[host]]")]);
         let e = line_embed("![[host]]").unwrap();
         assert_eq!(
-            resolve(&v, &entries, &[], Path::new("host.md"), &e),
+            resolve(&v, &entries, &[], &[], Path::new("host.md"), &e),
             Body::Badge(Badge {
                 label: "host".into(),
                 embed: e.clone(),
@@ -878,6 +909,7 @@ mod tests {
                 &v,
                 &entries,
                 &[],
+                &[],
                 Path::new("host.md"),
                 &line_embed("![[diagram.png]]").unwrap()
             ),
@@ -888,6 +920,7 @@ mod tests {
             resolve(
                 &v,
                 &entries,
+                &[],
                 &[],
                 Path::new("host.md"),
                 &line_embed("![[nowhere]]").unwrap()
@@ -904,6 +937,7 @@ mod tests {
             resolve(
                 &v,
                 &entries,
+                &[],
                 &[],
                 Path::new("host.md"),
                 &line_embed("![[gift#Nope]]").unwrap()
@@ -930,6 +964,7 @@ mod tests {
         let Body::Lines(rows) = resolve(
             &v,
             &entries,
+            &[],
             &[],
             Path::new("host.md"),
             &line_embed("![[a]]").unwrap(),
@@ -1035,7 +1070,8 @@ mod tests {
         ]);
         let queries = v.list_queries().unwrap();
         let e = line_embed("![[tough]]").unwrap();
-        let Body::Query(query) = resolve(&v, &entries, &queries, Path::new("host.md"), &e) else {
+        let Body::Query(query) = resolve(&v, &entries, &queries, &[], Path::new("host.md"), &e)
+        else {
             panic!("expected a query body");
         };
         assert_eq!(query.path, Path::new("queries/tough.shq"));
@@ -1061,11 +1097,61 @@ mod tests {
         ]);
         let queries = v.list_queries().unwrap();
         let e = line_embed("![[tough]]").unwrap();
-        let body = resolve(&v, &entries, &queries, Path::new("host.md"), &e);
+        let body = resolve(&v, &entries, &queries, &[], Path::new("host.md"), &e);
         let Body::Lines(rows) = body else {
             panic!("the note's body, not the query: {body:?}");
         };
         assert_eq!(rows[0].row, EmbedRow::Text("a note, not a query".into()));
+    }
+
+    #[test]
+    fn an_embed_of_an_alias_reaches_the_note_that_declares_it() {
+        // The fourth rule — the `aliases:` property — belongs to the embed path as much
+        // as to the jump path. A hover preview or a `![[anon]]` that refused a name `gd`
+        // accepts is two surfaces disagreeing about one link (bug report, 2026-11-12).
+        let (_d, v, entries) = vault_with(&[
+            ("host.md", "![[anon]]"),
+            (
+                "masked.md",
+                "---\naliases:\n  - anon\n---\nthe masked one\n",
+            ),
+        ]);
+        let aliases = vec![("anon".to_string(), "masked.md".to_string())];
+        let e = line_embed("![[anon]]").unwrap();
+        let Body::Lines(rows) = resolve(&v, &entries, &[], &aliases, Path::new("host.md"), &e)
+        else {
+            panic!("the alias resolves to the note that declares it");
+        };
+        // The body came from the note that *declares* the alias, and every row keeps
+        // that note's address: clicking one of these rows lands in masked.md.
+        assert!(rows.iter().all(|line| line
+            .origin
+            .as_ref()
+            .is_some_and(|o| o.path == std::path::Path::new("masked.md"))));
+        assert!(rows
+            .iter()
+            .any(|line| { matches!(&line.row, EmbedRow::Text(text) if text == "the masked one") }));
+    }
+
+    #[test]
+    fn an_alias_never_steals_an_embed_from_a_note_of_that_name() {
+        // The rule is additive, and an embed is where that matters most: a note called
+        // `anon.md` keeps its own embed even when another note declares `anon`.
+        let (_d, v, entries) = vault_with(&[
+            ("host.md", "![[anon]]"),
+            ("anon.md", "the real anon"),
+            (
+                "masked.md",
+                "---\naliases:\n  - anon\n---\nthe masked one\n",
+            ),
+        ]);
+        let aliases = vec![("anon".to_string(), "masked.md".to_string())];
+        let e = line_embed("![[anon]]").unwrap();
+        let Body::Lines(rows) = resolve(&v, &entries, &[], &aliases, Path::new("host.md"), &e)
+        else {
+            panic!("the file rule answers first");
+        };
+        assert_eq!(rows[0].row, EmbedRow::Text("the real anon".into()));
     }
 
     /// A program that is not a query note is not a ghost and not a silence: the body
@@ -1081,7 +1167,8 @@ mod tests {
         ]);
         let queries = v.list_queries().unwrap();
         let e = line_embed("![[tough]]").unwrap();
-        let Body::Query(query) = resolve(&v, &entries, &queries, Path::new("host.md"), &e) else {
+        let Body::Query(query) = resolve(&v, &entries, &queries, &[], Path::new("host.md"), &e)
+        else {
             panic!("expected a query body");
         };
         assert_eq!(
@@ -1112,9 +1199,9 @@ mod tests {
         let queries = v.list_queries().unwrap();
         let e = line_embed("![[tough]]").unwrap();
         let Body::Query(query) = resolve_from(
-            &v,
             &entries,
             &queries,
+            &[],
             Path::new("host.md"),
             &e,
             &Edited("+++\n+++\nSELECT 2\n"),
@@ -1138,7 +1225,8 @@ mod tests {
         ]);
         let queries = v.list_queries().unwrap();
         let e = line_embed("![[tough#hp]]").unwrap();
-        let Body::Badge(badge) = resolve(&v, &entries, &queries, Path::new("host.md"), &e) else {
+        let Body::Badge(badge) = resolve(&v, &entries, &queries, &[], Path::new("host.md"), &e)
+        else {
             panic!("expected a stopped embed");
         };
         assert_eq!(badge.label, "no section \"hp\" in tough");
@@ -1185,7 +1273,7 @@ mod tests {
             ),
         ]);
         let e = line_embed("![[gift#^goblin]]").unwrap();
-        let Body::Lines(rows) = resolve(&v, &entries, &[], Path::new("host.md"), &e) else {
+        let Body::Lines(rows) = resolve(&v, &entries, &[], &[], Path::new("host.md"), &e) else {
             panic!("expected lines");
         };
         assert_eq!(
@@ -1218,7 +1306,7 @@ mod tests {
             ),
         ]);
         let e = line_embed("![[gift#^kid]]").unwrap();
-        let Body::Lines(rows) = resolve(&v, &entries, &[], Path::new("host.md"), &e) else {
+        let Body::Lines(rows) = resolve(&v, &entries, &[], &[], Path::new("host.md"), &e) else {
             panic!("expected lines");
         };
         assert_eq!(
@@ -1239,7 +1327,7 @@ mod tests {
             ("gift.md", "| a | b |\n| - | - |\n| 1 | 2 |\n\n^tbl\n"),
         ]);
         let e = line_embed("![[gift#^tbl]]").unwrap();
-        let Body::Lines(rows) = resolve(&v, &entries, &[], Path::new("host.md"), &e) else {
+        let Body::Lines(rows) = resolve(&v, &entries, &[], &[], Path::new("host.md"), &e) else {
             panic!("expected lines");
         };
         assert_eq!(rows.len(), 3, "three rows of the table, no more");
@@ -1255,7 +1343,7 @@ mod tests {
             ("gift.md", "## The Fall ^fall\nthe city went under\n"),
         ]);
         let e = line_embed("![[gift#^fall]]").unwrap();
-        let Body::Lines(rows) = resolve(&v, &entries, &[], Path::new("host.md"), &e) else {
+        let Body::Lines(rows) = resolve(&v, &entries, &[], &[], Path::new("host.md"), &e) else {
             panic!("expected lines");
         };
         assert_eq!(
@@ -1269,7 +1357,7 @@ mod tests {
         // The same note through the heading anchor is the section: two spellings, two
         // answers, both honest.
         let h = line_embed("![[gift#The Fall]]").unwrap();
-        let Body::Lines(rows) = resolve(&v, &entries, &[], Path::new("host.md"), &h) else {
+        let Body::Lines(rows) = resolve(&v, &entries, &[], &[], Path::new("host.md"), &h) else {
             panic!("expected lines");
         };
         assert_eq!(rows.len(), 2);
@@ -1285,7 +1373,8 @@ mod tests {
             ("gift.md", "text ^here\n"),
         ]);
         let block = line_embed("![[gift#^gone]]").unwrap();
-        let Body::Badge(badge) = resolve(&v, &entries, &[], Path::new("host.md"), &block) else {
+        let Body::Badge(badge) = resolve(&v, &entries, &[], &[], Path::new("host.md"), &block)
+        else {
             panic!("expected a stopped embed");
         };
         assert_eq!(badge.label, "no block \"^gone\" in gift");
@@ -1296,7 +1385,8 @@ mod tests {
         );
 
         let heading = line_embed("![[gift#Gone]]").unwrap();
-        let Body::Badge(badge) = resolve(&v, &entries, &[], Path::new("host.md"), &heading) else {
+        let Body::Badge(badge) = resolve(&v, &entries, &[], &[], Path::new("host.md"), &heading)
+        else {
             panic!("expected a stopped embed");
         };
         assert_eq!(badge.label, "no section \"Gone\" in gift");
@@ -1309,7 +1399,7 @@ mod tests {
         let (_d, v, entries) =
             vault_with(&[("host.md", "![[gift#^]]"), ("gift.md", "one\n\ntwo\n")]);
         let e = line_embed("![[gift#^]]").unwrap();
-        let Body::Badge(badge) = resolve(&v, &entries, &[], Path::new("host.md"), &e) else {
+        let Body::Badge(badge) = resolve(&v, &entries, &[], &[], Path::new("host.md"), &e) else {
             panic!("expected a stopped embed");
         };
         assert_eq!(badge.label, "no block \"^\" in gift");
@@ -1337,7 +1427,7 @@ mod tests {
             ("d.md", "d-one ^w\n"),
         ]);
         let e = line_embed("![[a#^x]]").unwrap();
-        let Body::Lines(rows) = resolve(&v, &entries, &[], Path::new("host.md"), &e) else {
+        let Body::Lines(rows) = resolve(&v, &entries, &[], &[], Path::new("host.md"), &e) else {
             panic!("expected lines");
         };
         let badges: Vec<&Badge> = rows
@@ -1370,7 +1460,8 @@ mod tests {
         ]);
         let queries = v.list_queries().unwrap();
         let e = line_embed("![[tough#^hp]]").unwrap();
-        let Body::Badge(badge) = resolve(&v, &entries, &queries, Path::new("host.md"), &e) else {
+        let Body::Badge(badge) = resolve(&v, &entries, &queries, &[], Path::new("host.md"), &e)
+        else {
             panic!("expected a stopped embed");
         };
         assert_eq!(badge.label, "no block \"^hp\" in tough");

@@ -91,6 +91,30 @@ fn a_transclusion_paints_the_other_notes_lines_under_the_line_that_asks_for_them
     );
 }
 
+/// An alias is a name a note answers to, so `![[anon]]` asks for that note — the same
+/// fourth rule a followed link uses. The embed path used to resolve without the aliases,
+/// which is why `![[anon]]` and the hover card said nothing while `gd` on `[[anon]]`
+/// opened the note that declares it (report, 2026-11-12).
+#[gpui::test]
+fn a_transclusion_of_an_alias_paints_the_note_that_declares_it(cx: &mut TestAppContext) {
+    let (_dir, window) = indexed_vault(
+        cx,
+        &[
+            ("host.md", "![[anon]]\nafter\n"),
+            ("masked.md", "---\naliases:\n  - anon\n---\none\ntwo\n"),
+        ],
+    );
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    show_at(&mut cx, &window, "host.md");
+    let shape = embeds(&window, &mut cx);
+    assert!(
+        shape.iter().any(|row| row.contains("@masked.md"))
+            && shape.iter().any(|row| row.ends_with("one"))
+            && shape.iter().any(|row| row.ends_with("two")),
+        "the alias's body, addressed to the note that declares it: {shape:?}"
+    );
+}
+
 /// The body is a view, not an edit: the note is still three lines as far as everything
 /// that moves through it is concerned.
 #[gpui::test]

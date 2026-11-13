@@ -231,6 +231,15 @@ impl Workspace {
             self.close_card(cx);
             return;
         };
+        // `links.hover_aliased` off: a link whose shown text is not the note's name —
+        // `[[masked|anon]]`, or `[[anon]]` where a note declares that alias — keeps its
+        // card to itself. The card exists to answer "where does this go?", and a note
+        // written in aliases would answer it on every other line. Following the link is
+        // untouched: the setting is only about the surface that appears unasked.
+        if text.aliased && !self.config.links.hover_aliased {
+            self.close_card(cx);
+            return;
+        }
         let (palette, family, size) = self.picker_style(cx);
         // Read the scroll position before the card is stored: `editor` is a handle into
         // the window's state, and assigning the card is a write to that same state.
