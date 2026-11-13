@@ -21,15 +21,6 @@ fn note_text(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> St
 
 /// What the card says: the title, the lines, and how many it left out. `None` when
 /// there is no card.
-fn card(
-    window: &WindowHandle<Workspace>,
-    cx: &mut VisualTestContext,
-) -> Option<(String, Vec<String>, usize)> {
-    window
-        .update(cx, |ws, _window, cx| ws.card_shape(cx))
-        .unwrap()
-}
-
 const HOST: &str = "see [[gift]] here\nplain line\n";
 const GIFT: &str = "alpha\nbeta\n";
 

@@ -15,9 +15,21 @@ use super::*;
 use crate::lsp::Fix;
 
 mod card;
+mod dice;
 mod embed;
 mod keyboard;
 mod pointer;
+
+/// What the card floating over the note would show: its title, its lines, and how many
+/// lines it left out. `None` when no card is up.
+pub(crate) fn card(
+    window: &WindowHandle<Workspace>,
+    cx: &mut VisualTestContext,
+) -> Option<(String, Vec<String>, usize)> {
+    window
+        .update(cx, |ws, _window, cx| ws.card_shape(cx))
+        .unwrap()
+}
 
 /// Two frames, so the note's lines have painted positions to measure against.
 fn paint(cx: &mut VisualTestContext) {

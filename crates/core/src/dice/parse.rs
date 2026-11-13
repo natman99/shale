@@ -95,6 +95,30 @@ pub enum TargetWord {
     Bare,
 }
 
+impl TargetWord {
+    /// The word the line used, for echoing the target back: `hits AC 16`. A bare number
+    /// named nothing, so it has no name to echo.
+    #[must_use]
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Ac => "AC",
+            Self::Dc => "DC",
+            Self::Bare => "",
+        }
+    }
+
+    /// The verb the surface uses, so the chip's wording and the report's cannot drift:
+    /// meeting the number is enough, and each spelling takes the table's own verb.
+    #[must_use]
+    pub fn verb(&self) -> Option<&'static str> {
+        match self {
+            Self::Ac => Some("hits"),
+            Self::Dc => Some("passes"),
+            Self::Bare => None,
+        }
+    }
+}
+
 /// A parsed `!p` line: the roll, and what it is being asked about.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Expression {

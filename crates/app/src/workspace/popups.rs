@@ -141,11 +141,14 @@ impl Workspace {
         let on_card = self.card.is_some() && self.pointer_on_card(at, window, cx);
         // A link is a bigger construct than a marked word written inside it, so the card
         // gets first offer at the pointer: `[[Thier Note]]` is one thing to ask about, not
-        // a spelling complaint about half of it.
-        let on_link = self.editor().is_some_and(|editor| {
-            editor.read_with(cx, |editor, _cx| editor.link_at(offset).is_some())
+        // a spelling complaint about half of it. A `!p` line is the same kind of thing —
+        // one question, whose answer is a distribution rather than a note.
+        let on_surface = self.editor().is_some_and(|editor| {
+            editor.read_with(cx, |editor, _cx| {
+                editor.link_at(offset).is_some() || editor.request_at(offset).is_some()
+            })
         });
-        if on_link && !on_card {
+        if on_surface && !on_card {
             self.open_card_for(offset, line, window, cx);
             return;
         }
@@ -214,16 +217,10 @@ impl Workspace {
         let Some(editor) = self.editor() else {
             return;
         };
-        let text = editor.read_with(cx, |editor, _cx| {
-            editor
-                .link_at(offset)
-                .and_then(|link| editor.preview_for(link))
-        });
-        // Where the link begins, so the card hangs under the link and not under the first
-        // word of the line the link happens to be written on.
-        let link_start = editor.read_with(cx, |editor, _cx| {
-            editor.link_at(offset).map(|link| link.start)
-        });
+        let text = editor.read_with(cx, |editor, _cx| editor.preview_at(offset));
+        // Where the thing under the pointer begins, so the card hangs under it and not
+        // under the first word of the line it happens to be written on.
+        let link_start = editor.read_with(cx, |editor, _cx| editor.preview_anchor(offset));
         let Some(text) = text else {
             // A link to a note the vault does not have has nothing to preview. Showing a
             // card for it would promise a note that is not there; the unresolved link's

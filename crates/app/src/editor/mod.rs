@@ -513,11 +513,11 @@ fn read_out_short(
     stats: &shale_core::dice::Stats,
 ) -> String {
     match expression.target {
-        Some(_) => percent(match &stats.check {
+        Some(_) => shale_core::dice::percent(match &stats.check {
             Some(check) => check.success,
             None => stats.meets.unwrap_or(0.0),
         }),
-        None => format!("avg {}", number(stats.mean)),
+        None => format!("avg {}", shale_core::dice::number(stats.mean)),
     }
 }
 
@@ -525,7 +525,7 @@ fn read_out_short(
 /// prose, and the full distribution belongs to a surface, not a margin — which is why
 /// [`shale_core::dice::Stats`]'s named shape is computed and left for one.
 fn read_out(expression: &shale_core::dice::Expression, stats: &shale_core::dice::Stats) -> String {
-    let mean = number(stats.mean);
+    let mean = shale_core::dice::number(stats.mean);
     let no_target = format!("avg {mean} · {}\u{2013}{}", stats.min, stats.max);
     let Some(target) = expression.target else {
         return no_target;
@@ -536,44 +536,25 @@ fn read_out(expression: &shale_core::dice::Expression, stats: &shale_core::dice:
         Some(check) => (check.success, Some(check.crit)),
         None => (stats.meets.unwrap_or(0.0), None),
     };
-    let word = match target.word {
-        // Meeting the number is enough, so the chip uses the table's own verb, and a bare
-        // number claims neither and gets the relation instead.
-        shale_core::dice::TargetWord::Ac => "hits",
-        shale_core::dice::TargetWord::Dc => "passes",
-        shale_core::dice::TargetWord::Bare => "",
+    // Meeting the number is enough, so the chip uses the table's own verb, and a bare
+    // number claims neither and gets the relation instead. One mapping in core, so the
+    // chip and the hover report cannot describe the same target with different words.
+    let mut out = match target.word.verb() {
+        Some(verb) => format!("{} {verb}", shale_core::dice::percent(chance)),
+        None => format!(
+            "{} \u{2265} {}",
+            shale_core::dice::percent(chance),
+            target.value
+        ),
     };
-    let mut out = if word.is_empty() {
-        format!("{} \u{2265} {}", percent(chance), target.value)
-    } else {
-        format!("{} {word}", percent(chance))
-    };
-    out.push_str(&format!(" · avg {mean}"));
+    out.push_str(&format!(" \u{00b7} avg {mean}"));
     if let Some(crit) = crit {
-        out.push_str(&format!(" · crit {}", percent(crit)));
+        out.push_str(&format!(
+            " \u{00b7} crit {}",
+            shale_core::dice::percent(crit)
+        ));
     }
     out
-}
-
-/// A percentage with a decimal only when it needs one. `75%` reads better than `75.0%`,
-/// and `24.3%` is worth the extra glyph because rounding it to `24%` would be a lie about
-/// what the dice can do.
-fn percent(chance: f64) -> String {
-    let scaled = chance * 100.0;
-    if (scaled - scaled.round()).abs() < 0.05 {
-        format!("{}%", scaled.round() as i64)
-    } else {
-        format!("{:.1}%", scaled)
-    }
-}
-
-/// The same rule for an average.
-fn number(value: f64) -> String {
-    if (value - value.round()).abs() < 0.05 {
-        format!("{}", value.round() as i64)
-    } else {
-        format!("{:.1}", value)
-    }
 }
 
 impl MarkdownEditor {
@@ -2479,6 +2460,65 @@ impl MarkdownEditor {
         self.caret_links()
             .iter()
             .find(|l| l.start <= offset && offset < l.end)
+    }
+
+    /// The `!p` line the pointer is on, as `(start, end, expression text)`.
+    ///
+    /// The **whole line** is the target, not the chip: the chip sits at the end of the
+    /// line, may be shortened to `40%`, and may be reduced to a mark in the gutter when
+    /// the pane is narrow — so the only thing always under the reader's hand is the
+    /// expression they wrote. Chips are the host's lines, so a pointer inside a block
+    /// being edited gets nothing: those chips belong to the note holding the block, in a
+    /// different buffer, and answering from the wrong one would be a lie.
+    pub(crate) fn request_at(&self, offset: usize) -> Option<(usize, usize, String)> {
+        if self.entered.is_some() {
+            return None;
+        }
+        let buffer = self.note.buffer.borrow();
+        let (row, _) = buffer.row_col(offset);
+        let start = buffer.line_start(row);
+        let end = buffer.line_end(row);
+        let body = shale_core::dice::request(buffer.text()[start..end].trim_end())?;
+        Some((start, end, body.to_string()))
+    }
+
+    /// What a hover card can say about **whatever** is under the pointer: the note a link
+    /// points at, or the distribution a `!p` line asks for. A link wins — it is the bigger
+    /// construct, and a spelling complaint inside one is not a separate question.
+    pub(crate) fn preview_at(&self, offset: usize) -> Option<PreviewText> {
+        if let Some(link) = self.link_at(offset) {
+            return self.preview_for(link);
+        }
+        self.dice_preview(offset)
+    }
+
+    /// Where the card hangs: the start of the thing under the pointer — a link's `[[`, or
+    /// the beginning of a request line, which is the only part of it that is always there.
+    pub(crate) fn preview_anchor(&self, offset: usize) -> Option<usize> {
+        if let Some(link) = self.link_at(offset) {
+            return Some(link.start);
+        }
+        self.request_at(offset).map(|(start, _, _)| start)
+    }
+
+    /// The long form of a `!p` line: the summary, the target, and the totals as bars when
+    /// there are few enough to read. A line the grammar refuses still gets a card, saying
+    /// the sentence the chip had no room for — which is why a refusal keeps its gutter mark.
+    fn dice_preview(&self, offset: usize) -> Option<PreviewText> {
+        let (_, _, body) = self.request_at(offset)?;
+        let lines = match shale_core::dice::parse(&body) {
+            Ok(expression) => match shale_core::dice::report::lines(&expression) {
+                Ok(lines) => lines,
+                Err(error) => vec![error.said()],
+            },
+            Err(error) => vec![error.said()],
+        };
+        Some(PreviewText {
+            title: body,
+            lines,
+            hidden: 0,
+            aliased: false,
+        })
     }
 
     /// What a hover card can say about a link: the note's name, the first lines of what

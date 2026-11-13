@@ -25,6 +25,19 @@ pub enum Advantage {
     Disadvantage,
 }
 
+impl Advantage {
+    /// The word a surface says about it, if it says anything: a plain roll has nothing
+    /// worth adding.
+    #[must_use]
+    pub fn label(&self) -> Option<&'static str> {
+        match self {
+            Self::Plain => None,
+            Self::Advantage => Some("advantage"),
+            Self::Disadvantage => Some("disadvantage"),
+        }
+    }
+}
+
 /// The d20 reading: what the roll needs, and the chance of getting it with the natural-20
 /// and natural-1 rules in force.
 #[derive(Debug, Clone, Copy, PartialEq)]

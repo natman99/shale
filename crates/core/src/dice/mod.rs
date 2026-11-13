@@ -20,6 +20,7 @@
 
 pub mod dist;
 pub mod parse;
+pub mod report;
 pub mod stats;
 
 pub use dist::{DistError, Distribution};
@@ -34,3 +35,27 @@ pub const MAX_DICE: u32 = 100;
 /// The largest die any term may have. `d1000` is a real thing a table can use; `d100000`
 /// is a way to make the app think for a long time.
 pub const MAX_SIDES: u32 = 1000;
+
+/// A percentage with a decimal only when it needs one. `75%` reads better than `75.0%`,
+/// and `24.3%` is worth the extra glyph because rounding it to `24%` would be a lie about
+/// what the dice can do. The chip and the report both say numbers this way, so a reader
+/// never sees `40%` on one surface and `40.0%` on the other.
+#[must_use]
+pub fn percent(chance: f64) -> String {
+    let scaled = chance * 100.0;
+    if (scaled - scaled.round()).abs() < 0.05 {
+        format!("{}%", scaled.round() as i64)
+    } else {
+        format!("{:.1}%", scaled)
+    }
+}
+
+/// The same rule for an average.
+#[must_use]
+pub fn number(value: f64) -> String {
+    if (value - value.round()).abs() < 0.05 {
+        format!("{}", value.round() as i64)
+    } else {
+        format!("{:.1}", value)
+    }
+}
