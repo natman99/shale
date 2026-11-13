@@ -335,6 +335,11 @@ readout is drawn, and taking it away is deleting the line that asked.
   refusal where the number would have been, rather than going quiet — a blank cannot be told
   apart from a line the app never noticed.
 - **A code fence is quoted text**, so a `!p` inside one is not a request.
+- **A narrow pane shortens the readout rather than clipping it.** When the whole readout
+  would run past the edge of the column, the line keeps the one figure that matters —
+  `40%`, or `avg 13` for a roll with no target, labelled so it cannot read as part of the
+  sentence. If even that has no room, the line's gutter takes a small die mark and the
+  figure comes back when you hover the line.
 
 This is not a probability calculator. Improved-crit ranges, exploding dice and rerolls are
 refused rather than invented; there are websites for that.
