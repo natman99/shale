@@ -335,6 +335,8 @@ readout is drawn, and taking it away is deleting the line that asked.
   refusal where the number would have been, rather than going quiet — a blank cannot be told
   apart from a line the app never noticed.
 - **A code fence is quoted text**, so a `!p` inside one is not a request.
+- **The spelling and grammar checker stays off the line.** A `!p` line is a question asked
+  of the app, not a sentence, so it gets no squiggles and no count in the status bar.
 - **A narrow pane shortens the readout rather than clipping it.** When the whole readout
   would run past the edge of the column, the line keeps the one figure that matters —
   `40%`, or `avg 13` for a roll with no target, labelled so it cannot read as part of the

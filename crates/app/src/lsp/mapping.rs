@@ -76,7 +76,9 @@ pub(crate) fn range(
 /// the wrong place is worse than no squiggle. One that falls entirely inside a
 /// callout's `[!type]` header is dropped too, because the checker does not know
 /// callouts and reads the type name as prose; a note that only touches the
-/// marker's edge is kept, because then part of it is about prose.
+/// marker's edge is kept, because then part of it is about prose. The same
+/// entirely-inside rule drops notes inside a frontmatter block (YAML, not prose) and
+/// notes on a `!p` dice-request line (a question for the app, not prose).
 pub(crate) fn diagnostics(params: &Value, text: &str) -> Vec<Diagnostic> {
     let Some(list) = params.get("diagnostics").and_then(Value::as_array) else {
         return Vec::new();
@@ -89,6 +91,19 @@ pub(crate) fn diagnostics(params: &Value, text: &str) -> Vec<Diagnostic> {
     // scan the index runs when it reads properties — one parser, one answer to
     // "where does the block end".
     let frontmatter = shale_core::frontmatter::block(text).map(|block| block.bytes);
+    // A `!p` line is a question asked of the app, not a sentence: `!p d20+3 vs AC16` has
+    // no prose in it for the checker to have an opinion about, and its squiggle would sit
+    // on the same line as the readout. The marker test is the chip's own — the same
+    // `shale_core::dice::request` that decides where the readout is painted — so the two
+    // rules cannot drift into disagreeing about which lines are requests.
+    let mut requests = Vec::new();
+    let mut at = 0usize;
+    for line in text.split_inclusive('\n') {
+        if shale_core::dice::request(line.trim_end()).is_some() {
+            requests.push((at, at + line.len()));
+        }
+        at += line.len();
+    }
     let mut out = Vec::with_capacity(list.len());
     for entry in list {
         let Some(start) = position(entry, "start") else {
@@ -107,6 +122,12 @@ pub(crate) fn diagnostics(params: &Value, text: &str) -> Vec<Diagnostic> {
             continue;
         }
         if frontmatter.is_some_and(|(open, close)| open <= start && end <= close) {
+            continue;
+        }
+        if requests
+            .iter()
+            .any(|&(from, to)| from <= start && end <= to)
+        {
             continue;
         }
         out.push(Diagnostic {
@@ -392,6 +413,51 @@ mod tests {
     /// The frontmatter block is data, not prose: a key the author spelled their own
     /// way and a value that is a stat rather than a sentence are not things to
     /// correct. The body below the block is still checked.
+    #[test]
+    fn a_note_on_a_dice_request_line_is_dropped() {
+        // The line is a question asked of the app, so the checker has nothing to say
+        // about it — and its squiggle would land on the same row as the readout.
+        let text = "intro prose\n!p d20+3 vs AC16\nmore prose\n";
+        let params = serde_json::json!({
+            "diagnostics": [
+                {
+                    "range": { "start": { "line": 1, "character": 3 }, "end": { "line": 1, "character": 8 } },
+                    "message": "Misspelled word",
+                    "code": "spelling"
+                },
+                {
+                    "range": { "start": { "line": 2, "character": 5 }, "end": { "line": 2, "character": 10 } },
+                    "message": "Misspelled word",
+                    "code": "spelling"
+                }
+            ]
+        });
+        let found = diagnostics(&params, text);
+        assert_eq!(
+            found.len(),
+            1,
+            "the request line's note is dropped and the prose line's is kept"
+        );
+        assert_eq!(&text[found[0].start..found[0].end], "prose");
+    }
+
+    #[test]
+    fn a_line_that_merely_starts_like_a_request_keeps_its_notes() {
+        // `!private` and a mid-sentence `!p` are ordinary writing to the chip, so they
+        // are ordinary writing to the checker too: one rule, one answer.
+        let text = "!private notes about the lair\nsee !p in the margin\n";
+        let params = serde_json::json!({
+            "diagnostics": [
+                {
+                    "range": { "start": { "line": 0, "character": 10 }, "end": { "line": 0, "character": 15 } },
+                    "message": "Misspelled word",
+                    "code": "spelling"
+                }
+            ]
+        });
+        assert_eq!(diagnostics(&params, text).len(), 1);
+    }
+
     #[test]
     fn a_note_inside_the_frontmatter_block_is_dropped() {
         let text = "---\nnam: Gobllyn\n---\nThis is wrogn.\n";
