@@ -1903,6 +1903,17 @@ edges, query nodes, MCP canvas tools) is P6.10.
   rather than hanging, because this runs at render time. Eight falsifications, all red —
   including the naive-convolution impostor, the `≥`-as-`>` off-by-one, and each of the two
   d20 exceptions on its own.
+  **M2 closed the same day: the chip on screen.** A `!p` line's readout is painted **after**
+  the line's text and never spliced into it — the piece map, the caret and the selection are
+  all measured against buffer text, so a synthetic character inside the run list would move
+  the caret off its character. It is shaped on its own for the same reason a fold marker is,
+  and keyed to where the line **ends**, so a wrapped line carries its readout on the segment
+  where its text actually stops. The cache is keyed to the buffer's change id like the style
+  spans; the fence decision belongs to the render pass, not the cache, because the render
+  pass is the only thing there that knows a row is code. Twelve tests read the readouts a
+  frame **painted** (`HitLine.chip`) rather than the strings the editor could have produced;
+  five falsifications, all red — the change-id guard removed, the fence ignored, the marker
+  searched for anywhere in the line, a refusal silenced, and the two verbs swapped.
   **Named instance (2026-11-08):** "the cue for the section the caret is in" (brainstorm
   "Session-linked chips") is a legitimate one — a line-level fact painted near the block,
   **not** in the status bar — and it is the *only* cue-aware surface allowed: no

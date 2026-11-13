@@ -303,9 +303,41 @@ they say so rather than answering zero; plain text search does not need it.
   palette, and `> [!note]-` starts folded. The marker is markup, not prose (ruled
   2026-10-28), and that is what keeps the callout's own words from reading as part of the
   block's text.
+- **Dice** — a line that starts with `!p` gets its odds painted after the line:
+  `!p d20+3 vs AC16` reads out `40% hits · avg 13.5 · crit 5%`. See
+  [Dice readouts](#dice-readouts) for what the words mean.
 - **Images** referenced from a note are drawn inline in the rendered views.
 - **Tags** (`#tag`) are indexed and drawn in the graph as their own nodes, with
   OKLCH hues derived from the palette.
+
+### Dice readouts
+
+A line whose first word is `!p` asks Shale to work out the odds of the dice that follow it,
+and paints the answer at the end of that line. Nothing is written into the note: the
+readout is drawn, and taking it away is deleting the line that asked.
+
+```markdown
+!p d20+3 vs AC16          40% hits · avg 13.5 · crit 5%
+!p d20+3 vs DC 16         40% passes · avg 13.5 · crit 5%
+!p 2d20kh1+3 vs AC16      64% hits · avg 16.8 · crit 9.8%
+!p 2d8+4                  avg 13 · 6–20
+```
+
+- **Meeting the number is enough.** `vs AC16` means 16 or better, because an armour class
+  means you hit it. `DC` is an alias for `AC` — the arithmetic is one rule with two
+  vocabularies, and only the word in the readout moves.
+- **A natural 20 lands and a natural 1 does not**, when the roll is one twenty-sided die
+  showing one die — which includes advantage and disadvantage (`2d20kh1`). That is also the
+  only case with a crit chance, and the crit range is 20 alone. A roll that cannot reach its
+  number still hits on a 20.
+- **No target, no probability**: the line gets the average and the range instead.
+- **A refusal says so.** A line that does not parse, or a roll too wide to work out, puts its
+  refusal where the number would have been, rather than going quiet — a blank cannot be told
+  apart from a line the app never noticed.
+- **A code fence is quoted text**, so a `!p` inside one is not a request.
+
+This is not a probability calculator. Improved-crit ranges, exploding dice and rerolls are
+refused rather than invented; there are websites for that.
 
 ## Properties (frontmatter)
 
