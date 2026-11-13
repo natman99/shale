@@ -111,6 +111,7 @@ fn roles(p: &Palette) -> Vec<(&'static str, u32, &'static str, u32, f32)> {
         ("heading text", p.heading, "the note background", p.bg, 4.5),
         ("a resolved link", p.link, "the note background", p.bg, 3.0),
         ("a tag", p.tag, "the note background", p.bg, 3.0),
+        ("a dice readout", p.dice, "the note background", p.bg, 3.0),
         ("quoted text", p.quote, "the note background", p.bg, 2.5),
         ("syntax markers", p.dim, "the note background", p.bg, 2.0),
         (

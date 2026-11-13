@@ -133,6 +133,7 @@ pub const LATTE: Palette = Palette {
     // Latte's Peach is too faint as text on a highlighted row, so the light
     // flavour matches with its Mauve accent instead.
     match_text: 0x8839ef,
+    dice: 0x8839ef, // the chip's own role, tuned to the theme's match hue
     table_line: 0xacb0be,
     table_header_bg: 0xccd0da,
     callout_bg: 0xccd0da,
@@ -215,6 +216,7 @@ pub const FRAPPE: Palette = Palette {
     highlight_bg: 0x5d5958,
     // Peach: the flavour's accent for a hit.
     match_text: 0xef9f76,
+    dice: 0xef9f76, // the chip's own role, tuned to the theme's match hue
     table_line: 0x626880,
     table_header_bg: 0x414559,
     callout_bg: 0x414559,
@@ -290,6 +292,7 @@ pub const MACCHIATO: Palette = Palette {
     highlight_bg: 0x565253,
     // Peach: the flavour's accent for a hit.
     match_text: 0xf5a97f,
+    dice: 0xf5a97f, // the chip's own role, tuned to the theme's match hue
     table_line: 0x5b6078,
     table_header_bg: 0x363a4f,
     callout_bg: 0x363a4f,
@@ -366,6 +369,7 @@ pub const MOCHA: Palette = Palette {
     highlight_bg: 0x554f4e,
     // Peach: the flavour's accent for a hit.
     match_text: 0xfab387,
+    dice: 0xfab387, // the chip's own role, tuned to the theme's match hue
     table_line: 0x585b70,
     table_header_bg: 0x313244,
     callout_bg: 0x313244,

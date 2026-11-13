@@ -175,6 +175,11 @@ pub struct Palette {
     /// `ui_bg` (an ordinary picker row) and on `ui_active_bg` (the highlighted
     /// one), which is what keeps it a different colour from `fg`.
     pub match_text: u32,
+    /// A computed readout standing in the note: the `!p` dice chip. Its own role rather
+    /// than a reuse of [`Self::match_text`], because a chip is a standing answer the note
+    /// gives and a match is a one-off highlight of text the reader asked to find — and a
+    /// theme author may want them apart.
+    pub dice: u32,
     /// The grid lines drawn around table cells, in place of the source pipes,
     /// and the rule a thematic break is drawn as.
     pub table_line: u32,
@@ -340,6 +345,7 @@ impl Palette {
             code_operator,
             highlight_bg,
             match_text,
+            dice,
             table_line,
             table_header_bg,
             callout_bg,
@@ -407,6 +413,7 @@ impl Palette {
             (&mut out.code_operator, code_operator),
             (&mut out.highlight_bg, highlight_bg),
             (&mut out.match_text, match_text),
+            (&mut out.dice, dice),
             (&mut out.table_line, table_line),
             (&mut out.table_header_bg, table_header_bg),
             (&mut out.callout_bg, callout_bg),
@@ -525,6 +532,7 @@ impl Palette {
             code_operator: Some(self.code_operator),
             highlight_bg: Some(self.highlight_bg),
             match_text: Some(self.match_text),
+            dice: Some(self.dice),
             table_line: Some(self.table_line),
             table_header_bg: Some(self.table_header_bg),
             callout_bg: Some(self.callout_bg),
@@ -797,6 +805,13 @@ pub struct ThemeFile {
         serialize_with = "serialize_color"
     )]
     pub match_text: Option<u32>,
+    /// The `!p` dice chip's colour.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
+    pub dice: Option<u32>,
     /// Table grid lines and the thematic-break rule.
     #[serde(
         default,

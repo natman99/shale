@@ -95,10 +95,16 @@ pub(crate) struct HitLine {
     pub(crate) index: usize,
     /// The `!p` readout this row painted, if it painted one. Not a hit target — the chip
     /// asks for nothing back — but it is part of what the row showed, and the only honest
-    /// way to test a chip is to measure the paint that made it. The attribute is because
-    /// the only reader outside this module is `#[cfg(test)]`.
+    /// way to test a chip is to measure the paint that made it. This is the text that was
+    /// **actually painted**, which is not always the full readout: a long line gets the
+    /// short form. The attribute is because the only reader outside this module is
+    /// `#[cfg(test)]`.
     #[allow(dead_code)]
-    pub(crate) chip: Option<SharedString>,
+    pub(crate) chip: Option<String>,
+    /// The row's readout had no room in either length, so the gutter's die mark is saying
+    /// that instead. Also what a hover card is asked for.
+    #[allow(dead_code)]
+    pub(crate) chip_gutter: bool,
     /// First buffer byte of the segment.
     pub(crate) start: usize,
     /// End of the segment, exclusive.
@@ -339,12 +345,53 @@ pub(crate) struct LineElement {
     /// a line number, a bookmark — instead of a new field, a new colour argument and a
     /// new paint call each time.
     pub(crate) gutter: Vec<marks::GutterMark>,
-    /// The readout a `!p` line asks for (roadmap P4.15 M2). Painted **after** the line's
+    /// The readout a `!p` line asks for, in both lengths the row might afford
+    /// ([`Chip`]). Painted **after** the line's
     /// text and never spliced into it: the buffer holds only what the user typed, and the
     /// piece map, the cursor and the selection are all measured against buffer text, so a
     /// synthetic character inside the run list would move the caret off its character. It
     /// is shaped on its own for the same reason a fold marker is.
-    pub(crate) chip: Option<SharedString>,
+    pub(crate) chip: Option<Chip>,
+}
+
+/// Which length a row of `room` pixels can afford for a readout of `full` / `short`
+/// width. Stated apart from the paint because it is a rule about numbers, and the harness
+/// cannot build a pane narrow enough to reach the last branch — a wrapped line hands the
+/// chip back the room its own wrap took away, so only a genuinely narrow split gets there.
+#[derive(Debug, PartialEq, Eq)]
+enum ChipFit {
+    /// The whole readout fits.
+    Full,
+    /// Only the one figure fits.
+    Short,
+    /// Neither does: the gutter's die mark is what the row can say.
+    Gutter,
+}
+
+fn chip_fit(room: Pixels, full: Pixels, short: Pixels) -> ChipFit {
+    if full <= room {
+        ChipFit::Full
+    } else if short <= room {
+        ChipFit::Short
+    } else {
+        ChipFit::Gutter
+    }
+}
+
+/// What a `!p` line asks to be read out, in the two lengths a row can afford.
+///
+/// The full readout is the answer; the short one is what survives when the line is long
+/// enough that the full one would run past the text column. The short form keeps the one
+/// figure that matters — the chance, or the average with the word that says what it is —
+/// because a chip that gets clipped says nothing at all. When even the short form cannot
+/// fit, the row takes the gutter's die mark instead ([`marks::Mark::Die`]) and the figure
+/// comes back on hover.
+#[derive(Debug, Clone)]
+pub(crate) struct Chip {
+    /// The whole readout: `40% hits · avg 13.5 · crit 5%`.
+    pub(crate) full: SharedString,
+    /// The figure and enough about it to say where it came from: `40%`, or `avg 13`.
+    pub(crate) short: SharedString,
 }
 
 /// A row a queued proposal would take away.
@@ -373,8 +420,11 @@ fn fold_label(hidden: usize) -> String {
 pub(crate) struct LinePrepaint {
     /// The whole line's shaped text, for an ordinary row.
     line: Option<ShapedLine>,
-    /// The `!p` readout, shaped at the row's size.
+    /// The `!p` readout chosen for this row: the full one, the short one, or neither when
+    /// the row has no room for either.
     chip: Option<ShapedLine>,
+    /// The row's readout did not fit in any length, so its gutter mark is saying that.
+    chip_gutter: bool,
     /// One entry per cell, for a table row.
     cells: Vec<CellShaped>,
     /// The fold marker (` 4 more lines`), shaped separately because it is not part of
@@ -622,7 +672,7 @@ impl Element for LineElement {
         &mut self,
         _id: Option<&GlobalElementId>,
         _inspector_id: Option<&InspectorElementId>,
-        _bounds: Bounds<Pixels>,
+        bounds: Bounds<Pixels>,
         _request_layout: &mut Self::RequestLayoutState,
         window: &mut Window,
         cx: &mut App,
@@ -685,20 +735,42 @@ impl Element for LineElement {
             // The readout is shaped here, not in the paint pass, because its width is
             // only knowable once it is shaped — and it is the row's own size, so a chip
             // on a heading row is as big as the heading.
-            let chip = match self.chip.clone() {
-                Some(text) => {
-                    let style = RunStyle {
-                        color: self.palette.dim,
-                        ..RunStyle::plain(&self.palette)
-                    };
-                    let run = style.text_run(text.len(), &base_font);
-                    Some(text_system.shape_line(text, px(self.size), &[run], None))
-                }
-                None => None,
+            // Both lengths are shaped, because the choice between them is a measurement:
+            // the row's own width is the only honest way to know whether the full readout
+            // runs off the edge. The chip is the palette's `dice` colour — brighter than
+            // the prose on purpose, since it is the app answering a question the note
+            // asked, and a reader scanning a page of notes should find it by colour.
+            let shaped = self.chip.clone().map(|chip| {
+                let style = RunStyle {
+                    color: self.palette.dice,
+                    ..RunStyle::plain(&self.palette)
+                };
+                let full = {
+                    let run = style.text_run(chip.full.len(), &base_font);
+                    text_system.shape_line(chip.full.clone(), px(self.size), &[run], None)
+                };
+                let short = {
+                    let run = style.text_run(chip.short.len(), &base_font);
+                    text_system.shape_line(chip.short, px(self.size), &[run], None)
+                };
+                (full, short)
+            });
+            // How much room is left after the row's text. A fold marker would claim some
+            // of it too, but a `!p` line is a paragraph and a folded heading is not one,
+            // so the two never compete for the same row.
+            let room = bounds.size.width - (line.width() + self.char_width);
+            let (chip, chip_gutter) = match shaped {
+                None => (None, false),
+                Some((full, short)) => match chip_fit(room, full.width(), short.width()) {
+                    ChipFit::Full => (Some(full), false),
+                    ChipFit::Short => (Some(short), false),
+                    ChipFit::Gutter => (None, true),
+                },
             };
             return LinePrepaint {
                 line: Some(line),
                 chip,
+                chip_gutter,
                 cells: Vec::new(),
                 marker,
                 fold_glyph,
@@ -746,6 +818,7 @@ impl Element for LineElement {
             // the line" for a chip to sit after, and a `!p` inside a table is a typo
             // about a cell, not a request.
             chip: None,
+            chip_gutter: false,
             cells,
             marker: None,
             fold_glyph: None,
@@ -788,7 +861,17 @@ impl Element for LineElement {
         // measured back from the gutter's edge because `bounds` starts at the text
         // column: a mark painted at `bounds.left()` sits on top of the first glyph, which
         // is the one thing neither a struck line nor a marked heading can afford.
-        let gutter = self.gutter_marks();
+        // A readout that fit neither length leaves its shape here. It is pushed last, so
+        // it loses to a callout's kind mark: the gutter paints one glyph per row, and the
+        // callout is telling the reader what the row *is* while the die only says a figure
+        // did not fit.
+        let mut gutter = self.gutter_marks();
+        if prepaint.chip_gutter {
+            gutter.push(marks::GutterMark::Glyph {
+                mark: marks::Mark::Die,
+                color: self.palette.dice,
+            });
+        }
         marks::paint_gutter(
             &gutter,
             bounds.left() - crate::style::GUTTER,
@@ -1098,7 +1181,11 @@ impl Element for LineElement {
                 }),
                 dim: self.dim,
                 fold_marker,
-                chip: self.chip.clone(),
+                chip: prepaint
+                    .chip
+                    .as_ref()
+                    .map(|chip| chip.text.to_string()),
+                chip_gutter: prepaint.chip_gutter,
                 caret: self.cursor_col.is_some(),
             };
             // A foreign row answers for the note it was cut from, so it is filed

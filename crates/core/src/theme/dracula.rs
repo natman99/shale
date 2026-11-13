@@ -45,6 +45,7 @@ pub const PALETTE: Palette = Palette {
     code_operator: 0xff5555,
     highlight_bg: 0x5a5e4c, // yellow #f1fa8c at 25% over #282a36
     match_text: 0xffb86c,
+    dice: 0xffb86c,            // the chip's own role, tuned to the theme's match hue
     table_line: 0x3f4762,      // comment #6272a4 at 40% over #282a36
     table_header_bg: 0x394057, // comment #6272a4 at 30% over #282a36
     callout_bg: 0x394057,      // comment #6272a4 at 30% over #282a36

@@ -52,6 +52,7 @@ pub const MAIN: Palette = Palette {
     code_operator: 0x908caa,
     highlight_bg: 0x504239, // gold #f6c177 at 25% over #191724
     match_text: 0xf6c177,
+    dice: 0xf6c177, // the chip's own role, tuned to the theme's match hue
     table_line: 0x26233a,
     table_header_bg: 0x26233a,
     callout_bg: 0x26233a,
@@ -125,6 +126,7 @@ pub const MOON: Palette = Palette {
     code_operator: 0x908caa,
     highlight_bg: 0x584946, // gold #f6c177 at 25% over #232136
     match_text: 0xf6c177,
+    dice: 0xf6c177, // the chip's own role, tuned to the theme's match hue
     table_line: 0x393552,
     table_header_bg: 0x393552,
     callout_bg: 0x393552,
@@ -202,6 +204,7 @@ pub const DAWN: Palette = Palette {
     code_operator: 0x797593,
     highlight_bg: 0xf6debf, // gold #ea9d34 at 25% over #faf4ed
     match_text: 0x286983,
+    dice: 0x286983, // the chip's own role, tuned to the theme's match hue
     table_line: 0xf2e9e1,
     table_header_bg: 0xfffaf3,
     callout_bg: 0xfffaf3,

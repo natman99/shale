@@ -312,7 +312,7 @@ pub struct MarkdownEditor {
     /// where the line's text actually stops).
     /// Cached against the buffer's change id like the style spans, because the arithmetic
     /// is exact and a frame runs on every keystroke. P4.15 M2.
-    chip_cache: Option<(u64, Vec<(usize, String)>)>,
+    chip_cache: Option<(u64, Vec<(usize, crate::line::Chip)>)>,
     /// Wiki-link spans in the current buffer text (buffer byte offsets).
     links: Vec<WikiLink>,
     /// The vault the note lives in, which an image embed's target is resolved
@@ -473,17 +473,48 @@ pub struct MarkdownEditor {
 /// have been, in the same place, because a line that silently shows nothing cannot be
 /// told apart from a line the app failed to notice. It costs nothing to be honest here —
 /// the parse and the arithmetic are already cached per edit.
-fn dice_chip(line: &str) -> Option<String> {
+fn dice_chip(line: &str) -> Option<crate::line::Chip> {
     let body = shale_core::dice::request(line)?;
     let expression = match shale_core::dice::parse(body) {
         Ok(expression) => expression,
-        Err(error) => return Some(error.said()),
+        // A refusal has no short form worth reading, so the row falls back to the
+        // gutter's die mark and the hover card carries the sentence.
+        Err(error) => {
+            return Some(crate::line::Chip {
+                full: error.said().into(),
+                short: "?".into(),
+            })
+        }
     };
     let stats = match shale_core::dice::Stats::of(&expression) {
         Ok(stats) => stats,
-        Err(error) => return Some(error.said()),
+        Err(error) => {
+            return Some(crate::line::Chip {
+                full: error.said().into(),
+                short: "?".into(),
+            })
+        }
     };
-    Some(read_out(&expression, &stats))
+    Some(crate::line::Chip {
+        full: read_out(&expression, &stats).into(),
+        short: read_out_short(&expression, &stats).into(),
+    })
+}
+
+/// The one figure that survives on a crowded line: the chance when the roll has a target,
+/// the average — with the word that says what it is — when it does not. A bare number
+/// would read as part of the sentence; `avg 13` cannot.
+fn read_out_short(
+    expression: &shale_core::dice::Expression,
+    stats: &shale_core::dice::Stats,
+) -> String {
+    match expression.target {
+        Some(_) => percent(match &stats.check {
+            Some(check) => check.success,
+            None => stats.meets.unwrap_or(0.0),
+        }),
+        None => format!("avg {}", number(stats.mean)),
+    }
 }
 
 /// The numbers a `!p` line gets. Terse by design: this rides at the end of a line of
@@ -1094,7 +1125,7 @@ impl MarkdownEditor {
     /// What is *not* cached here is the decision about where a chip is painted: a line
     /// inside a fenced block asks for nothing, and that is the render pass's call, because
     /// the render pass is what knows a row is code.
-    pub(crate) fn chips(&mut self) -> &[(usize, String)] {
+    pub(crate) fn chips(&mut self) -> &[(usize, crate::line::Chip)] {
         let id = self.note.buffer.borrow().change_id();
         if self
             .chip_cache

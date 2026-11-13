@@ -35,27 +35,28 @@ pub const DARK: Palette = Palette {
     accent: 0x528bff,               // the theme's accent, which it also uses as the caret
     // the theme's accent
     agent: 0x528bff,
-    tag: 0x98c379,             // green
-    spell: 0xe06c75,           // red
-    code_bg: 0x3a3f4b,         // one step off the note background
-    code_block_bg: 0x21252b,   // the app-level pane shade
-    code_text: 0xabb2bf,       // mono-1
-    code_comment: 0x5c6370,    // mono-3, the comment colour
-    code_keyword: 0xc678dd,    // purple
-    code_string: 0x98c379,     // green
-    code_number: 0xd19a66,     // orange
-    code_function: 0x61afef,   // blue
-    code_type: 0xe0c285,       // the theme's modified colour
-    code_const: 0xe5c07b,      // orange's lighter twin
-    code_operator: 0x56b6c2,   // cyan
-    highlight_bg: 0x575146,    // #e5c07b at 25% over the background
-    match_text: 0xe0c285,      // the theme's modified colour
-    table_line: 0x3c4049,      // the 15% foreground fade the theme uses for guides
+    tag: 0x98c379,           // green
+    spell: 0xe06c75,         // red
+    code_bg: 0x3a3f4b,       // one step off the note background
+    code_block_bg: 0x21252b, // the app-level pane shade
+    code_text: 0xabb2bf,     // mono-1
+    code_comment: 0x5c6370,  // mono-3, the comment colour
+    code_keyword: 0xc678dd,  // purple
+    code_string: 0x98c379,   // green
+    code_number: 0xd19a66,   // orange
+    code_function: 0x61afef, // blue
+    code_type: 0xe0c285,     // the theme's modified colour
+    code_const: 0xe5c07b,    // orange's lighter twin
+    code_operator: 0x56b6c2, // cyan
+    highlight_bg: 0x575146,  // #e5c07b at 25% over the background
+    match_text: 0xe0c285,
+    dice: 0xe0c285, // the chip's own role, tuned to the theme's match hue      // the theme's modified colour
+    table_line: 0x3c4049, // the 15% foreground fade the theme uses for guides
     table_header_bg: 0x31363f, // the raised panel shade
-    callout_bg: 0x31363f,      // the raised panel shade
-    ui_bg: 0x21252b,           // the app background
-    ui_fg: 0xabb2bf,           // mono-1
-    ui_dim: 0x828997,          // mono-2
+    callout_bg: 0x31363f, // the raised panel shade
+    ui_bg: 0x21252b, // the app background
+    ui_fg: 0xabb2bf, // mono-1
+    ui_dim: 0x828997, // mono-2
     // mono-3, the comment colour
     ui_disabled: 0x5c6370,
     ui_status_bg: 0x21252b,     // the app background
@@ -110,27 +111,28 @@ pub const LIGHT: Palette = Palette {
     accent: 0x526eff,               // the theme's accent, which it also uses as the caret
     // the theme's accent
     agent: 0x526eff,
-    tag: 0x50a14f,             // green
-    spell: 0xe45649,           // red
-    code_bg: 0xe5e5e6,         // one step off the note background
-    code_block_bg: 0xeaeaeb,   // the app-level pane shade
-    code_text: 0x383a42,       // mono-1
-    code_comment: 0xa0a1a7,    // mono-3, the comment colour
-    code_keyword: 0xa626a4,    // purple
-    code_string: 0x50a14f,     // green
-    code_number: 0x986801,     // orange
-    code_function: 0x4078f2,   // blue
-    code_type: 0x986801,       // orange
-    code_const: 0xc18401,      // orange's lighter twin
-    code_operator: 0x0184bc,   // cyan
-    highlight_bg: 0xecdcbc,    // #c18401 at 25% over the background
-    match_text: 0x986801,      // orange
-    table_line: 0xd3d4d5,      // the 20% foreground fade the theme uses for guides
+    tag: 0x50a14f,           // green
+    spell: 0xe45649,         // red
+    code_bg: 0xe5e5e6,       // one step off the note background
+    code_block_bg: 0xeaeaeb, // the app-level pane shade
+    code_text: 0x383a42,     // mono-1
+    code_comment: 0xa0a1a7,  // mono-3, the comment colour
+    code_keyword: 0xa626a4,  // purple
+    code_string: 0x50a14f,   // green
+    code_number: 0x986801,   // orange
+    code_function: 0x4078f2, // blue
+    code_type: 0x986801,     // orange
+    code_const: 0xc18401,    // orange's lighter twin
+    code_operator: 0x0184bc, // cyan
+    highlight_bg: 0xecdcbc,  // #c18401 at 25% over the background
+    match_text: 0x986801,
+    dice: 0x986801, // the chip's own role, tuned to the theme's match hue      // orange
+    table_line: 0xd3d4d5, // the 20% foreground fade the theme uses for guides
     table_header_bg: 0xf0f0f0, // the raised panel shade
-    callout_bg: 0xf0f0f0,      // the raised panel shade
-    ui_bg: 0xeaeaeb,           // the app background
-    ui_fg: 0x383a42,           // mono-1
-    ui_dim: 0x696c77,          // mono-2
+    callout_bg: 0xf0f0f0, // the raised panel shade
+    ui_bg: 0xeaeaeb, // the app background
+    ui_fg: 0x383a42, // mono-1
+    ui_dim: 0x696c77, // mono-2
     // mono-3, the comment colour
     ui_disabled: 0xa0a1a7,
     ui_status_bg: 0xeaeaeb,     // the app background

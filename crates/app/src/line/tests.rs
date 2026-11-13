@@ -340,3 +340,32 @@ fn a_row_under_review_is_struck_in_the_proposals_colour() {
         "and it is the proposal's colour, over the strong span and the search match too"
     );
 }
+
+/// The dice chip's fit rule, pinned as arithmetic: the harness cannot build a split pane
+/// narrow enough to reach the gutter branch on screen (a wrapped line hands back the room
+/// its own wrap took), so the rule is tested where it lives.
+#[test]
+fn the_chip_takes_the_longest_form_the_row_can_afford() {
+    use super::{chip_fit, ChipFit};
+    let room = gpui::px(200.);
+    assert_eq!(
+        chip_fit(room, gpui::px(180.), gpui::px(40.)),
+        ChipFit::Full,
+        "room for the whole readout means the whole readout"
+    );
+    assert_eq!(
+        chip_fit(room, gpui::px(240.), gpui::px(40.)),
+        ChipFit::Short,
+        "too wide for the sentence, room for the figure"
+    );
+    assert_eq!(
+        chip_fit(room, gpui::px(240.), gpui::px(210.)),
+        ChipFit::Gutter,
+        "no room even for the figure, so the row marks its gutter rather than going quiet"
+    );
+    assert_eq!(
+        chip_fit(gpui::px(0.), gpui::px(0.), gpui::px(0.)),
+        ChipFit::Full,
+        "a zero-width row still paints an empty readout rather than inventing a mark"
+    );
+}

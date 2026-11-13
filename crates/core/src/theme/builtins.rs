@@ -60,6 +60,7 @@ impl Palette {
         // both of the picker's row backgrounds, where the note's own colours do
         // not stand out enough to look like a hit.
         match_text: 0xe0a55e,
+        dice: 0xe0a55e, // the chip's own role, tuned to the theme's match hue
         table_line: 0x3f3f46,
         table_header_bg: 0x2a2a2e,
         callout_bg: 0x252a33,
@@ -144,6 +145,7 @@ impl Palette {
         // Dark amber, as `dark` is light amber: a query's characters have to
         // clear the highlighted row, which a colour this pale would not.
         match_text: 0x7a4d00,
+        dice: 0x7a4d00, // the chip's own role, tuned to the theme's match hue
         table_line: 0xc9c9cf,
         table_header_bg: 0xe9e9ee,
         callout_bg: 0xeef1f6,

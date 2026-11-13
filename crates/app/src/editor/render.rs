@@ -85,7 +85,7 @@ impl Render for MarkdownEditor {
         let row_styles = self.row_styles();
         // The `!p` readouts, computed at most once per edit and looked up per row. Copied
         // out rather than borrowed because the loop below asks the view for plenty else.
-        let chips: Vec<(usize, String)> = self.chips().to_vec();
+        let chips: Vec<(usize, crate::line::Chip)> = self.chips().to_vec();
         // Tables are painted as aligned grids instead of raw markdown: one plan
         // per buffer row, and a row that has one never soft-wraps, which the wrap
         // model has to be told about so it agrees with the paint. Raw mode has no
@@ -854,7 +854,7 @@ impl Render for MarkdownEditor {
                                     chips
                                         .iter()
                                         .find(|(at, _)| *at == dl.end)
-                                        .map(|(_, text)| gpui::SharedString::from(text.clone()))
+                                        .map(|(_, chip)| chip.clone())
                                 },
                             })
                             // Where the pointer is over the note is reported to the

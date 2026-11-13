@@ -54,6 +54,7 @@ pub const DARK: Palette = Palette {
     code_operator: 0xdc322f,
     highlight_bg: 0x2d4228, // yellow #b58900 at 25% over #002b36
     match_text: 0xb58900,
+    dice: 0xb58900, // the chip's own role, tuned to the theme's match hue
     table_line: 0x586e75,
     table_header_bg: 0x1b444f, // base01 #586e75 at 25% over #073642
     callout_bg: 0x1b444f,      // base01 #586e75 at 25% over #073642
@@ -129,6 +130,7 @@ pub const LIGHT: Palette = Palette {
     code_operator: 0xdc322f,
     highlight_bg: 0xebdbaa, // yellow #b58900 at 25% over #fdf6e3
     match_text: 0xcb4b16,
+    dice: 0xcb4b16, // the chip's own role, tuned to the theme's match hue
     table_line: 0x93a1a1,
     table_header_bg: 0xd3d3c5, // base1 #93a1a1 at 30% over #eee8d5
     callout_bg: 0xd3d3c5,      // base1 #93a1a1 at 30% over #eee8d5

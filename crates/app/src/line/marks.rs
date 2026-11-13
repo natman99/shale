@@ -81,6 +81,10 @@ pub(crate) enum Mark {
     Square,
     /// Two vertical rules. `quote`, the blockquote mark.
     DoubleBar,
+    /// An outlined square with two pips: a die. The dice readout's mark (roadmap P4.15),
+    /// used only when the number itself has nowhere to go — it says "this line was worked
+    /// out" and the hover card gives the figure.
+    Die,
 }
 
 /// The mark a callout kind is drawn with.
@@ -305,7 +309,40 @@ pub(crate) fn paint_mark(mark: Mark, at: Bounds<Pixels>, color: u32, window: &mu
                 stroke(&[f.p(fx, 0.14), f.p(fx, 0.86)], color, window);
             }
         }
+        Mark::Die => {
+            // The outline carries the shape at 8 px; the pips only confirm it at a
+            // distance, so they are set on the diagonal where a squashed square still
+            // reads as a die rather than as `bug`'s filled square.
+            polygon(
+                &[
+                    f.p(0.08, 0.08),
+                    f.p(0.92, 0.08),
+                    f.p(0.92, 0.92),
+                    f.p(0.08, 0.92),
+                ],
+                false,
+                color,
+                window,
+            );
+            for (fx, fy) in [(0.31, 0.31), (0.69, 0.69)] {
+                polygon(&pip(f, fx, fy, 0.13), true, color, window);
+            }
+        }
     }
+}
+
+/// A small filled circle away from the frame's centre — the pips of [`Mark::Die`].
+/// [`circle`] is centred, and a die's whole message is where its pips sit.
+fn pip(f: Frame, fx: f32, fy: f32, radius: f32) -> Vec<Point<Pixels>> {
+    (0..12)
+        .map(|i| {
+            let a = std::f32::consts::TAU * i as f32 / 12.;
+            point(
+                px(f.x + f.s * (fx + radius * a.cos())),
+                px(f.y + f.s * (fy + radius * a.sin())),
+            )
+        })
+        .collect()
 }
 
 fn diamond(f: Frame, filled: bool, color: gpui::Rgba, window: &mut Window) {

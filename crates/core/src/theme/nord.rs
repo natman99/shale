@@ -45,6 +45,7 @@ pub const PALETTE: Palette = Palette {
     code_operator: 0x5e81ac,
     highlight_bg: 0x5d5a53, // nord13 #ebcb8b at 25% over #2e3440
     match_text: 0x88c0d0,
+    dice: 0x88c0d0, // the chip's own role, tuned to the theme's match hue
     table_line: 0x434c5e,
     table_header_bg: 0x3b4252,
     callout_bg: 0x3b4252,

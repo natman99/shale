@@ -9,14 +9,19 @@
 
 use super::*;
 
-/// A note on screen, painted twice because the first frame has no measured width.
-fn shown(text: &str, cx: &mut TestAppContext) -> gpui::WindowHandle<MarkdownEditor> {
+/// A note on screen at a chosen text size. Zoom is the honest lever for "there is no room
+/// beside this line": the test window's width is fixed by the harness, and a zoomed note
+/// has the same problem a narrow split pane has — the readout is wider than what is left.
+fn shown_at(text: &str, size: f32, cx: &mut TestAppContext) -> gpui::WindowHandle<MarkdownEditor> {
     cx.update(|cx| cx.bind_keys(keybindings()));
     let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
     let view = &mut VisualTestContext::from_window(editor.into(), cx);
     editor
         .update(view, |editor, window, cx| {
             editor.set_text(text.to_string(), cx);
+            if size > 0. {
+                editor.set_font_size(size, cx);
+            }
             let focus = editor.focus_handle(cx);
             window.focus(&focus, cx);
         })
@@ -25,6 +30,24 @@ fn shown(text: &str, cx: &mut TestAppContext) -> gpui::WindowHandle<MarkdownEdit
         view.update(|window, cx| window.draw(cx).clear(cx));
     }
     editor
+}
+
+/// The ordinary window.
+fn shown(text: &str, cx: &mut TestAppContext) -> gpui::WindowHandle<MarkdownEditor> {
+    shown_at(text, 0.0, cx)
+}
+
+/// Rows whose readout fit neither length, so the gutter's die mark is speaking instead.
+fn guttered<C: gpui::AppContext>(editor: &gpui::WindowHandle<MarkdownEditor>, cx: &C) -> usize {
+    editor
+        .read_with(cx, |editor, _cx| {
+            editor
+                .hit_lines
+                .iter()
+                .filter(|line| line.chip_gutter)
+                .count()
+        })
+        .unwrap()
 }
 
 /// The readouts the last frame painted, in the order the rows were painted.
@@ -196,4 +219,32 @@ fn each_request_gets_its_own_readout(cx: &mut TestAppContext) {
         ],
         "three lines, three readouts, none of them borrowed from a neighbour"
     );
+}
+
+/// A pane too narrow for the whole readout gives the one figure that matters rather than
+/// a clipped sentence. The line itself is short — a `!p` line is an expression and nothing
+/// else — so this is the split-pane case, not the long-prose case.
+#[gpui::test]
+fn a_narrow_pane_takes_the_short_form(cx: &mut TestAppContext) {
+    // Zoomed far enough that the whole readout — about 30 glyphs — no longer fits beside
+    // the 16 glyphs of the expression.
+    let editor = shown_at("!p d20+3 vs AC16\n", 70., cx);
+    assert_eq!(
+        painted(&editor, cx),
+        vec!["40%"],
+        "the chance survives; the average and the crit wait for the hover card"
+    );
+    assert_eq!(
+        guttered(&editor, cx),
+        0,
+        "the short form fit, so the gutter stays quiet"
+    );
+}
+
+/// An average-only roll's short form says what the number *is*: a bare `13` in a narrow
+/// pane would read as part of the note.
+#[gpui::test]
+fn a_narrow_pane_keeps_the_average_labelled(cx: &mut TestAppContext) {
+    let editor = shown_at("!p 2d8+4\n", 160., cx);
+    assert_eq!(painted(&editor, cx), vec!["avg 13"]);
 }
