@@ -243,6 +243,11 @@ actions!(
         TabNew,
         TabClose,
         TabOnly,
+        // `:pin` — "do not replace me". A jump reads the arriving note into the tab on
+        // screen unless that tab is pinned, in which case a new tab opens
+        // (roadmap P4.13a). No key: it is a decision about a tab, made from the command
+        // line or the palette, not a reflex.
+        PinTab,
         // The keys a one-line field takes that are not printable text. The prompt
         // and every picker bind these in their own context, because the field is
         // the same widget in both.

@@ -22,6 +22,19 @@ use crate::note::Note;
 use super::tabs::TabContent;
 use super::Workspace;
 
+/// Why a note is arriving in a tab. The two answers choose the receiving tab
+/// differently, and the difference is the whole point (P4.13a): a **jump** may never
+/// read over a tab the user pinned or left with unsaved edits, while a request
+/// *about the tab itself* — a session restoring its seat, a split that carries the
+/// note into the new pane — is that tab doing what it was asked, pin and all.
+pub(crate) enum Load {
+    /// The reader asked to go somewhere else: a wiki-link, a picker row, a backlink row,
+    /// `ctrl-o` on the jump chain.
+    Jump,
+    /// The tab was asked to hold this note: a restore, a split-with-buffer.
+    Here,
+}
+
 impl Workspace {
     /// The window's one buffer for `path`: read from disk the first time it is
     /// asked for, borrowed from the registry every time after (roadmap P4.17).
@@ -291,7 +304,7 @@ impl Workspace {
         // Going to a different note is a jump, so the place being left goes onto
         // the chain `ctrl-o` walks back.
         self.record_jump(path, cx);
-        self.load_note(path, cx);
+        self.load_note(path, Load::Jump, cx);
         cx.notify();
     }
 
@@ -299,7 +312,7 @@ impl Workspace {
     /// [`Self::open_note`] does except decide what happens to the jump chain and
     /// whether another tab already holds the note. Whether it worked, which is what
     /// the jump path needs to know before it moves the cursor.
-    pub(super) fn load_note(&mut self, path: &PathBuf, cx: &mut Context<Self>) -> bool {
+    pub(super) fn load_note(&mut self, path: &PathBuf, why: Load, cx: &mut Context<Self>) -> bool {
         // A popup belongs to the note it was opened over, so a new note ends it — and
         // so does a card, which is about a link in that note's text.
         self.drop_popup(cx);
@@ -311,7 +324,7 @@ impl Workspace {
         // graph is on screen moves the frame first (see [`Workspace::note_tab`]), and a
         // tab holding unsaved edits is never turned into another note's tab at all (see
         // [`Workspace::load_target`]).
-        let index = self.load_target(cx);
+        let index = self.load_target(why, cx);
         // The note list an embed target resolves against, taken before the tab is
         // borrowed (roadmap P4.0a).
         let notes = self.entries.clone();
@@ -383,19 +396,23 @@ impl Workspace {
     /// coming back served the version on disk. Silent data loss, from a keystroke that
     /// asked only to go somewhere.
     ///
-    /// Two tests decide it, and both have to hold or the tab pile grows for nothing.
+    /// Three rules decide it, and each has to hold or the tab pile grows for nothing.
     /// The dirty test is the editor's transitive one (ruling 17): a host whose embedded
     /// note holds unwritten edits is a tab that is somebody's home too. The view count
     /// is P4.17's doing: `ctrl-t` puts a second tab on one buffer, so turning *that* tab
     /// into another note is safe — the edits are still named on the bar — and only the
     /// last view of them is load-bearing. A fresh or clean tab is neither, which is what
     /// keeps `:e`, the split-with-buffer door and the session restore reading one tab
-    /// instead of stacking them up. A door that asks for the note already on screen
+    /// instead of stacking them up. A **pinned** tab (P4.13a) is a third reason, and it
+    /// belongs to jumps alone (`Load`): the user asked in so many words that a jump not
+    /// take this tab, and that ask outlives whether the tab happens to be dirty when the
+    /// jump arrives. A door that asks for the note already on screen
     /// never gets here: every one of them asks [`Workspace::tab_for_path_anywhere`]
     /// first and goes to the tab it finds.
-    fn load_target(&mut self, cx: &mut Context<Self>) -> usize {
+    fn load_target(&mut self, why: Load, cx: &mut Context<Self>) -> usize {
         let index = self.note_tab(cx);
-        let (leaving, dirty) = match &self.pane().tabs[index].content {
+        let tab = &self.pane().tabs[index];
+        let (leaving, dirty) = match &tab.content {
             TabContent::Note { path, editor, .. } => (
                 path.clone(),
                 editor.read_with(cx, |editor, _cx| editor.is_dirty()),
@@ -404,11 +421,12 @@ impl Workspace {
             // moved the frame off it in every case that matters.
             _ => (None, false),
         };
-        if dirty
-            && leaving
-                .as_ref()
-                .is_some_and(|here| self.views_of(here) <= 1)
-        {
+        let holding_its_own = (tab.pinned && matches!(why, Load::Jump))
+            || (dirty
+                && leaving
+                    .as_ref()
+                    .is_some_and(|here| self.views_of(here) <= 1));
+        if holding_its_own {
             self.add_tab(cx)
         } else {
             index

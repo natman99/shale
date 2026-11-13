@@ -121,6 +121,7 @@ impl Workspace {
                 content: TabContent::Graph(view),
                 autosave_seq: 0,
                 _autosave: None,
+                pinned: false,
             },
         );
         self.pane_mut().active = index;

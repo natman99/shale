@@ -242,6 +242,7 @@ impl Workspace {
             | ex::Ex::TabPrev
             | ex::Ex::TabClose
             | ex::Ex::TabOnly
+            | ex::Ex::Pin
             | ex::Ex::Graph
             | ex::Ex::GraphMode(_)
             | ex::Ex::Split

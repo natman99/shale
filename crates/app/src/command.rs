@@ -772,6 +772,18 @@ const ALL: &[Command] = &[
         in_palette: false,
         action: Some(|| Box::new(TabOnly)),
     },
+    // The pin is in the palette because it is a state to look at and set, not a
+    // reflex: the tab bar shows a mark for it, and a user who sees the mark should be
+    // able to ask what it means from the palette.
+    Command {
+        id: "tab.pin",
+        label: "Pin this tab: a jump opens a new tab instead",
+        keys: "",
+        ex: &["pin"],
+        args: "",
+        in_palette: true,
+        action: Some(|| Box::new(PinTab)),
+    },
     // ---- panes (roadmap P3.2) ----------------------------------------------
     // The split alphabet lives on the `ctrl-w` prefix; these are the command-line
     // spellings vim uses, and the palette rows for the two shapes of split, which

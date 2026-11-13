@@ -55,6 +55,11 @@ pub struct Tab {
     /// Which of the three views that tab was in: `raw`, `live` or `preview`. Empty for
     /// a tab that has no note to be in a view.
     pub view: String,
+    /// **"Do not replace me"** (roadmap P4.13a): the user asked with `:pin` that a jump
+    /// open a new tab instead of reading a different note into this one. A decision they
+    /// made about a tab, so it rides the session; `false` is not written to the file.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub pinned: bool,
     /// Whether this tab is the vault's graph. At most one tab in a window is, and its
     /// [`Self::path`] is `None`.
     #[serde(default, skip_serializing_if = "is_false")]
@@ -406,6 +411,7 @@ mod tests {
                 Tab {
                     path: Some(PathBuf::from("Welcome.md")),
                     view: "live".into(),
+                    pinned: false,
                     graph: false,
                     camera: None,
                     mode: None,
@@ -414,6 +420,7 @@ mod tests {
                 Tab {
                     path: Some(PathBuf::from("notes/idea.md")),
                     view: "raw".into(),
+                    pinned: false,
                     graph: false,
                     camera: None,
                     mode: None,
@@ -429,6 +436,7 @@ mod tests {
                     tabs: vec![Tab {
                         path: Some(PathBuf::from("Welcome.md")),
                         view: "live".into(),
+                        pinned: false,
                         graph: false,
                         camera: None,
                         mode: None,
@@ -441,6 +449,7 @@ mod tests {
                         Tab {
                             path: Some(PathBuf::from("Welcome.md")),
                             view: "live".into(),
+                            pinned: false,
                             graph: false,
                             camera: None,
                             mode: None,
@@ -449,6 +458,7 @@ mod tests {
                         Tab {
                             path: Some(PathBuf::from("notes/idea.md")),
                             view: "raw".into(),
+                            pinned: false,
                             graph: false,
                             camera: None,
                             mode: None,
@@ -491,6 +501,7 @@ mod tests {
             tabs: vec![Tab {
                 path: Some(PathBuf::from("a.md")),
                 view: "live".into(),
+                pinned: false,
                 graph: false,
                 camera: None,
                 mode: None,
@@ -511,6 +522,7 @@ mod tests {
                     tabs: vec![Tab {
                         path: Some(PathBuf::from("a.md")),
                         view: "live".into(),
+                        pinned: false,
                         graph: false,
                         camera: None,
                         mode: None,
@@ -522,6 +534,7 @@ mod tests {
                     tabs: vec![Tab {
                         path: Some(PathBuf::from("b.md")),
                         view: "raw".into(),
+                        pinned: false,
                         graph: false,
                         camera: None,
                         mode: None,

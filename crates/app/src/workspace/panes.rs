@@ -305,7 +305,7 @@ impl Workspace {
             // one, which is exactly backwards for a split-with-buffer. The
             // whole point is a second view, so the note loads into the new
             // pane's tab directly.
-            self.load_note(&path, cx);
+            self.load_note(&path, super::notes::Load::Here, cx);
         }
         self.focus_active_tab(window, cx);
         cx.notify();

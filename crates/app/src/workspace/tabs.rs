@@ -32,7 +32,7 @@ use std::rc::Rc;
 use gpui::{prelude::*, Context, Entity, Focusable, SharedString, Subscription, Task, Window};
 use shale_core::vault::rel_text;
 
-use crate::acts::{TabClose, TabNew, TabNext, TabOnly, TabPrev};
+use crate::acts::{PinTab, TabClose, TabNew, TabNext, TabOnly, TabPrev};
 use crate::editor::{EditorEvent, MarkdownEditor, View};
 use crate::note::Note;
 
@@ -54,6 +54,14 @@ pub(crate) struct Tab {
     pub(crate) autosave_seq: u64,
     /// This tab's autosave countdown. Replacing it drops the old one.
     pub(crate) _autosave: Option<Task<()>>,
+    /// **"Do not replace me."** A jump — a wiki-link, a picker row, a backlink row,
+    /// `ctrl-o` — normally reads the arriving note into the tab on screen, which is
+    /// safe while that tab is written or has another view somewhere. A pinned tab is
+    /// never that tab: the arriving note opens a new tab and this one keeps what it
+    /// holds (`:pin`, roadmap P4.13a). It is not a lock on the note: a door that asks
+    /// for the note this tab already holds still comes here, because that is not a
+    /// replacement.
+    pub(crate) pinned: bool,
 }
 
 /// What a tab holds. The graph tab is why [`Workspace::editor`] is optional: with the
@@ -247,6 +255,7 @@ impl Workspace {
                 content,
                 autosave_seq: 0,
                 _autosave: None,
+                pinned: false,
             },
         );
         self.pane_mut().active = index;
@@ -699,6 +708,41 @@ impl Workspace {
         self.focus_active_tab(window, cx);
     }
 
+    /// `:pin` — **"do not replace me"** (roadmap P4.13a). While the tab on screen is
+    /// pinned, a jump — a wiki-link, a picker row, a backlink row, `ctrl-o` — opens the
+    /// arriving note in a **new** tab instead of reading it over this one. The other half
+    /// of the rule is what the pin is *not*: it does not lock the note, so a door that
+    /// asks for the note this tab already holds still comes here, and `:e other.md` still
+    /// writes this tab's note and turns it around, because that is a request about this
+    /// tab and not a jump arriving somewhere else.
+    pub(super) fn toggle_tab_pin(
+        &mut self,
+        _: &PinTab,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let index = self.pane().active;
+        if self.pane().tabs[index].is_graph() {
+            // The graph tab is never the tab a jump reads over — `note_tab` moves the
+            // frame off it first — so a pin there would be a mark promising nothing.
+            self.say("the graph tab is never replaced by a jump", cx);
+            cx.notify();
+            return;
+        }
+        let tab = &mut self.pane_mut().tabs[index];
+        tab.pinned = !tab.pinned;
+        let pinned = tab.pinned;
+        self.say(
+            if pinned {
+                "this tab is pinned — a jump opens a new tab"
+            } else {
+                "this tab is not pinned — a jump may read over it"
+            },
+            cx,
+        );
+        cx.notify();
+    }
+
     /// `:tabonly`: close every tab but this one. The others' notes are written by the
     /// same rule `:tabclose` follows, and a tab whose write fails stays open.
     pub(super) fn tab_only(&mut self, _: &TabOnly, window: &mut Window, cx: &mut Context<Self>) {
@@ -825,6 +869,7 @@ impl Pane {
             .iter()
             .map(|tab| TabState {
                 id: tab.id,
+                pinned: tab.pinned,
                 graph: tab.is_graph(),
                 path: tab.path().map(|path| path.to_path_buf()),
                 dirty: tab
@@ -892,6 +937,9 @@ pub(crate) struct TabState {
     pub(crate) orientation: Option<shale_core::session::Orientation>,
     /// Whether its note is ahead of the disk: the dot on the tab.
     pub(crate) dirty: bool,
+    /// Whether the user pinned it: the mark on the tab, and the reason a jump will
+    /// open a new tab rather than read over this one.
+    pub(crate) pinned: bool,
     /// Which of the three views the tab is in, since a tab keeps its own.
     pub(crate) view: String,
 }

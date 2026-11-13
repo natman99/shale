@@ -330,7 +330,7 @@ impl Workspace {
         // The entry has already moved to the other half, so a note that cannot be
         // read (deleted outside Shale, a path the chain outlived) costs the user one
         // press and one step, and the read error is on the status line.
-        if self.load_note(&path, cx) {
+        if self.load_note(&path, super::notes::Load::Jump, cx) {
             if let Some(editor) = self.editor().cloned() {
                 editor.update(cx, |editor, cx| editor.reveal_offset(jump.cursor, cx));
             }

@@ -48,6 +48,10 @@ pub(crate) enum Ex {
     /// `sidebar on|1` / `sidebar off|0`, or bare `sidebar` to turn it around: put the
     /// right-hand strip away, or bring it back. The note takes the width either way.
     Sidebar(Option<bool>),
+    /// `pin`: stop a jump from reading a new note over this tab — the arriving note
+    /// opens a new tab instead, and this one keeps what it holds (roadmap P4.13a).
+    /// Bare by design: the mark in the tab title says which way it is set.
+    Pin,
     /// `sidebar outline|backlinks|links|tags|properties`: show that view. The strip shows
     /// one view at a time, so this is a switch rather than a scroll.
     SidebarView(crate::sidebar::View),
@@ -211,6 +215,7 @@ impl Ex {
             Ex::TabPrev => "tab.prev",
             Ex::TabClose => "tab.close",
             Ex::TabOnly => "tab.only",
+            Ex::Pin => "tab.pin",
             Ex::TabMove(_) => "tab.move",
             Ex::Graph => "graph.open",
             Ex::GraphMode(false) => "graph.flat",
@@ -257,6 +262,7 @@ impl Ex {
             | Ex::TabPrev
             | Ex::TabClose
             | Ex::TabOnly
+            | Ex::Pin
             | Ex::Graph
             | Ex::GraphMode(_)
             // Only the bare form: `:graph-local 3` carries an argument and keeps its
@@ -444,6 +450,10 @@ pub(crate) fn parse(line: &str) -> Ex {
         "tabprev" | "tabp" => Ex::TabPrev,
         "tabclose" | "tabc" => Ex::TabClose,
         "tabonly" | "tabo" => Ex::TabOnly,
+        // The tab's pin. No abbreviation: `pin` is four letters, and `p` is already the
+        // strip's key for its own pin — the two are different objects, and the words
+        // should not blur.
+        "pin" => Ex::Pin,
         // The panes (roadmap P3.2). `:on` is vim's abbreviation for `:only`;
         // the word only ever appears as an argument elsewhere (`:checker on`),
         // and the command word is read before any argument, so they cannot

@@ -67,6 +67,7 @@ as you would type it.
 | `tab.prev` | Go to the previous tab | `gT` | `:tabprev`, `:tabp` | — |
 | `tab.close` | Close this tab, writing its note first | `the tab's ×` | `:tabclose`, `:tabc` | — |
 | `tab.only` | Close every tab but this one | — | `:tabonly`, `:tabo` | — |
+| `tab.pin` | Pin this tab: a jump opens a new tab instead | — | `:pin` | — |
 | `window.split` | Split this pane, stacked | `ctrl-w s` | `:split`, `:sp` | — |
 | `window.vsplit` | Split this pane, side by side | `ctrl-w v` | `:vsplit`, `:vs` | — |
 | `window.close` | Close this pane, saving its notes first | `ctrl-w q` | `:close`, `:clo` | — |

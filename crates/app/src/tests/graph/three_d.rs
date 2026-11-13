@@ -395,6 +395,7 @@ fn a_restored_session_opens_the_graph_turned(cx: &mut TestAppContext) {
         tabs: vec![Tab {
             path: None,
             view: String::new(),
+            pinned: false,
             graph: true,
             camera: None,
             mode: Some("3d".into()),

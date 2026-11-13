@@ -39,6 +39,7 @@ fn tab_seats(state: Vec<super::tabs::TabState>) -> Vec<CoreTab> {
         .map(|tab| CoreTab {
             path: tab.path,
             view: tab.view,
+            pinned: tab.pinned,
             graph: tab.graph,
             camera: tab.camera,
             mode: tab.mode,
@@ -229,8 +230,15 @@ impl Workspace {
             return;
         };
         self.add_tab(cx);
+        // The pin belongs to the tab, not to the note, so it is set whether or not the
+        // note is still there: a restored tab whose note was deleted keeps the mark
+        // rather than silently becoming replaceable again.
+        if tab.pinned {
+            let active = self.pane().active;
+            self.pane_mut().tabs[active].pinned = true;
+        }
         if self.vault.exists(path) {
-            self.load_note(path, cx);
+            self.load_note(path, super::notes::Load::Here, cx);
             // Each tab keeps the view it was in: one note left in raw mode to read
             // another in preview is the point of the per-tab editor.
             if let Some(editor) = self.editor().cloned() {
@@ -370,7 +378,7 @@ impl Workspace {
             // A note deleted since last time is not a session, it is a memory;
             // the window opens with nothing rather than an error on frame one.
             if self.vault.exists(note) {
-                self.load_note(note, cx);
+                self.load_note(note, super::notes::Load::Here, cx);
                 if self.note().as_deref() == Some(note.as_path()) {
                     if let Some(offset) = session.cursor {
                         if let Some(editor) = self.editor().cloned() {

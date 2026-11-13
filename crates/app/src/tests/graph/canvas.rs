@@ -208,6 +208,7 @@ fn the_graphs_camera_comes_back_with_the_session(cx: &mut TestAppContext) {
             Tab {
                 path: Some(PathBuf::from("a.md")),
                 view: "live".into(),
+                pinned: false,
                 graph: false,
                 camera: None,
                 mode: None,
@@ -216,6 +217,7 @@ fn the_graphs_camera_comes_back_with_the_session(cx: &mut TestAppContext) {
             Tab {
                 path: None,
                 view: String::new(),
+                pinned: false,
                 graph: true,
                 camera: Some(GraphSeat {
                     pan: [120.0, 40.0],

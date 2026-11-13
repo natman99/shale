@@ -266,6 +266,7 @@ fn the_filter_comes_back_with_the_session(cx: &mut TestAppContext) {
         tabs: vec![Tab {
             path: None,
             view: String::new(),
+            pinned: false,
             graph: true,
             camera: None,
             mode: None,
@@ -448,6 +449,7 @@ fn the_local_depth_comes_back_with_the_session(cx: &mut TestAppContext) {
             Tab {
                 path: Some(PathBuf::from("n1.md")),
                 view: String::new(),
+                pinned: false,
                 graph: false,
                 camera: None,
                 mode: None,
@@ -456,6 +458,7 @@ fn the_local_depth_comes_back_with_the_session(cx: &mut TestAppContext) {
             Tab {
                 path: None,
                 view: String::new(),
+                pinned: false,
                 graph: true,
                 camera: None,
                 mode: None,

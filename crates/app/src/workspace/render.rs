@@ -106,6 +106,19 @@ impl Workspace {
                             .text_color(gpui::rgb(self.palette.accent))
                             .child(save_indicator(tab.dirty)),
                     )
+                    .child(
+                        // The pin's mark: this tab keeps what it holds, and a jump will
+                        // open a new tab. Quiet on purpose — the dirty dot is the one mark
+                        // on a tab that has to be loud, and a pinned tab that is also
+                        // dirty should not read as two emergencies.
+                        div()
+                            .text_color(gpui::rgb(self.palette.ui_dim))
+                            .child(if tab.pinned {
+                                crate::style::GLYPH_PIN
+                            } else {
+                                ""
+                            }),
+                    )
                     .child(div().flex_1().min_w_0().text_ellipsis().child(label))
                     .child(
                         div()
@@ -680,6 +693,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::tab_new))
             .on_action(cx.listener(Self::tab_close))
             .on_action(cx.listener(Self::tab_only))
+            .on_action(cx.listener(Self::toggle_tab_pin))
             .on_action(cx.listener(Self::quick_open))
             .on_action(cx.listener(Self::jump_back))
             .on_action(cx.listener(Self::jump_forward))

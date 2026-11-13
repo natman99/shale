@@ -644,6 +644,7 @@ fn seat_tab(path: &str) -> SeatTab {
     SeatTab {
         path: Some(PathBuf::from(path)),
         view: "live".into(),
+        pinned: false,
         graph: false,
         camera: None,
         mode: None,

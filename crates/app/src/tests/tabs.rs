@@ -518,6 +518,7 @@ fn a_session_reopens_every_tab(cx: &mut TestAppContext) {
             Tab {
                 path: Some(PathBuf::from("a.md")),
                 view: "live".into(),
+                pinned: false,
                 graph: false,
                 camera: None,
                 mode: None,
@@ -526,6 +527,7 @@ fn a_session_reopens_every_tab(cx: &mut TestAppContext) {
             Tab {
                 path: Some(PathBuf::from("b.md")),
                 view: "preview".into(),
+                pinned: false,
                 graph: false,
                 camera: None,
                 mode: None,
@@ -592,6 +594,7 @@ fn a_session_tab_whose_note_is_gone_is_dropped(cx: &mut TestAppContext) {
             Tab {
                 path: Some(PathBuf::from("gone.md")),
                 view: "live".into(),
+                pinned: false,
                 graph: false,
                 camera: None,
                 mode: None,
@@ -600,6 +603,7 @@ fn a_session_tab_whose_note_is_gone_is_dropped(cx: &mut TestAppContext) {
             Tab {
                 path: Some(PathBuf::from("a.md")),
                 view: "live".into(),
+                pinned: false,
                 graph: false,
                 camera: None,
                 mode: None,
@@ -712,4 +716,157 @@ fn an_empty_window_is_titled_for_its_vault(cx: &mut TestAppContext) {
         .to_string_lossy()
         .into_owned();
     assert_eq!(title(&mut cx).as_deref(), Some(vault.as_str()));
+}
+
+// ---------------------------------------------------------------------------
+// The tab's pin (roadmap P4.13a): "do not replace me"
+// ---------------------------------------------------------------------------
+
+/// Which tabs carry the pin mark.
+fn pins(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> Vec<bool> {
+    window
+        .update(cx, |ws, _window, cx| {
+            ws.tab_state(cx).iter().map(|tab| tab.pinned).collect()
+        })
+        .unwrap()
+}
+
+/// The rule the dirty-tab rule could not state: a clean tab is normally safe to read a
+/// jump into, and a **pinned** one never is. The ask outlives the moment — that is the
+/// whole point of asking.
+#[gpui::test]
+fn a_pinned_tab_is_not_the_tab_a_jump_reads_over(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = two_notes(cx);
+    command_line("pin", &mut cx);
+    assert_eq!(
+        say(&window, &mut cx),
+        "this tab is pinned — a jump opens a new tab"
+    );
+    assert_eq!(pins(&window, &mut cx), vec![true], "the mark is on the tab");
+
+    show(&mut cx, &window, "b.md");
+    assert_eq!(
+        tabs(&window, &mut cx),
+        vec![("a.md".into(), false), ("b.md".into(), false)],
+        "the note that was here keeps its tab; the arriving one took a new one"
+    );
+    assert_eq!(
+        marker(&window, &mut cx),
+        1,
+        "and the jump went where it was asked"
+    );
+    assert_eq!(
+        pins(&window, &mut cx),
+        vec![true, false],
+        "the pin stayed on the tab it was set on, not on whichever tab is on screen"
+    );
+}
+
+/// A pinned tab that is *also* unsaved opens exactly one new tab. The two reasons not
+/// to reuse a tab are one decision, not a stack.
+#[gpui::test]
+fn a_pinned_tab_that_is_dirty_opens_one_new_tab(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = two_notes(cx);
+    cx.simulate_keystrokes("A");
+    cx.simulate_input(" typed");
+    command_line("pin", &mut cx);
+    show(&mut cx, &window, "b.md");
+    assert_eq!(
+        tabs(&window, &mut cx),
+        vec![("a.md".into(), true), ("b.md".into(), false)],
+        "two tabs, not three"
+    );
+}
+
+/// The pin is not a lock on the note. A door that asks for the note this tab already
+/// holds still comes to this tab — otherwise a pinned tab would answer `:e` on its own
+/// note by putting a second copy of it on the bar.
+#[gpui::test]
+fn a_pinned_tab_still_answers_a_door_that_asks_for_its_note(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = two_notes(cx);
+    command_line("pin", &mut cx);
+    show(&mut cx, &window, "a.md");
+    assert_eq!(
+        tabs(&window, &mut cx),
+        vec![("a.md".into(), false)],
+        "one tab"
+    );
+    assert_eq!(pins(&window, &mut cx), vec![true], "still pinned");
+}
+
+/// `:pin` is a toggle, and each way says what it did — the mark is small, and the line
+/// is where a user learns what the mark means.
+#[gpui::test]
+fn pinning_is_a_toggle_and_says_which_way_it_went(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = two_notes(cx);
+    command_line("pin", &mut cx);
+    command_line("pin", &mut cx);
+    assert_eq!(
+        say(&window, &mut cx),
+        "this tab is not pinned — a jump may read over it"
+    );
+    assert_eq!(pins(&window, &mut cx), vec![false]);
+    show(&mut cx, &window, "b.md");
+    assert_eq!(
+        tabs(&window, &mut cx),
+        vec![("b.md".into(), false)],
+        "and with the pin off, the jump read over the tab as it always did"
+    );
+}
+
+/// The graph tab is never the tab a jump reads over — `note_tab` moves the frame off it
+/// first — so a pin there would be a mark promising nothing. It says so, and the note
+/// tab that stayed behind is not pinned either.
+#[gpui::test]
+fn the_graph_tab_refuses_a_pin(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = two_notes(cx);
+    cx.simulate_keystrokes("space g");
+    cx.run_until_parked();
+    command_line("pin", &mut cx);
+    assert_eq!(
+        say(&window, &mut cx),
+        "the graph tab is never replaced by a jump"
+    );
+    assert_eq!(pins(&window, &mut cx), vec![false, false]);
+}
+
+/// A pin is a decision the user made about a tab, so it rides the session file — and it
+/// comes back on the tab it was set on, not on whichever tab ends up on screen.
+#[gpui::test]
+fn a_pinned_tab_comes_back_pinned(cx: &mut TestAppContext) {
+    let (_dir, window) = vault_with(cx, &[("a.md", "first\n"), ("b.md", "second\n")]);
+    let snapshot = {
+        let cx = &mut VisualTestContext::from_window(window.into(), cx);
+        show(cx, &window, "a.md");
+        cx.run_until_parked();
+        command_line("pin", cx);
+        show(cx, &window, "b.md");
+        cx.run_until_parked();
+        window
+            .update(cx, |ws, _window, cx| ws.session_snapshot(cx))
+            .unwrap()
+    };
+    assert_eq!(
+        snapshot
+            .tabs
+            .iter()
+            .map(|tab| tab.pinned)
+            .collect::<Vec<_>>(),
+        vec![true, false],
+        "the pin was written on the tab that held it"
+    );
+
+    let (_dir2, restored) =
+        session::vault_with_session(cx, &[("a.md", "first\n"), ("b.md", "second\n")], &snapshot);
+    let mut cx = VisualTestContext::from_window(restored.into(), cx);
+    assert_eq!(
+        tabs(&restored, &mut cx),
+        vec![("a.md".into(), false), ("b.md".into(), false)],
+        "both tabs came back"
+    );
+    assert_eq!(
+        pins(&restored, &mut cx),
+        vec![true, false],
+        "and the first is still pinned: a jump out of it opens a new tab"
+    );
 }

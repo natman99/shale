@@ -433,6 +433,7 @@ fn a_session_reopens_the_graph_tab(cx: &mut TestAppContext) {
             Tab {
                 path: Some(PathBuf::from("a.md")),
                 view: "live".into(),
+                pinned: false,
                 graph: false,
                 camera: None,
                 mode: None,
@@ -441,6 +442,7 @@ fn a_session_reopens_the_graph_tab(cx: &mut TestAppContext) {
             Tab {
                 path: None,
                 view: String::new(),
+                pinned: false,
                 graph: true,
                 camera: None,
                 mode: None,
