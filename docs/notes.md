@@ -74,8 +74,9 @@ aliases:
 ---
 ```
 
-`[[anon]]` opens that note, its backlinks list counts the link, and the link is tinted
-as resolved rather than as a dead end. The rule is **additive** — it is consulted only
+`[[anon]]` opens that note, `![[anon]]` embeds it, the hover card previews it, its
+backlinks list counts the link, and the link is tinted as resolved rather than as a dead
+end — one rule set, so no two surfaces disagree about what the name means. The rule is **additive** — it is consulted only
 when the three file rules have found nothing — so a note called `Test.md` keeps its own
 `[[Test]]` even if some other note declares `Test` as an alias. Two notes declaring the
 same alias tie-break the way a case-insensitive stem tie does: shortest path, then
@@ -184,6 +185,12 @@ note. It closes when the pointer leaves the link, and on `escape`, which is ther
 where you start typing without touching the mouse and need to see the text under the card. Scrolling moves the card with its link and then asks the pointer again what it is
 on: still on the card or the link, it stays; somewhere else in the note, it goes. The same
 rule runs for the spelling popup, which follows its word the same way.
+
+One setting covers the card's appetite: `[links] hover_aliased = false` in
+`.shale/config.toml` keeps it off a link whose **shown text is not the note's name** —
+the `|label` you typed, or the alias the note declares — while plain `[[note]]` links
+keep theirs. A note written mostly in aliases stops answering on every line under the
+pointer. Following any link, aliased or not, is the same either way.
 
 **The block is editable, one level at a time.** Click inside the body, or put the
 cursor on the `![[…]]` line and press `ctrl-]`. `ctrl-o` comes back out, and so does

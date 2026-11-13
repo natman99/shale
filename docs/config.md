@@ -29,6 +29,7 @@ into `.shale/` rather than reading both places. There is one config location.
 | | `font_size` | `14.0` | body text in points; headings and line heights scale from it |
 | | `font_family` | `""` | empty means "pick a monospace family that is actually installed" |
 | | `live_preview` | `true` | hide the markdown syntax of a row the cursor is not on |
+| `[links]` | `hover_aliased` | `true` | the hover card over a link whose shown text is not the note's name (`[[masked\|anon]]`, or an `aliases:` name) |
 | `[spellcheck]` | `enabled` | `true` | underline what the checker finds |
 | | `command` | `"harper-ls"` | the language server to run |
 | | `args` | `["--stdio"]` | its arguments |

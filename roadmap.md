@@ -1914,6 +1914,36 @@ edges, query nodes, MCP canvas tools) is P6.10.
   frame **painted** (`HitLine.chip`) rather than the strings the editor could have produced;
   five falsifications, all red — the change-id guard removed, the fence ignored, the marker
   searched for anywhere in the line, a refusal silenced, and the two verbs swapped.
+  **M2's polish closed the same day.** The chip got a **palette role of its own** (`dice`)
+  rather than borrowing `match_text` or `dim` — it is a fact the app computed, and it reads
+  as one only if it is the colour nothing else is; contrast-audited at 3.0 across all twenty
+  built-in palettes. It also got a **short form** (`40%` for a roll with a target, `avg 13`
+  for one without) and a named three-way decision, `ChipFit { Full, Short, Gutter }`: when
+  neither length fits the row, the gutter carries a die mark and the figure waits for the
+  hover. The enum is the testable thing — the gpui test window cannot be made narrow, so a
+  paint-level narrow-pane test would have pinned the harness rather than the decision.
+  **The checker stays off a `!p` line** (user request): a request line is a question for the
+  app, not prose, and harper underlining `vs` is noise. The rule lives in `lsp::mapping::
+  diagnostics` beside the frontmatter and callout drops — the one place that still holds the
+  whole text the server was sent — and it asks the **same** `shale_core::dice::request` the
+  paint path asks, so the chip and the suppression cannot drift into disagreeing about which
+  lines are requests.
+  **The alias rule reached the embed and the hover card** (bug report 2026-11-12: the card
+  showed nothing over `[[anon]]` while `gd` on the same link opened the note). The fourth
+  link rule was taught to the **jump** path only: `transclude` resolved against plain entries,
+  so `![[anon]]` and the card said "no such note". Fixed at the root rather than at the card:
+  `transclude::Targets` carries the notes resolver **with** aliases and the queries resolver
+  without (an alias's owner is a note; a query is not findable by one), and `embeds::Cache`
+  holds the alias pairs the window already had, clearing cached bodies when they change — an
+  alias re-files a link, so a body keyed to the old answer is stale. `LinkResolver::
+  resolve_link_ruled` now says **which rule** answered, which is the only honest way to tell
+  an aliased link from one written as a path or matched case-insensitively. That feeds the new
+  **`[links] hover_aliased`** setting (default on): off keeps the card off a link whose shown
+  text is not the note's name — a typed `|label` or a declared alias — and leaves plain links
+  and every `gd` alone. Four tests: the embed, the card, the setting off for both alias
+  spellings, and a plain link keeping its card with the setting off; three falsifications, all
+  red — the cache resolving without aliases, the gate removed, and the resolver never naming
+  the alias rule.
   **Named instance (2026-11-08):** "the cue for the section the caret is in" (brainstorm
   "Session-linked chips") is a legitimate one — a line-level fact painted near the block,
   **not** in the status bar — and it is the *only* cue-aware surface allowed: no
