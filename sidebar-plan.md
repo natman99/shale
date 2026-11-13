@@ -462,8 +462,10 @@ header beside the view name and count. `sidebar_subject` is the one place the pi
 every view, the caret mark and the scrub follow it for free. The session keeps the pin in the
 spelling the tabs use. **The tab half of `:pin` ("do not replace me") was left unbuilt on
 purpose**: it changes what every jump does to the tab under the reader, which is a ruling
-about tabs rather than a detail of this milestone — it is written into `docs/sidebar.md`'s
-"Not yet" and the roadmap. Three falsifications, all red.
+about tabs rather than a detail of this milestone. It landed the next day as **P4.13a**, and
+what it cost to draw was the line between a **jump** and a **request about the tab itself** —
+the pin stops the first and not the second, because a session restoring a pinned tab's seat
+is that tab doing what it was asked. Three falsifications, all red.
 
 ## Not here
 

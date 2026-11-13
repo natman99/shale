@@ -181,7 +181,6 @@ restores a window without one, and the first `space b` opens it.
 
 ## Not yet
 
-Resizing, and the other half of the pin the plan sketched: `:pin` on a **tab**, meaning "do
-not replace me" — a jump that would reuse this tab opens a new one instead. The strip's half
-is built (`p`); the tab's half changes how every jump behaves, so it waits for its own
-ruling. Both are on the roadmap under P4.13.
+Resizing (the strip is a constant width for now). The other half of the pin the plan
+sketched — `:pin` on a **tab**, meaning "do not replace me" — landed as its own item,
+P4.13a; see [windows-panes-tabs.md](windows-panes-tabs.md).

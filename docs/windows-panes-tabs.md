@@ -77,6 +77,7 @@ not lock the other tab out of editing it.
 | `ctrl-t`, `:tabnew` | a new tab holding the note in hand: the same note read twice, one text and two views |
 | `gt` / `gT`, `:tabnext` / `:tabprev` | walk the bar, wrapping |
 | `:tabclose`, `:tabonly`, `:tabmove <n>` | close, close the others, reorder |
+| `:pin` | stick this tab: a jump opens a new tab instead (the tab grows a `◆`) |
 | click a tab / its `×` | switch to it / close it |
 
 A tab bar row is a rounded chip framed by the bar's own colour, and a dirty dot
@@ -96,6 +97,19 @@ tab is where unsaved work lives: the window's buffer for a note goes when the la
 of it does. `ctrl-t`'s copy and `ctrl-w S`'s split count as views, so a note held twice
 is safe to jump away from, and `ctrl-o` goes to the tab that already holds where it came
 from rather than adding a second one.
+
+**`:pin` sticks the tab: "do not replace me."** The rule above protects a tab only while it
+holds unsaved work, which is not the same as a tab you want to keep — a written note you are
+reading side-by-side with a link you are following is safe to lose by the dirty rule and
+still not what you meant. `:pin` says so in so many words: the tab grows a `◆`, and a jump
+arriving in it opens a **new** tab instead of reading the arriving note over this one. The
+pin rides the session, and it stays on the tab it was set on rather than following whichever
+tab is on screen.
+
+It is not a lock on the note. A door that asks for the note this tab already holds still
+comes to this tab, and a request *about the tab itself* — the session restoring its seat, a
+split carrying the note into the new pane — is that tab doing what it was asked, pin and all.
+The graph tab refuses a pin, because a jump never reads a note over the graph tab anyway.
 
 A tab holds a **kind** of content: a note, or the graph. Because a graph tab has no note,
 the parts of the window that need a note say so: `:raw` on the graph answers *no note

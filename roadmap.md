@@ -1800,6 +1800,23 @@ edges, query nodes, MCP canvas tools) is P6.10.
   riding in on a sidebar milestone. Three falsifications, all red: the pin remembered but
   ignored by the subject, the pin not written to the session, and `p` pinning without ever
   letting go.
+- **P4.13a The tab's pin — `:pin`, "do not replace me"** — **closed 2026-11-12**, split out
+  of P4.13's pin ruling when the strip's half landed and the tab's half turned out to be a
+  ruling about tabs. `Tab.pinned`, drawn as `◆` on the tab (quiet, so the dirty dot stays the
+  loud mark), and one clause in `load_target`: a jump never reads the arriving note over a
+  pinned tab. It is the sibling of the dirty-tab rule, not a restatement of it — that rule
+  protects a tab only while it holds unsaved work, and "I am holding this note" is a
+  different ask that outlives the moment. **The distinction the milestone actually had to
+  draw is `Load::Jump` against `Load::Here`:** the pin belongs to jumps (a wiki-link, a
+  picker row, a backlink row, `ctrl-o`) and *not* to requests about the tab itself — a
+  session restoring its seat, a split carrying the note into the new pane. Without that split
+  the first pinned tab restored from a session spawned an empty tab that the restore then
+  discarded, and the pin vanished: the door that fills the tab you just made refused its own
+  tab. The graph tab refuses a pin (a jump never reads a note over it), `:pin` is a toggle
+  that says which way it went, and the pin rides the session on the tab that held it. Six
+  falsifications, all red — including the one that hid for a round: the mutation script
+  replaced the *first* `is_graph()` guard in the file rather than the pin's, and reported a
+  rule that had not been broken.
 - **P4.14 Search operators** (brainstorm ✅). **Added by the audit.** `tag:`, `path:`,
   `link:`, `modified:` and friends in vault search, over the P1 index. **One grammar,
   one parser, shared with `.shq` (P4.3)** — inventing it twice is how the two surfaces
