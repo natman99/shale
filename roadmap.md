@@ -1889,6 +1889,20 @@ edges, query nodes, MCP canvas tools) is P6.10.
   to start). **Added by the audit.** App-offered, region-anchored facts (word count,
   reading time) — the status bar owns whole-note facts; user-authored widgets are
   plugins and out of scope; data tables are `.shq`. Hosts P4.7's counts.
+  **Plan written 2026-11-12: `surfaces-plan.md`** — the rulings the brainstorm left open
+  (what marks an expression, where the readout is painted, what `vs N` means, what shows
+  with no target), and the first widget **pivoted** from the rolls chip to the dice
+  probability chip, with the `rolls` table and `!r` deferred: the rolls chip's consumer never
+  shipped, and a surface with no consumer is a host with no proof.
+  **M1 closed the same day: `shale_core::dice`** — the grammar (`NdN[+/-m][khN|klN]` with the
+  modifier accepted on either side of the keep clause, because `4d6kh1+3` is the form people
+  type and the spec's order is the form nobody types), the **exact** distribution (convolution
+  with no keep clause; a face-value walk with binomial weights for `kh`/`kl`, which is the
+  order statistic the brainstorm named as the part the tests must pin), and the readout's
+  numbers. Integer counts until the last division; a roll too wide to lay out **refuses**
+  rather than hanging, because this runs at render time. Eight falsifications, all red —
+  including the naive-convolution impostor, the `≥`-as-`>` off-by-one, and each of the two
+  d20 exceptions on its own.
   **Named instance (2026-11-08):** "the cue for the section the caret is in" (brainstorm
   "Session-linked chips") is a legitimate one — a line-level fact painted near the block,
   **not** in the status bar — and it is the *only* cue-aware surface allowed: no
@@ -2131,6 +2145,12 @@ token-pushing, no range/LOS math.
   hit %, average damage and crit range by exact convolution over the `!r` grammar
   (P7.2), pure Rust in core. Writes **nothing** back: a probability is a property of the
   expression, not an event. Order statistics for `khN`/`klN` are the part the tests pin.
+  **The math half landed 2026-11-12** as P4.15's M1 (`crates/core/src/dice/`); the grammar
+  came with it rather than waiting on P7.2, since the chip needs the parse and the numbers
+  and nothing else about `!r`. Ruled with it: `vs N` is **meets or beats**, `DC` is an alias
+  for `AC` and changes only the chip's word, crit range is 20 only (no improved-critical
+  syntax is invented), and the natural-20/natural-1 exceptions apply to a twenty-sided die
+  showing one die — which is also the only case that has a crit. The chip itself is M2.
 - **Pointers on existing items:** P7.1 gains the ruled `:inspect` (one `![[…#statblock]]`
   line under the table, rewritten rather than stacked — see brainstorm "Initiative
   tracker"); P7.4 gains the **session spine** vocabulary (`campaign:`/`session:` props,
