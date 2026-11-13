@@ -306,6 +306,13 @@ pub struct MarkdownEditor {
     /// `(buffer offset, glyph)` pairs, one byte each in the note). Empty in raw
     /// mode, which paints the file exactly as it is on disk.
     quote_cache: Option<(u64, Vec<(usize, char)>)>,
+    /// What this note's `!p` lines ask to be read out, keyed by the byte offset where the
+    /// line **ends** (not its line number: a folded note's lines keep their offsets, and a
+    /// wrapped line is painted in segments — the readout belongs to the last one, which is
+    /// where the line's text actually stops).
+    /// Cached against the buffer's change id like the style spans, because the arithmetic
+    /// is exact and a frame runs on every keystroke. P4.15 M2.
+    chip_cache: Option<(u64, Vec<(usize, String)>)>,
     /// Wiki-link spans in the current buffer text (buffer byte offsets).
     links: Vec<WikiLink>,
     /// The vault the note lives in, which an image embed's target is resolved
@@ -456,6 +463,84 @@ pub struct MarkdownEditor {
     notes: Rc<crate::note::Registry>,
 }
 
+/// One line's readout, if the line asks for one.
+///
+/// The marker is the line's first word — `!p` — because a bare `2d8+4` in prose would
+/// otherwise put a chip on half the sentences in a campaign note (ruling A), and the
+/// grammar's caps are what keep a pathological expression from costing a frame.
+///
+/// A line that does not compute still speaks: the refusal lands where the number would
+/// have been, in the same place, because a line that silently shows nothing cannot be
+/// told apart from a line the app failed to notice. It costs nothing to be honest here —
+/// the parse and the arithmetic are already cached per edit.
+fn dice_chip(line: &str) -> Option<String> {
+    let body = shale_core::dice::request(line)?;
+    let expression = match shale_core::dice::parse(body) {
+        Ok(expression) => expression,
+        Err(error) => return Some(error.said()),
+    };
+    let stats = match shale_core::dice::Stats::of(&expression) {
+        Ok(stats) => stats,
+        Err(error) => return Some(error.said()),
+    };
+    Some(read_out(&expression, &stats))
+}
+
+/// The numbers a `!p` line gets. Terse by design: this rides at the end of a line of
+/// prose, and the full distribution belongs to a surface, not a margin — which is why
+/// [`shale_core::dice::Stats`]'s named shape is computed and left for one.
+fn read_out(expression: &shale_core::dice::Expression, stats: &shale_core::dice::Stats) -> String {
+    let mean = number(stats.mean);
+    let no_target = format!("avg {mean} · {}\u{2013}{}", stats.min, stats.max);
+    let Some(target) = expression.target else {
+        return no_target;
+    };
+    // The d20 reading wins when there is one: the same arithmetic with the two exceptions
+    // the table actually plays (a natural 20 lands, a natural 1 does not).
+    let (chance, crit) = match &stats.check {
+        Some(check) => (check.success, Some(check.crit)),
+        None => (stats.meets.unwrap_or(0.0), None),
+    };
+    let word = match target.word {
+        // Meeting the number is enough, so the chip uses the table's own verb, and a bare
+        // number claims neither and gets the relation instead.
+        shale_core::dice::TargetWord::Ac => "hits",
+        shale_core::dice::TargetWord::Dc => "passes",
+        shale_core::dice::TargetWord::Bare => "",
+    };
+    let mut out = if word.is_empty() {
+        format!("{} \u{2265} {}", percent(chance), target.value)
+    } else {
+        format!("{} {word}", percent(chance))
+    };
+    out.push_str(&format!(" · avg {mean}"));
+    if let Some(crit) = crit {
+        out.push_str(&format!(" · crit {}", percent(crit)));
+    }
+    out
+}
+
+/// A percentage with a decimal only when it needs one. `75%` reads better than `75.0%`,
+/// and `24.3%` is worth the extra glyph because rounding it to `24%` would be a lie about
+/// what the dice can do.
+fn percent(chance: f64) -> String {
+    let scaled = chance * 100.0;
+    if (scaled - scaled.round()).abs() < 0.05 {
+        format!("{}%", scaled.round() as i64)
+    } else {
+        format!("{:.1}%", scaled)
+    }
+}
+
+/// The same rule for an average.
+fn number(value: f64) -> String {
+    if (value - value.round()).abs() < 0.05 {
+        format!("{}", value.round() as i64)
+    } else {
+        format!("{:.1}", value)
+    }
+}
+
 impl MarkdownEditor {
     pub fn new(cx: &mut Context<Self>) -> Self {
         // A tab that has no note yet owns its text outright: nothing else in the
@@ -476,6 +561,7 @@ impl MarkdownEditor {
             wrap_cache: None,
             style_cache: None,
             quote_cache: None,
+            chip_cache: None,
             links: Vec::new(),
             vault: None,
             db: None,
@@ -554,6 +640,7 @@ impl MarkdownEditor {
         // stopped being the one on screen.
         self.style_cache = None;
         self.quote_cache = None;
+        self.chip_cache = None;
         // The answer belongs to the program that was on screen, and that program is
         // gone: a query note's table must not be the last thing this view remembers.
         self.answer = None;
@@ -572,6 +659,7 @@ impl MarkdownEditor {
         self.wrap_cache = None;
         self.style_cache = None;
         self.quote_cache = None;
+        self.chip_cache = None;
         // The answer belongs to the program that was on screen, and that program is
         // gone: a query note's table must not be the last thing this view remembers.
         self.answer = None;
@@ -999,6 +1087,40 @@ impl MarkdownEditor {
         cx.notify();
     }
 
+    /// The readouts this note's `!p` lines ask for, keyed by line offset, computed at
+    /// most once per edit. The same discipline as the style cache: a frame runs on every
+    /// keystroke, hover and scroll, and an exact distribution is not that cheap.
+    ///
+    /// What is *not* cached here is the decision about where a chip is painted: a line
+    /// inside a fenced block asks for nothing, and that is the render pass's call, because
+    /// the render pass is what knows a row is code.
+    pub(crate) fn chips(&mut self) -> &[(usize, String)] {
+        let id = self.note.buffer.borrow().change_id();
+        if self
+            .chip_cache
+            .as_ref()
+            .is_some_and(|(cached, _)| *cached != id)
+        {
+            self.chip_cache = None;
+        }
+        if self.chip_cache.is_none() {
+            let text = self.note.buffer.borrow().text().to_string();
+            let mut chips = Vec::new();
+            let mut offset = 0usize;
+            for line in text.split('\n') {
+                if let Some(chip) = dice_chip(line) {
+                    chips.push((offset + line.len(), chip));
+                }
+                offset += line.len() + 1;
+            }
+            self.chip_cache = Some((id, chips));
+        }
+        self.chip_cache
+            .as_ref()
+            .map(|(_, chips)| chips.as_slice())
+            .unwrap_or_default()
+    }
+
     /// What the query note in hand answers, as this view last measured it. `None`
     /// when the note is not a query note, or does not parse as one.
     ///
@@ -1272,6 +1394,7 @@ impl MarkdownEditor {
         self.buffer.borrow_mut().end_undo_group();
         self.style_cache = None;
         self.quote_cache = None;
+        self.chip_cache = None;
         self.wrap_cache = None;
         // A mode change can start or stop the computation: raw draws no table, and
         // live draws one, so the cached answer goes with the view that made it.

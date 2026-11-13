@@ -83,6 +83,9 @@ impl Render for MarkdownEditor {
         // face are measured with it, so their break points match the paint.
         let wrap_width = self.scroll_handle.bounds().size.width;
         let row_styles = self.row_styles();
+        // The `!p` readouts, computed at most once per edit and looked up per row. Copied
+        // out rather than borrowed because the loop below asks the view for plenty else.
+        let chips: Vec<(usize, String)> = self.chips().to_vec();
         // Tables are painted as aligned grids instead of raw markdown: one plan
         // per buffer row, and a row that has one never soft-wraps, which the wrap
         // model has to be told about so it agrees with the paint. Raw mode has no
@@ -841,6 +844,18 @@ impl Render for MarkdownEditor {
                                 fold,
                                 diff,
                                 gutter: Vec::new(),
+                                // A fenced block's rows are code: a `!p` in one is a line
+                                // of a snippet, not a request. The render pass is the only
+                                // thing here that knows a row is code, so the decision is
+                                // made here and not in the cache.
+                                chip: if block {
+                                    None
+                                } else {
+                                    chips
+                                        .iter()
+                                        .find(|(at, _)| *at == dl.end)
+                                        .map(|(_, text)| gpui::SharedString::from(text.clone()))
+                                },
                             })
                             // Where the pointer is over the note is reported to the
                             // window, which decides whether that is a word the

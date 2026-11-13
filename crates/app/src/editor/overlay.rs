@@ -1317,6 +1317,8 @@ impl MarkdownEditor {
             palette: Rc::clone(&self.palette),
             fold,
             diff: None,
+            // A phantom row is not the user's line, so it cannot ask for a readout.
+            chip: None,
             gutter: gutter.to_vec(),
         }
     }

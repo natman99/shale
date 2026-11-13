@@ -61,6 +61,7 @@ use std::time::Duration;
 mod autosave;
 mod blocks;
 mod commands;
+mod dice;
 mod embeds;
 mod exit;
 mod focus;

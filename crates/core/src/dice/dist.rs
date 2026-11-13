@@ -27,6 +27,19 @@ pub enum DistError {
     TooManyOutcomes,
 }
 
+impl DistError {
+    /// The sentence the chip puts where the number would have been. A refusal has to be
+    /// readable in the margin, which is the only place a `!p` line ever speaks.
+    pub fn said(&self) -> String {
+        match self {
+            DistError::TooWide => {
+                format!("too wide for Shale to work out ({MAX_TOTALS} totals is the most)")
+            }
+            DistError::TooManyOutcomes => "too many outcomes to count".to_string(),
+        }
+    }
+}
+
 /// The exact distribution of a roll's total, **after** the modifier.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Distribution {

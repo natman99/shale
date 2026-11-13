@@ -93,6 +93,12 @@ pub(crate) const FM_BROKEN: u8 = 8;
 pub(crate) struct HitLine {
     /// Flat display-line index.
     pub(crate) index: usize,
+    /// The `!p` readout this row painted, if it painted one. Not a hit target — the chip
+    /// asks for nothing back — but it is part of what the row showed, and the only honest
+    /// way to test a chip is to measure the paint that made it. The attribute is because
+    /// the only reader outside this module is `#[cfg(test)]`.
+    #[allow(dead_code)]
+    pub(crate) chip: Option<SharedString>,
     /// First buffer byte of the segment.
     pub(crate) start: usize,
     /// End of the segment, exclusive.
@@ -333,6 +339,12 @@ pub(crate) struct LineElement {
     /// a line number, a bookmark — instead of a new field, a new colour argument and a
     /// new paint call each time.
     pub(crate) gutter: Vec<marks::GutterMark>,
+    /// The readout a `!p` line asks for (roadmap P4.15 M2). Painted **after** the line's
+    /// text and never spliced into it: the buffer holds only what the user typed, and the
+    /// piece map, the cursor and the selection are all measured against buffer text, so a
+    /// synthetic character inside the run list would move the caret off its character. It
+    /// is shaped on its own for the same reason a fold marker is.
+    pub(crate) chip: Option<SharedString>,
 }
 
 /// A row a queued proposal would take away.
@@ -361,6 +373,8 @@ fn fold_label(hidden: usize) -> String {
 pub(crate) struct LinePrepaint {
     /// The whole line's shaped text, for an ordinary row.
     line: Option<ShapedLine>,
+    /// The `!p` readout, shaped at the row's size.
+    chip: Option<ShapedLine>,
     /// One entry per cell, for a table row.
     cells: Vec<CellShaped>,
     /// The fold marker (` 4 more lines`), shaped separately because it is not part of
@@ -668,8 +682,23 @@ impl Element for LineElement {
                     None,
                 )
             });
+            // The readout is shaped here, not in the paint pass, because its width is
+            // only knowable once it is shaped — and it is the row's own size, so a chip
+            // on a heading row is as big as the heading.
+            let chip = match self.chip.clone() {
+                Some(text) => {
+                    let style = RunStyle {
+                        color: self.palette.dim,
+                        ..RunStyle::plain(&self.palette)
+                    };
+                    let run = style.text_run(text.len(), &base_font);
+                    Some(text_system.shape_line(text, px(self.size), &[run], None))
+                }
+                None => None,
+            };
             return LinePrepaint {
                 line: Some(line),
+                chip,
                 cells: Vec::new(),
                 marker,
                 fold_glyph,
@@ -713,6 +742,10 @@ impl Element for LineElement {
             .collect();
         LinePrepaint {
             line: None,
+            // A table row is painted cell by cell at column offsets; there is no "end of
+            // the line" for a chip to sit after, and a `!p` inside a table is a typo
+            // about a cell, not a request.
+            chip: None,
             cells,
             marker: None,
             fold_glyph: None,
@@ -879,6 +912,9 @@ impl Element for LineElement {
         // Where this line painted its fold marker, if it has one, so a click on
         // the marker can be told from a click on the text.
         let mut fold_marker = None;
+        // How far past the row's text a readout starts: a fold marker already claimed
+        // that ground, so the chip steps over it.
+        let mut chip_after = px(0.);
         if let Some(table) = self.table.clone() {
             width = px(table.total as f32 * f32::from(self.char_width));
             segments = table
@@ -1008,6 +1044,26 @@ impl Element for LineElement {
                     ranges,
                     line: marker.clone(),
                 });
+                chip_after = marker.width() + self.char_width;
+            }
+
+            // The `!p` readout, after the row's text. It is not buffer text, not part of
+            // the piece map, and not a hit target: it says what the numbers mean and asks
+            // for nothing back. A long line can run it off the right edge, which is a
+            // visual refinement to make with the reader rather than a reason to hide the
+            // number — the gutter is the fallback the plan already names.
+            if let Some(chip) = prepaint.chip.as_ref() {
+                let x = bounds.left() + line.width() + self.char_width + chip_after;
+                if let Err(err) = chip.paint(
+                    gpui::point(x, bounds.top()),
+                    px(theme::line_height(self.size)),
+                    gpui::TextAlign::default(),
+                    None,
+                    window,
+                    cx,
+                ) {
+                    tracing::warn!(row = self.row, "failed to paint dice chip: {err:#}");
+                }
             }
         }
 
@@ -1042,6 +1098,7 @@ impl Element for LineElement {
                 }),
                 dim: self.dim,
                 fold_marker,
+                chip: self.chip.clone(),
                 caret: self.cursor_col.is_some(),
             };
             // A foreign row answers for the note it was cut from, so it is filed
