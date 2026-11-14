@@ -40,6 +40,8 @@ pub struct FoldKey {
 pub enum FoldKind {
     /// A markdown heading's section.
     Heading,
+    /// A note's properties block, fences included.
+    Frontmatter,
     /// A query note's program: its declaration and its SQL, which is the whole
     /// file, and which the reader folds to get at the answer.
     Query,
@@ -162,6 +164,45 @@ pub fn query_region(text: &str, fallback_title: &str) -> Option<FoldRegion> {
         key: FoldKey {
             kind: FoldKind::Query,
             text: row_text(text, &starts, 0).trim().to_string(),
+            ordinal: 0,
+        },
+    })
+}
+
+/// The properties block's one region: the block, both fences included.
+///
+/// The block says what the note calls a thing; a reader who is looking for prose
+/// does not need it on screen, and the fences are already the visual handles, so
+/// either one folds the block (the ruling). It hides the closing fence along with
+/// the keys, which is why the handle is the *opening* fence: a closed block is one
+/// row with a marker, not a block with a dangling bottom edge.
+///
+/// A block the parser refused gets no region. The error colour is there because the
+/// note has lost every property it wrote, and folding that away would be the same
+/// mistake as folding a query the runner would refuse: the reader has to be able to
+/// see the thing that is wrong.
+pub fn frontmatter_region(text: &str) -> Option<FoldRegion> {
+    let block = crate::frontmatter::block(text)?;
+    if block.malformed.is_some() {
+        return None;
+    }
+    let (open, close) = block.lines;
+    if close < open + 2 {
+        // A block with nothing between its fences has no content the fold could hide;
+        // offering a handle that hides one fence and marks it `+1 rows` would be a
+        // control that does nothing useful.
+        return None;
+    }
+    let starts = line_starts(text);
+    Some(FoldRegion {
+        start_row: open,
+        end_row: close,
+        level: 0,
+        default_closed: false,
+        title: None,
+        key: FoldKey {
+            kind: FoldKind::Frontmatter,
+            text: row_text(text, &starts, open).trim().to_string(),
             ordinal: 0,
         },
     })
@@ -332,6 +373,59 @@ fn row_text<'a>(text: &'a str, starts: &[usize], row: usize) -> &'a str {
 
 #[cfg(test)]
 mod tests {
+    /// A properties block is a region in its own right: the fences are handles, and the
+    /// closing fence belongs to the block rather than to the note's first section.
+    #[test]
+    fn the_properties_block_is_a_region_of_its_own_kind() {
+        let text = "---\ncr: 3\ntags: [a]\n---\n# Goblin\n\nBody\n";
+        let region = frontmatter_region(text).expect("the block is a region");
+        assert_eq!(
+            (region.start_row, region.end_row),
+            (0, 3),
+            "the block runs fence to fence"
+        );
+        assert_eq!(
+            region.key,
+            FoldKey {
+                kind: FoldKind::Frontmatter,
+                text: "---".to_string(),
+                ordinal: 0,
+            },
+            "and it is keyed as a block, not as a heading whose text happens to be `---`"
+        );
+    }
+
+    /// A `---` further down the note is a thematic break: it opens nothing, and a note
+    /// with no properties at all has no block region to fold.
+    #[test]
+    fn a_thematic_break_is_not_a_block() {
+        let text = "# Goblin\n\n---\n\nBody\n";
+        assert!(
+            frontmatter_region(text).is_none(),
+            "the rule in the middle of a note folds as nothing"
+        );
+    }
+
+    /// A block the parser refused is the fact the reader has to be told about: the note
+    /// has lost every property it wrote. Folding it away would hide the evidence.
+    #[test]
+    fn a_block_that_will_not_parse_gets_no_fold() {
+        let text = "---\ncr: a: b\n---\n# Goblin\n";
+        let block = crate::frontmatter::block(text).expect("still a block");
+        assert!(block.malformed.is_some(), "and a block the parser refused");
+        assert!(
+            frontmatter_region(text).is_none(),
+            "so nothing is folded away from the reader"
+        );
+    }
+
+    /// A block with nothing between its fences has no rows the fold could hide.
+    #[test]
+    fn an_empty_block_has_nothing_to_fold() {
+        let text = "---\n---\n# Goblin\n";
+        assert!(frontmatter_region(text).is_none());
+    }
+
     use super::*;
 
     /// A note with two top-level sections, one of which holds two subsections.

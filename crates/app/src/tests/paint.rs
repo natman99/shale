@@ -246,6 +246,137 @@ fn the_properties_band_covers_the_block_and_nothing_else(cx: &mut TestAppContext
     );
 }
 
+/// A properties block folds from either fence, and the caret stays where it was: the
+/// click is about the block, not about where to type. The marker rides the opening
+/// fence, because a closed block is one row and not a block with a dangling edge.
+#[gpui::test]
+fn a_properties_block_folds_from_either_fence(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.bind_keys(keybindings()));
+    let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+    let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+    let text = "---\ncr: 3\ntags: [a]\n---\n# Goblin\n\nBody\n";
+    editor
+        .update(cx, |editor, _window, cx| {
+            editor.set_note(crate::note::Note::from_text(text.to_string()), cx)
+        })
+        .unwrap();
+    for _ in 0..2 {
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+    }
+
+    fn click(cx: &mut VisualTestContext, at: gpui::Point<gpui::Pixels>) {
+        cx.simulate_mouse_down(at, gpui::MouseButton::Left, gpui::Modifiers::default());
+        cx.simulate_mouse_up(at, gpui::MouseButton::Left, gpui::Modifiers::default());
+        cx.run_until_parked();
+        for _ in 0..2 {
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+        }
+    }
+
+    fn fence(
+        cx: &mut VisualTestContext,
+        editor: &gpui::WindowHandle<MarkdownEditor>,
+        index: usize,
+    ) -> gpui::Point<gpui::Pixels> {
+        let (top, bottom) = editor
+            .read_with(cx, |editor, _cx| editor.hit_line_edges(index))
+            .unwrap()
+            .unwrap();
+        let (left, _) = editor
+            .read_with(cx, |editor, _cx| editor.hit_line_x(index))
+            .unwrap()
+            .unwrap();
+        gpui::point(left + gpui::px(1.), (top + bottom) / 2.)
+    }
+
+    // The caret goes to the last row, where no fold can move it, so the click can be
+    // shown to leave it exactly where it was.
+    cx.simulate_keystrokes("escape G");
+    let caret = editor
+        .read_with(cx, |editor, _cx| editor.cursor_position())
+        .unwrap();
+
+    let at = fence(cx, &editor, 0);
+    click(cx, at);
+    let painted = editor
+        .read_with(cx, |editor, _cx| editor.painted_text())
+        .unwrap();
+    assert_eq!(
+        painted.len(),
+        5,
+        "the block's three inner rows went away: {painted:?}"
+    );
+    let markers = editor
+        .read_with(cx, |editor, _cx| editor.painted_fold_markers())
+        .unwrap();
+    assert_eq!(
+        markers.len(),
+        1,
+        "the opening fence carries the marker: {markers:?}"
+    );
+    assert!(
+        markers[0].1.contains('3'),
+        "and it counts the rows it hides, like every other fold: {:?}",
+        markers[0].1
+    );
+    assert_eq!(
+        editor
+            .read_with(cx, |editor, _cx| editor.cursor_position())
+            .unwrap(),
+        caret,
+        "and the caret stayed put"
+    );
+
+    // The marker opens it again.
+    let (index, x0, x1) = editor
+        .read_with(cx, |editor, _cx| editor.fold_marker_bounds())
+        .unwrap()
+        .remove(0);
+    let (top, bottom) = editor
+        .read_with(cx, |editor, _cx| editor.hit_line_edges(index))
+        .unwrap()
+        .unwrap();
+    click(cx, gpui::point((x0 + x1) / 2., (top + bottom) / 2.));
+    let painted = editor
+        .read_with(cx, |editor, _cx| editor.painted_text())
+        .unwrap();
+    assert_eq!(painted.len(), 8, "the block came back: {painted:?}");
+
+    // And the closing fence is a handle too.
+    let at = fence(cx, &editor, 3);
+    click(cx, at);
+    let painted = editor
+        .read_with(cx, |editor, _cx| editor.painted_text())
+        .unwrap();
+    assert_eq!(
+        painted.len(),
+        5,
+        "clicking the bottom fence folded the same block: {painted:?}"
+    );
+
+    // The keys say the same thing as the mouse: the block is a region like any other,
+    // so `zc`/`zo` on a fence row and `zM` reach it without a rule of their own.
+    cx.simulate_keystrokes("escape gg z o");
+    let painted = editor
+        .read_with(cx, |editor, _cx| editor.painted_text())
+        .unwrap();
+    assert_eq!(painted.len(), 8, "`zo` on the fence opened it: {painted:?}");
+    cx.simulate_keystrokes("z c");
+    let painted = editor
+        .read_with(cx, |editor, _cx| editor.painted_text())
+        .unwrap();
+    assert_eq!(painted.len(), 5, "`zc` on the fence closed it: {painted:?}");
+    cx.simulate_keystrokes("z M");
+    let painted = editor
+        .read_with(cx, |editor, _cx| editor.painted_text())
+        .unwrap();
+    assert_eq!(
+        painted.len(),
+        2,
+        "`zM` folds the block along with the sections: {painted:?}"
+    );
+}
+
 /// Both fences of a properties block wear the block's colour. The dashes are the
 /// block's edges, and a block whose top edge is ordinary text and whose bottom edge is
 /// not reads as a block with one edge — which is what the user saw.

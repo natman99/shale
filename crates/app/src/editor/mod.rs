@@ -1575,6 +1575,15 @@ impl MarkdownEditor {
         self.scroll_handle.offset().y.as_f32()
     }
 
+    /// Whether `row` is one of the properties block's fences — the two rows that work
+    /// as its fold handle. Asked of the same region the fold itself uses, so a block
+    /// the parser refused is not a handle anywhere and its error stays on screen.
+    fn frontmatter_fence_row(&self, row: usize) -> bool {
+        let buffer = self.buffer.borrow();
+        shale_core::fold::frontmatter_region(buffer.text())
+            .is_some_and(|region| region.start_row == row || region.end_row == row)
+    }
+
     /// Close (`zc`) or open (`zo`) the fold that the row `row` opens — the sidebar's
     /// `h`/`l`, which is the same decision the note's own fold keys make, so the
     /// outline and the gutter can never disagree (sidebar-plan.md ruling 7).

@@ -121,6 +121,19 @@ impl MarkdownEditor {
                 cx.notify();
                 return;
             }
+            // A click on either `---` of a properties block folds the block, and the
+            // caret stays where it was: the gesture is about the block, not about
+            // where to type. Either fence is a handle because the bottom one is what
+            // a reader reaches for when the block sits under their eyes; the fold
+            // itself is the region the opening fence owns, so both clicks land on the
+            // same decision rather than two.
+            let row = self.buffer.borrow().row_col(hit.start).0;
+            if self.frontmatter_fence_row(row) {
+                self.buffer.borrow_mut().fold_toggle_at(&mut self.slot, row);
+                self.ensure_cursor_visible();
+                cx.notify();
+                return;
+            }
             // A table's rule line is painted on the edge of a row that is, so a
             // click there already belongs to that row; the delimiter row it
             // stands for has no display line of its own unless the cursor is on

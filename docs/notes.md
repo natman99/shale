@@ -386,6 +386,12 @@ of a note that never closes, are drawn in the colour of an error, because in bot
 the note has **no** properties at all. A `---` at the top followed by prose is still a
 thematic break: the line after the fence decides whether someone meant a block.
 
+The block is also a region you can fold. Either `---` is a handle — click it, or put the
+cursor on it and `zc`/`zo`; `zM` folds it along with the sections — and a closed block is
+one row with a count of the rows it hides. A block the parser refused keeps its error
+colour and refuses to fold: the thing wrong with the note is the thing the reader has to
+be able to see.
+
 To see the vault's whole vocabulary at once, `:keys` (the palette's **List the vault's
 property keys**) lists every key any note writes: how many notes write it, how many
 values it holds, and every kind those values come as. A key whose values disagree —

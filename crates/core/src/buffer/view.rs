@@ -147,7 +147,17 @@ impl ViewSlot {
                 // so shows its source.
                 Some(stem) if fold_program => fold::query_region(text, stem).into_iter().collect(),
                 Some(_) => Vec::new(),
-                None => fold::fold_regions(text),
+                None => {
+                    // The properties block is the first region in the file when it
+                    // is one, and it is a region of its own kind: a `---` further
+                    // down is a thematic break and folds as nothing, and a heading
+                    // whose text happens to be `---` cannot inherit the block's fold.
+                    let mut regions = fold::fold_regions(text);
+                    if let Some(block) = fold::frontmatter_region(text) {
+                        regions.insert(0, block);
+                    }
+                    regions
+                }
             };
             self.fold_cache = Some((change_id, query, fold_program, regions));
         }
