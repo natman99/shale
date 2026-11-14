@@ -52,6 +52,8 @@ impl Render for MarkdownEditor {
             self.font_family = chosen.into();
         }
         self.hit_lines.clear();
+        #[cfg(test)]
+        self.run_colours.clear();
         self.phantom_hits.borrow_mut().clear();
         // And the entered embed's rows with it: they answer for the note they were cut
         // from, and a stale record would put a caret in a row that is no longer drawn.

@@ -694,6 +694,21 @@ impl Element for LineElement {
                 diff: self.diff.map(|diff| diff.color),
             };
             let runs = build_runs(&self.text, &styles, &base_font, &self.palette, self.dim);
+            #[cfg(test)]
+            {
+                let mut at = 0usize;
+                let painted: Vec<(usize, usize, usize, gpui::Hsla)> = runs
+                    .iter()
+                    .map(|run| {
+                        let record = (self.index, at, at + run.len, run.color);
+                        at += run.len;
+                        record
+                    })
+                    .collect();
+                self.editor.update(cx, |editor, _cx| {
+                    editor.run_colours.extend(painted);
+                });
+            }
             let line = text_system.shape_line(self.text.clone(), px(self.size), &runs, None);
             // The fold marker is not buffer text, so it is shaped on its own and
             // painted after the line rather than being spliced into it.

@@ -246,6 +246,58 @@ fn the_properties_band_covers_the_block_and_nothing_else(cx: &mut TestAppContext
     );
 }
 
+/// Both fences of a properties block wear the block's colour. The dashes are the
+/// block's edges, and a block whose top edge is ordinary text and whose bottom edge is
+/// not reads as a block with one edge — which is what the user saw.
+#[gpui::test]
+fn both_properties_fences_wear_the_block_colour(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.bind_keys(keybindings()));
+    let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+    let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+    let text = "---\ncr: 3\ntags: [a]\n---\n# Goblin\n";
+    editor
+        .update(cx, |editor, _window, cx| {
+            editor.set_note(crate::note::Note::from_text(text.to_string()), cx)
+        })
+        .unwrap();
+    for _ in 0..2 {
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+    }
+    let colours = editor
+        .read_with(cx, |editor, _cx| editor.painted_run_colours())
+        .unwrap();
+    let fence: gpui::Hsla = gpui::rgb(
+        crate::theme::RunStyle::for_style(
+            shale_core::mdstyle::Style::FrontmatterFence,
+            &shale_core::theme::Palette::DARK,
+        )
+        .color,
+    )
+    .into();
+    let coloured = |row: usize| {
+        colours
+            .iter()
+            .any(|(index, _, _, colour)| *index == row && *colour == fence)
+    };
+    let painted = |row: usize| {
+        colours
+            .iter()
+            .filter(|(index, ..)| *index == row)
+            .map(|(_, start, end, colour)| (format!("{:?}", &text[*start..*end]), *colour))
+            .collect::<Vec<_>>()
+    };
+    assert!(
+        coloured(0),
+        "the opening fence is coloured; it painted {:?}",
+        painted(0)
+    );
+    assert!(
+        coloured(3),
+        "and so is the closing one; it painted {:?}",
+        painted(3)
+    );
+}
+
 /// A block that was never closed is the most important fact on the page: the note has
 /// no properties, and the reader has to be told. The band stays — those rows are the
 /// block the author opened — and the boundary takes the error colour.

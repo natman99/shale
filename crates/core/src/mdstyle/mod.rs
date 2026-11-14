@@ -216,7 +216,10 @@ pub fn style_spans(text: &str) -> Vec<StyleSpan> {
     let mut out: Vec<StyleSpan> = Vec::new();
     // The block's region goes in first: it starts at or before everything else the
     // block owns, and it colours nothing, so the row walk can mark every row of the
-    // block — including a blank one inside it, which carries no other span.
+    // block — including a blank one inside it, which carries no other span. It colours
+    // nothing *on purpose*, and the sort below can move it past a span that shares its
+    // start, so a painter applying these in order must skip the spans that colour
+    // nothing rather than let them overwrite what came before (`build_runs` does).
     if let Some(front) = &front {
         out.push(StyleSpan {
             start: front.whole.0,

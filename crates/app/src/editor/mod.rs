@@ -300,6 +300,12 @@ pub struct MarkdownEditor {
     /// Display lines captured during the last paint, for hit-testing. Written
     /// by the line element during paint, so it is crate-visible.
     pub(crate) hit_lines: Vec<HitLine>,
+    /// Test-only: the colours the frame's runs were shaped with, as
+    /// `(display index, painted start, painted end, colour)`. Whether a piece of text
+    /// "is coloured" is a question about the runs the frame built, so this records the
+    /// paint instead of a second calculation that could disagree with it.
+    #[cfg(test)]
+    pub(crate) run_colours: Vec<(usize, usize, usize, gpui::Hsla)>,
     /// Cached wrap boundaries: (buffer change id, wrap width, per-row starts and
     /// the live-preview state they were measured in).
     wrap_cache: Option<(u64, Pixels, Vec<CachedRow>)>,
@@ -571,6 +577,8 @@ impl MarkdownEditor {
             clipboard_mirror: None,
             scroll_handle: ScrollHandle::default(),
             hit_lines: Vec::new(),
+            #[cfg(test)]
+            run_colours: Vec::new(),
             marks: Vec::new(),
             hits: Vec::new(),
             active_hit: None,
@@ -1772,6 +1780,13 @@ impl MarkdownEditor {
             .iter()
             .map(|hit| (hit.start, hit.end, hit.width))
             .collect()
+    }
+
+    /// The colours the frame's runs were shaped with: `(display index, painted start,
+    /// painted end, colour)` for every run of every painted line.
+    #[cfg(test)]
+    pub fn painted_run_colours(&self) -> Vec<(usize, usize, usize, gpui::Hsla)> {
+        self.run_colours.clone()
     }
 
     /// Which rows the frame draws a properties band across, and where the boundary

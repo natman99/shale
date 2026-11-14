@@ -45,10 +45,21 @@ pub(super) fn build_runs(
     let plain = RunStyle::plain(palette);
     let mut painted = vec![plain; total];
     for (start, end, style) in &styles.spans {
+        // A span that colours nothing must not erase a colour that is already there.
+        // The properties block's region is that span: it exists so every row of the
+        // block gets its band, and the scanner orders spans by (start, end) — which
+        // puts the region *after* the opening fence it shares a start with, since the
+        // fence is shorter. Applying it painted the top `---` back to ordinary text
+        // while the closing one kept the block's colour, and the block read as a block
+        // with one edge.
+        let style = RunStyle::for_style(*style, palette);
+        if style == plain {
+            continue;
+        }
         let start = (*start).min(total);
         let end = (*end).clamp(start, total);
         for slot in &mut painted[start..end] {
-            *slot = RunStyle::for_style(*style, palette);
+            *slot = style;
         }
     }
     for (start, end, resolved) in &styles.links {
