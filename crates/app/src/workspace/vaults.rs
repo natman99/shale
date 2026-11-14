@@ -66,9 +66,9 @@ pub(crate) struct VaultWindows {
     /// Dropped with the vault's last window, which is what stops the loops
     /// and takes the MCP lockfile down.
     services: HashMap<PathBuf, Entity<VaultServices>>,
-    /// The open claim files. Dropping one releases the flock, so these live
+    /// The open claim handles. Dropping one releases the lock, so these live
     /// exactly as long as the registry — which lives as long as the run.
-    _claims: HashMap<PathBuf, File>,
+    _claims: HashMap<PathBuf, Claim>,
     /// The termination flag the signal handlers raise; every window polls it.
     terminating: Arc<AtomicBool>,
     /// The first window's options, kept so a `--split` startup splits only
@@ -117,12 +117,8 @@ impl VaultWindows {
 /// The kernel drops it when the process dies, however it dies, so a crashed
 /// Shale never leaves a vault unopenable; a live one holds the door shut.
 /// The file itself records the pid so a human can see who holds it.
-///
-/// Windows has no `flock`; the equivalent is `LockFileEx`, and until that is
-/// written the claim is unix-only. Two instances on one Windows vault remain
-/// possible, and remain a bad idea.
 #[cfg(unix)]
-pub(crate) fn claim_vault(root: &Path) -> Result<Option<File>> {
+pub(crate) fn claim_vault(root: &Path) -> Result<Option<Claim>> {
     use std::io::Read as _;
     use std::io::Write as _;
     use std::os::unix::fs::OpenOptionsExt;
@@ -153,12 +149,122 @@ pub(crate) fn claim_vault(root: &Path) -> Result<Option<File>> {
     }
     let _ = file.write_all(format!("{}\n", std::process::id()).as_bytes());
     let _ = file.flush();
-    Ok(Some(file))
+    Ok(Some(Claim(file)))
 }
 
-/// The claim is unix-only for now; on other platforms the vault is not locked.
-#[cfg(not(unix))]
-pub(crate) fn claim_vault(_root: &Path) -> Result<Option<File>> {
+/// The claim on Windows: `LockFileEx`, the byte-range lock the kernel drops
+/// with the handle, however the process dies — the same guarantee `flock`
+/// gives on unix. The lock is exclusive to *other* processes, not to this
+/// one, so the share mode stays open (the file is Shale's own, and a second
+/// window in the same process reads it too); it is the lock, not the open,
+/// that says "another Shale has this vault".
+#[cfg(windows)]
+pub(crate) fn claim_vault(root: &Path) -> Result<Option<Claim>> {
+    use std::io::Write as _;
+    use std::os::windows::fs::OpenOptionsExt;
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Foundation::{GetLastError, ERROR_LOCK_VIOLATION, HANDLE};
+    use windows_sys::Win32::Storage::FileSystem::{
+        LockFileEx, FILE_SHARE_READ, FILE_SHARE_WRITE, LOCKFILE_EXCLUSIVE_LOCK,
+        LOCKFILE_FAIL_IMMEDIATELY,
+    };
+    use windows_sys::Win32::System::IO::OVERLAPPED;
+
+    let path = root.join(".shale").join("lock");
+    std::fs::create_dir_all(path.parent().unwrap())
+        .with_context(|| format!("open {}", path.parent().unwrap().display()))?;
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+        .open(&path)
+        .with_context(|| format!("open {}", path.display()))?;
+
+    // The lock spans more bytes than the pid line ever grows to, so a holder
+    // rewriting its pid never moves the locked window out from under us.
+    // The OVERLAPPED is a plain local: MSDN says NULL is allowed here, but
+    // `LockFileEx` faults on NULL on real Windows builds (verified with a
+    // standalone probe), so hand it a zeroed one and keep it alive across
+    // the call.
+    let mut ov: OVERLAPPED = unsafe { std::mem::zeroed() };
+    let locked = unsafe {
+        LockFileEx(
+            file.as_raw_handle() as HANDLE,
+            LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY,
+            0,
+            1 << 20,
+            0,
+            &mut ov,
+        )
+    };
+    if locked == 0 {
+        if unsafe { GetLastError() } == ERROR_LOCK_VIOLATION {
+            let holder = std::fs::read_to_string(&path)
+                .ok()
+                .map(|s| s.trim().to_string())
+                .unwrap_or_default();
+            anyhow::bail!(
+                "this vault is already open in another Shale{} — close that one first",
+                if holder.is_empty() {
+                    String::new()
+                } else {
+                    format!(" (pid {holder})")
+                }
+            );
+        }
+        anyhow::bail!("could not claim the vault lock ({})", path.display());
+    }
+
+    let _ = file.write_all(format!("{}\n", std::process::id()).as_bytes());
+    let _ = file.flush();
+    // The claim lives as long as the returned guard does, exactly like the
+    // unix one: dropping it (vault services gone, process exiting) releases
+    // the lock.
+    Ok(Some(Claim(file)))
+}
+
+/// The claim's handle on Windows. The lock belongs to the OS handle, not to
+/// the `File`, so a plain `File` drop would close the handle and release the
+/// lock without unlocking first; this guard unlocks, then lets the `File`
+/// close. An unclean exit is the kernel's job either way — which is the
+/// whole point of the claim.
+#[cfg(windows)]
+pub(crate) struct Claim(File);
+
+#[cfg(windows)]
+impl Drop for Claim {
+    fn drop(&mut self) {
+        use std::os::windows::io::AsRawHandle;
+        use windows_sys::Win32::Storage::FileSystem::UnlockFileEx;
+        use windows_sys::Win32::System::IO::OVERLAPPED;
+        // Same rule as the lock: a real zeroed OVERLAPPED, never NULL.
+        let mut ov: OVERLAPPED = unsafe { std::mem::zeroed() };
+        unsafe {
+            UnlockFileEx(
+                self.0.as_raw_handle() as windows_sys::Win32::Foundation::HANDLE,
+                0,
+                1 << 20,
+                0,
+                &mut ov,
+            );
+        }
+    }
+}
+
+/// On unix the claim *is* the open file: dropping it closes the descriptor,
+/// and the kernel drops the `flock` with it.
+#[cfg(unix)]
+pub(crate) struct Claim(File);
+
+/// Any other platform: no claim, no lock. (macOS and Linux take the `flock`
+/// path above; this arm only exists so the code still builds elsewhere.)
+#[cfg(not(any(unix, windows)))]
+pub(crate) type Claim = File;
+
+#[cfg(not(any(unix, windows)))]
+pub(crate) fn claim_vault(_root: &Path) -> Result<Option<Claim>> {
     Ok(None)
 }
 
@@ -387,7 +493,7 @@ fn build_window(
 }
 
 /// Seed the registry with a claim taken before the run began (see `main`).
-pub(crate) fn seed_claim(root: PathBuf, claim: Option<File>, cx: &mut App) {
+pub(crate) fn seed_claim(root: PathBuf, claim: Option<Claim>, cx: &mut App) {
     if let Some(claim) = claim {
         cx.update_global::<VaultWindows, _>(|g, _cx| {
             g._claims.insert(root, claim);

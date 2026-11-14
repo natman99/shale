@@ -467,7 +467,9 @@ Workspace layout:
   **One Shale, one window per vault** (landed 2026-11-04; the arc has no roadmap item of
   its own — it is the "multi-window arc" in the roadmap's *Where Shale actually stands*):
   the process that
-  opens a vault claims it — an exclusive `flock` on `.shale/lock`, held for the life of
+  opens a vault claims it — an exclusive lock on `.shale/lock` (`flock` on unix,
+  `LockFileEx` on Windows, both dropped by the OS however the process dies), held
+  for the life of
   the process — and a second Shale pointed at the same vault finds the door shut and says
   so rather than opening a second watcher, index and MCP channel beside the first. Inside
   one process the claim is a registry (`workspace/vaults.rs`), so asking for a vault that

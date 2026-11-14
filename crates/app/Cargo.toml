@@ -38,6 +38,17 @@ ashpd = { version = "0.13", default-features = false, features = [
     "async-io",
     "settings",
 ] }
+
+# Windows has no `flock`; the vault claim (`vaults.rs`) uses `LockFileEx`,
+# the byte-range lock the kernel drops with the handle, however the process
+# dies — the same guarantee the unix claim gives. `windows-sys` is already in
+# the tree through gpui; this names the same version, not a new crate.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+] }
 # The window icon is an `image::RgbaImage` (`identity.rs`), which is the type
 # gpui's `WindowOptions::icon` asks for. `image` is already in the tree through
 # gpui, so this names a crate the build already has rather than adding one.

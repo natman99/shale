@@ -114,6 +114,47 @@ fn opening_a_vault_records_it_for_the_next_start(cx: &mut TestAppContext) {
     );
 }
 
+#[cfg(windows)]
+#[gpui::test]
+fn a_vault_claimed_elsewhere_is_refused(cx: &mut TestAppContext) {
+    use std::os::windows::io::AsRawHandle;
+    let store = tempfile::tempdir().unwrap();
+    setup(cx, &store.path().join("recent.json"));
+    let (_ka, a) = vault_dir("alpha");
+
+    // Another process's claim: the lock file, held. `LockFileEx` is
+    // process-exclusive, so holding it here is what another Shale holding it
+    // looks like to the claim.
+    std::fs::create_dir_all(a.join(".shale")).unwrap();
+    let held = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(a.join(".shale").join("lock"))
+        .unwrap();
+    let mut ov: windows_sys::Win32::System::IO::OVERLAPPED = unsafe { std::mem::zeroed() };
+    let locked = unsafe {
+        windows_sys::Win32::Storage::FileSystem::LockFileEx(
+            held.as_raw_handle() as windows_sys::Win32::Foundation::HANDLE,
+            windows_sys::Win32::Storage::FileSystem::LOCKFILE_EXCLUSIVE_LOCK
+                | windows_sys::Win32::Storage::FileSystem::LOCKFILE_FAIL_IMMEDIATELY,
+            0,
+            1 << 20,
+            0,
+            &mut ov,
+        )
+    };
+    assert_ne!(locked, 0, "the test holds the claim now");
+
+    let err = cx
+        .update(|cx| vaults::open_vault_window(&a, OpenOptions::default(), cx))
+        .unwrap_err();
+    assert!(
+        format!("{err:#}").contains("already open"),
+        "the refusal says why: {err:#}"
+    );
+}
+
 #[cfg(unix)]
 #[gpui::test]
 fn a_vault_claimed_elsewhere_is_refused(cx: &mut TestAppContext) {
