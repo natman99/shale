@@ -107,6 +107,14 @@ impl Workspace {
         // What the bar actually drew, so a test can pin hollow-vs-filled against the
         // panel's state instead of re-deriving it from the same `if`.
         #[cfg(test)]
+        self.chrome_drawn
+            .borrow_mut()
+            .push(if strip == Strip::Tree {
+                "tree"
+            } else {
+                "strip"
+            });
+        #[cfg(test)]
         {
             let mut marks = self.chrome_marks.get();
             match strip {
@@ -269,11 +277,17 @@ impl Workspace {
             // The card's top corners: the bar's own background carries the
             // round (the chips are inset by TAB_GAP and never reach them).
             .rounded_t(crate::style::PANE_RADIUS)
-            // The pair brackets the tabs: the tree's mark at the left edge, the
-            // strip's at the right, each pointing at the edge its panel lives against.
-            .child(self.panel_chevron(Strip::Tree, cx))
+            // A mark joins the tabs only while its panel is away, which is when there
+            // is no card of its own to hold it. With the panel open the mark lives in
+            // that card's corner instead — in the bar it read as a control for
+            // scrolling the tabs, which is not what it is.
+            .when(!self.tree_visible, |d| {
+                d.child(self.panel_chevron(Strip::Tree, cx))
+            })
             .children(tabs)
-            .child(self.panel_chevron(Strip::Sidebar, cx))
+            .when(!self.sidebar_visible, |d| {
+                d.child(self.panel_chevron(Strip::Sidebar, cx))
+            })
             .into_any_element()
     }
 
@@ -465,6 +479,10 @@ impl Render for Workspace {
         // a `Window` is within reach of the session's save paths, and copying
         // five floats a frame is cheaper than any resize subscription.
         self.last_bounds = Some(Workspace::geom_of(window));
+        // A new frame: the marks drawn in it start from nothing, so a test can count
+        // how many places answer for one panel.
+        #[cfg(test)]
+        self.chrome_drawn.borrow_mut().clear();
         // A tab change that had no window to rehook the hover subscription with gets
         // it here, one frame later, rather than never: the pointer can only hover over
         // the note that is drawn, so the subscription has to be the drawn tab's. The
@@ -893,6 +911,16 @@ impl Render for Workspace {
                                 // cards is the separation now.
                                 .bg(gpui::rgb(self.palette.ui_status_bg))
                                 .rounded(crate::style::PANE_RADIUS)
+                                .relative()
+                                // The card's own door, in the corner nearest the note
+                                // it pushes out of the way.
+                                .child(
+                                    div()
+                                        .absolute()
+                                        .top_1()
+                                        .right_1()
+                                        .child(self.panel_chevron(Strip::Tree, cx)),
+                                )
                                 .child(
                                     div()
                                         .p_2()
@@ -1033,6 +1061,16 @@ impl Render for Workspace {
                                 .flex_col()
                                 .bg(gpui::rgb(self.palette.ui_status_bg))
                                 .rounded(crate::style::PANE_RADIUS)
+                                .relative()
+                                // The strip's mirror of the tree's mark: the corner of
+                                // the card nearest the note it gives room to.
+                                .child(
+                                    div()
+                                        .absolute()
+                                        .top_1()
+                                        .left_1()
+                                        .child(self.panel_chevron(Strip::Sidebar, cx)),
+                                )
                                 // The header strip is chrome, not a row (ruling 20):
                                 // `j` starts on the first real row, and the view's
                                 // name and count live here rather than in a row the

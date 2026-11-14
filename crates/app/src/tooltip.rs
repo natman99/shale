@@ -38,15 +38,27 @@ impl ChromeTooltip {
 
 impl Render for ChromeTooltip {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        // gpui puts the tooltip's top-left corner one pixel from the pointer, and the
+        // pointer's own graphic is wider than that: the card would sit under the
+        // cursor. The outer box is transparent padding, so the card starts a centimetre
+        // away while gpui still measures and flips the whole thing as it likes — near
+        // the right or bottom edge the card ends up on the other side of the pointer
+        // and still clear of it.
         div()
-            .border_1()
-            .border_color(gpui::rgb(self.palette.ui_border))
-            .bg(gpui::rgb(self.palette.ui_status_bg))
-            .text_color(gpui::rgb(self.palette.ui_fg))
-            .rounded(crate::style::CHIP_RADIUS)
-            .px_2()
-            .py_1()
-            .text_size(crate::style::TEXT_XS)
-            .child(self.text.clone())
+            .flex()
+            .pl(crate::style::SPACE_4)
+            .pt(crate::style::SPACE_4)
+            .child(
+                div()
+                    .border_1()
+                    .border_color(gpui::rgb(self.palette.ui_border))
+                    .bg(gpui::rgb(self.palette.ui_status_bg))
+                    .text_color(gpui::rgb(self.palette.ui_fg))
+                    .rounded(crate::style::CHIP_RADIUS)
+                    .px_2()
+                    .py_1()
+                    .text_size(crate::style::TEXT_XS)
+                    .child(self.text.clone()),
+            )
     }
 }

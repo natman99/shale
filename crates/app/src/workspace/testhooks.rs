@@ -556,6 +556,13 @@ impl Workspace {
     /// The glyph each tab-bar mark drew in the last frame: `(tree, strip)`. Hollow is a
     /// closed panel, filled an open one; the value comes from the render path that
     /// chooses it, not from a second copy of the same rule.
+    /// Which panel marks were drawn in the last frame, by panel name.
+    #[cfg(test)]
+    #[allow(dead_code)]
+    pub(crate) fn chrome_drawn(&self) -> Vec<&'static str> {
+        self.chrome_drawn.borrow().clone()
+    }
+
     pub(crate) fn chrome_marks(&self) -> (&'static str, &'static str) {
         self.chrome_marks.get()
     }

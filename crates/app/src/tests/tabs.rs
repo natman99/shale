@@ -981,15 +981,15 @@ fn wqall_writes_and_leaves(cx: &mut TestAppContext) {
     );
 }
 
-// The tab bar's end marks. The coordinates are the bar's own geometry, measured from a
-// drawn frame: the window under test is 1920 wide, the panels are 260 wide, the bar is
-// 28 tall with 4px of padding, and a mark is a 20px square — so each mark sits 14px in
-// from wherever the bar starts and ends, and the bar starts and ends where the panels
-// leave off. A mark moves when its panel appears; that is the point of the numbers.
-const LEFT_WITH_TREE: f32 = 274.0;
-const LEFT_WITHOUT_TREE: f32 = 14.0;
-const RIGHT_WITHOUT_STRIP: f32 = 1906.0;
-const RIGHT_WITH_STRIP: f32 = 1628.0;
+// The panel marks and where they live. A mark is in its panel's card while the panel is
+// on screen, and joins the tab bar only when the panel is away — so the coordinates
+// below are two homes per panel, measured from a drawn frame: the window under test is
+// 1920 wide, the cards are 260 wide, the bar is 28 tall with 4px of padding, a mark is a
+// 20px square, and it sits 4px in from the corner it lives in.
+const TREE_IN_CARD: f32 = 246.0;
+const TREE_IN_BAR: f32 = 14.0;
+const STRIP_IN_BAR: f32 = 1906.0;
+const STRIP_IN_CARD: f32 = 1674.0;
 const MARK_Y: f32 = 14.0;
 
 fn draw(cx: &mut VisualTestContext) {
@@ -1020,9 +1020,11 @@ fn panels(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> (bool
 }
 
 /// The marks are the mouse's answer to `space e` and `space b`, and they go through the
-/// same door: the tree hides, and the status line says so in the same words.
+/// same door: the tree hides, and the status line says so in the same words. Each mark
+/// toggles from wherever it lives — its panel's card while the panel is open, the end of
+/// the tab bar once it is not — and the mark in the bar is what opens it again.
 #[gpui::test]
-fn the_tab_bar_marks_toggle_the_panels_both_ways(cx: &mut TestAppContext) {
+fn the_panel_marks_toggle_the_panels_and_move_to_where_the_panel_is(cx: &mut TestAppContext) {
     let (_dir, window, mut cx) = two_notes(cx);
     draw(&mut cx);
     assert_eq!(panels(&window, &mut cx), (true, false), "the default state");
@@ -1035,7 +1037,8 @@ fn the_tab_bar_marks_toggle_the_panels_both_ways(cx: &mut TestAppContext) {
         "the mark's weight is its panel's state: filled open, hollow closed"
     );
 
-    click(&mut cx, LEFT_WITH_TREE);
+    // The tree is open, so its mark is in the card's corner, not in the bar.
+    click(&mut cx, TREE_IN_CARD);
     assert_eq!(
         panels(&window, &mut cx),
         (false, false),
@@ -1045,42 +1048,97 @@ fn the_tab_bar_marks_toggle_the_panels_both_ways(cx: &mut TestAppContext) {
         window.read_with(&cx, |ws, _| ws.status()).unwrap(),
         "tree hidden"
     );
-    click(&mut cx, RIGHT_WITHOUT_STRIP);
+
+    // Now the bar has it, at its left end, and that is what opens the tree again.
+    click(&mut cx, TREE_IN_BAR);
     assert_eq!(
         panels(&window, &mut cx),
-        (false, true),
-        "and the other mark opened the strip"
+        (true, false),
+        "the bar's mark opened it"
+    );
+
+    // The strip was closed, so its mark was at the bar's right end...
+    click(&mut cx, STRIP_IN_BAR);
+    assert_eq!(
+        panels(&window, &mut cx),
+        (true, true),
+        "...and that mark opened the strip"
     );
     assert_eq!(
         window.read_with(&cx, |ws, _| ws.status()).unwrap(),
         "sidebar shown"
     );
-
-    // Both marks move when their panel appears or goes away, because the bar starts and
-    // ends where the panels leave off — and both toggle again from there.
     assert_eq!(
         marks(&window, &mut cx),
         (
-            crate::style::GLYPH_TREE_CLOSED,
+            crate::style::GLYPH_TREE_OPEN,
             crate::style::GLYPH_STRIP_OPEN
         ),
-        "hollow closed, filled open"
+        "both marks filled"
     );
-    click(&mut cx, LEFT_WITHOUT_TREE);
-    click(&mut cx, RIGHT_WITH_STRIP);
+
+    // ...and now it is in the strip's own corner, where it closes it again.
+    click(&mut cx, STRIP_IN_CARD);
+    assert_eq!(panels(&window, &mut cx), (true, false));
+}
+
+/// Nothing answers at the other home: with the tree open there is no mark at the bar's
+/// left end, and with it closed there is none in the card's corner. The mark is one
+/// control that moves, not two that overlap.
+#[gpui::test]
+fn a_panel_has_exactly_one_mark_at_a_time(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = two_notes(cx);
+    draw(&mut cx);
+    click(&mut cx, TREE_IN_BAR);
     assert_eq!(
         panels(&window, &mut cx),
         (true, false),
-        "each mark toggles from wherever it now sits"
+        "the tree was already open, and the bar's left end holds no mark to close it"
     );
-    click(&mut cx, LEFT_WITH_TREE);
-    click(&mut cx, RIGHT_WITHOUT_STRIP);
-    assert_eq!(panels(&window, &mut cx), (false, true));
+    click(&mut cx, TREE_IN_CARD);
+    assert_eq!(
+        panels(&window, &mut cx),
+        (false, false),
+        "the card's corner did"
+    );
+    click(&mut cx, TREE_IN_CARD);
+    assert_eq!(
+        panels(&window, &mut cx),
+        (false, false),
+        "and with the tree gone the card is not drawn, so nothing answers there"
+    );
+
+    // Counted, not just clicked: a panel answers at exactly one place per frame, so a
+    // bar copy left behind when the card grows its own would be caught here even if no
+    // click happened to land on it.
+    macro_rules! drawn {
+        () => {{
+            let d = window
+                .update(&mut cx, |ws, _w, _cx| ws.chrome_drawn())
+                .unwrap();
+            let names: Vec<String> = d.iter().map(|s| s.to_string()).collect();
+            (
+                names.iter().filter(|s| s.as_str() == "tree").count(),
+                names.iter().filter(|s| s.as_str() == "strip").count(),
+            )
+        }};
+    }
+    // Both away: the bar carries each one.
+    assert_eq!(drawn!(), (1, 1), "one mark per panel, both away");
+    // The tree open: its card carries it, and the bar's copy is gone. A bar copy left
+    // behind here would count two, even though no test click lands on it.
+    click(&mut cx, TREE_IN_BAR);
+    draw(&mut cx);
+    assert_eq!(drawn!(), (1, 1), "still one, with the tree in its card");
+    // The strip open too: same story on the other side.
+    click(&mut cx, STRIP_IN_BAR);
+    draw(&mut cx);
+    assert_eq!(drawn!(), (1, 1), "still one, with the strip in its card");
 }
 
-/// Closing a panel that holds the keyboard hands the keys to the note — the chevron is
-/// not allowed to leave the keyboard sitting on a row that is no longer drawn, which is
-/// the same rule `space e` already follows.
+/// Closing a panel that holds the keyboard hands the keys to the note — the mark is not
+/// allowed to leave the keyboard sitting on a row that is no longer drawn, which is the
+/// same rule `space e` already follows.
 #[gpui::test]
 fn closing_a_focused_panel_with_its_mark_hands_the_keys_to_the_note(cx: &mut TestAppContext) {
     let (_dir, window, mut cx) = two_notes(cx);
@@ -1093,7 +1151,7 @@ fn closing_a_focused_panel_with_its_mark_hands_the_keys_to_the_note(cx: &mut Tes
         .unwrap();
     assert!(focused, "the tree has the keyboard");
 
-    click(&mut cx, LEFT_WITH_TREE);
+    click(&mut cx, TREE_IN_CARD);
     let (tree_open, note_focused) = window
         .update(&mut cx, |ws, window, cx| {
             (ws.tree_visible(), ws.editor_is_focused(window, cx))
@@ -1103,13 +1161,14 @@ fn closing_a_focused_panel_with_its_mark_hands_the_keys_to_the_note(cx: &mut Tes
     assert!(note_focused, "and the note has the keyboard");
 }
 
-/// The marks belong to the bar, not to a note tab: the graph tab's bar carries them too.
+/// The marks belong to the window, not to a note tab: with the graph on screen the tree's
+/// mark is still in its card's corner and still closes it.
 #[gpui::test]
-fn the_marks_are_on_the_graph_tab_s_bar_too(cx: &mut TestAppContext) {
+fn the_marks_are_there_with_the_graph_tab_on_screen(cx: &mut TestAppContext) {
     let (_dir, window, mut cx) = two_notes(cx);
     cx.simulate_keystrokes("space g");
     draw(&mut cx);
     assert!(window.read_with(&cx, |ws, _cx| ws.showing_graph()).unwrap());
-    click(&mut cx, LEFT_WITH_TREE);
+    click(&mut cx, TREE_IN_CARD);
     assert!(!window.read_with(&cx, |ws, _cx| ws.tree_visible()).unwrap());
 }
