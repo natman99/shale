@@ -207,6 +207,15 @@ fn build() -> (Vec<KeyBinding>, Vec<KeymapRow>) {
             "j" => VimJ,
             "k" => VimK,
             "l" => VimL,
+            // The arrows are the letters: same display-row steps, same visual
+            // extension, same scroll at the edge. `shift-up`/`shift-down` page by
+            // what the view shows and `ctrl-u`/`ctrl-d` by half of it — in visual
+            // mode those extend the selection too, because they are the same motion
+            // with a count in front of them.
+            "shift-up" => VimPageUp,
+            "shift-down" => VimPageDown,
+            "ctrl-u" => VimHalfPageUp,
+            "ctrl-d" => VimHalfPageDown,
             "w" => VimW,
             "b" => VimB,
             "e" => VimE,
@@ -356,6 +365,19 @@ fn build() -> (Vec<KeyBinding>, Vec<KeymapRow>) {
         "right" => MoveRight,
         "up" => MoveUp,
         "down" => MoveDown,
+    ]);
+    // Visual mode had no arrows at all: the keys did nothing there, which is the
+    // one place a caret that "just moves" is wrong — the head has to take the
+    // selection with it. So visual binds the arrows to the engine's own motions,
+    // the same ones `h`/`j`/`k`/`l` are, and the selection extends the way it does
+    // for the letters. Normal mode keeps the plain `Move*` actions: an arrow there
+    // is a request to be somewhere, and `d` followed by `<down>` should leave the
+    // `d` pending rather than delete a line.
+    bind!(b, Some("vim-visual"), [
+        "left" => VimLeft,
+        "right" => VimRight,
+        "up" => VimUp,
+        "down" => VimDown,
     ]);
     bind!(b, Some("vim-insert"), [
         "escape" => VimEscape,

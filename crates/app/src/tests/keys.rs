@@ -40,6 +40,224 @@ fn typing_in_insert_mode_inserts_text(cx: &mut TestAppContext) {
     assert_eq!(text, "hello", "normal mode should swallow typed input");
 }
 
+/// The arrow keys are the letters, not a second motion: `<down>` steps a *display*
+/// row on a wrapped note the way `j` does, and `<up>` steps back the same way.
+#[gpui::test]
+fn arrows_step_display_rows_in_normal_mode(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.bind_keys(keybindings()));
+    let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+    let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+    editor
+        .update(cx, |editor, window, cx| {
+            editor.set_text("word ".repeat(200), cx);
+            let focus = editor.focus_handle(cx);
+            window.focus(&focus, cx);
+        })
+        .unwrap();
+    for _ in 0..2 {
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+    }
+
+    cx.simulate_keystrokes("down");
+    let (row, col) = editor
+        .read_with(cx, |editor, _cx| editor.cursor_position())
+        .unwrap();
+    assert_eq!(row, 0, "one buffer row, so the row cannot change");
+    assert!(
+        col > 0,
+        "`<down>` landed on the next display line, col {col}"
+    );
+
+    cx.simulate_keystrokes("up");
+    let back = editor
+        .read_with(cx, |editor, _cx| editor.cursor_position())
+        .unwrap();
+    assert_eq!(back.1, 0, "`<up>` came back to the first display line");
+
+    cx.simulate_keystrokes("right right");
+    let right = editor
+        .read_with(cx, |editor, _cx| editor.cursor_position())
+        .unwrap();
+    assert_eq!(right.1, 2, "`<right>` is `l`");
+    cx.simulate_keystrokes("left");
+    let left = editor
+        .read_with(cx, |editor, _cx| editor.cursor_position())
+        .unwrap();
+    assert_eq!(left.1, 1, "`<left>` is `h`");
+}
+
+/// In visual mode the arrows extend the selection rather than moving the caret on
+/// its own — the same difference `j` and `k` make between the two modes.
+#[gpui::test]
+fn arrows_extend_the_selection_in_visual_mode(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.bind_keys(keybindings()));
+    let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+    let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+    editor
+        .update(cx, |editor, window, cx| {
+            editor.set_text("one\ntwo\nthree\nfour\n".to_string(), cx);
+            let focus = editor.focus_handle(cx);
+            window.focus(&focus, cx);
+        })
+        .unwrap();
+    cx.simulate_keystrokes("escape v down down");
+    let (mode, caret, selection) = editor
+        .read_with(cx, |editor, _cx| {
+            (editor.mode(), editor.cursor_position(), editor.caret_text())
+        })
+        .unwrap();
+    assert_eq!(mode, shale_core::vim::Mode::Visual, "visual mode");
+    assert_eq!(caret.0, 2, "the head is on the third row");
+    assert!(
+        selection.starts_with("one"),
+        "and the selection reaches back to where `v` was: {selection:?}"
+    );
+    cx.simulate_keystrokes("up");
+    let caret = editor
+        .read_with(cx, |editor, _cx| editor.cursor_position())
+        .unwrap();
+    assert_eq!(caret.0, 1, "`<up>` pulls the head back, selection and all");
+}
+
+/// `shift-down` moves the caret a viewful at a time and `ctrl-d` half a viewful —
+/// both are the same motion with a count in front of it, so they land on display
+/// rows and extend a visual selection exactly like the arrows do.
+#[gpui::test]
+fn shift_arrow_pages_and_ctrl_d_halves(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.bind_keys(keybindings()));
+    let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+    let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+    let text = (1..=400)
+        .map(|i| format!("line {i}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    editor
+        .update(cx, |editor, window, cx| {
+            editor.set_text(text, cx);
+            let focus = editor.focus_handle(cx);
+            window.focus(&focus, cx);
+        })
+        .unwrap();
+    for _ in 0..2 {
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+    }
+    let page = editor
+        .read_with(cx, |editor, _cx| editor.page_size())
+        .unwrap();
+    assert!(
+        page >= 4,
+        "the test view shows a page worth of rows: {page}"
+    );
+
+    cx.simulate_keystrokes("escape gg");
+    cx.simulate_keystrokes("shift-down");
+    let row = editor
+        .read_with(cx, |editor, _cx| editor.cursor_position())
+        .unwrap()
+        .0;
+    assert_eq!(row, page, "`shift-down` moved a whole viewful");
+
+    cx.simulate_keystrokes("ctrl-d");
+    let row = editor
+        .read_with(cx, |editor, _cx| editor.cursor_position())
+        .unwrap()
+        .0;
+    assert_eq!(row, page + page / 2, "`ctrl-d` moved half a viewful");
+
+    cx.simulate_keystrokes("shift-up");
+    let row = editor
+        .read_with(cx, |editor, _cx| editor.cursor_position())
+        .unwrap()
+        .0;
+    assert_eq!(row, page / 2, "`shift-up` came back a whole viewful");
+
+    cx.simulate_keystrokes("ctrl-u");
+    let row = editor
+        .read_with(cx, |editor, _cx| editor.cursor_position())
+        .unwrap()
+        .0;
+    assert_eq!(row, 0, "and `ctrl-u` to the top");
+}
+
+/// Preview has no caret, so paging there scrolls the same distance the caret would
+/// have moved: a viewful for `shift-down`, half a viewful for `ctrl-d`.
+#[gpui::test]
+fn paging_scrolls_preview_by_the_same_distance(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.bind_keys(keybindings()));
+    let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+    let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+    let text = (1..=400)
+        .map(|i| format!("line {i}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    editor
+        .update(cx, |editor, window, cx| {
+            editor.set_text(text, cx);
+            editor.set_view(crate::editor::View::Preview, cx);
+            let focus = editor.focus_handle(cx);
+            window.focus(&focus, cx);
+        })
+        .unwrap();
+    for _ in 0..2 {
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+    }
+    cx.simulate_keystrokes("escape shift-down");
+    let y = editor
+        .read_with(cx, |editor, _cx| editor.scroll_y())
+        .unwrap();
+    assert!(y < 0.0, "preview paged down, y {y}");
+
+    cx.simulate_keystrokes("ctrl-d");
+    let y2 = editor
+        .read_with(cx, |editor, _cx| editor.scroll_y())
+        .unwrap();
+    let half = y - y2;
+    let page_px = -y;
+    assert!(
+        half > page_px * 0.4 && half < page_px * 0.6,
+        "`ctrl-d` scrolled half of what `shift-down` scrolled: page {page_px:.0}px, half {half:.0}px"
+    );
+}
+
+/// `ctrl-d`/`ctrl-u` in visual mode extend the selection, because they are the same
+/// motion with a count in front of them and nothing else.
+#[gpui::test]
+fn half_pages_extend_a_visual_selection(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.bind_keys(keybindings()));
+    let editor = cx.add_window(|_window, cx| MarkdownEditor::new(cx));
+    let cx = &mut VisualTestContext::from_window(editor.into(), cx);
+    let text = (1..=400)
+        .map(|i| format!("line {i}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    editor
+        .update(cx, |editor, window, cx| {
+            editor.set_text(text, cx);
+            let focus = editor.focus_handle(cx);
+            window.focus(&focus, cx);
+        })
+        .unwrap();
+    for _ in 0..2 {
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+    }
+    let page = editor
+        .read_with(cx, |editor, _cx| editor.page_size())
+        .unwrap();
+    cx.simulate_keystrokes("escape gg v ctrl-d");
+    let (mode, caret, selection) = editor
+        .read_with(cx, |editor, _cx| {
+            (editor.mode(), editor.cursor_position(), editor.caret_text())
+        })
+        .unwrap();
+    assert_eq!(mode, shale_core::vim::Mode::Visual);
+    assert_eq!(caret.0, page / 2, "the head moved half a viewful");
+    assert!(
+        selection.starts_with("line 1\n"),
+        "and the selection reached back to the top: {} rows",
+        selection.lines().count()
+    );
+}
+
 /// `ctrl-backspace` in insert mode deletes the word before the cursor, taking the
 /// blanks between the cursor and that word with it — vim's `i_CTRL-W`.
 #[gpui::test]

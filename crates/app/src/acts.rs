@@ -12,6 +12,18 @@ actions!(
         VimJ,
         VimK,
         VimL,
+        // The arrow keys: the same motions the letters make, named separately only
+        // because the keymap needs a name for a key that has no letter of its own.
+        VimUp,
+        VimDown,
+        VimLeft,
+        VimRight,
+        // `shift-up`/`shift-down` move the caret a viewful; `ctrl-u`/`ctrl-d` half
+        // a viewful. Both are the letters' motion with a count in front of it.
+        VimPageUp,
+        VimPageDown,
+        VimHalfPageUp,
+        VimHalfPageDown,
         VimW,
         VimB,
         VimE,

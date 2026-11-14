@@ -76,6 +76,17 @@ with the same semantics including the way `t` stops short, and `enter` to the ne
 first non-blank — and the arrow keys do the same four, for when the hands are not on
 `hjkl`. Counts work on motions and operators: `3w`, `2dd`, `5j`.
 
+**Paging.** `shift-up` / `shift-down` move the caret a viewful at a time and `ctrl-u` /
+`ctrl-d` half a viewful. Both are the letters' motion with a count in front of it, so
+they step *display* rows on a wrapped note, take the visual selection with them, and
+scroll the view when the caret reaches its edge. In preview, where there is no caret,
+they scroll the same distance.
+
+**Visual mode and the arrows.** The arrows extend the selection there, the way `j` and
+`k` do; before this they did nothing in visual mode at all. Normal mode keeps the plain
+caret motion, so `d` followed by `<down>` leaves the `d` pending for `escape` to drop
+rather than deleting a line.
+
 **Operators.** `d` (delete), `c` (change), `y` (yank), each with a motion or a
 text object; `dd`, `cc`, `yy` for the whole line; `x` to delete the character
 under the cursor; `p` and `P` to put the register after or before.

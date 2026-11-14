@@ -1791,6 +1791,13 @@ impl MarkdownEditor {
             .collect()
     }
 
+    /// How many display rows this view shows: the page `shift-up`/`shift-down` move
+    /// by, and the half of it `ctrl-u`/`ctrl-d` move by.
+    #[cfg(test)]
+    pub fn page_size(&self) -> usize {
+        self.visible_rows()
+    }
+
     /// The colours the frame's runs were shaped with: `(display index, painted start,
     /// painted end, colour)` for every run of every painted line.
     #[cfg(test)]

@@ -474,6 +474,44 @@ impl MarkdownEditor {
         cx.notify();
     }
 
+    /// How many display rows this view shows right now: what a page is measured in.
+    /// The scroll handle knows the viewport and the font knows the row; nothing else
+    /// in the editor gets to claim a page size.
+    pub(super) fn visible_rows(&self) -> usize {
+        let height = f32::from(self.scroll_handle.bounds().size.height);
+        let row = f32::from(self.line_height_px());
+        if row <= 0. {
+            return 1;
+        }
+        (height / row).floor().max(1.) as usize
+    }
+
+    /// A page is the engine's own count machinery: `j` with the number of rows the
+    /// view shows typed in front of it. Paging therefore *is* the motion the letters
+    /// make — display rows, visual selection extended, the view scrolling at the
+    /// edge — and a half page is the same motion with half the count. Preview has no
+    /// caret to move, so there it scrolls the same distance.
+    pub(super) fn page(
+        &mut self,
+        rows: usize,
+        down: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if rows == 0 {
+            return;
+        }
+        if self.view == View::Preview {
+            let step = self.line_height_px() * rows as f32;
+            self.preview_scroll(if down { step } else { -step }, cx);
+            return;
+        }
+        for digit in rows.to_string().chars() {
+            self.normal(Key::Char(digit), window, cx);
+        }
+        self.normal(Key::Char(if down { 'j' } else { 'k' }), window, cx);
+    }
+
     /// The height of one display line in pixels — the step `j`/`k` scroll the
     /// preview by.
     fn line_height_px(&self) -> gpui::Pixels {

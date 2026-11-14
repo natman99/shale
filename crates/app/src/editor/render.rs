@@ -312,6 +312,44 @@ impl Render for MarkdownEditor {
             .on_action(
                 cx.listener(|this, _: &VimL, window, cx| this.normal(Key::Char('l'), window, cx)),
             )
+            // The arrows are the letters, said differently. Nothing else about them
+            // is separate: the engine's display-row steps, the visual selection's
+            // extension and the view scrolling at the edge all come from the same
+            // motion, which is what the ruling asked for.
+            .on_action(
+                cx.listener(|this, _: &VimUp, window, cx| this.normal(Key::Char('k'), window, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &VimDown, window, cx| {
+                    this.normal(Key::Char('j'), window, cx)
+                }),
+            )
+            .on_action(
+                cx.listener(|this, _: &VimLeft, window, cx| {
+                    this.normal(Key::Char('h'), window, cx)
+                }),
+            )
+            .on_action(
+                cx.listener(|this, _: &VimRight, window, cx| {
+                    this.normal(Key::Char('l'), window, cx)
+                }),
+            )
+            .on_action(cx.listener(|this, _: &VimPageUp, window, cx| {
+                let rows = this.visible_rows();
+                this.page(rows, false, window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &VimPageDown, window, cx| {
+                let rows = this.visible_rows();
+                this.page(rows, true, window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &VimHalfPageUp, window, cx| {
+                let rows = this.visible_rows() / 2;
+                this.page(rows, false, window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &VimHalfPageDown, window, cx| {
+                let rows = this.visible_rows() / 2;
+                this.page(rows, true, window, cx);
+            }))
             .on_action(
                 cx.listener(|this, _: &VimW, window, cx| this.normal(Key::Char('w'), window, cx)),
             )

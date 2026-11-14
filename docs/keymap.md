@@ -56,6 +56,10 @@ in hand. `docs/keys.md` is the human map of both halves.
 | `j` | the vim engine takes this key | `VimJ` | — |
 | `k` | the vim engine takes this key | `VimK` | — |
 | `l` | the vim engine takes this key | `VimL` | — |
+| `shift-up` | the vim engine takes this key | `VimPageUp` | — |
+| `shift-down` | the vim engine takes this key | `VimPageDown` | — |
+| `ctrl-u` | the vim engine takes this key | `VimHalfPageUp` | — |
+| `ctrl-d` | the vim engine takes this key | `VimHalfPageDown` | — |
 | `w` | the vim engine takes this key | `VimW` | — |
 | `b` | the vim engine takes this key | `VimB` | — |
 | `e` | the vim engine takes this key | `VimE` | — |
@@ -155,6 +159,10 @@ in hand. `docs/keys.md` is the human map of both halves.
 | `j` | the vim engine takes this key | `VimJ` | — |
 | `k` | the vim engine takes this key | `VimK` | — |
 | `l` | the vim engine takes this key | `VimL` | — |
+| `shift-up` | the vim engine takes this key | `VimPageUp` | — |
+| `shift-down` | the vim engine takes this key | `VimPageDown` | — |
+| `ctrl-u` | the vim engine takes this key | `VimHalfPageUp` | — |
+| `ctrl-d` | the vim engine takes this key | `VimHalfPageDown` | — |
 | `w` | the vim engine takes this key | `VimW` | — |
 | `b` | the vim engine takes this key | `VimB` | — |
 | `e` | the vim engine takes this key | `VimE` | — |
@@ -212,6 +220,10 @@ in hand. `docs/keys.md` is the human map of both halves.
 | `ctrl-y` | Redo | `Redo` | `note.redo` |
 | `ctrl-shift-c` | Copy the selection, or the last yank, to the clipboard | `CopyText` | `clipboard.copy` |
 | `ctrl-shift-v` | Paste from the clipboard | `PasteText` | `clipboard.paste` |
+| `left` | the vim engine takes this key | `VimLeft` | — |
+| `right` | the vim engine takes this key | `VimRight` | — |
+| `up` | the vim engine takes this key | `VimUp` | — |
+| `down` | the vim engine takes this key | `VimDown` | — |
 
 ### while `vim-insert` has the keyboard
 
