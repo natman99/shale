@@ -896,7 +896,7 @@ impl Workspace {
         dirty
             .then(|| tab.path())
             .flatten()
-            .map(|path| path.display().to_string())
+            .map(rel_text)
     }
 
     /// The tabs as the tab bar and the session file want them: whether the tab is the

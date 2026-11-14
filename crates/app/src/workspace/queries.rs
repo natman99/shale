@@ -79,7 +79,7 @@ impl Workspace {
     /// the picker's row because the file is the authority and it may have been edited —
     /// by the reader, or by an agent — since the list was built.
     pub(super) fn run_query(&mut self, path: &Path, window: &mut Window, cx: &mut Context<Self>) {
-        let label = format!("Query {}", path.display());
+        let label = format!("Query {}", rel_text(path));
         let text = match self.vault.read(path) {
             Ok(text) => text,
             Err(err) => {
@@ -120,7 +120,7 @@ impl Workspace {
         let stem = path
             .file_stem()
             .map(|stem| stem.to_string_lossy().into_owned())
-            .unwrap_or_else(|| path.display().to_string());
+            .unwrap_or_else(|| rel_text(path));
         // The one chain (ruling 44): parse, anchor, ask, sort. The picker's job is to draw
         // what that answered, not to re-decide what a refusal says — so the sentences for
         // EDGE-1, EDGE-2, EDGE-3/4 and EDGE-12 are written once, in core, and the agent
@@ -276,7 +276,7 @@ pub(crate) fn query_row(
         .path
         .file_stem()
         .map(|stem| stem.to_string_lossy().into_owned())
-        .unwrap_or_else(|| entry.path.display().to_string());
+        .unwrap_or_else(|| rel_text(&entry.path));
     let folder = folder_of(&entry.path);
     let (label, detail) = match parsed {
         Ok(note) => (
@@ -298,7 +298,7 @@ pub(crate) fn query_row(
             label: label.clone().into(),
             detail: detail.clone().into(),
             detail_ranges: Vec::new(),
-            search: format!("{label} {}", entry.path.display()).into(),
+            search: format!("{label} {}", rel_text(&entry.path)).into(),
         },
         PickerTarget::RunQuery(entry.path.clone()),
     )
@@ -323,9 +323,9 @@ pub(crate) fn result_rows(
     rows.push((
         PickerItem {
             label: format!("columns: {}", answer.columns.join(" · ")).into(),
-            detail: format!("open {}", query.display()).into(),
+            detail: format!("open {}", rel_text(query)).into(),
             detail_ranges: Vec::new(),
-            search: format!("columns {}", query.display()).into(),
+            search: format!("columns {}", rel_text(query)).into(),
         },
         PickerTarget::Note(query.to_path_buf()),
     ));
@@ -343,7 +343,7 @@ pub(crate) fn result_rows(
         // openable and then fails.
         let target = entries
             .iter()
-            .find(|entry| entry.path.to_string_lossy() == first)
+            .find(|entry| rel_text(&entry.path) == first)
             .map(|entry| PickerTarget::Note(entry.path.clone()))
             .unwrap_or_else(|| PickerTarget::Notice(first.clone().into()));
         rows.push((

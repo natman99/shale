@@ -13,7 +13,7 @@
 
 use shale_core::db::{Cell, MAX_ROWS};
 use shale_core::mdstyle::Style;
-use shale_core::vault::VaultEntry;
+use shale_core::vault::{VaultEntry, rel_text};
 
 use super::Answer;
 use super::overlay::BlockLine;
@@ -325,8 +325,8 @@ fn entry_named(entries: &[VaultEntry], cell: &str) -> Option<String> {
     }
     entries
         .iter()
-        .find(|entry| entry.path.to_string_lossy() == cell)
-        .map(|entry| entry.path.to_string_lossy().into_owned())
+        .find(|entry| rel_text(&entry.path) == cell)
+        .map(|entry| rel_text(&entry.path))
 }
 
 /// One phantom row.

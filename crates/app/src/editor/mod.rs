@@ -34,6 +34,8 @@ use shale_core::buffer::{Buffer, ViewSlot};
 use shale_core::markdown::{Anchor, WikiLink, extract_wikilinks};
 use shale_core::mdstyle::{Style, StyleSpan, quotes, style_spans};
 use shale_core::vault::VaultEntry;
+#[cfg(test)]
+use shale_core::vault::rel_text;
 use shale_core::vim::{Mode, Vim};
 use shale_core::{Vault, theme::Palette};
 
@@ -717,7 +719,7 @@ impl MarkdownEditor {
                 (
                     hit.origin
                         .as_ref()
-                        .map(|o| format!("{}:{}", o.path.display(), o.row))
+                        .map(|o| format!("{}:{}", rel_text(&o.path), o.row))
                         // A badge has no note-row address, but it does name a link, and a
                         // test needs to be able to point at it.
                         .or_else(|| hit.door.as_ref().map(|d| format!("badge:{}", d.target)))

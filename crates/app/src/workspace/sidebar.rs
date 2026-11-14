@@ -12,6 +12,7 @@ use gpui::{Context, Window};
 
 use crate::acts::*;
 use crate::sidebar::{self, View};
+use shale_core::vault::rel_text;
 use shale_core::mdstyle::section::{
     Direction, Refusal, StructureEdit, move_section, relevel_section,
 };
@@ -367,7 +368,7 @@ impl Workspace {
                     // the row: a property row reads `ally: Goblin`, and `Goblin` is the
                     // half that is missing.
                     self.say(
-                        format!("“{}” is not a note in this vault", path.display()),
+                        format!("“{}” is not a note in this vault", rel_text(path)),
                         cx,
                     );
                     cx.notify();
@@ -666,7 +667,7 @@ impl Workspace {
                 self.say("the strip follows the note again", cx);
             }
             Some(subject) => {
-                self.say(format!("the strip is pinned to {}", subject.display()), cx);
+                self.say(format!("the strip is pinned to {}", rel_text(&subject)), cx);
                 self.sidebar_pinned = Some(subject);
             }
         }

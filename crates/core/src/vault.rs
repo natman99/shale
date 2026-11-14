@@ -47,6 +47,31 @@ pub fn rel_text(rel: impl AsRef<Path>) -> String {
         .join("/")
 }
 
+/// The other direction: text a user typed into a vault-relative path.
+///
+/// A typed path is always spelled with `/` — at the `:` line, in a prompt, in
+/// a wiki-link — but `PathBuf::from` only reads `/` as a separator on unix. On
+/// Windows the whole string arrives as *one* component, and `inbox/Thought.md`
+/// becomes a single name with a slash inside it: a name Windows refuses, so
+/// the note is never created. Splitting on `/` here is what makes a typed path
+/// mean the same folders on every platform.
+///
+/// A typed `\` is refused on every platform, the same refusal
+/// [`checked_rel`] makes: on Windows `components` would silently turn it into
+/// a folder, and a name holding one cannot live in a portable vault.
+pub fn rel_from_text(text: &str) -> Result<PathBuf> {
+    if text.contains('\\') {
+        bail!("`\\` is not allowed in a note name ({text})");
+    }
+    Ok(text
+        .split('/')
+        .filter(|part| !part.is_empty())
+        .fold(PathBuf::new(), |mut path, part| {
+            path.push(part);
+            path
+        }))
+}
+
 /// Pre-built lookup tables for link resolution: the same rules as
 /// [`Vault::resolve_link`] and [`Vault::resolve_attachment`], but paying
 /// the O(entries) build **once** instead of scanning the whole entry list
@@ -501,6 +526,22 @@ impl Vault {
         Ok(rel)
     }
 
+    /// [`Self::create_note`] for a name a user **typed**: text, not a path.
+    /// The text is parsed by [`rel_from_text`] — `/` separates folders, a `\`
+    /// is refused — which is what makes one typed name mean one note on every
+    /// platform. A `PathBuf` cannot carry that distinction on Windows, where
+    /// `\` is a separator: only the text can say whether `inbox\Thought` was
+    /// a request for a folder or a name with an illegal character in it.
+    pub fn create_note_at(&self, typed: &str) -> Result<PathBuf> {
+        self.create_note(rel_from_text(typed)?)
+    }
+
+    /// [`Self::create_dir`] for a name a user typed. Same parsing as
+    /// [`Self::create_note_at`].
+    pub fn create_dir_at(&self, typed: &str) -> Result<()> {
+        self.create_dir(rel_from_text(typed)?)
+    }
+
     /// Create a directory (and any missing parents) inside the vault.
     pub fn create_dir(&self, rel: impl AsRef<Path>) -> Result<()> {
         let rel = checked_rel(rel.as_ref())?;
@@ -534,6 +575,12 @@ impl Vault {
         fs::rename(&src, &dst)
             .with_context(|| format!("renaming {} to {}", src.display(), dst.display()))?;
         Ok(rel)
+    }
+
+    /// [`Self::rename`] whose destination is a name a user **typed** — text,
+    /// not a path, parsed exactly as [`Self::create_note_at`] parses it.
+    pub fn rename_to(&self, from: impl AsRef<Path>, typed_to: &str) -> Result<PathBuf> {
+        self.rename(from, rel_from_text(typed_to)?)
     }
 
     /// Delete one note. A directory is refused: use [`Self::delete_dir`].
@@ -632,19 +679,34 @@ fn checked_rel(rel: &Path) -> Result<PathBuf> {
     if rel.as_os_str().is_empty() {
         bail!("a name cannot be empty");
     }
-    // Checked on the text, before it is split into components. `Path::components` treats `\` as
-    // a separator on Windows, so the per-component rule below never sees the character there and
-    // `back\slash.md` would arrive as two clean names and create a folder instead of being
-    // refused. On unix the character survives into a component and is refused by `check_name`,
-    // where it is also on the forbidden list; the same refusal on both is what keeps a vault
-    // portable, since a name legal on ext4 is not legal on Windows.
+    // The refusal has to look at the *typed text*, before it is split into
+    // components. On unix `Path::components` never splits on `\`, so the
+    // per-component rule below would see one clean name — and `check_name`
+    // carries `\` on its forbidden list, catching it there. On Windows the
+    // opposite holds: `components` splits on `\`, so the character is gone
+    // before the per-component rule runs, and a joined path like `inbox\Thought`
+    // would otherwise trip a text-level check meant for typed backslashes.
+    // Checking each component's own text on Windows catches a `\` that survives
+    // the split (an embedded one in the name); the same refusal on both
+    // platforms is what keeps a vault portable, since a name legal on ext4 is
+    // not legal on Windows.
+    #[cfg(unix)]
     if rel.as_os_str().to_string_lossy().contains('\\') {
         bail!("`\\` is not allowed in a note name ({})", rel.display());
     }
+    #[cfg(not(unix))]
+    let check_backslash = |name: &std::ffi::OsStr| -> Result<()> {
+        if name.to_string_lossy().contains('\\') {
+            bail!("`\\` is not allowed in a note name ({})", rel.display());
+        }
+        Ok(())
+    };
     let mut out = PathBuf::new();
     for comp in rel.components() {
         match comp {
             Component::Normal(c) => {
+                #[cfg(not(unix))]
+                check_backslash(c)?;
                 let name = c
                     .to_str()
                     .with_context(|| format!("{} is not valid utf-8", rel.display()))?;
@@ -707,6 +769,25 @@ fn guard_unprotected(rel: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A typed path means the same folders on every platform: `rel_from_text`
+    /// splits on `/` where `PathBuf::from` would keep the whole string as one
+    /// name on Windows, and the round trip back through `rel_text` is exact.
+    #[test]
+    fn a_typed_path_splits_into_the_same_path_everywhere() {
+        let rel = rel_from_text("inbox/Thought.md").unwrap();
+        assert_eq!(rel.components().count(), 2);
+        assert_eq!(rel_text(&rel), "inbox/Thought.md");
+        // Empty segments (a doubled or leading slash) fold away rather than
+        // becoming a name, so one path written two ways compares as one path.
+        assert_eq!(
+            rel_text(rel_from_text("inbox//Thought.md").unwrap()),
+            "inbox/Thought.md"
+        );
+        // A typed backslash is refused on every platform, not quietly turned
+        // into a folder on the one platform whose separator it is.
+        assert!(rel_from_text("bad\\name").is_err());
+    }
 
     fn fixture() -> Result<(tempfile::TempDir, Vault)> {
         let dir = tempfile::tempdir()?;
@@ -1069,18 +1150,20 @@ mod tests {
             ".",
             "..",
         ] {
+            // Typed text, the way the prompt hands a name over: the parse is
+            // where a typed `\` is refused on every platform.
             assert!(
-                vault.create_note(name).is_err(),
+                vault.create_note_at(name).is_err(),
                 "`{name}` is not a name Shale should create"
             );
         }
         assert_eq!(
-            vault.create_note("new/folder/name.md")?,
+            vault.create_note_at("new/folder/name.md")?,
             PathBuf::from("new/folder/name.md"),
             "`/` separates folders, so it is only forbidden inside a single name"
         );
         // A name Obsidian forbids, so the vault stays openable there.
-        assert!(vault.create_dir("notes/a:b").is_err());
+        assert!(vault.create_dir_at("notes/a:b").is_err());
         // And nothing under a dot directory is vault content.
         assert!(vault.create_note(".shale/secret.md").is_err());
         assert!(vault.delete(".obsidian/config.json").is_err());

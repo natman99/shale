@@ -38,7 +38,7 @@ fn names(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext, pix: usiz
         .update(cx, |ws, _window, cx| {
             ws.pane_tab_paths(pix, cx)
                 .into_iter()
-                .map(|p| p.map(|p| p.display().to_string()).unwrap_or_default())
+                .map(|p| p.map(|p| shale_core::vault::rel_text(&p)).unwrap_or_default())
                 .collect::<Vec<_>>()
         })
         .unwrap()
@@ -98,7 +98,7 @@ fn w_with_a_name_names_the_note_in_hand(cx: &mut TestAppContext) {
     assert_eq!(disk(&dir, "areas/idea.md").as_deref(), Some("anything\n"));
     assert_eq!(
         names(&window, &mut cx, 0),
-        vec![Path::new("areas").join("idea.md").display().to_string()]
+        vec!["areas/idea.md".to_string()]
     );
 }
 

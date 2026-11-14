@@ -257,7 +257,7 @@ pub(crate) fn state(
             (
                 ws.tree_rows(),
                 ws.active_path()
-                    .map(|p| p.display().to_string())
+                    .map(|p| shale_core::vault::rel_text(&p))
                     .unwrap_or_default(),
             )
         })

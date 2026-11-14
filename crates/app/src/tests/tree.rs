@@ -2,7 +2,7 @@
 //! and input paths the live app uses: `ctrl-n` opens the prompt, the name is
 //! typed through the input handler, and Enter is what touches the disk.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use super::*;
 
@@ -436,7 +436,7 @@ fn a_new_folder_gets_a_row(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("enter");
     assert!(dir.path().join("inbox/Thought.md").is_file());
     let (_, active) = state(&window, cx);
-    assert_eq!(active, Path::new("inbox/Thought.md").display().to_string());
+    assert_eq!(active, "inbox/Thought.md");
 }
 
 /// A name the vault cannot hold is refused with a message instead of a crash, and

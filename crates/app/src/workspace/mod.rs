@@ -1123,15 +1123,17 @@ fn note_keys(entries: &[VaultEntry]) -> HashSet<String> {
     let mut keys = HashSet::new();
     for entry in entries {
         keys.insert(entry.stem().to_lowercase());
-        if let Some(s) = entry.path.to_str() {
-            let lower = s.to_lowercase();
-            keys.insert(lower.clone());
-            // The path without its extension is what a reader would type, for a note
-            // (`notes/hero`) and for a saved query (`queries/tough`) alike.
-            for ext in [".md", ".shq"] {
-                if let Some(stripped) = lower.strip_suffix(ext) {
-                    keys.insert(stripped.to_string());
-                }
+        // `rel_text`, not `to_str`: the keys are what a reader types in a link,
+        // and a typed link is spelled with `/` on every platform. A Windows
+        // `PathBuf` renders with `\`, and the set would answer `queries/tough`
+        // with a miss while the resolver followed it fine.
+        let lower = rel_text(&entry.path).to_lowercase();
+        keys.insert(lower.clone());
+        // The path without its extension is what a reader would type, for a note
+        // (`notes/hero`) and for a saved query (`queries/tough`) alike.
+        for ext in [".md", ".shq"] {
+            if let Some(stripped) = lower.strip_suffix(ext) {
+                keys.insert(stripped.to_string());
             }
         }
     }

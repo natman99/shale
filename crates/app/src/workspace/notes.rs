@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use gpui::{Context, Window};
 use shale_core::markdown::Anchor;
-use shale_core::vault::{LinkResolver, rel_text};
+use shale_core::vault::{LinkResolver, rel_from_text, rel_text};
 
 use crate::acts::{AddBlockId, AddProperties, Save};
 use crate::editor::blockid::BlockId;
@@ -558,16 +558,23 @@ impl Workspace {
     /// a choice about tidiness rather than about whether the link works. A target that
     /// spells a path out (`[[areas/x/y]]`) is used verbatim, folders and all.
     fn make_link_note(&mut self, target: &str, cx: &mut Context<Self>) {
-        let rel = if target.contains('/') {
-            PathBuf::from(target)
+        // The name stays text to the vault (`create_note_at`), so a spelled-out
+        // `areas/x/y` means the same folders on every platform.
+        let typed = if target.contains('/') {
+            target.to_string()
         } else {
             let dir = self
                 .note()
-                .map(|note| note.parent().map(Path::to_path_buf).unwrap_or_default())
+                .and_then(|note| note.parent().map(Path::to_path_buf))
+                .map(|dir| rel_text(&dir))
                 .unwrap_or_default();
-            dir.join(target)
+            if dir.is_empty() {
+                target.to_string()
+            } else {
+                format!("{dir}/{target}")
+            }
         };
-        match self.vault.create_note(rel) {
+        match self.vault.create_note_at(&typed) {
             Ok(created) => {
                 // The same bookkeeping `:new` does: the tree has to know the file
                 // exists, the index has to know it was created, and the selection
@@ -676,7 +683,13 @@ impl Workspace {
             return false;
         };
 
-        let mut path = std::path::PathBuf::from(&name);
+        let mut path = match rel_from_text(&name) {
+            Ok(path) => path,
+            Err(err) => {
+                self.say(format!("{err:#}"), cx);
+                return false;
+            }
+        };
         if self.vault.exists(&path) {
             if explicit.is_some() {
                 self.say(
@@ -696,7 +709,7 @@ impl Workspace {
             for n in 2..=50 {
                 let candidate = format!("{stem}-{n}.md");
                 if !self.vault.exists(&candidate) {
-                    taken = Some(std::path::PathBuf::from(candidate));
+                    taken = Some(rel_from_text(&candidate).unwrap_or_default());
                     break;
                 }
             }

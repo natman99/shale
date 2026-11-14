@@ -28,6 +28,8 @@ use gpui::{Context, IntoElement, LineWrapperHandle, Pixels, SharedString, Styled
 use gpui::{InteractiveElement, ParentElement};
 use shale_core::diff::{self, Hunk};
 use shale_core::transclude::{Body, EmbedLine, EmbedRow, Origin, Sources};
+#[cfg(test)]
+use shale_core::vault::rel_text;
 use shale_core::vim::Mode;
 
 use crate::line::DisplayLine;
@@ -263,7 +265,7 @@ impl MarkdownEditor {
                         // row that does not know which note and row it came from
                         // cannot be clicked, caret-ed into, or checked for existing.
                         let at = origin
-                            .map(|o| format!("@{}:{}", o.path.display(), o.row))
+                            .map(|o| format!("@{}:{}", rel_text(&o.path), o.row))
                             .unwrap_or_default();
                         let dot = if row_gutter.iter().any(|mark| {
                             matches!(

@@ -171,7 +171,7 @@ impl Workspace {
         };
         match db.note_props(&note) {
             Ok(rows) if rows.is_empty() => {
-                self.say(format!("{} has no properties", note.display()), cx);
+                self.say(format!("{} has no properties", rel_text(&note)), cx);
             }
             Ok(rows) => {
                 // The census is vault-wide and the line is one note's, so the read is
@@ -682,7 +682,7 @@ fn describe_props(note: &Path, rows: &[Prop], census: &BTreeMap<String, Vec<Kind
     const ROOM: usize = 180;
     let line = parts.join(", ");
     if line.len() <= ROOM {
-        return format!("{}: {line}", note.display());
+        return format!("{}: {line}", rel_text(note));
     }
     let mut used = 0;
     let mut shown_count = 0;
@@ -695,7 +695,7 @@ fn describe_props(note: &Path, rows: &[Prop], census: &BTreeMap<String, Vec<Kind
     }
     format!(
         "{}: {} … +{} more",
-        note.display(),
+        rel_text(note),
         parts[..shown_count].join(", "),
         parts.len() - shown_count
     )

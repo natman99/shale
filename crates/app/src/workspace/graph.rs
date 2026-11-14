@@ -24,7 +24,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use gpui::{Context, Entity, Window, prelude::*};
-use shale_core::vault::VaultEntry;
+use shale_core::vault::{VaultEntry, rel_text};
 use shale_core::watch::VaultChanges;
 
 use crate::acts::OpenGraph;
@@ -258,7 +258,7 @@ impl Workspace {
         match &tab.content {
             TabContent::Note {
                 path: Some(path), ..
-            } => Some(path.to_string_lossy().into_owned()),
+            } => Some(rel_text(path)),
             _ => None,
         }
     }

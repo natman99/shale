@@ -10,7 +10,7 @@ use std::rc::Rc;
 use anyhow::{Context as _, Result};
 use gpui::{Context, Entity, Focusable, Window, prelude::*};
 use shale_core::rename::Rewrite;
-use shale_core::vault::rel_text;
+use shale_core::vault::{rel_from_text, rel_text};
 
 use crate::acts::*;
 use crate::ex;
@@ -299,7 +299,16 @@ impl Workspace {
     ) -> Result<()> {
         match kind {
             prompt::PromptKind::NewNote => {
-                let created = self.vault.create_note(self.target_dir().join(answer))?;
+                // The typed name goes to the vault as text: `create_note_at`
+                // is what makes `inbox/Thought` mean a note in `inbox` on
+                // every platform.
+                let dir = rel_text(self.target_dir());
+                let typed = if dir.is_empty() {
+                    answer.to_string()
+                } else {
+                    format!("{dir}/{answer}")
+                };
+                let created = self.vault.create_note_at(&typed)?;
                 self.refresh_entries(cx);
                 self.index_created(&created);
                 self.refresh_link_names(cx);
@@ -308,8 +317,14 @@ impl Workspace {
                 self.say(format!("created {}", rel_text(&created)), cx);
             }
             prompt::PromptKind::NewFolder => {
-                let dir = self.target_dir().join(answer);
-                self.vault.create_dir(&dir)?;
+                let dir = rel_text(self.target_dir());
+                let typed = if dir.is_empty() {
+                    answer.to_string()
+                } else {
+                    format!("{dir}/{answer}")
+                };
+                self.vault.create_dir_at(&typed)?;
+                let dir = rel_from_text(&typed)?;
                 self.refresh_entries(cx);
                 self.expanded.insert(dir.clone());
                 self.tree_selection = Some(dir.clone());
@@ -325,7 +340,11 @@ impl Workspace {
                 // Re-derived here, not only when the prompt opened: the answer is a
                 // different moment, and the caret may have moved between them.
                 let from = self.rename_target(cx)?;
-                let to = sibling_path(&from, answer);
+                // The typed name stays **text** until the vault parses it:
+                // `rel_from_text` is what turns a typed `/` into folders on
+                // every platform and refuses a typed `\`.
+                let to_text = sibling_path(&from, answer);
+                let to = rel_from_text(&to_text)?;
                 // The links have to be found against the vault as it was *before*
                 // the rename: resolving a target is what decides which notes point
                 // at this one, and once the file has moved the old name resolves
@@ -342,7 +361,7 @@ impl Workspace {
                         &to,
                     )?
                 };
-                let renamed = self.vault.rename(&from, &to)?;
+                let renamed = self.vault.rename_to(&from, &to_text)?;
                 let report = self.apply_rewrites(Some((&from, &renamed)), &rewrites, cx)?;
                 self.refresh_entries(cx);
                 // The note itself moves in one step, and the notes the rename
@@ -876,11 +895,20 @@ fn key_rename_status(old: &str, new: &str, report: &RewriteReport) -> String {
 /// keeps `.md`, a saved query keeps `.shq`. Dropping it would leave a file the vault's
 /// own lists no longer recognise, and a rename that quietly changes what kind of thing
 /// a file is (roadmap P4.3 M4b). A file with no extension stays exactly as typed.
-fn sibling_path(target: &Path, name: &str) -> PathBuf {
+///
+/// The answer is **text**, not a `PathBuf`: the rename parses it with
+/// `rel_from_text`, and only the text can tell a typed `/` (a request to move
+/// folders) apart from a Windows separator.
+fn sibling_path(target: &Path, name: &str) -> String {
     let parent = target.parent().unwrap_or_else(|| Path::new(""));
     let named = match target.extension().and_then(|e| e.to_str()) {
         Some(ext) if !name.ends_with(&format!(".{ext}")) => format!("{name}.{ext}"),
         _ => name.to_string(),
     };
-    parent.join(named)
+    let parent = rel_text(parent);
+    if parent.is_empty() {
+        named
+    } else {
+        format!("{parent}/{named}")
+    }
 }

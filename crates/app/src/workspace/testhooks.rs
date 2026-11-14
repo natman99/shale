@@ -983,7 +983,7 @@ fn render_target(target: &PickerTarget) -> String {
         // A block jump: which note, and the id the reader chose. No line, on purpose
         // (the buffer is the authority for where an id sits).
         PickerTarget::Block { path, id } => format!("{}#^{}", rel_text(path), id),
-        PickerTarget::RunQuery(path) => format!("query {}", path.display()),
+        PickerTarget::RunQuery(path) => format!("query {}", rel_text(path)),
         PickerTarget::SaveQuery(search) => format!("save {search}"),
         PickerTarget::Notice(reason) => reason.to_string(),
     }

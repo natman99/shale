@@ -7,6 +7,7 @@ use gpui::{
     Context, ImgResourceLoader, IntoElement, MouseButton, ParentElement, Render, SharedString,
     Styled, Window, div, font, prelude::*, px, rgb,
 };
+use shale_core::vault::rel_text;
 use shale_core::vim::{Key, Mode};
 
 use crate::acts::*;
@@ -209,7 +210,7 @@ impl Render for MarkdownEditor {
                     "{} no longer holds the section being edited",
                     path.file_stem()
                         .map(|s| s.to_string_lossy().into_owned())
-                        .unwrap_or_else(|| path.display().to_string())
+                        .unwrap_or_else(|| rel_text(&path))
                 )),
                 cx,
             );
