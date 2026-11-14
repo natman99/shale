@@ -21,6 +21,7 @@
 use anyhow::Result;
 use serde_json::{Value, json};
 use shale_core::pending::{self, PendingEdit};
+use shale_core::vault::rel_text;
 
 use crate::Server;
 use crate::refusal;
@@ -90,7 +91,7 @@ pub(crate) fn propose(server: &Server, note: &str, content: &str) -> Result<Valu
                  written. The file is {}.",
                 edit.id,
                 edit.hunks.len(),
-                path.display()
+                rel_text(path)
             )
         }],
         "structuredContent": { "id": edit.id, "note": note, "hunks": edit.hunks.len() },
@@ -140,13 +141,13 @@ pub(crate) fn list(server: &Server, arguments: &Value) -> Result<Value> {
                 "{} hunk {} {status} ({}): {}",
                 edit.id,
                 index + 1,
-                edit.note.display(),
+                rel_text(&edit.note),
                 edit.hunks[index].text.lines().next().unwrap_or_default()
             ));
         }
         listed.push(json!({
             "id": edit.id,
-            "note": edit.note.display().to_string(),
+            "note": rel_text(&edit.note),
             "tool": edit.tool,
             "created_at": edit.created_at,
             "hunks": edit
@@ -210,7 +211,7 @@ pub(crate) fn retract(server: &Server, arguments: &Value) -> Result<Value> {
     Ok(json!({
         "content": [{
             "type": "text",
-            "text": format!("retracted {id} ({}); it will not be offered to the user", edit.note.display())
+            "text": format!("retracted {id} ({}); it will not be offered to the user", rel_text(&edit.note))
         }],
     }))
 }

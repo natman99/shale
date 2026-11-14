@@ -15,6 +15,7 @@
 use anyhow::{Context as _, Result};
 use serde_json::{Value, json};
 use shale_core::search::SearchOptions;
+use shale_core::vault::rel_text;
 
 use crate::Server;
 use crate::refusal;
@@ -92,7 +93,7 @@ pub(crate) fn call(server: &Server, name: &str, arguments: &Value) -> Result<Opt
             let entries = profile.visible(&vault.list_markdown()?);
             let lines: Vec<String> = entries
                 .iter()
-                .map(|e| e.path.display().to_string())
+                .map(|e| rel_text(&e.path))
                 .collect();
             Ok(Some(text_result(lines.join("\n"))))
         }
@@ -148,7 +149,7 @@ pub(crate) fn call(server: &Server, name: &str, arguments: &Value) -> Result<Opt
             let hits = shale_core::search::search(vault, &entries, query, &opts)?;
             let rendered: Vec<String> = hits
                 .iter()
-                .map(|h| format!("{}:{}: {}", h.path.display(), h.line_number, h.line_text))
+                .map(|h| format!("{}:{}: {}", rel_text(&h.path), h.line_number, h.line_text))
                 .collect();
             Ok(Some(text_result(rendered.join("\n"))))
         }
@@ -162,7 +163,7 @@ pub(crate) fn call(server: &Server, name: &str, arguments: &Value) -> Result<Opt
             }
             let entries = profile.visible(&vault.list_markdown()?);
             let links = vault.backlinks(path, &entries)?;
-            let lines: Vec<String> = links.iter().map(|e| e.path.display().to_string()).collect();
+            let lines: Vec<String> = links.iter().map(|e| rel_text(&e.path)).collect();
             Ok(Some(text_result(lines.join("\n"))))
         }
         _ => Ok(None),
