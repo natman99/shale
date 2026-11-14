@@ -5,7 +5,7 @@
 use std::ops::Range;
 
 use gpui::{
-    px, Bounds, Context, EntityInputHandler, MouseDownEvent, Pixels, UTF16Selection, Window,
+    Bounds, Context, EntityInputHandler, MouseDownEvent, Pixels, UTF16Selection, Window, px,
 };
 use shale_core::vim::{Key, Mode};
 
@@ -245,12 +245,11 @@ impl EntityInputHandler for MarkdownEditor {
         // still has to answer `y i #`, whose scope letter is not in the keymap and
         // so reaches the engine exactly this way.
         if self.vim.mode() != Mode::Insert {
-            if self.vim.waiting_for_literal() {
-                if let Some(c) = new_text.chars().next() {
-                    if new_text.chars().count() == 1 {
-                        self.normal(Key::Char(c), window, cx);
-                    }
-                }
+            if self.vim.waiting_for_literal()
+                && let Some(c) = new_text.chars().next()
+                && new_text.chars().count() == 1
+            {
+                self.normal(Key::Char(c), window, cx);
             }
             return;
         }

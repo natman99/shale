@@ -176,37 +176,39 @@ fn scan_line(line_start: usize, line: &str, out: &mut Vec<WikiLink>) {
         }
 
         // Wiki-link: `[[...]]`, optionally preceded by `!`.
-        if bytes[i] == b'[' && i + 1 < bytes.len() && bytes[i + 1] == b'[' {
-            if let Some(close) = find_close(bytes, i + 2) {
-                let inner = &line[i + 2..close];
-                if !inner.contains("[[") && !inner.contains('[') {
-                    let embed = i > 0 && bytes[i - 1] == b'!';
-                    let full_start = if embed { i - 1 } else { i };
-                    let full_end = close + 2;
-                    // The alias is cut first: in `[[note#The Fall|the fall]]` the `#`
-                    // belongs to the link, and an alias is free to contain one.
-                    let (link, alias) = match inner.split_once('|') {
-                        Some((t, a)) => (t.trim().to_string(), Some(a.trim().to_string())),
-                        None => (inner.trim().to_string(), None),
-                    };
-                    // The target is the link without its anchor; the anchor is kept,
-                    // because `gd` on `[[note#The Fall]]` is a request about a section,
-                    // not only about a note — and on `[[note#^abc]]`, about one block.
-                    let (target, anchor) = split_anchor(&link);
-                    let (stem_start, stem_end) = stem_range(inner);
-                    out.push(WikiLink {
-                        target,
-                        alias,
-                        anchor,
-                        embed,
-                        start: line_start + full_start,
-                        end: line_start + full_end,
-                        stem_start: line_start + i + 2 + stem_start,
-                        stem_end: line_start + i + 2 + stem_end,
-                    });
-                    i = full_end;
-                    continue;
-                }
+        if bytes[i] == b'['
+            && i + 1 < bytes.len()
+            && bytes[i + 1] == b'['
+            && let Some(close) = find_close(bytes, i + 2)
+        {
+            let inner = &line[i + 2..close];
+            if !inner.contains("[[") && !inner.contains('[') {
+                let embed = i > 0 && bytes[i - 1] == b'!';
+                let full_start = if embed { i - 1 } else { i };
+                let full_end = close + 2;
+                // The alias is cut first: in `[[note#The Fall|the fall]]` the `#`
+                // belongs to the link, and an alias is free to contain one.
+                let (link, alias) = match inner.split_once('|') {
+                    Some((t, a)) => (t.trim().to_string(), Some(a.trim().to_string())),
+                    None => (inner.trim().to_string(), None),
+                };
+                // The target is the link without its anchor; the anchor is kept,
+                // because `gd` on `[[note#The Fall]]` is a request about a section,
+                // not only about a note — and on `[[note#^abc]]`, about one block.
+                let (target, anchor) = split_anchor(&link);
+                let (stem_start, stem_end) = stem_range(inner);
+                out.push(WikiLink {
+                    target,
+                    alias,
+                    anchor,
+                    embed,
+                    start: line_start + full_start,
+                    end: line_start + full_end,
+                    stem_start: line_start + i + 2 + stem_start,
+                    stem_end: line_start + i + 2 + stem_end,
+                });
+                i = full_end;
+                continue;
             }
         }
         i += 1;

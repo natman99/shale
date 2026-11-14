@@ -20,7 +20,7 @@
 //! worth naming: the popup takes the keyboard and gives it back, and the card never
 //! takes it, so closing a card has nothing to undo.
 
-use gpui::{px, AppContext, Bounds, Context, Entity, Focusable, Pixels, Point, Window};
+use gpui::{AppContext, Bounds, Context, Entity, Focusable, Pixels, Point, Window, px};
 
 use crate::acts::ShowNote;
 use crate::editor::View;
@@ -656,10 +656,10 @@ impl Workspace {
                 cx,
             );
         }
-        if let Some((command, args)) = &fix.command {
-            if let Some(spell) = self.spell.clone() {
-                spell.update(cx, |spell, cx| spell.run(command, args, cx));
-            }
+        if let Some((command, args)) = &fix.command
+            && let Some(spell) = self.spell.clone()
+        {
+            spell.update(cx, |spell, cx| spell.run(command, args, cx));
         }
         self.close_popup(window, cx);
     }

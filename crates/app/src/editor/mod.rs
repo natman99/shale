@@ -31,11 +31,11 @@ use gpui::{
     App, Context, EventEmitter, FocusHandle, Focusable, Pixels, ScrollHandle, SharedString,
 };
 use shale_core::buffer::{Buffer, ViewSlot};
-use shale_core::markdown::{extract_wikilinks, Anchor, WikiLink};
-use shale_core::mdstyle::{quotes, style_spans, Style, StyleSpan};
+use shale_core::markdown::{Anchor, WikiLink, extract_wikilinks};
+use shale_core::mdstyle::{Style, StyleSpan, quotes, style_spans};
 use shale_core::vault::VaultEntry;
 use shale_core::vim::{Mode, Vim};
-use shale_core::{theme::Palette, Vault};
+use shale_core::{Vault, theme::Palette};
 
 use crate::dim;
 use crate::line::HitLine;
@@ -493,7 +493,7 @@ fn dice_chip(line: &str) -> Option<crate::line::Chip> {
             return Some(crate::line::Chip {
                 full: error.said().into(),
                 short: "?".into(),
-            })
+            });
         }
     };
     let stats = match shale_core::dice::Stats::of(&expression) {
@@ -502,7 +502,7 @@ fn dice_chip(line: &str) -> Option<crate::line::Chip> {
             return Some(crate::line::Chip {
                 full: error.said().into(),
                 short: "?".into(),
-            })
+            });
         }
     };
     Some(crate::line::Chip {
@@ -938,10 +938,10 @@ impl MarkdownEditor {
     /// not recognise its own block and would throw the caret out of an embed the user
     /// has just renamed — the opposite of what a rename means.
     pub(crate) fn embed_renamed(&mut self, from: &std::path::Path, to: &std::path::Path) {
-        if let Some(embed) = &mut self.entered {
-            if embed.path == from {
-                embed.path = to.to_path_buf();
-            }
+        if let Some(embed) = &mut self.entered
+            && embed.path == from
+        {
+            embed.path = to.to_path_buf();
         }
         // And the write owed to it follows the file, rather than being written to a
         // path that no longer exists.

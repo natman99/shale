@@ -10,7 +10,7 @@
 //! palette into a [`RunStyle`], which is what keeps the parser and the
 //! presentation separate.
 
-use gpui::{px, rgb, Font, StrikethroughStyle, TextRun, UnderlineStyle};
+use gpui::{Font, StrikethroughStyle, TextRun, UnderlineStyle, px, rgb};
 use shale_core::mdstyle::Style;
 use shale_core::theme::Palette;
 

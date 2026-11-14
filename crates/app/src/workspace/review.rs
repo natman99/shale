@@ -31,8 +31,8 @@ use shale_core::vault::rel_text;
 
 use super::tabs::TabContent;
 use crate::acts::*;
-use crate::editor::overlay::InlineEdit;
 use crate::editor::View;
+use crate::editor::overlay::InlineEdit;
 
 use super::Workspace;
 
@@ -276,24 +276,24 @@ impl Workspace {
         // strip it folds the whole proposal to one row of the list. The strip never
         // rearranges text in the note, and the note never rearranges the list — which
         // is why the two collapse states are kept apart rather than shared.
-        if let Some((id, hunk)) = self.cursor_hunk(window, cx) {
-            if let Some(editor) = self.pane().active_tab().editor() {
-                let collapsed = editor.update(cx, |editor, cx| {
-                    let collapsed = editor.toggle_inline_collapse(&id, hunk);
-                    cx.notify();
-                    collapsed
-                });
-                self.say(
-                    format!(
-                        "{} the additions {}",
-                        if collapsed { "collapsed" } else { "expanded" },
-                        if collapsed { "to a count" } else { "in full" }
-                    ),
-                    cx,
-                );
+        if let Some((id, hunk)) = self.cursor_hunk(window, cx)
+            && let Some(editor) = self.pane().active_tab().editor()
+        {
+            let collapsed = editor.update(cx, |editor, cx| {
+                let collapsed = editor.toggle_inline_collapse(&id, hunk);
                 cx.notify();
-                return;
-            }
+                collapsed
+            });
+            self.say(
+                format!(
+                    "{} the additions {}",
+                    if collapsed { "collapsed" } else { "expanded" },
+                    if collapsed { "to a count" } else { "in full" }
+                ),
+                cx,
+            );
+            cx.notify();
+            return;
         }
         self.review
             .update(cx, |review, cx| review.toggle_collapse(cx));
@@ -479,13 +479,13 @@ impl Workspace {
                 }
                 diff::Outcome::Applied(next) => next,
             };
-            if let Some(index) = open {
-                if !self.patch_buffer(index, &current, &hunk, cx) {
-                    // `apply` said it fits, so `region` cannot disagree; if it ever did,
-                    // stopping here is the honest answer rather than a half-applied edit.
-                    stale += 1;
-                    break;
-                }
+            if let Some(index) = open
+                && !self.patch_buffer(index, &current, &hunk, cx)
+            {
+                // `apply` said it fits, so `region` cannot disagree; if it ever did,
+                // stopping here is the honest answer rather than a half-applied edit.
+                stale += 1;
+                break;
             }
             current = next;
             applied += 1;

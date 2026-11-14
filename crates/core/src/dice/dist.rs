@@ -399,10 +399,12 @@ mod tests {
                 .as_deref(),
             Some("1 2 3 4 5 6")
         );
-        assert!(Distribution::roll(&parse("2d6").unwrap().dice)
-            .unwrap()
-            .named_shape()
-            .is_some());
+        assert!(
+            Distribution::roll(&parse("2d6").unwrap().dice)
+                .unwrap()
+                .named_shape()
+                .is_some()
+        );
         assert!(
             Distribution::roll(&parse("2d8").unwrap().dice)
                 .unwrap()
@@ -410,9 +412,11 @@ mod tests {
                 .is_none(),
             "fifteen totals is a curve, not a list"
         );
-        assert!(Distribution::roll(&parse("3d8").unwrap().dice)
-            .unwrap()
-            .named_shape()
-            .is_none());
+        assert!(
+            Distribution::roll(&parse("3d8").unwrap().dice)
+                .unwrap()
+                .named_shape()
+                .is_none()
+        );
     }
 }

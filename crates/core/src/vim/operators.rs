@@ -9,7 +9,7 @@ use crate::mdstyle;
 use crate::table;
 use crate::table::Located;
 
-use super::{repeat, Key, OpKind, Operator, Outcome, Pending, Register, Vim};
+use super::{Key, OpKind, Operator, Outcome, Pending, Register, Vim, repeat};
 
 impl Vim {
     /// Apply `op` over `count` repetitions of the motion `key`, then file the
@@ -81,12 +81,11 @@ impl Vim {
                     });
                     // `dd` on a table row removes the row; the cell that moved
                     // up into its place becomes the cursor's cell.
-                    if let Some(loc) = located {
-                        if let Some(offset) =
+                    if let Some(loc) = located
+                        && let Some(offset) =
                             table::cursor_for(buf, loc.first_row, loc.row, loc.column)
-                        {
-                            buf.set_cursor(offset);
-                        }
+                    {
+                        buf.set_cursor(offset);
                     }
                 }
                 Operator::Change => {

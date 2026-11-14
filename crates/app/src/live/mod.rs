@@ -33,7 +33,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::{Context as _, Result};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use shale_core::live::{Lock, PATH_JUMPS, PATH_NOTE, PATH_SELECTION, PATH_STATUS, TOKEN_HEADER};
 
 /// The most request head the server will read before deciding it is not a request.
@@ -293,7 +293,7 @@ fn respond(stream: &mut TcpStream, code: u16, body: Value) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shale_core::live::{get, probe, Status};
+    use shale_core::live::{Status, get, probe};
 
     /// A snapshot with something in it, so an answer can be told from a default.
     fn snapshot() -> Arc<Mutex<Snapshot>> {

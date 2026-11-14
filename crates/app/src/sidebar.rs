@@ -19,7 +19,7 @@
 
 use std::path::{Path, PathBuf};
 
-use shale_core::fold::{fold_regions, FoldState};
+use shale_core::fold::{FoldState, fold_regions};
 use shale_core::frontmatter::{Kind, Prop};
 use shale_core::mdstyle::object::heading_lines;
 

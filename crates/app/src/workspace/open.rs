@@ -7,9 +7,9 @@
 
 use std::rc::Rc;
 
-use gpui::{prelude::*, Context, Focusable, SharedString, Window};
-use shale_core::search::{search, SearchOptions};
-use shale_core::vault::{rel_text, VaultEntry};
+use gpui::{Context, Focusable, SharedString, Window, prelude::*};
+use shale_core::search::{SearchOptions, search};
+use shale_core::vault::{VaultEntry, rel_text};
 
 use crate::acts::{CommandPalette, QuickOpen, SearchVault};
 use crate::picker::{self, PickerItem, RowSource};
@@ -216,13 +216,13 @@ impl Workspace {
                 match db.as_ref().map(|db| db.notes_matching(&q)) {
                     Some(Ok(paths)) => Some(paths),
                     Some(Err(err)) => {
-                        return vec![notice(format!("the vault index could not answer: {err:#}"))]
+                        return vec![notice(format!("the vault index could not answer: {err:#}"))];
                     }
                     None => {
                         return vec![notice(
                             "tag:, path:, link:, prop: and modified: ask the vault index, \
                              and this vault has none (index.enabled in .shale/config.toml)",
-                        )]
+                        )];
                     }
                 }
             } else {
@@ -457,35 +457,35 @@ impl Workspace {
                 self.open_note(&path, cx);
                 // Only if the note really opened: a read error leaves the tab, and
                 // the caret, where they were.
-                if self.note().as_deref() == Some(path.as_path()) {
-                    if let Some(editor) = self.editor().cloned() {
-                        let found =
-                            editor.update(cx, |editor, cx| editor.reveal_section(line, &text, cx));
-                        if !found {
-                            // The index named a section the buffer no longer holds.
-                            // Rare (an index mid-rebuild), and worth saying rather
-                            // than silently opening the note at the top.
-                            self.say(
-                                format!("opened {}, but its section is gone", rel_text(&path)),
-                                cx,
-                            );
-                        }
+                if self.note().as_deref() == Some(path.as_path())
+                    && let Some(editor) = self.editor().cloned()
+                {
+                    let found =
+                        editor.update(cx, |editor, cx| editor.reveal_section(line, &text, cx));
+                    if !found {
+                        // The index named a section the buffer no longer holds.
+                        // Rare (an index mid-rebuild), and worth saying rather
+                        // than silently opening the note at the top.
+                        self.say(
+                            format!("opened {}, but its section is gone", rel_text(&path)),
+                            cx,
+                        );
                     }
                 }
             }
             PickerTarget::Block { path, id } => {
                 self.open_note(&path, cx);
-                if self.note().as_deref() == Some(path.as_path()) {
-                    if let Some(editor) = self.editor().cloned() {
-                        let found = editor.update(cx, |editor, cx| editor.reveal_block(&id, cx));
-                        if !found {
-                            // The index named an id the buffer no longer holds. Same
-                            // shape as a section that moved: say it, don't open at top.
-                            self.say(
-                                format!(r#"opened {}, but no block "^{id}""#, rel_text(&path)),
-                                cx,
-                            );
-                        }
+                if self.note().as_deref() == Some(path.as_path())
+                    && let Some(editor) = self.editor().cloned()
+                {
+                    let found = editor.update(cx, |editor, cx| editor.reveal_block(&id, cx));
+                    if !found {
+                        // The index named an id the buffer no longer holds. Same
+                        // shape as a section that moved: say it, don't open at top.
+                        self.say(
+                            format!(r#"opened {}, but no block "^{id}""#, rel_text(&path)),
+                            cx,
+                        );
                     }
                 }
             }

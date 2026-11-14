@@ -22,9 +22,9 @@
 use std::rc::Rc;
 
 use gpui::{
-    div, prelude::*, px, App, Context, CursorStyle, EventEmitter, FocusHandle, Focusable,
-    InteractiveElement, IntoElement, ParentElement, Pixels, Render, SharedString, Size, Styled,
-    Window,
+    App, Context, CursorStyle, EventEmitter, FocusHandle, Focusable, InteractiveElement,
+    IntoElement, ParentElement, Pixels, Render, SharedString, Size, Styled, Window, div,
+    prelude::*, px,
 };
 use shale_core::theme::Palette;
 

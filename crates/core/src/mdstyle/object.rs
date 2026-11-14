@@ -19,7 +19,7 @@
 //! range from that parse.
 
 use super::inline::{find_subslice, md_link, next_char_len, wiki_link};
-use super::{block_at, block_map, quotes, style_spans, Style, StyleSpan};
+use super::{Style, StyleSpan, block_at, block_map, quotes, style_spans};
 
 /// Which markdown construct the character after `i` or `a` names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -161,24 +161,24 @@ fn pair_range(text: &str, offset: usize, pair: Pair, inner: bool) -> Option<(usi
         let mut i = 0;
         while i < bytes.len() {
             let c = line[i..].chars().next().unwrap();
-            if c == '`' {
-                if let Some(stop) = code_span_end(bytes, i) {
-                    i = stop;
-                    continue;
-                }
+            if c == '`'
+                && let Some(stop) = code_span_end(bytes, i)
+            {
+                i = stop;
+                continue;
             }
             if c == open {
                 stack.push(start + i);
-            } else if c == close {
-                if let Some(opener) = stack.pop() {
-                    if opener <= offset && offset <= start + i {
-                        return Some(if inner {
-                            (opener + open.len_utf8(), start + i)
-                        } else {
-                            (opener, start + i + close.len_utf8())
-                        });
-                    }
-                }
+            } else if c == close
+                && let Some(opener) = stack.pop()
+                && opener <= offset
+                && offset <= start + i
+            {
+                return Some(if inner {
+                    (opener + open.len_utf8(), start + i)
+                } else {
+                    (opener, start + i + close.len_utf8())
+                });
             }
             i += c.len_utf8();
         }
@@ -818,8 +818,7 @@ mod tests {
         // The report was that objects stopped working on a line under a list item.
         // The quote scan's line-break rule was the culprit; the others are checked
         // here too, since they all read the same scan.
-        let text =
-            "# Top\n- one\n- two\nsee [[Two]] and say \"hi\" now\n\n> [!note] box\n\n```\ncode\n```\n";
+        let text = "# Top\n- one\n- two\nsee [[Two]] and say \"hi\" now\n\n> [!note] box\n\n```\ncode\n```\n";
         let at = |what: &str| text.find(what).expect("the note holds it");
 
         // On the line under the list: a link and a quotation.

@@ -156,10 +156,10 @@ impl<R: BufRead> Framer<R> {
             if line.is_empty() {
                 break;
             }
-            if let Some((name, value)) = line.split_once(':') {
-                if name.trim().eq_ignore_ascii_case("content-length") {
-                    length = value.trim().parse::<usize>().ok();
-                }
+            if let Some((name, value)) = line.split_once(':')
+                && name.trim().eq_ignore_ascii_case("content-length")
+            {
+                length = value.trim().parse::<usize>().ok();
             }
         }
         let mut payload = vec![0u8; length?];

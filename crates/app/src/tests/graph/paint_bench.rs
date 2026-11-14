@@ -27,20 +27,20 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use gpui::{
-    canvas, div, point, prelude::*, px, Bounds, Context, Font, IntoElement, PathBuilder, Pixels,
-    Render, TestAppContext, VisualTestContext, Window, WindowHandle,
+    Bounds, Context, Font, IntoElement, PathBuilder, Pixels, Render, TestAppContext,
+    VisualTestContext, Window, WindowHandle, canvas, div, point, prelude::*, px,
 };
 use lyon::math::point as lpoint;
 use lyon::tessellation::VertexBuffers;
-use shale_core::graph::{geom::Camera, GraphIndex, NodeKind};
+use shale_core::graph::{GraphIndex, NodeKind, geom::Camera};
 use shale_core::theme::Palette;
 use shale_core::vault::Vault;
 
 use crate::graph::render::{
-    paint_hover_links, paint_labels, paint_links, paint_nodes, stroke_quad, Cache, Geometry, Key,
-    Labels, Viewport, CULL_MARGIN, LINK_MIN_PX, LINK_WIDTH,
+    CULL_MARGIN, Cache, Geometry, Key, LINK_MIN_PX, LINK_WIDTH, Labels, Viewport,
+    paint_hover_links, paint_labels, paint_links, paint_nodes, stroke_quad,
 };
-use crate::graph::{paint_graph3d, Dim, GraphFrame, GraphSim, Projection};
+use crate::graph::{Dim, GraphFrame, GraphSim, Projection, paint_graph3d};
 
 /// The margin [`Camera::fit`] is given, matching what the graph tab asks for, so the bench
 /// frames the layout the way the tab does.
@@ -946,10 +946,8 @@ fn paint_links_lyon(
         // Six vertices a segment, which is what the ceiling probe measures for a stroked
         // two-point subpath, and why this has to be flushed in batches at all.
         if spent + 6 > PATH_VERTEX_BUDGET {
-            if drew {
-                if let Ok(built) = path.build() {
-                    window.paint_path(built, gpui::rgb(color));
-                }
+            if drew && let Ok(built) = path.build() {
+                window.paint_path(built, gpui::rgb(color));
             }
             path = PathBuilder::stroke(px(width));
             spent = 0;
@@ -961,10 +959,8 @@ fn paint_links_lyon(
         spent += 6;
         drew = true;
     }
-    if drew {
-        if let Ok(built) = path.build() {
-            window.paint_path(built, gpui::rgb(color));
-        }
+    if drew && let Ok(built) = path.build() {
+        window.paint_path(built, gpui::rgb(color));
     }
 }
 
@@ -1027,10 +1023,8 @@ fn paint_nodes_path(
             let r = node.radius * camera.zoom;
             let cost = disc_vertices(r);
             if spent + cost > PATH_VERTEX_BUDGET {
-                if drew {
-                    if let Ok(built) = path.build() {
-                        window.paint_path(built, fill);
-                    }
+                if drew && let Ok(built) = path.build() {
+                    window.paint_path(built, fill);
                 }
                 path = PathBuilder::fill();
                 spent = 0;
@@ -1039,10 +1033,8 @@ fn paint_nodes_path(
             spent += cost;
             drew = true;
         }
-        if drew {
-            if let Ok(built) = path.build() {
-                window.paint_path(built, fill);
-            }
+        if drew && let Ok(built) = path.build() {
+            window.paint_path(built, fill);
         }
     }
 }

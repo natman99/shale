@@ -5,8 +5,8 @@
 //! up and writes it on the beats the roadmap names — the autosave's pause and a
 //! graceful quit.
 
-use shale_core::session::Jump;
 use shale_core::Session;
+use shale_core::session::Jump;
 use std::time::Duration;
 
 use super::*;

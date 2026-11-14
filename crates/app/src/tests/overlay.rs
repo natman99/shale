@@ -6,7 +6,7 @@
 //! queue fixtures are shared from there: a proposal is queued the way `shale-mcp`
 //! queues one, through [`shale_core::pending`], rather than through a test-only door.
 
-use super::review::{buffer, one_proposal, queue, rows, say, scan, show, strip_up, EDITED, NOTE};
+use super::review::{EDITED, NOTE, buffer, one_proposal, queue, rows, say, scan, show, strip_up};
 use super::*;
 use shale_core::pending;
 

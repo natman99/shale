@@ -15,7 +15,7 @@
 //! than jumping to some other table. Edits that touch every row run inside an
 //! undo group, so one `u` undoes one command.
 
-use super::{tables, Cell, Table, TableRow};
+use super::{Cell, Table, TableRow, tables};
 use crate::buffer::{Buffer, ViewSlot};
 
 /// The text that makes one new column on a row: a dash run on the delimiter row

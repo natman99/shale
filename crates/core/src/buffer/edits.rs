@@ -15,12 +15,13 @@ impl Buffer {
         self.change_id += 1;
         // Skip snapshots that would record the state we are already in; an undo
         // step that appears to do nothing is worse than no step at all.
-        if let Some(last) = self.undo.last() {
-            if last.text == self.text && last.cursor == self.cursor {
-                self.redo.clear();
-                self.group_open = false;
-                return;
-            }
+        if let Some(last) = self.undo.last()
+            && last.text == self.text
+            && last.cursor == self.cursor
+        {
+            self.redo.clear();
+            self.group_open = false;
+            return;
         }
         self.undo.push(Snapshot {
             text: self.text.clone(),

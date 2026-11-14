@@ -4,8 +4,8 @@
 use std::rc::Rc;
 
 use gpui::{
-    div, font, prelude::*, px, rgb, Context, ImgResourceLoader, IntoElement, MouseButton,
-    ParentElement, Render, SharedString, Styled, Window,
+    Context, ImgResourceLoader, IntoElement, MouseButton, ParentElement, Render, SharedString,
+    Styled, Window, div, font, prelude::*, px, rgb,
 };
 use shale_core::vim::{Key, Mode};
 

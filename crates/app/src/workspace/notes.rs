@@ -12,15 +12,15 @@ use std::time::Duration;
 
 use gpui::{Context, Window};
 use shale_core::markdown::Anchor;
-use shale_core::vault::{rel_text, LinkResolver};
+use shale_core::vault::{LinkResolver, rel_text};
 
 use crate::acts::{AddBlockId, AddProperties, Save};
 use crate::editor::blockid::BlockId;
 use crate::editor::frontmatter::Frontmatter;
 use crate::note::Note;
 
-use super::tabs::TabContent;
 use super::Workspace;
+use super::tabs::TabContent;
 
 /// Why a note is arriving in a tab. The two answers choose the receiving tab
 /// differently, and the difference is the whole point (P4.13a): a **jump** may never
@@ -453,12 +453,12 @@ impl Workspace {
     pub(crate) fn open_note_at(&mut self, path: &PathBuf, line: usize, cx: &mut Context<Self>) {
         self.open_note(path, cx);
         // Only if the note really opened — a read error leaves the tab alone.
-        if self.note().as_deref() == Some(path.as_path()) {
-            if let Some(editor) = self.editor().cloned() {
-                editor.update(cx, |editor, cx| {
-                    editor.reveal_line(line.saturating_sub(1), cx)
-                });
-            }
+        if self.note().as_deref() == Some(path.as_path())
+            && let Some(editor) = self.editor().cloned()
+        {
+            editor.update(cx, |editor, cx| {
+                editor.reveal_line(line.saturating_sub(1), cx)
+            });
         }
     }
 
@@ -860,10 +860,10 @@ impl Workspace {
             // edited again since it was parked.
             let _ = ws.update(cx, |ws, cx| {
                 let found = ws.pane().tabs.iter().position(|tab| tab.id == id);
-                if let Some(index) = found {
-                    if ws.pane().tabs[index].autosave_seq == seq {
-                        ws.autosave(index, cx);
-                    }
+                if let Some(index) = found
+                    && ws.pane().tabs[index].autosave_seq == seq
+                {
+                    ws.autosave(index, cx);
                 }
             });
         }));

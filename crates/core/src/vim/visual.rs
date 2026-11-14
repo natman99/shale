@@ -17,15 +17,15 @@ impl Vim {
     ) -> Outcome {
         // A digit extends the count, unless it is the argument of a half-typed
         // command (`f0`).
-        if let Key::Char(c @ '0'..='9') = key {
-            if !self.waiting_for_literal() {
-                if c == '0' && self.count.is_none() {
-                    self.zero_motion(buf, view);
-                    return self.reanchor(buf);
-                }
-                self.count = Some(self.count.unwrap_or(0) * 10 + (c as usize - '0' as usize));
-                return Outcome::Stay;
+        if let Key::Char(c @ '0'..='9') = key
+            && !self.waiting_for_literal()
+        {
+            if c == '0' && self.count.is_none() {
+                self.zero_motion(buf, view);
+                return self.reanchor(buf);
             }
+            self.count = Some(self.count.unwrap_or(0) * 10 + (c as usize - '0' as usize));
+            return Outcome::Stay;
         }
 
         // A half-typed command takes the next key as its argument, whatever it
@@ -156,10 +156,10 @@ impl Vim {
         let outcome = self.handle_motion_key(key, buf, view);
         // A text object sets its own selection; a plain motion only moves the
         // head.
-        if buf.selection().is_none() {
-            if let Some(anchor) = anchor {
-                buf.set_selection(anchor, buf.cursor());
-            }
+        if buf.selection().is_none()
+            && let Some(anchor) = anchor
+        {
+            buf.set_selection(anchor, buf.cursor());
         }
         outcome
     }

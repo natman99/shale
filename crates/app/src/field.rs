@@ -12,10 +12,10 @@ use std::ops::Range;
 use std::rc::Rc;
 
 use gpui::{
-    fill, font, point, px, relative, rgb, App, Bounds, ClipboardItem, Corners, Element, ElementId,
-    ElementInputHandler, Entity, EntityInputHandler, FocusHandle, GlobalElementId,
-    InspectorElementId, IntoElement, LayoutId, Pixels, ShapedLine, SharedString,
-    Style as ElementStyle, UTF16Selection, Window,
+    App, Bounds, ClipboardItem, Corners, Element, ElementId, ElementInputHandler, Entity,
+    EntityInputHandler, FocusHandle, GlobalElementId, InspectorElementId, IntoElement, LayoutId,
+    Pixels, ShapedLine, SharedString, Style as ElementStyle, UTF16Selection, Window, fill, font,
+    point, px, relative, rgb,
 };
 use shale_core::buffer::{word_back, word_forward};
 use shale_core::theme::Palette;

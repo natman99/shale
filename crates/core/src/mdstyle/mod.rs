@@ -47,8 +47,8 @@ use block::{callout_header_range, scan_line};
 // this module emits for an anchor comes from it too — so there is exactly one
 // answer to "what blocks does this note have".
 pub use blockmap::{
-    block_at, block_id, block_map, new_block_id, valid_block_id, with_block_id,
-    without_block_anchor, Block, BlockAnchor, BlockIdWrite, BlockKind, BlockMap,
+    Block, BlockAnchor, BlockIdWrite, BlockKind, BlockMap, block_at, block_id, block_map,
+    new_block_id, valid_block_id, with_block_id, without_block_anchor,
 };
 
 // The marker shapes a row can open with, shared with [`crate::continuation`],
@@ -263,15 +263,16 @@ pub fn style_spans(text: &str) -> Vec<StyleSpan> {
         // A block the parser refused is the note's error, top to bottom: no inline
         // styling inside it, because a link colour over a block that indexes nothing
         // is the note lying about itself in two colours at once.
-        if let Some((start, end)) = front.as_ref().and_then(|f| f.broken) {
-            if *line_start >= start && line_end <= end {
-                out.push(StyleSpan {
-                    start: *line_start,
-                    end: line_end,
-                    style: Style::FrontmatterBroken,
-                });
-                continue;
-            }
+        if let Some((start, end)) = front.as_ref().and_then(|f| f.broken)
+            && *line_start >= start
+            && line_end <= end
+        {
+            out.push(StyleSpan {
+                start: *line_start,
+                end: line_end,
+                style: Style::FrontmatterBroken,
+            });
+            continue;
         }
         // A fence line belongs to the block, not to the thematic-break branch below,
         // which would draw it as a rule across the editor and hide the dashes.
@@ -530,11 +531,9 @@ pub fn callout_headers(text: &str) -> Vec<(usize, usize)> {
         // `scan_line` decides it does.
         if !content.trim_start().starts_with('>') {
             open = false;
-        } else if !open {
-            if let Some((start, end)) = callout_header_range(content) {
-                out.push((offset + start, offset + end));
-                open = true;
-            }
+        } else if !open && let Some((start, end)) = callout_header_range(content) {
+            out.push((offset + start, offset + end));
+            open = true;
         }
         offset += line.len();
     }
@@ -681,17 +680,21 @@ mod tests {
             vec!["Zhentarim"]
         );
         // A link *inside* a value that is not a link: no edge, so no colour.
-        assert!(spans(
-            "---\nnotes: see [[Zhentarim]] for details\n---\n",
-            Style::WikiLink
-        )
-        .is_empty());
+        assert!(
+            spans(
+                "---\nnotes: see [[Zhentarim]] for details\n---\n",
+                Style::WikiLink
+            )
+            .is_empty()
+        );
         // Two links in one value is not one link either — the parser calls it `text`.
-        assert!(spans(
-            "---\ngroup: [[Federation]] [[Empire]]\n---\n",
-            Style::WikiLink
-        )
-        .is_empty());
+        assert!(
+            spans(
+                "---\ngroup: [[Federation]] [[Empire]]\n---\n",
+                Style::WikiLink
+            )
+            .is_empty()
+        );
         // A link to a section of this note names no note.
         assert!(spans("---\nsee: [[#Government]]\n---\n", Style::WikiLink).is_empty());
         // A markdown link in a property makes no edge either: the indexer only asks
@@ -733,11 +736,13 @@ mod tests {
         let web = "---\nweb: \"[the web](https://example.com)\"\n---\n";
         assert!(spans(web, Style::LinkUrl).is_empty());
         // An anchored link is still a link to the note, anchor and all.
-        assert!(!spans(
-            "---\nregion: \"[[Waterdeep#Government]]\"\n---\n",
-            Style::WikiLink
-        )
-        .is_empty());
+        assert!(
+            !spans(
+                "---\nregion: \"[[Waterdeep#Government]]\"\n---\n",
+                Style::WikiLink
+            )
+            .is_empty()
+        );
     }
 
     /// The drift guard: the painter's idea of "this value is a link" and the parser's
@@ -990,13 +995,15 @@ mod tests {
     #[test]
     fn a_quote_that_is_not_a_callout_stays_a_quote() {
         let text = "> [! not a callout]\n> [note] plain";
-        assert!(spans(
-            text,
-            Style::Callout {
-                kind: CalloutKind::Note
-            }
-        )
-        .is_empty());
+        assert!(
+            spans(
+                text,
+                Style::Callout {
+                    kind: CalloutKind::Note
+                }
+            )
+            .is_empty()
+        );
         assert_eq!(
             texts(text, Style::Quote),
             vec!["[! not a callout]", "[note] plain"]

@@ -28,9 +28,9 @@ use shale_core::vault::rel_text;
 use crate::acts::ChangeTheme;
 use crate::picker::PickerItem;
 
+use super::Workspace;
 use super::open::PickerTarget;
 use super::tabs::TabContent;
-use super::Workspace;
 
 impl Workspace {
     /// The theme picker: the theme on screen first, then every other built-in

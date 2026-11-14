@@ -16,8 +16,8 @@ use std::ops::Range;
 use std::rc::Rc;
 
 use gpui::{
-    div, prelude::*, px, Bounds, Context, EntityInputHandler, FocusHandle, MouseButton, Pixels,
-    Point, SharedString, UTF16Selection, Window,
+    Bounds, Context, EntityInputHandler, FocusHandle, MouseButton, Pixels, Point, SharedString,
+    UTF16Selection, Window, div, prelude::*, px,
 };
 use shale_core::graph::filter::GraphFilter;
 use shale_core::theme::Palette;
@@ -26,7 +26,7 @@ use crate::acts::{
     FieldBackspace, FieldDelete, FieldDeleteWordBack, FieldLeft, FieldRight, GraphFilterClose,
     GraphFilterMissing, GraphFilterOpen, GraphFilterOrphans, GraphFilterTags,
 };
-use crate::field::{approx_char_width, Field, FieldElement, FieldOwner};
+use crate::field::{Field, FieldElement, FieldOwner, approx_char_width};
 use crate::field_key_actions;
 
 use super::GraphView;

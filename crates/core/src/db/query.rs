@@ -23,7 +23,7 @@
 //! written here so the cache knows what it owes when it arrives.
 
 use super::Db;
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use rusqlite::types::ValueRef;
 use rusqlite::{Connection, Row};
 
@@ -105,11 +105,7 @@ impl Rows {
         };
         self.rows.sort_by(|a, b| {
             let order = compare_cells(a.get(column), b.get(column));
-            if descending {
-                order.reverse()
-            } else {
-                order
-            }
+            if descending { order.reverse() } else { order }
         });
     }
 }
@@ -389,10 +385,10 @@ fn scan<'a>(sql: &'a str, found: &mut impl FnMut(Event<'a>)) {
 pub fn parameters(sql: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     scan(sql, &mut |event| {
-        if let Event::Parameter(name) = event {
-            if !out.iter().any(|seen| seen == name) {
-                out.push(name.to_string());
-            }
+        if let Event::Parameter(name) = event
+            && !out.iter().any(|seen| seen == name)
+        {
+            out.push(name.to_string());
         }
     });
     out

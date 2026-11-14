@@ -108,37 +108,37 @@ pub fn apply(index: &GraphIndex, filter: &GraphFilter) -> Vec<bool> {
     // BFS walks *through* nodes the kind filters are about to hide, because
     // "two hops away" is a fact about the links, not about what is on screen.
     // The kind and search filters then cut inside that neighbourhood as usual.
-    if let Some(local) = &filter.local {
-        if let Some(center) = index.node_for_path(&local.center) {
-            let depth = local.depth.min(LOCAL_DEPTH_MAX);
-            let mut hops = vec![usize::MAX; n];
-            hops[center.index()] = 0;
-            let mut frontier = vec![center];
-            let mut hop = 0usize;
-            while hop < depth && !frontier.is_empty() {
-                let mut next = Vec::new();
-                for node in &frontier {
-                    for nb in index.neighbors(*node) {
-                        if hops[nb.index()] == usize::MAX {
-                            hops[nb.index()] = hop + 1;
-                            next.push(nb);
-                        }
+    if let Some(local) = &filter.local
+        && let Some(center) = index.node_for_path(&local.center)
+    {
+        let depth = local.depth.min(LOCAL_DEPTH_MAX);
+        let mut hops = vec![usize::MAX; n];
+        hops[center.index()] = 0;
+        let mut frontier = vec![center];
+        let mut hop = 0usize;
+        while hop < depth && !frontier.is_empty() {
+            let mut next = Vec::new();
+            for node in &frontier {
+                for nb in index.neighbors(*node) {
+                    if hops[nb.index()] == usize::MAX {
+                        hops[nb.index()] = hop + 1;
+                        next.push(nb);
                     }
                 }
-                frontier = next;
-                hop += 1;
             }
-            for (i, v) in visible.iter_mut().enumerate() {
-                if hops[i] > depth {
-                    *v = false;
-                }
+            frontier = next;
+            hop += 1;
+        }
+        for (i, v) in visible.iter_mut().enumerate() {
+            if hops[i] > depth {
+                *v = false;
             }
         }
-        // A centre the index does not know — a note deleted from under the view,
-        // or one never indexed — leaves the scope inert rather than painting an
-        // empty canvas. The window clears the mode in that case (it owns the
-        // centre); an empty graph is a worse answer than the whole one.
     }
+    // A centre the index does not know — a note deleted from under the view,
+    // or one never indexed — leaves the scope inert rather than painting an
+    // empty canvas. The window clears the mode in that case (it owns the
+    // centre); an empty graph is a worse answer than the whole one.
 
     for (i, v) in visible.iter_mut().enumerate() {
         let node = NodeIndex::new(i);
@@ -155,21 +155,21 @@ pub fn apply(index: &GraphIndex, filter: &GraphFilter) -> Vec<bool> {
         }
     }
 
-    if let Some(query) = &filter.search {
-        if !query.trim().is_empty() {
-            for (i, v) in visible.iter_mut().enumerate() {
-                if !*v {
-                    continue;
-                }
-                let node = NodeIndex::new(i);
-                let meta = index.meta(node);
-                let label = &meta.label;
-                let path = meta.path.as_ref().map(rel_text).unwrap_or_default();
-                let matched = fuzzy_match(query, label).is_some()
-                    || (!path.is_empty() && fuzzy_match(query, &path).is_some());
-                if !matched {
-                    *v = false;
-                }
+    if let Some(query) = &filter.search
+        && !query.trim().is_empty()
+    {
+        for (i, v) in visible.iter_mut().enumerate() {
+            if !*v {
+                continue;
+            }
+            let node = NodeIndex::new(i);
+            let meta = index.meta(node);
+            let label = &meta.label;
+            let path = meta.path.as_ref().map(rel_text).unwrap_or_default();
+            let matched = fuzzy_match(query, label).is_some()
+                || (!path.is_empty() && fuzzy_match(query, &path).is_some());
+            if !matched {
+                *v = false;
             }
         }
     }

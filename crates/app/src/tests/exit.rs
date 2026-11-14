@@ -8,8 +8,8 @@
 //! no-op on the test platform (see `tests::autosave`), so the window stays usable
 //! afterwards, which is exactly what lets the assertions run.
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use super::*;

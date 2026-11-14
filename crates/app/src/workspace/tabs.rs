@@ -29,7 +29,7 @@
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use gpui::{prelude::*, Context, Entity, Focusable, SharedString, Subscription, Task, Window};
+use gpui::{Context, Entity, Focusable, SharedString, Subscription, Task, Window, prelude::*};
 use shale_core::vault::rel_text;
 
 use crate::acts::{PinTab, TabClose, TabNew, TabNext, TabOnly, TabPrev};
@@ -675,18 +675,17 @@ impl Workspace {
         if let Some(path) = path.as_ref() {
             // The same buffer, not a second copy of the file: the new tab edits
             // what the tab it came from is editing (P4.17).
-            if let Some(note) = self.note_entry(path, cx) {
-                if let TabContent::Note {
+            if let Some(note) = self.note_entry(path, cx)
+                && let TabContent::Note {
                     path: slot, editor, ..
                 } = &mut self.pane_mut().tabs[index].content
-                {
-                    *slot = Some(path.clone());
-                    editor.update(cx, |editor, cx| editor.set_note(note, cx));
-                }
-                // The view came from the tab it was opened from, and `set_view`
-                // is what makes a preview tab read-only, so nothing else is owed
-                // here.
+            {
+                *slot = Some(path.clone());
+                editor.update(cx, |editor, cx| editor.set_note(note, cx));
             }
+            // The view came from the tab it was opened from, and `set_view`
+            // is what makes a preview tab read-only, so nothing else is owed
+            // here.
             // A tab that could not be read exists and is empty rather than the
             // keystroke doing nothing: the status bar says why, and the user is
             // one `:e` away from a note.

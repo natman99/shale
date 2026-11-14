@@ -14,11 +14,11 @@
 use std::rc::Rc;
 
 use gpui::{
-    point, px, size, App, Bounds, ContentMask, Font, Path, PathVertex, Pixels, Point, TextAlign,
-    TextRun, Window,
+    App, Bounds, ContentMask, Font, Path, PathVertex, Pixels, Point, TextAlign, TextRun, Window,
+    point, px, size,
 };
-use shale_core::graph::geom::Camera;
 use shale_core::graph::NodeKind;
+use shale_core::graph::geom::Camera;
 use shale_core::theme::Palette;
 
 pub(crate) use super::cache::{Cache, Geometry, Key};
@@ -368,43 +368,41 @@ pub(crate) fn paint_nodes(
 ) {
     // The centre first, so the hover's narrower ring sits inside it when both land on
     // the same dot rather than fighting it for the same pixels.
-    if let Some(slot) = centre {
-        if let Some(node) = frame.nodes.get(slot) {
-            if view.holds(node, CULL_MARGIN) {
-                let center = camera.to_screen(node.position);
-                let r = node.radius * camera.zoom;
-                let r = r + ring_px(r) + CENTRE_RING_PX;
-                window.paint_quad(
-                    gpui::fill(
-                        Bounds {
-                            origin: point(px(center[0] - r), px(center[1] - r)),
-                            size: size(px(2.0 * r), px(2.0 * r)),
-                        },
-                        gpui::rgb(palette.graph_node_active),
-                    )
-                    .corner_radii(px(r)),
-                );
-            }
-        }
+    if let Some(slot) = centre
+        && let Some(node) = frame.nodes.get(slot)
+        && view.holds(node, CULL_MARGIN)
+    {
+        let center = camera.to_screen(node.position);
+        let r = node.radius * camera.zoom;
+        let r = r + ring_px(r) + CENTRE_RING_PX;
+        window.paint_quad(
+            gpui::fill(
+                Bounds {
+                    origin: point(px(center[0] - r), px(center[1] - r)),
+                    size: size(px(2.0 * r), px(2.0 * r)),
+                },
+                gpui::rgb(palette.graph_node_active),
+            )
+            .corner_radii(px(r)),
+        );
     }
-    if let Some(slot) = hover {
-        if let Some(node) = frame.nodes.get(slot) {
-            if view.holds(node, CULL_MARGIN) {
-                let center = camera.to_screen(node.position);
-                let r = node.radius * camera.zoom;
-                let r = r + ring_px(r);
-                window.paint_quad(
-                    gpui::fill(
-                        Bounds {
-                            origin: point(px(center[0] - r), px(center[1] - r)),
-                            size: size(px(2.0 * r), px(2.0 * r)),
-                        },
-                        gpui::rgb(palette.graph_node_active),
-                    )
-                    .corner_radii(px(r)),
-                );
-            }
-        }
+    if let Some(slot) = hover
+        && let Some(node) = frame.nodes.get(slot)
+        && view.holds(node, CULL_MARGIN)
+    {
+        let center = camera.to_screen(node.position);
+        let r = node.radius * camera.zoom;
+        let r = r + ring_px(r);
+        window.paint_quad(
+            gpui::fill(
+                Bounds {
+                    origin: point(px(center[0] - r), px(center[1] - r)),
+                    size: size(px(2.0 * r), px(2.0 * r)),
+                },
+                gpui::rgb(palette.graph_node_active),
+            )
+            .corner_radii(px(r)),
+        );
     }
     for kind in [
         NodeKind::Note,

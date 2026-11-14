@@ -5,6 +5,7 @@
 //! live in their own files; this is where they are collected, along with Shale's
 //! own dark and light.
 
+use super::Palette;
 use super::catppuccin;
 use super::dracula;
 use super::gruvbox;
@@ -13,7 +14,6 @@ use super::one;
 use super::rose_pine;
 use super::solarized;
 use super::tokyo_night;
-use super::Palette;
 
 impl Palette {
     /// The default palette: a dark note on a dark window.

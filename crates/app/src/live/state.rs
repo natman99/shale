@@ -11,8 +11,8 @@
 //! The staleness this buys is one refresh beat (see `workspace::live`), which is
 //! shorter than anything an agent can act on.
 
-use serde_json::{json, Value};
-use shale_core::live::{Status, LIVE_TOOLS, PATH_JUMPS, PATH_NOTE, PATH_SELECTION, PATH_STATUS};
+use serde_json::{Value, json};
+use shale_core::live::{LIVE_TOOLS, PATH_JUMPS, PATH_NOTE, PATH_SELECTION, PATH_STATUS, Status};
 
 /// One window's live state, as the HTTP thread is allowed to see it.
 #[derive(Clone, Debug, Default, PartialEq)]

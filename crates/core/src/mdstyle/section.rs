@@ -23,7 +23,7 @@
 //!   before any level changes, because recomputing them afterwards would drag in
 //!   headings that were never under the one being moved (EDGE-S8).
 
-use super::object::{heading_lines, HeadingLine};
+use super::object::{HeadingLine, heading_lines};
 
 /// Which way a section moves among its siblings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

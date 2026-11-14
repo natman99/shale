@@ -8,7 +8,7 @@
 //! what is covered here is the wiring between a window and them.
 
 use super::*;
-use shale_core::live::{get, probe, Lock, PATH_NOTE, PATH_STATUS};
+use shale_core::live::{Lock, PATH_NOTE, PATH_STATUS, get, probe};
 
 /// A window with `[mcp] live` on leaves a lock naming a port, and that port answers
 /// with the note the window is looking at.

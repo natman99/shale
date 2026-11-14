@@ -6,7 +6,7 @@
 //! basic plane is two units and four. Every diagnostic that lands on a line with
 //! either in front of it is misplaced if the two are treated as interchangeable.
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 /// One note from the checker, in the buffer's coordinates.
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -138,7 +138,7 @@ pub fn write_setting(
         Err(err) => {
             return Err(
                 anyhow::Error::new(err).context(format!("reading config {}", path.display()))
-            )
+            );
         }
     };
     write_file(&path, &set(&text, table, key, value))
@@ -298,9 +298,11 @@ mod tests {
         let text = std::fs::read_to_string(Config::path(dir.path())).unwrap();
         assert!(text.contains("# The palette: a built-in"));
         assert_eq!(text.matches("theme = ").count(), 1);
-        assert!(!Config::shale_dir(dir.path())
-            .join("config.toml.tmp")
-            .exists());
+        assert!(
+            !Config::shale_dir(dir.path())
+                .join("config.toml.tmp")
+                .exists()
+        );
     }
 
     /// The starter is a snippet, not a dump: it says exactly what the defaults

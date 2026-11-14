@@ -20,10 +20,10 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{Context as _, Result};
-use rusqlite::backup::Backup;
 use rusqlite::Connection;
+use rusqlite::backup::Backup;
 
-use super::{now_epoch, Db};
+use super::{Db, now_epoch};
 use crate::atomic;
 use crate::query::civil_date;
 

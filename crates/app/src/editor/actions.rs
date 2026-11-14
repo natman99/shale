@@ -3,7 +3,7 @@
 //! themselves are mapped in `crate::acts`.
 
 use gpui::{Action, Context, Window};
-use shale_core::continuation::{enter_action, EnterAction};
+use shale_core::continuation::{EnterAction, enter_action};
 use shale_core::mdstyle::Style;
 use shale_core::vim::{Key, Mode, Outcome};
 

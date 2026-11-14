@@ -23,17 +23,17 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use gpui::{point, px, size, App, Bounds, ContentMask, Pixels, Window};
+use gpui::{App, Bounds, ContentMask, Pixels, Window, point, px, size};
+use shale_core::graph::NodeKind;
 use shale_core::graph::geom::Grid;
 use shale_core::graph::proj::{Cam3, Projected};
-use shale_core::graph::NodeKind;
 use shale_core::theme::Palette;
 
 use super::cache::{Cache, Geometry, Key};
 use super::frame::GraphFrame;
 use super::render::{
-    label_runs, ring_px, Labels, LinkPaths, Look, CENTRE_RING_PX, LABEL_SCALE, LINK_MIN_PX,
-    LINK_WIDTH,
+    CENTRE_RING_PX, LABEL_SCALE, LINK_MIN_PX, LINK_WIDTH, Labels, LinkPaths, Look, label_runs,
+    ring_px,
 };
 use super::sim::GRID_MAX_SPAN;
 
@@ -479,40 +479,40 @@ fn paint_nodes3d(
 ) {
     // The neighbourhood's centre, haloed wider than any hover: in a cloud of two hundred
     // dots the one the window is showing has to be findable without a search.
-    if let Some(slot) = centre {
-        if let Some(center) = projection.screen(slot) {
-            let r = projection.radius(frame, slot);
-            let r = r + ring_px(r) + CENTRE_RING_PX;
-            if on_screen(center, r, bounds) {
-                window.paint_quad(
-                    gpui::fill(
-                        Bounds {
-                            origin: point(px(center[0] - r), px(center[1] - r)),
-                            size: size(px(2.0 * r), px(2.0 * r)),
-                        },
-                        gpui::rgb(palette.graph_node_active),
-                    )
-                    .corner_radii(px(r)),
-                );
-            }
+    if let Some(slot) = centre
+        && let Some(center) = projection.screen(slot)
+    {
+        let r = projection.radius(frame, slot);
+        let r = r + ring_px(r) + CENTRE_RING_PX;
+        if on_screen(center, r, bounds) {
+            window.paint_quad(
+                gpui::fill(
+                    Bounds {
+                        origin: point(px(center[0] - r), px(center[1] - r)),
+                        size: size(px(2.0 * r), px(2.0 * r)),
+                    },
+                    gpui::rgb(palette.graph_node_active),
+                )
+                .corner_radii(px(r)),
+            );
         }
     }
-    if let Some(slot) = hover {
-        if let Some(center) = projection.screen(slot) {
-            let r = projection.radius(frame, slot);
-            let r = r + ring_px(r);
-            if on_screen(center, r, bounds) {
-                window.paint_quad(
-                    gpui::fill(
-                        Bounds {
-                            origin: point(px(center[0] - r), px(center[1] - r)),
-                            size: size(px(2.0 * r), px(2.0 * r)),
-                        },
-                        gpui::rgb(palette.graph_node_active),
-                    )
-                    .corner_radii(px(r)),
-                );
-            }
+    if let Some(slot) = hover
+        && let Some(center) = projection.screen(slot)
+    {
+        let r = projection.radius(frame, slot);
+        let r = r + ring_px(r);
+        if on_screen(center, r, bounds) {
+            window.paint_quad(
+                gpui::fill(
+                    Bounds {
+                        origin: point(px(center[0] - r), px(center[1] - r)),
+                        size: size(px(2.0 * r), px(2.0 * r)),
+                    },
+                    gpui::rgb(palette.graph_node_active),
+                )
+                .corner_radii(px(r)),
+            );
         }
     }
     for &slot in &projection.order {

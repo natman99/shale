@@ -51,8 +51,8 @@ use super::*;
 use crate::editor::MarkdownEditor;
 // The slimmed `main.rs` no longer imports what the tests build windows from;
 // they say so themselves now.
-use crate::workspace::{keybindings, Workspace};
-use gpui::{px, BackgroundExecutor, Focusable, TestAppContext, VisualTestContext, WindowHandle};
+use crate::workspace::{Workspace, keybindings};
+use gpui::{BackgroundExecutor, Focusable, TestAppContext, VisualTestContext, WindowHandle, px};
 use shale_core::{Config, Vault};
 use std::path::Path;
 use std::rc::Rc;

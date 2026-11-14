@@ -21,16 +21,16 @@ use std::path::Path;
 
 use anyhow::anyhow;
 use gpui::{Context, Window};
-use shale_core::db::Cell;
-use shale_core::vault::{rel_text, VaultEntry};
 use shale_core::QueryNote;
+use shale_core::db::Cell;
+use shale_core::vault::{VaultEntry, rel_text};
 
 use crate::acts::*;
 use crate::picker::PickerItem;
 use crate::prompt;
 
-use super::open::{notice, PickerTarget};
 use super::Workspace;
+use super::open::{PickerTarget, notice};
 
 /// How many rows one query's answer may draw. Named in the core, because the in-file
 /// table cuts at the same number and says how many it left out: one answer, one length.

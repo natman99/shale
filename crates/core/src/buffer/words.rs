@@ -237,16 +237,16 @@ pub fn word_back(text: &str, at: usize) -> usize {
 
     let mut i = at;
     // In the middle of a run: back up to that run's start.
-    if i < len {
-        if let Some(cls) = text[i..].chars().next().map(class_of) {
-            if cls != WordClass::Whitespace && cls != WordClass::Newline {
-                while i > 0 && prev_class(i) == Some(cls) {
-                    i = start_of_prev(i);
-                }
-                if i < at {
-                    return i;
-                }
-            }
+    if i < len
+        && let Some(cls) = text[i..].chars().next().map(class_of)
+        && cls != WordClass::Whitespace
+        && cls != WordClass::Newline
+    {
+        while i > 0 && prev_class(i) == Some(cls) {
+            i = start_of_prev(i);
+        }
+        if i < at {
+            return i;
         }
     }
     // At a run start (or on a blank): cross blanks, then back over the previous
@@ -288,14 +288,15 @@ pub fn word_forward(text: &str, at: usize) -> usize {
 
     let mut i = at;
     // In the middle of a run: forward to that run's end.
-    if let Some(cls) = next_class(i) {
-        if cls != WordClass::Whitespace && cls != WordClass::Newline {
-            while i < len && next_class(i) == Some(cls) {
-                i = past_next(i);
-            }
-            if i > at {
-                return i;
-            }
+    if let Some(cls) = next_class(i)
+        && cls != WordClass::Whitespace
+        && cls != WordClass::Newline
+    {
+        while i < len && next_class(i) == Some(cls) {
+            i = past_next(i);
+        }
+        if i > at {
+            return i;
         }
     }
     // On a blank (or at a run's end): cross blanks, then over the next run.
@@ -305,11 +306,11 @@ pub fn word_forward(text: &str, at: usize) -> usize {
             _ => break,
         }
     }
-    if i < len {
-        if let Some(cls) = next_class(i) {
-            while i < len && next_class(i) == Some(cls) {
-                i = past_next(i);
-            }
+    if i < len
+        && let Some(cls) = next_class(i)
+    {
+        while i < len && next_class(i) == Some(cls) {
+            i = past_next(i);
         }
     }
     i

@@ -15,9 +15,9 @@ use anyhow::Result;
 use petgraph::graph::{NodeIndex, UnGraph};
 
 use crate::markdown::extract_wikilinks;
-use crate::mdstyle::{style_spans, Style};
+use crate::mdstyle::{Style, style_spans};
 use crate::query_note::EXTENSION;
-use crate::vault::{rel_text, LinkResolver, Vault, VaultEntry};
+use crate::vault::{LinkResolver, Vault, VaultEntry, rel_text};
 
 /// What a graph node represents.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

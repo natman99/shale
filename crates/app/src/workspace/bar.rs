@@ -22,11 +22,7 @@ pub(crate) const STATUS_TTL: Duration = Duration::from_secs(8);
 /// colour, because it is the one thing in the bar the user has to notice without
 /// looking for it.
 pub(crate) fn save_indicator(dirty: bool) -> &'static str {
-    if dirty {
-        crate::style::GLYPH_DIRTY
-    } else {
-        ""
-    }
+    if dirty { crate::style::GLYPH_DIRTY } else { "" }
 }
 
 /// The mode as the status bar shows it.

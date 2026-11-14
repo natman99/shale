@@ -16,15 +16,15 @@
 
 use std::path::PathBuf;
 
-use gpui::{div, prelude::*, AnyElement, App, Context};
+use gpui::{AnyElement, App, Context, div, prelude::*};
 use shale_core::vault::rel_text;
 use shale_core::vim::Mode;
 
 use crate::acts::*;
 use crate::style::*;
 
-use super::tabs::TabContent;
 use super::Workspace;
+use super::tabs::TabContent;
 
 /// Recent notes the block lists on screen. Past a screenful the answer is the
 /// picker, not a longer menu.

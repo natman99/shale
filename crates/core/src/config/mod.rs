@@ -14,7 +14,7 @@
 mod edit;
 mod profile;
 
-pub use edit::{write_setting, Value};
+pub use edit::{Value, write_setting};
 pub use profile::McpProfile;
 
 use std::collections::BTreeMap;

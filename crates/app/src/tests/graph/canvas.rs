@@ -111,9 +111,11 @@ fn an_edit_that_changes_no_links_leaves_the_layout_alone(cx: &mut TestAppContext
     // `g T` pages the frame to the note; the graph tab stays on the bar, and so does
     // its picture.
     cx.simulate_keystrokes("g T");
-    assert!(!window
-        .update(&mut cx, |ws, _w, _cx| ws.showing_graph())
-        .unwrap());
+    assert!(
+        !window
+            .update(&mut cx, |ws, _w, _cx| ws.showing_graph())
+            .unwrap()
+    );
     cx.simulate_keystrokes("A");
     cx.simulate_input(" and more prose");
     cx.simulate_keystrokes("escape ctrl-s");

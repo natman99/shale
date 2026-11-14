@@ -30,9 +30,9 @@ use std::collections::HashSet;
 use std::rc::Rc;
 
 use gpui::{
-    div, prelude::*, px, App, Context, CursorStyle, FocusHandle, Focusable, InteractiveElement,
-    IntoElement, ParentElement, Pixels, Render, SharedString, StatefulInteractiveElement, Styled,
-    Window,
+    App, Context, CursorStyle, FocusHandle, Focusable, InteractiveElement, IntoElement,
+    ParentElement, Pixels, Render, SharedString, StatefulInteractiveElement, Styled, Window, div,
+    prelude::*, px,
 };
 use shale_core::pending::PendingEdit;
 use shale_core::theme::Palette;

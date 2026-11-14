@@ -10,9 +10,9 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use gpui::{px, Pixels, RenderImage};
-use shale_core::vault::{LinkResolver, VaultEntry};
+use gpui::{Pixels, RenderImage, px};
 use shale_core::Vault;
+use shale_core::vault::{LinkResolver, VaultEntry};
 
 /// The tallest an embedded image may be drawn, however tall the file is. A
 /// screenshot taller than the window would push the rest of the note off screen.

@@ -21,7 +21,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use crate::markdown::Anchor;
-use crate::mdstyle::object::{heading_lines, HeadingLine};
+use crate::mdstyle::object::{HeadingLine, heading_lines};
 use crate::vault::{LinkResolver, Vault, VaultEntry};
 
 /// How many levels of embed expand before they become badges.
@@ -1124,13 +1124,16 @@ mod tests {
         };
         // The body came from the note that *declares* the alias, and every row keeps
         // that note's address: clicking one of these rows lands in masked.md.
-        assert!(rows.iter().all(|line| line
-            .origin
-            .as_ref()
-            .is_some_and(|o| o.path == std::path::Path::new("masked.md"))));
-        assert!(rows
-            .iter()
-            .any(|line| { matches!(&line.row, EmbedRow::Text(text) if text == "the masked one") }));
+        assert!(rows.iter().all(|line| {
+            line.origin
+                .as_ref()
+                .is_some_and(|o| o.path == std::path::Path::new("masked.md"))
+        }));
+        assert!(
+            rows.iter().any(|line| {
+                matches!(&line.row, EmbedRow::Text(text) if text == "the masked one")
+            })
+        );
     }
 
     #[test]

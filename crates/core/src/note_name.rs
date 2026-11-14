@@ -114,11 +114,7 @@ fn clean_segment(part: &str) -> Option<String> {
     }
 
     let out = out.trim_matches(|c| c == '.' || c == ' ').to_string();
-    if out.is_empty() {
-        None
-    } else {
-        Some(out)
-    }
+    if out.is_empty() { None } else { Some(out) }
 }
 
 /// Strip a leading markdown block marker (`# `, `- `, `> `, and a numbered

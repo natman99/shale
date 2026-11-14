@@ -7,9 +7,9 @@
 //! inventing a second door into the queue.
 
 use super::*;
+use shale_core::Session;
 use shale_core::diff::hunks;
 use shale_core::pending::{self, PendingEdit};
-use shale_core::Session;
 
 /// A note with enough lines that a change in the middle carries context, which is what
 /// a stale badge is about.

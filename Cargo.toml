@@ -18,7 +18,7 @@ codegen-units = 1
 
 [workspace.package]
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 license = "MIT OR Apache-2.0"
 # Dual MIT OR Apache-2.0, the same pairing Rust itself uses, so anything that can
 # consume Rust code can consume this. It also stays compatible with everything the

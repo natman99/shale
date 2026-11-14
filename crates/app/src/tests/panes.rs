@@ -390,13 +390,17 @@ fn the_graph_stays_one_tab_across_panes(cx: &mut TestAppContext) {
         1,
         "one graph tab"
     );
-    assert!(window
-        .update(&mut cx, |ws, _window, _cx| ws.showing_graph())
-        .unwrap());
+    assert!(
+        window
+            .update(&mut cx, |ws, _window, _cx| ws.showing_graph())
+            .unwrap()
+    );
     cx.simulate_keystrokes("ctrl-w k");
-    assert!(!window
-        .update(&mut cx, |ws, _window, _cx| ws.showing_graph())
-        .unwrap());
+    assert!(
+        !window
+            .update(&mut cx, |ws, _window, _cx| ws.showing_graph())
+            .unwrap()
+    );
     cx.simulate_keystrokes("space g");
     assert_eq!(
         active(&window, &mut cx),

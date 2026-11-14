@@ -786,10 +786,11 @@ mod tests {
         for _ in 0..300 {
             twin.step();
         }
-        assert!(twin
-            .pos
-            .iter()
-            .all(|p| p[0].is_finite() && p[1].is_finite()));
+        assert!(
+            twin.pos
+                .iter()
+                .all(|p| p[0].is_finite() && p[1].is_finite())
+        );
     }
 
     #[test]

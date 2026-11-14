@@ -9,7 +9,7 @@
 use crate::buffer::{Buffer, ViewSlot};
 use crate::table::{self, Cell, Located, Table};
 
-use super::{repeat, Key, Outcome, Vim};
+use super::{Key, Outcome, Vim, repeat};
 
 impl Vim {
     /// Table commands, consulted before the ordinary motions. Returns `None`

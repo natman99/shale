@@ -2,8 +2,8 @@
 //! the claim that keeps other processes out, and the recent list the switcher
 //! reads.
 
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use shale_core::RecentVaults;
 

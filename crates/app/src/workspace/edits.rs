@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use anyhow::{Context as _, Result};
-use gpui::{prelude::*, Context, Entity, Focusable, Window};
+use gpui::{Context, Entity, Focusable, Window, prelude::*};
 use shale_core::rename::Rewrite;
 use shale_core::vault::rel_text;
 
@@ -16,9 +16,9 @@ use crate::acts::*;
 use crate::ex;
 use crate::prompt;
 
+use super::Workspace;
 use super::known_names;
 use super::tabs::TabContent;
-use super::Workspace;
 
 impl Workspace {
     /// Open the one-line prompt. This is the only place a name is typed, so it is
@@ -364,10 +364,10 @@ impl Workspace {
                 // another tab holds the same note looks like from here.
                 for pane in self.panes.iter_mut() {
                     for tab in pane.tabs.iter_mut() {
-                        if let TabContent::Note { path, .. } = &mut tab.content {
-                            if path.as_deref() == Some(from.as_path()) {
-                                *path = Some(renamed.clone());
-                            }
+                        if let TabContent::Note { path, .. } = &mut tab.content
+                            && path.as_deref() == Some(from.as_path())
+                        {
+                            *path = Some(renamed.clone());
                         }
                     }
                 }

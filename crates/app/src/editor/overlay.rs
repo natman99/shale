@@ -24,18 +24,18 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use gpui::{px, Context, IntoElement, LineWrapperHandle, Pixels, SharedString, Styled};
+use gpui::{Context, IntoElement, LineWrapperHandle, Pixels, SharedString, Styled, px};
 use gpui::{InteractiveElement, ParentElement};
 use shale_core::diff::{self, Hunk};
 use shale_core::transclude::{Body, EmbedLine, EmbedRow, Origin, Sources};
 use shale_core::vim::Mode;
 
-use crate::line::marks::{self, GutterMark};
-use crate::line::phantom::{PhantomKind, PhantomLine, INDENT_STEP};
 use crate::line::DisplayLine;
+use crate::line::marks::{self, GutterMark};
+use crate::line::phantom::{INDENT_STEP, PhantomKind, PhantomLine};
 use crate::theme;
 
-use super::{embeds, MarkdownEditor, View};
+use super::{MarkdownEditor, View, embeds};
 use crate::line::LineElement;
 
 /// One queued proposal, as the editor needs it in order to paint it.
@@ -916,10 +916,8 @@ impl MarkdownEditor {
         }
         if let Some(fold) = &block.fold {
             for (row, hidden) in fold.collapsed.iter().enumerate() {
-                if *hidden {
-                    if let Some(slot) = segments.get_mut(row) {
-                        slot.clear();
-                    }
+                if *hidden && let Some(slot) = segments.get_mut(row) {
+                    slot.clear();
                 }
             }
         }
@@ -1063,32 +1061,33 @@ impl MarkdownEditor {
                     // The block being edited is not a picture: its rows are line elements
                     // over the embedded buffer, which is what gives them a caret, a
                     // selection and a click that lands on the right byte (roadmap P4.0b).
-                    if block.entered && !line.badge {
-                        if let (Some(origin), Some(row)) = (line.origin.as_ref(), painted.get(ix)) {
-                            // A closed fold's marker belongs to the row, and like the host's
-                            // it rides the row's last display line rather than every piece.
-                            let fold = last
-                                .then(|| {
-                                    block
-                                        .fold
-                                        .as_ref()
-                                        .and_then(|fold| fold.marker.get(origin.row).cloned()?)
-                                })
-                                .flatten();
-                            rows.push(
-                                self.embed_line(
-                                    origin,
-                                    row,
-                                    (lo, hi),
-                                    fold,
-                                    char_width,
-                                    &editor,
-                                    if first { &line.gutter } else { &[] },
-                                )
-                                .into_any_element(),
-                            );
-                            continue;
-                        }
+                    if block.entered
+                        && !line.badge
+                        && let (Some(origin), Some(row)) = (line.origin.as_ref(), painted.get(ix))
+                    {
+                        // A closed fold's marker belongs to the row, and like the host's
+                        // it rides the row's last display line rather than every piece.
+                        let fold = last
+                            .then(|| {
+                                block
+                                    .fold
+                                    .as_ref()
+                                    .and_then(|fold| fold.marker.get(origin.row).cloned()?)
+                            })
+                            .flatten();
+                        rows.push(
+                            self.embed_line(
+                                origin,
+                                row,
+                                (lo, hi),
+                                fold,
+                                char_width,
+                                &editor,
+                                if first { &line.gutter } else { &[] },
+                            )
+                            .into_any_element(),
+                        );
+                        continue;
                     }
                     out.push(
                         PhantomLine {

@@ -32,9 +32,9 @@ pub mod watch;
 
 pub use buffer::Buffer;
 pub use config::Config;
-pub use db::{now_epoch, word_count, Db, EventKind, Provenance, SyncReport, SCHEMA_VERSION};
-pub use fuzzy::{fuzzy_match, ranked, FuzzyMatch};
-pub use live::{Lock, Status, LIVE_TOOLS};
+pub use db::{Db, EventKind, Provenance, SCHEMA_VERSION, SyncReport, now_epoch, word_count};
+pub use fuzzy::{FuzzyMatch, fuzzy_match, ranked};
+pub use live::{LIVE_TOOLS, Lock, Status};
 pub use query_note::QueryNote;
 pub use recent::RecentVaults;
 pub use session::{Session, Sessions};

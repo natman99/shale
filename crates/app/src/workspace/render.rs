@@ -3,7 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
-use gpui::{anchored, div, prelude::*, px, AnchoredPositionMode, Context, MouseButton, Window};
+use gpui::{AnchoredPositionMode, Context, MouseButton, Window, anchored, div, prelude::*, px};
 
 use crate::acts::*;
 use crate::editor::View;
@@ -12,11 +12,11 @@ use crate::sidebar;
 use crate::style::CHIP_RADIUS;
 use crate::tree;
 
-use super::bar::{mode_label, save_indicator, word_badge};
-use super::sidebar::{push_row, RowState};
-use super::tabs::TabContent;
-use super::tree::{push_node, TreeState};
 use super::Workspace;
+use super::bar::{mode_label, save_indicator, word_badge};
+use super::sidebar::{RowState, push_row};
+use super::tabs::TabContent;
+use super::tree::{TreeState, push_node};
 
 /// The height of the tab bar's row, and of one tab within it. A little taller than
 /// the status bar because it is something the pointer aims at, not something it

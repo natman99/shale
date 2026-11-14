@@ -16,9 +16,9 @@ use std::ops::Range;
 use std::rc::Rc;
 
 use gpui::{
-    div, px, App, Bounds, Context, EntityInputHandler, EventEmitter, FocusHandle, Focusable,
+    App, Bounds, Context, EntityInputHandler, EventEmitter, FocusHandle, Focusable,
     InteractiveElement, IntoElement, ParentElement, Pixels, Point, Render, SharedString, Styled,
-    UTF16Selection, Window,
+    UTF16Selection, Window, div, px,
 };
 use shale_core::theme::Palette;
 
@@ -26,7 +26,7 @@ use crate::acts::{
     FieldBackspace, FieldCancel, FieldDelete, FieldDeleteWordBack, FieldLeft, FieldRight,
     FieldSubmit,
 };
-use crate::field::{self, approx_char_width, Field, FieldElement, FieldOwner};
+use crate::field::{self, Field, FieldElement, FieldOwner, approx_char_width};
 use crate::field_key_actions;
 
 /// The key context the prompt's bindings live in. While it is open its keys win

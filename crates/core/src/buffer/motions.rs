@@ -8,9 +8,9 @@
 //! methods that need one take it as an argument, so a display question can never be
 //! answered from another view's wrap points.
 
-use super::view::ViewSlot;
-use super::words::{class_of, WordClass};
 use super::Buffer;
+use super::view::ViewSlot;
+use super::words::{WordClass, class_of};
 
 impl Buffer {
     pub fn move_left(&mut self) {

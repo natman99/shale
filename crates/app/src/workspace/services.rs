@@ -271,31 +271,33 @@ impl VaultServices {
             return;
         };
         let watched = cx.entity().downgrade();
-        cx.spawn(async move |_ws, cx| loop {
-            // The weak handle: when the vault's services are gone there is
-            // nothing left to back up, and the loop ends with them.
-            if watched.upgrade().is_none() {
-                break;
-            }
-            // A handle per round trip: the loop outlives each backup, so the
-            // `Db` is cloned into the job rather than moved.
-            let db = db.clone();
-            let outcome = cx
-                .background_executor()
-                .spawn(async move { db.backup() })
-                .await;
-            match outcome {
-                Ok(Some(path)) => {
-                    tracing::info!(path = %path.display(), "the vault index was backed up")
+        cx.spawn(async move |_ws, cx| {
+            loop {
+                // The weak handle: when the vault's services are gone there is
+                // nothing left to back up, and the loop ends with them.
+                if watched.upgrade().is_none() {
+                    break;
                 }
-                // Today's copy already existed: the normal answer, forty-seven
-                // times a day.
-                Ok(None) => {}
-                Err(err) => {
-                    tracing::warn!("the vault index was not backed up: {err:#}");
+                // A handle per round trip: the loop outlives each backup, so the
+                // `Db` is cloned into the job rather than moved.
+                let db = db.clone();
+                let outcome = cx
+                    .background_executor()
+                    .spawn(async move { db.backup() })
+                    .await;
+                match outcome {
+                    Ok(Some(path)) => {
+                        tracing::info!(path = %path.display(), "the vault index was backed up")
+                    }
+                    // Today's copy already existed: the normal answer, forty-seven
+                    // times a day.
+                    Ok(None) => {}
+                    Err(err) => {
+                        tracing::warn!("the vault index was not backed up: {err:#}");
+                    }
                 }
+                cx.background_executor().timer(BACKUP_POLL).await;
             }
-            cx.background_executor().timer(BACKUP_POLL).await;
         })
         .detach();
     }
@@ -371,10 +373,10 @@ impl VaultServices {
     /// `shale-mcp` to look finds nothing rather than a stale hint.
     pub(crate) fn stop_live(&mut self) {
         self.live_snapshot = None;
-        if let Some(server) = self.live.take() {
-            if let Err(err) = server.stop() {
-                tracing::warn!("could not remove the MCP lock: {err:#}");
-            }
+        if let Some(server) = self.live.take()
+            && let Err(err) = server.stop()
+        {
+            tracing::warn!("could not remove the MCP lock: {err:#}");
         }
     }
 }

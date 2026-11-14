@@ -12,8 +12,8 @@
 //! cost that only shows up on a big vault.
 
 use gpui::SharedString;
-use shale_core::graph::geom::Grid;
 use shale_core::graph::NodeKind;
+use shale_core::graph::geom::Grid;
 
 /// One node as the tab sees it.
 pub(crate) struct GraphNode {

@@ -11,7 +11,7 @@ use crate::table;
 use crate::table::Located;
 
 use super::tables::snap_cell_motion;
-use super::{char_range, repeat, FindRecord, Key, Mode, Operator, Outcome, Pending, Register, Vim};
+use super::{FindRecord, Key, Mode, Operator, Outcome, Pending, Register, Vim, char_range, repeat};
 
 impl Vim {
     /// The normal-mode state machine: motions, operators and insert transitions.
@@ -30,15 +30,15 @@ impl Vim {
         // A digit extends the count. A bare `0` (with no count in progress) is
         // the line-start motion instead. A digit that is the argument of a
         // half-typed command (`f0`) is a literal, not a count.
-        if let Key::Char(c @ '0'..='9') = key {
-            if !self.waiting_for_literal() {
-                if c == '0' && self.count.is_none() && self.pending == Pending::None {
-                    self.zero_motion(buf, view);
-                    return Outcome::Stay;
-                }
-                self.count = Some(self.count.unwrap_or(0) * 10 + (c as usize - '0' as usize));
+        if let Key::Char(c @ '0'..='9') = key
+            && !self.waiting_for_literal()
+        {
+            if c == '0' && self.count.is_none() && self.pending == Pending::None {
+                self.zero_motion(buf, view);
                 return Outcome::Stay;
             }
+            self.count = Some(self.count.unwrap_or(0) * 10 + (c as usize - '0' as usize));
+            return Outcome::Stay;
         }
 
         // A find is waiting for its character.
@@ -387,10 +387,10 @@ impl Vim {
         // than the whole row. Plain `j`/`k` fall through to the ordinary line
         // motions below, which is what lets the cursor reach a table's delimiter
         // row when live preview is drawing it.
-        if let Some(loc) = located {
-            if let Some(outcome) = self.table_command(key, count, &tables, loc, buf, view) {
-                return outcome;
-            }
+        if let Some(loc) = located
+            && let Some(outcome) = self.table_command(key, count, &tables, loc, buf, view)
+        {
+            return outcome;
         }
         // The motions that follow are the ordinary (non-table) ones; a table row
         // adjusts where they come to rest below.
@@ -492,24 +492,24 @@ impl Vim {
                 return Outcome::Stay;
             }
             Key::Char('s') => {
-                return self.apply_operator(Operator::Change, count, Key::Char('l'), buf, view)
+                return self.apply_operator(Operator::Change, count, Key::Char('l'), buf, view);
             }
             Key::Char('C') => {
-                return self.apply_operator(Operator::Change, count, Key::Char('$'), buf, view)
+                return self.apply_operator(Operator::Change, count, Key::Char('$'), buf, view);
             }
             Key::Char('D') => {
-                return self.apply_operator(Operator::Delete, count, Key::Char('$'), buf, view)
+                return self.apply_operator(Operator::Delete, count, Key::Char('$'), buf, view);
             }
             Key::Char('X') => {
-                return self.apply_operator(Operator::Delete, count, Key::Char('h'), buf, view)
+                return self.apply_operator(Operator::Delete, count, Key::Char('h'), buf, view);
             }
             // `S` and `Y` are the linewise shorthands: the doubled operator letter is
             // exactly the linewise form `apply_operator` already implements.
             Key::Char('S') => {
-                return self.apply_operator(Operator::Change, count, Key::Char('c'), buf, view)
+                return self.apply_operator(Operator::Change, count, Key::Char('c'), buf, view);
             }
             Key::Char('Y') => {
-                return self.apply_operator(Operator::Yank, count, Key::Char('y'), buf, view)
+                return self.apply_operator(Operator::Yank, count, Key::Char('y'), buf, view);
             }
             // `J` joins the line below onto this one. It is its own operator —
             // there is no motion to wait for — and the count is how many lines the

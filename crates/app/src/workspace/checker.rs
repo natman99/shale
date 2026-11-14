@@ -12,7 +12,7 @@
 
 use std::path::Path;
 
-use crate::lsp::{absolute, Diagnostic, Spell};
+use crate::lsp::{Diagnostic, Spell, absolute};
 use gpui::{Context, Entity};
 
 use super::Workspace;
@@ -119,11 +119,11 @@ impl Workspace {
                     // answered: a `didOpen` the server reads while it is still
                     // starting is one it throws away, and the note is then never
                     // checked (`:harper on` used to leave exactly that).
-                    if let Some(path) = self.note().clone() {
-                        if let Some(editor) = self.editor().cloned() {
-                            let text = editor.read_with(cx, |editor, _cx| editor.text());
-                            self.checker_opened(&path, &text, cx);
-                        }
+                    if let Some(path) = self.note().clone()
+                        && let Some(editor) = self.editor().cloned()
+                    {
+                        let text = editor.read_with(cx, |editor, _cx| editor.text());
+                        self.checker_opened(&path, &text, cx);
                     }
                 }
                 Err(err) => {

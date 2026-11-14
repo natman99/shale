@@ -228,7 +228,7 @@ fn sanitize(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::diff::{apply, hunks, Outcome};
+    use crate::diff::{Outcome, apply, hunks};
 
     const NOTE: &str = "one\ntwo\nthree\nfour\nfive\n";
 

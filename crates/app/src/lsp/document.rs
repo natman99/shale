@@ -11,7 +11,7 @@
 
 use serde_json::json;
 
-use super::{wire, LANGUAGE};
+use super::{LANGUAGE, wire};
 
 /// The document the checker is looking at, as far as we know.
 pub(crate) struct Document {
@@ -158,10 +158,10 @@ mod tests {
     /// The params of the one `didOpen` among these frames.
     fn opened_params(frames: &[Vec<u8>]) -> Value {
         for message in decode(frames) {
-            if let wire::Message::Notification { method, params } = message {
-                if method == "textDocument/didOpen" {
-                    return params;
-                }
+            if let wire::Message::Notification { method, params } = message
+                && method == "textDocument/didOpen"
+            {
+                return params;
             }
         }
         panic!("no `didOpen` among {} frames", frames.len());

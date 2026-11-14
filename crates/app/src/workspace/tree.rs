@@ -9,8 +9,8 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use gpui::{
-    div, prelude::*, px, Context, InteractiveElement, ParentElement, StatefulInteractiveElement,
-    Styled, Window,
+    Context, InteractiveElement, ParentElement, StatefulInteractiveElement, Styled, Window, div,
+    prelude::*, px,
 };
 use shale_core::theme::Palette;
 

@@ -23,14 +23,14 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use gpui::{prelude::*, Context, Entity, Window};
+use gpui::{Context, Entity, Window, prelude::*};
 use shale_core::vault::VaultEntry;
 use shale_core::watch::VaultChanges;
 
 use crate::acts::OpenGraph;
 
-use super::tabs::{Tab, TabContent};
 use super::Workspace;
+use super::tabs::{Tab, TabContent};
 
 /// How often the graph's beat runs: one frame at 60 fps, which is what makes the
 /// layout look like motion rather than a slideshow.
@@ -197,13 +197,13 @@ impl Workspace {
         let visible = self.graph_visibility();
         let summary = self.graph_summary(&visible)?;
         let previous = self.graph_sim.take();
-        if let Some(previous) = previous.as_ref() {
-            if previous.dim() != self.graph_dim {
-                // Worth one line: a switch re-heats the layout at its own heat, and a
-                // graph that moved for no visible reason is the kind of thing a log is
-                // for (roadmap P3.6).
-                tracing::debug!(dim = ?self.graph_dim, "the graph changes space");
-            }
+        if let Some(previous) = previous.as_ref()
+            && previous.dim() != self.graph_dim
+        {
+            // Worth one line: a switch re-heats the layout at its own heat, and a
+            // graph that moved for no visible reason is the kind of thing a log is
+            // for (roadmap P3.6).
+            tracing::debug!(dim = ?self.graph_dim, "the graph changes space");
         }
         if let Some(index) = self.graph.as_ref() {
             self.graph_sim = Some(crate::graph::GraphSim::build(
@@ -282,7 +282,7 @@ impl Workspace {
         depth: Option<usize>,
         cx: &mut Context<Self>,
     ) -> Option<(crate::graph::GraphSummary, Rc<crate::graph::GraphFrame>)> {
-        use shale_core::graph::filter::{LocalScope, LOCAL_DEPTH_MAX};
+        use shale_core::graph::filter::{LOCAL_DEPTH_MAX, LocalScope};
         match depth {
             None => self.graph_filter.local = None,
             Some(depth) => {

@@ -32,8 +32,8 @@ mod tree;
 mod workspace;
 
 use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use anyhow::{Context as _, Result};
 use clap::Parser;

@@ -62,10 +62,10 @@ impl Workspace {
         self.search.query = query.to_string();
         self.search.index = None;
         self.recount_hits(cx);
-        if let Some(hit) = self.search.current() {
-            if let Some(editor) = self.editor().cloned() {
-                editor.update(cx, |editor, cx| editor.reveal_offset(hit.0, cx));
-            }
+        if let Some(hit) = self.search.current()
+            && let Some(editor) = self.editor().cloned()
+        {
+            editor.update(cx, |editor, cx| editor.reveal_offset(hit.0, cx));
         }
         cx.notify();
     }
@@ -81,10 +81,10 @@ impl Workspace {
         self.search.query = query.to_string();
         self.search.index = None;
         self.recount_hits(cx);
-        if let Some(hit) = self.search.current() {
-            if let Some(editor) = self.editor().cloned() {
-                editor.update(cx, |editor, cx| editor.reveal_offset(hit.0, cx));
-            }
+        if let Some(hit) = self.search.current()
+            && let Some(editor) = self.editor().cloned()
+        {
+            editor.update(cx, |editor, cx| editor.reveal_offset(hit.0, cx));
         }
         self.close_prompt(window, cx);
     }

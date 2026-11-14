@@ -18,9 +18,9 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use gpui::{px, IndentAdjustment, LineFragment, LineWrapperHandle, Pixels};
+use gpui::{IndentAdjustment, LineFragment, LineWrapperHandle, Pixels, px};
 use shale_core::mdlayout;
-use shale_core::mdstyle::{quotes, style_spans, Style};
+use shale_core::mdstyle::{Style, quotes, style_spans};
 use shale_core::theme::Palette;
 use shale_core::transclude::{self, Body, Sources};
 use shale_core::vault::{Vault, VaultEntry};

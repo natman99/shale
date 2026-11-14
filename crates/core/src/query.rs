@@ -232,14 +232,14 @@ fn prop(rest: &str) -> Option<Op> {
         ("<", Cmp::Lt),
         (">", Cmp::Gt),
     ] {
-        if let Some((key, value)) = rest.split_once(spelling) {
-            if !key.is_empty() {
-                return Some(Op::Prop {
-                    key: key.to_string(),
-                    cmp,
-                    value: Some(value.to_string()),
-                });
-            }
+        if let Some((key, value)) = rest.split_once(spelling)
+            && !key.is_empty()
+        {
+            return Some(Op::Prop {
+                key: key.to_string(),
+                cmp,
+                value: Some(value.to_string()),
+            });
         }
     }
     // No comparison operator was found, so the token asks only whether the note

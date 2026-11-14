@@ -202,10 +202,10 @@ impl Grid {
                     continue;
                 }
                 for &i in &self.buckets[(c + r * self.cols) as usize] {
-                    if let Some(vis) = visible {
-                        if !vis[i as usize] {
-                            continue;
-                        }
+                    if let Some(vis) = visible
+                        && !vis[i as usize]
+                    {
+                        continue;
                     }
                     let p = positions[i as usize];
                     let d2 = (p[0] - world[0]).powi(2) + (p[1] - world[1]).powi(2);
@@ -239,10 +239,10 @@ impl Grid {
             if i == from {
                 continue;
             }
-            if let Some(vis) = visible {
-                if !vis[i as usize] {
-                    continue;
-                }
+            if let Some(vis) = visible
+                && !vis[i as usize]
+            {
+                continue;
             }
             let vx = p[0] - origin[0];
             let vy = p[1] - origin[1];

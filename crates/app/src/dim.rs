@@ -14,8 +14,8 @@
 //! background quad alike.
 
 use shale_core::mdstyle::{
-    object::{range as object_range, Object},
     Style, StyleSpan,
+    object::{Object, range as object_range},
 };
 
 /// How much of a colour survives, by how many blocks a row sits from the lit one.
@@ -217,11 +217,7 @@ fn block_span(rows: &[(usize, usize)], blocks: &[usize], want: usize) -> (usize,
             span.1 = span.1.max(rows[row].1);
         }
     }
-    if span.0 == usize::MAX {
-        (0, 0)
-    } else {
-        span
-    }
+    if span.0 == usize::MAX { (0, 0) } else { span }
 }
 
 #[cfg(test)]

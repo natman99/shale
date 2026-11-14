@@ -18,11 +18,11 @@
 //! forgotten state is sad, a window that will not open is worse.
 
 use gpui::Context;
+use shale_core::Session;
 use shale_core::graph::filter::GraphFilter;
 use shale_core::session::{
     GraphFilterSeat, Jump as CoreJump, PaneSeat as CorePaneSeat, Tab as CoreTab,
 };
-use shale_core::Session;
 
 use super::Workspace;
 use crate::dim;
@@ -367,26 +367,25 @@ impl Workspace {
             // session remembers one seat, the one the user was looking at — in the pane
             // that had the keyboard. With the graph on screen there is no seat to put
             // back.
-            if let Some(offset) = session.cursor {
-                if let Some(editor) = self.editor().cloned() {
-                    editor.update(cx, |editor, cx| {
-                        editor.restore_place(offset, session.scroll_y, cx)
-                    });
-                }
+            if let Some(offset) = session.cursor
+                && let Some(editor) = self.editor().cloned()
+            {
+                editor.update(cx, |editor, cx| {
+                    editor.restore_place(offset, session.scroll_y, cx)
+                });
             }
         } else if let Some(note) = session.open_note.as_ref() {
             // A note deleted since last time is not a session, it is a memory;
             // the window opens with nothing rather than an error on frame one.
             if self.vault.exists(note) {
                 self.load_note(note, super::notes::Load::Here, cx);
-                if self.note().as_deref() == Some(note.as_path()) {
-                    if let Some(offset) = session.cursor {
-                        if let Some(editor) = self.editor().cloned() {
-                            editor.update(cx, |editor, cx| {
-                                editor.restore_place(offset, session.scroll_y, cx)
-                            });
-                        }
-                    }
+                if self.note().as_deref() == Some(note.as_path())
+                    && let Some(offset) = session.cursor
+                    && let Some(editor) = self.editor().cloned()
+                {
+                    editor.update(cx, |editor, cx| {
+                        editor.restore_place(offset, session.scroll_y, cx)
+                    });
                 }
             }
         }
@@ -421,10 +420,8 @@ impl Workspace {
                 // The view is a tab's own, and the loop above already handed each tab the
                 // view it was left in. `session.view` is the pre-tab field: it is only
                 // read when there were no tabs to ask, where it describes the one tab.
-                if !had_tabs {
-                    if let Some(view) = session.view.as_deref() {
-                        editor.set_view(View::from_word(view), cx);
-                    }
+                if !had_tabs && let Some(view) = session.view.as_deref() {
+                    editor.set_view(View::from_word(view), cx);
                 }
                 if session.focus == Some(true) {
                     editor.set_focus_mode(true, cx);

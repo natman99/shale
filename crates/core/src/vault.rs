@@ -3,7 +3,7 @@ use std::fs;
 use std::io;
 use std::path::{Component, Path, PathBuf};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 
 use crate::watch::Stamp;
 
@@ -695,10 +695,10 @@ fn check_name(name: &str, rel: &Path) -> Result<()> {
 /// own machinery (`.obsidian`, `.shale`, `.git`) lives.
 fn guard_unprotected(rel: &Path) -> Result<()> {
     for comp in rel.components() {
-        if let Component::Normal(c) = comp {
-            if c.to_string_lossy().starts_with('.') {
-                bail!("{} is not vault content", rel.display());
-            }
+        if let Component::Normal(c) = comp
+            && c.to_string_lossy().starts_with('.')
+        {
+            bail!("{} is not vault content", rel.display());
         }
     }
     Ok(())
@@ -935,9 +935,11 @@ mod tests {
         // An attachment is never aliased.
         assert!(r.resolve_attachment("Hobgoblin").is_none());
         // And without the aliases the same resolver says nothing about `Hobgoblin`.
-        assert!(LinkResolver::new(&entries)
-            .resolve_link("Hobgoblin")
-            .is_none());
+        assert!(
+            LinkResolver::new(&entries)
+                .resolve_link("Hobgoblin")
+                .is_none()
+        );
     }
 
     /// The table-based resolver must keep the scan's exact tie and

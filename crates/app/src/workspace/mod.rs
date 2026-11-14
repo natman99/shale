@@ -48,10 +48,10 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
-use gpui::{prelude::*, Context, Entity, SharedString, Subscription, Task, Window};
+use gpui::{Context, Entity, SharedString, Subscription, Task, Window, prelude::*};
 use shale_core::db::{Db, Provenance};
 use shale_core::theme::{self, Palette};
-use shale_core::vault::{rel_text, VaultEntry};
+use shale_core::vault::{VaultEntry, rel_text};
 use shale_core::watch::{Stamp, VaultChanges};
 use shale_core::{Config, Vault};
 
@@ -1053,10 +1053,9 @@ impl Workspace {
                 if let tabs::TabContent::Note {
                     path: slot, editor, ..
                 } = &tab.content
+                    && slot.as_deref() == Some(path)
                 {
-                    if slot.as_deref() == Some(path) {
-                        editor.update(cx, |editor, cx| editor.note_reloaded(cx));
-                    }
+                    editor.update(cx, |editor, cx| editor.note_reloaded(cx));
                 }
             }
         }

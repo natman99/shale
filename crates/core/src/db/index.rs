@@ -23,17 +23,17 @@ use std::time::{Duration, UNIX_EPOCH};
 
 use anyhow::{Context as _, Result};
 use rusqlite::types::Value;
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 
 use crate::frontmatter::{self, KeyCensus, Kind, Prop};
 use crate::graph::note_tags;
 use crate::markdown::extract_wikilinks;
 use crate::mdstyle::object::heading_lines;
 use crate::query::Query;
-use crate::vault::{rel_text, Vault, VaultEntry};
+use crate::vault::{Vault, VaultEntry, rel_text};
 use crate::watch::{Stamp, VaultChanges};
 
-use super::{now_epoch, Db, Provenance};
+use super::{Db, Provenance, now_epoch};
 
 /// The `links.target_kind` vocabulary: what a wiki-link's target turned out to be.
 pub mod target_kind {
@@ -1532,36 +1532,36 @@ fn where_clause(q: &Query) -> (String, Vec<Value>, Vec<String>) {
                     // A note with no cr at all is not a note with a different one.
                     let frag = prop_equality(value.as_deref().unwrap_or(""));
                     add(
-                            &mut sql,
-                            &mut args,
-                            &format!(
-                                " AND EXISTS (SELECT 1 FROM props p WHERE p.note = n.path AND p.key = ?) \
+                        &mut sql,
+                        &mut args,
+                        &format!(
+                            " AND EXISTS (SELECT 1 FROM props p WHERE p.note = n.path AND p.key = ?) \
                  AND NOT EXISTS (SELECT 1 FROM props p WHERE p.note = n.path AND p.key = ?{frag})"
-                            ),
-                            &[key, key, value.as_deref().unwrap_or("")],
-                        );
+                        ),
+                        &[key, key, value.as_deref().unwrap_or("")],
+                    );
                 }
                 Cmp::Eq => {
                     let frag = prop_equality(value.as_deref().unwrap_or(""));
                     add(
-                            &mut sql,
-                            &mut args,
-                            &format!(
-                                " AND EXISTS (SELECT 1 FROM props p WHERE p.note = n.path AND p.key = ?{frag})"
-                            ),
-                            &[key, value.as_deref().unwrap_or("")],
-                        );
+                        &mut sql,
+                        &mut args,
+                        &format!(
+                            " AND EXISTS (SELECT 1 FROM props p WHERE p.note = n.path AND p.key = ?{frag})"
+                        ),
+                        &[key, value.as_deref().unwrap_or("")],
+                    );
                 }
                 other => {
                     let frag = prop_ordering(*other);
                     add(
-                            &mut sql,
-                            &mut args,
-                            &format!(
-                                " AND EXISTS (SELECT 1 FROM props p WHERE p.note = n.path AND p.key = ?{frag})"
-                            ),
-                            &[key, value.as_deref().unwrap_or("")],
-                        );
+                        &mut sql,
+                        &mut args,
+                        &format!(
+                            " AND EXISTS (SELECT 1 FROM props p WHERE p.note = n.path AND p.key = ?{frag})"
+                        ),
+                        &[key, value.as_deref().unwrap_or("")],
+                    );
                 }
             },
             Op::Modified(after) => {
@@ -2499,8 +2499,13 @@ mod tests {
         // user can see rather than a wrong answer, and it only works because both kinds
         // survived in the table.
         assert_eq!(
-            column(&db, "SELECT key || '=' || kind || '=' || CAST(COUNT(*) AS TEXT) FROM props GROUP BY key, kind"),
-            ["session=number=1", "session=text=1"].map(String::from).to_vec()
+            column(
+                &db,
+                "SELECT key || '=' || kind || '=' || CAST(COUNT(*) AS TEXT) FROM props GROUP BY key, kind"
+            ),
+            ["session=number=1", "session=text=1"]
+                .map(String::from)
+                .to_vec()
         );
     }
 

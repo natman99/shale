@@ -30,7 +30,7 @@
 //! a dozen 8px glyphs are cheaper and more predictable to state as points than to
 //! transcribe path data and rescale.
 
-use gpui::{fill, point, px, rgb, Bounds, PathBuilder, Pixels, Point, Size, Window};
+use gpui::{Bounds, PathBuilder, Pixels, Point, Size, Window, fill, point, px, rgb};
 use shale_core::mdstyle::CalloutKind;
 
 /// The side of the square a mark is drawn in, and the air it keeps from the text, both

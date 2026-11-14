@@ -31,9 +31,9 @@ use std::path::PathBuf;
 
 use anyhow::{Context as _, Result};
 use clap::Parser;
-use serde_json::{json, Value};
-use shale_core::config::McpProfile;
+use serde_json::{Value, json};
 use shale_core::Vault;
+use shale_core::config::McpProfile;
 
 mod live;
 mod pending_tools;
@@ -442,10 +442,12 @@ mod tests {
             "resources/read",
             &json!({ "uri": resources::STATUS_URI }),
         )?;
-        assert!(read["contents"][0]["text"]
-            .as_str()
-            .unwrap()
-            .contains("app_running"));
+        assert!(
+            read["contents"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("app_running")
+        );
         Ok(())
     }
 
@@ -532,8 +534,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let vault = Vault::open(dir.path()).unwrap();
         let outside = Path::new(dir.path()).join("..").join("secret.md");
-        assert!(vault
-            .read(outside.strip_prefix(dir.path()).unwrap())
-            .is_err());
+        assert!(
+            vault
+                .read(outside.strip_prefix(dir.path()).unwrap())
+                .is_err()
+        );
     }
 }

@@ -25,9 +25,9 @@ use std::ops::Range;
 use std::rc::Rc;
 
 use gpui::{
-    div, font, prelude::*, px, rgb, App, Bounds, Context, CursorStyle, EntityInputHandler,
-    EventEmitter, FocusHandle, Focusable, Font, InteractiveElement, IntoElement, ParentElement,
-    Pixels, Point, Render, SharedString, Styled, StyledText, TextRun, UTF16Selection, Window,
+    App, Bounds, Context, CursorStyle, EntityInputHandler, EventEmitter, FocusHandle, Focusable,
+    Font, InteractiveElement, IntoElement, ParentElement, Pixels, Point, Render, SharedString,
+    Styled, StyledText, TextRun, UTF16Selection, Window, div, font, prelude::*, px, rgb,
 };
 use shale_core::theme::Palette;
 
@@ -35,7 +35,7 @@ use crate::acts::{
     FieldBackspace, FieldCancel, FieldDelete, FieldDeleteWordBack, FieldLeft, FieldRight,
     FieldSubmit, PickerDown, PickerUp,
 };
-use crate::field::{approx_char_width, Field, FieldElement, FieldOwner};
+use crate::field::{Field, FieldElement, FieldOwner, approx_char_width};
 use crate::field_key_actions;
 use crate::style::CHIP_RADIUS;
 

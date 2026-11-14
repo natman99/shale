@@ -493,7 +493,9 @@ mod tests {
         let view = fold_view(&regions, &state, 11);
         assert_eq!(
             view.collapsed,
-            vec![false, false, false, true, true, true, false, false, false, false, false],
+            vec![
+                false, false, false, true, true, true, false, false, false, false, false
+            ],
             "the heading row stays; the rows under it go"
         );
         assert_eq!(view.marker[2], Some(3.into()));

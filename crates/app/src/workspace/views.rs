@@ -202,9 +202,5 @@ impl Workspace {
 
 /// The status line's word for a mode being on or off.
 fn on_off(on: bool) -> &'static str {
-    if on {
-        "on"
-    } else {
-        "off"
-    }
+    if on { "on" } else { "off" }
 }

@@ -15,8 +15,8 @@
 use std::rc::Rc;
 
 use gpui::{
-    div, prelude::*, px, Context, IntoElement, ParentElement, Pixels, Render, SharedString, Size,
-    Styled, Window,
+    Context, IntoElement, ParentElement, Pixels, Render, SharedString, Size, Styled, Window, div,
+    prelude::*, px,
 };
 use shale_core::theme::Palette;
 

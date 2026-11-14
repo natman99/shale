@@ -33,7 +33,7 @@ use std::time::Duration;
 use anyhow::{Context as _, Result};
 use futures::StreamExt;
 use gpui::{App, AppContext as _, Context, Entity};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use shale_core::config::SpellcheckConfig;
 
 pub(crate) use mapping::{Diagnostic, Fix};

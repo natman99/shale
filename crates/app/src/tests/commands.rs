@@ -4,8 +4,8 @@
 //! a fuzzy guess.
 
 use super::*;
-use shale_core::theme::Palette;
 use shale_core::Session;
+use shale_core::theme::Palette;
 
 /// The status line, which is where a command reports what it did — or refused to.
 pub(crate) fn status(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> String {
@@ -259,9 +259,11 @@ fn harper_off_is_a_report_when_there_is_no_checker(cx: &mut TestAppContext) {
 
     type_command("harper off", cx);
     assert_eq!(status(&window, cx), "the spellchecker is already off");
-    assert!(!window
-        .update(cx, |ws, _window, _cx| ws.has_checker())
-        .unwrap());
+    assert!(
+        !window
+            .update(cx, |ws, _window, _cx| ws.has_checker())
+            .unwrap()
+    );
 }
 
 /// The clipboard mirror, out: a yank in Shale is a copy other programs can see, with

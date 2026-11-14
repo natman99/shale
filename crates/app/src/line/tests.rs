@@ -4,8 +4,8 @@
 //! the shape table is checked against the palette rather than against a picture.
 
 use super::*;
-use crate::line::runs::{build_runs, cell_styles, LineStyles};
-use gpui::{font, TextRun};
+use crate::line::runs::{LineStyles, build_runs, cell_styles};
+use gpui::{TextRun, font};
 
 /// One paint input: the line's text, its markdown spans, its wiki-link spans
 /// (start, end, resolved) and the checker's ranges.
@@ -346,7 +346,7 @@ fn a_row_under_review_is_struck_in_the_proposals_colour() {
 /// its own wrap took), so the rule is tested where it lives.
 #[test]
 fn the_chip_takes_the_longest_form_the_row_can_afford() {
-    use super::{chip_fit, ChipFit};
+    use super::{ChipFit, chip_fit};
     let room = gpui::px(200.);
     assert_eq!(
         chip_fit(room, gpui::px(180.), gpui::px(40.)),

@@ -8,10 +8,10 @@
 //! precisely because this binary cannot link against the app.
 
 use anyhow::{Context as _, Result};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use crate::live;
 use crate::Server;
+use crate::live;
 
 /// Whether a Shale window is up and what that makes available.
 pub(crate) const STATUS_URI: &str = "shale://status";
@@ -164,10 +164,12 @@ mod tests {
         assert_eq!(list(&with).len(), 3);
         let result = read(&with, COMMANDS_URI)?;
         assert_eq!(result["contents"][0]["mimeType"], "text/markdown");
-        assert!(result["contents"][0]["text"]
-            .as_str()
-            .unwrap()
-            .contains("note.save"));
+        assert!(
+            result["contents"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("note.save")
+        );
         Ok(())
     }
 

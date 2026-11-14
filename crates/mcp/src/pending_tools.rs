@@ -19,11 +19,11 @@
 //! scope may read — the queue is not a way to look at a note the profile cannot open.
 
 use anyhow::Result;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use shale_core::pending::{self, PendingEdit};
 
-use crate::refusal;
 use crate::Server;
+use crate::refusal;
 
 /// The queue tools, in the order `tools/list` offers them.
 pub(crate) fn definitions() -> Vec<Value> {
@@ -110,10 +110,10 @@ pub(crate) fn list(server: &Server, arguments: &Value) -> Result<Value> {
         if Some(edit.profile.as_str()) != server.profile_name.as_deref() {
             continue;
         }
-        if let Some(note) = only_note {
-            if edit.note != std::path::Path::new(note) {
-                continue;
-            }
+        if let Some(note) = only_note
+            && edit.note != std::path::Path::new(note)
+        {
+            continue;
         }
         // And a note the scope may not read is not in the queue at all, even though
         // the file is on disk.
@@ -196,7 +196,7 @@ pub(crate) fn retract(server: &Server, arguments: &Value) -> Result<Value> {
         Err(_) => {
             return Ok(refusal(&format!(
                 "no pending edit {id}. `pending_edits` lists what this profile has queued."
-            )))
+            )));
         }
     };
     if Some(edit.profile.as_str()) != server.profile_name.as_deref() {
@@ -218,8 +218,8 @@ pub(crate) fn retract(server: &Server, arguments: &Value) -> Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shale_core::config::McpProfile;
     use shale_core::Vault;
+    use shale_core::config::McpProfile;
     use std::path::Path;
 
     /// A server whose profile asks for review, which is the whole feature's switch,
@@ -351,9 +351,11 @@ mod tests {
 
         let done = retract(&server, &json!({ "id": id }))?;
         assert!(text(&done).starts_with("retracted "), "{done}");
-        assert!(shale_core::pending::list(server.vault.root())
-            .edits
-            .is_empty());
+        assert!(
+            shale_core::pending::list(server.vault.root())
+                .edits
+                .is_empty()
+        );
 
         // A second retract says so rather than pretending.
         let gone = retract(&server, &json!({ "id": id }))?;

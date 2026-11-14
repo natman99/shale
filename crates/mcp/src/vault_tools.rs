@@ -13,11 +13,11 @@
 //! *why* is one that stops trying.
 
 use anyhow::{Context as _, Result};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use shale_core::search::SearchOptions;
 
-use crate::refusal;
 use crate::Server;
+use crate::refusal;
 
 /// The tools, in the order an agent sees them in `tools/list`. The profile's
 /// allowlist is applied by the caller, which is also where the live tools are

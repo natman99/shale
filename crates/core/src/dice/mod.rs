@@ -24,7 +24,7 @@ pub mod report;
 pub mod stats;
 
 pub use dist::{DistError, Distribution};
-pub use parse::{parse, request, Dice, Expression, Keep, ParseError, Target, TargetWord, REQUEST};
+pub use parse::{Dice, Expression, Keep, ParseError, REQUEST, Target, TargetWord, parse, request};
 pub use stats::{Advantage, Check, Stats};
 
 /// The largest number of dice one term may roll. Past this the distribution is either

@@ -22,10 +22,10 @@
 use std::path::Path;
 
 use anyhow::Result;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use shale_core::config::McpProfile;
 use shale_core::live::{
-    get, mcp_json, probe, Lock, Status, PATH_JUMPS, PATH_NOTE, PATH_SELECTION, PATH_STATUS,
+    Lock, PATH_JUMPS, PATH_NOTE, PATH_SELECTION, PATH_STATUS, Status, get, mcp_json, probe,
 };
 
 use crate::refusal;
@@ -124,11 +124,13 @@ fn withheld(mut body: Value, profile: &McpProfile) -> Value {
     }
     for key in ["back", "forward"] {
         if let Some(jumps) = body.get(key).and_then(Value::as_array) {
-            body[key] = json!(jumps
-                .iter()
-                .filter_map(|jump| jump.as_str())
-                .filter(|note| profile.can_read(Path::new(note)))
-                .collect::<Vec<_>>());
+            body[key] = json!(
+                jumps
+                    .iter()
+                    .filter_map(|jump| jump.as_str())
+                    .filter(|note| profile.can_read(Path::new(note)))
+                    .collect::<Vec<_>>()
+            );
         }
     }
     body
@@ -252,10 +254,12 @@ mod tests {
 
         let answer = call(dir.path(), &McpProfile::default(), "live_note")?;
         assert_eq!(answer["isError"], true);
-        assert!(answer["content"][0]["text"]
-            .as_str()
-            .unwrap()
-            .starts_with("live tools unavailable"));
+        assert!(
+            answer["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .starts_with("live tools unavailable")
+        );
         Ok(())
     }
 
@@ -294,10 +298,12 @@ mod tests {
         );
         let answer = call(dir.path(), &McpProfile::default(), "live_status")?;
         assert_eq!(answer["isError"], true);
-        assert!(answer["content"][0]["text"]
-            .as_str()
-            .unwrap()
-            .contains("not answering"));
+        assert!(
+            answer["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("not answering")
+        );
         Ok(())
     }
 

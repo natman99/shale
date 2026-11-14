@@ -71,7 +71,7 @@ fn r_does_not_take_apart_a_table() {
     let mut vim = Vim::new();
     let mut b = table_buf();
     b.set_cursor(2); // the `a` of the first cell
-                     // Replacing across the cell's edge stops at the content: the pipe stays.
+    // Replacing across the cell's edge stops at the content: the pipe stays.
     type_keys(&mut vim, "4rx", &mut b);
     assert_eq!(
         b.text(),
@@ -117,7 +117,7 @@ fn tilde_repeats_over_the_word() {
     type_keys(&mut vim, ".", &mut b);
     assert_eq!(b.text(), "ABC def");
     assert_eq!(b.cursor(), 3); // the space
-                               // The next `.` switches the space — a no-op — and steps again.
+    // The next `.` switches the space — a no-op — and steps again.
     type_keys(&mut vim, ".", &mut b);
     assert_eq!(b.text(), "ABC def");
     assert_eq!(b.cursor(), 4);

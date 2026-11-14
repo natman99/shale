@@ -3,7 +3,7 @@
 //! follows from it. Inline styling of the text inside those constructs is done
 //! by `super::inline`.
 
-use super::{inline::inline_spans, is_table_delimiter_row, CalloutKind, Style, StyleSpan};
+use super::{CalloutKind, Style, StyleSpan, inline::inline_spans, is_table_delimiter_row};
 
 /// A thematic break: three or more of the same `-`, `*` or `_`, spaces allowed.
 pub(super) fn is_thematic_break(content: &str) -> bool {

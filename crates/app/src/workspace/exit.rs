@@ -19,16 +19,16 @@
 //! refused until the user saves or says `:q!`. An exit the user did not type — the
 //! window manager, a signal — never refuses and never discards.
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use gpui::{Context, Window};
 
 use crate::acts::{CloseTab, CloseTabForce, Quit, QuitForce, WriteAll};
 
-use super::vaults::VaultWindows;
 use super::Workspace;
+use super::vaults::VaultWindows;
 
 /// How often the window looks to see whether the process was asked to stop. Long
 /// enough to be invisible in a profile — one atomic load per poll — short enough

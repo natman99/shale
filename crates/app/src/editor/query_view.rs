@@ -15,8 +15,8 @@ use shale_core::db::{Cell, MAX_ROWS};
 use shale_core::mdstyle::Style;
 use shale_core::vault::VaultEntry;
 
-use super::overlay::BlockLine;
 use super::Answer;
+use super::overlay::BlockLine;
 use crate::line::phantom::PhantomKind;
 use crate::table_view::GridPaint;
 

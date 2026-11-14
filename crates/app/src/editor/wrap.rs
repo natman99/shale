@@ -6,7 +6,7 @@
 //! and `k` step over wrapped rows and over hidden markers the way the user sees
 //! them.
 
-use gpui::{px, IndentAdjustment, LineFragment, LineWrapperHandle, Pixels};
+use gpui::{IndentAdjustment, LineFragment, LineWrapperHandle, Pixels, px};
 use shale_core::mdlayout;
 use shale_core::mdstyle::{CalloutKind, Style, StyleSpan};
 use shale_core::table::Table;

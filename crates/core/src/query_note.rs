@@ -32,7 +32,7 @@
 //! where it is visible — the surface shows the declaration it read — rather than by
 //! failing the run.
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use std::path::Path;
 
 /// The fence a query note's declaration opens and closes with.
@@ -505,9 +505,10 @@ mod tests {
             "SELECT 1\n",
         ))
         .unwrap();
-        assert!(note
-            .sql
-            .contains("-- a comment that looks like a fence: ---"));
+        assert!(
+            note.sql
+                .contains("-- a comment that looks like a fence: ---")
+        );
     }
 
     #[test]

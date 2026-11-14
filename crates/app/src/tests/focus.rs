@@ -187,13 +187,17 @@ fn the_command_line_turns_focus_mode_both_ways(cx: &mut TestAppContext) {
     let (_dir, window) = window_with(cx, NOTE);
     let cx = &mut VisualTestContext::from_window(window.into(), cx);
     type_command("focus on", cx);
-    assert!(window
-        .update(cx, |ws, _window, cx| ws.focus_mode(cx))
-        .unwrap());
+    assert!(
+        window
+            .update(cx, |ws, _window, cx| ws.focus_mode(cx))
+            .unwrap()
+    );
     type_command("focus off", cx);
-    assert!(!window
-        .update(cx, |ws, _window, cx| ws.focus_mode(cx))
-        .unwrap());
+    assert!(
+        !window
+            .update(cx, |ws, _window, cx| ws.focus_mode(cx))
+            .unwrap()
+    );
     type_command("focus", cx);
     assert!(
         window
@@ -374,9 +378,11 @@ fn the_command_line_reports_typewriter_scroll(cx: &mut TestAppContext) {
     let (_dir, window) = window_with(cx, NOTE);
     let cx = &mut VisualTestContext::from_window(window.into(), cx);
     type_command("typewriter on", cx);
-    assert!(window
-        .update(cx, |ws, _window, cx| ws.typewriter(cx))
-        .unwrap());
+    assert!(
+        window
+            .update(cx, |ws, _window, cx| ws.typewriter(cx))
+            .unwrap()
+    );
     assert!(
         status(&window, cx).contains("typewriter scroll on"),
         "{:?}",

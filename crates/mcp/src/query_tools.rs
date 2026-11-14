@@ -19,13 +19,13 @@
 use std::path::Path;
 
 use anyhow::{Context as _, Result};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use shale_core::db::{Db, MAX_ROWS};
 use shale_core::query_note::{self, Outcome};
 use shale_core::vault::rel_text;
 
-use crate::refusal;
 use crate::Server;
+use crate::refusal;
 
 /// The tools, in the order an agent sees them in `tools/list`.
 pub(crate) fn definitions() -> Vec<Value> {

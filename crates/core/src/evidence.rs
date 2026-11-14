@@ -23,7 +23,7 @@
 //!    before rather than a line that is not in the note.
 
 use crate::frontmatter;
-use crate::mdstyle::{style_spans, Style};
+use crate::mdstyle::{Style, style_spans};
 use crate::query::{Cmp, Op};
 use crate::search::find_all;
 
@@ -202,15 +202,15 @@ impl<'a> Region<'a> {
                 }
             }
         }
-        if let Some(authored) = self.authored.as_deref() {
-            if !authored.trim().is_empty() {
-                for line in lines() {
-                    if let Some(found) = find_all(line, authored).into_iter().next() {
-                        return Evidence {
-                            line: line.to_string(),
-                            ranges: vec![found],
-                        };
-                    }
+        if let Some(authored) = self.authored.as_deref()
+            && !authored.trim().is_empty()
+        {
+            for line in lines() {
+                if let Some(found) = find_all(line, authored).into_iter().next() {
+                    return Evidence {
+                        line: line.to_string(),
+                        ranges: vec![found],
+                    };
                 }
             }
         }

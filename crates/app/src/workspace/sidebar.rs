@@ -13,7 +13,7 @@ use gpui::{Context, Window};
 use crate::acts::*;
 use crate::sidebar::{self, View};
 use shale_core::mdstyle::section::{
-    move_section, relevel_section, Direction, Refusal, StructureEdit,
+    Direction, Refusal, StructureEdit, move_section, relevel_section,
 };
 
 use super::Workspace;
@@ -335,10 +335,10 @@ impl Workspace {
             sidebar::Act::Reveal(line) => {
                 let subject = self.sidebar_subject(cx);
                 let on_screen = self.note();
-                if subject != on_screen {
-                    if let Some(path) = subject {
-                        self.open_note(&path, cx);
-                    }
+                if subject != on_screen
+                    && let Some(path) = subject
+                {
+                    self.open_note(&path, cx);
                 }
                 let found = self.editor().is_some_and(|editor| {
                     editor.update(cx, |editor, cx| editor.reveal_section(line, &row.text, cx))

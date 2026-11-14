@@ -14,13 +14,13 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use anyhow::{Context as _, Result};
 use gpui::{
-    px, size, App, AppContext as _, BorrowAppContext, Bounds, Entity, TitlebarOptions,
-    WindowBounds, WindowHandle, WindowOptions,
+    App, AppContext as _, BorrowAppContext, Bounds, Entity, TitlebarOptions, WindowBounds,
+    WindowHandle, WindowOptions, px, size,
 };
 use shale_core::{Config, RecentVaults, Vault};
 
@@ -30,9 +30,9 @@ use crate::acts::{ChangeVault, NewWindow};
 use crate::identity;
 use crate::picker::PickerItem;
 
-use super::services::{start_watcher, VaultServices};
 use super::PickerTarget;
-use super::{vault_title, Workspace};
+use super::services::{VaultServices, start_watcher};
+use super::{Workspace, vault_title};
 
 /// What the first window does beyond simply existing: `--note`, `--graph`,
 /// `--split`, `--open-after`. Later windows just open the vault.

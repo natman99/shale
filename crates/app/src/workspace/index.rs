@@ -25,8 +25,8 @@ use shale_core::frontmatter::{KeyCensus, Kind, Prop};
 use shale_core::vault::rel_text;
 use shale_core::watch::VaultChanges;
 
-use super::open::{notice, PickerTarget};
 use super::Workspace;
+use super::open::{PickerTarget, notice};
 use crate::acts::{Blocks, PropertyKeys, Props, RenamePropertyKey, Sections, WordCount};
 use crate::picker::{PickerItem, RowSource};
 

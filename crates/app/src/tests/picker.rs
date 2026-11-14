@@ -370,10 +370,12 @@ fn colon_opens_a_command_line_rather_than_the_palette(cx: &mut TestAppContext) {
     );
     // Escape puts the note back, so the next key is a motion again.
     cx.simulate_keystrokes("escape j");
-    assert!(window
-        .update(cx, |ws, _window, cx| ws.prompt_text(cx))
-        .unwrap()
-        .is_none());
+    assert!(
+        window
+            .update(cx, |ws, _window, cx| ws.prompt_text(cx))
+            .unwrap()
+            .is_none()
+    );
 }
 
 /// `space s` is the leader's other chord: the vault search. Like `space f`, the
@@ -1060,10 +1062,7 @@ fn a_long_line_cannot_panic_on_its_own_ellipsis(cx: &mut TestAppContext) {
                 "notes/Another Note.md",
                 "---\nalias: anon\ncr: 3\n---\nBack to [[Welcome]].\n",
             ),
-            (
-                "Welcome.md",
-                "# Welcome\n\nThis is [[Another Note]].\n",
-            ),
+            ("Welcome.md", "# Welcome\n\nThis is [[Another Note]].\n"),
             (
                 "Markdown Tour.md",
                 "# Markdown Tour\n\nLive-preview styling, one construct per line. Links: [[Welcome]], [[Another Note]],\n[[alias|an aliased link]] and [[A Note That Does Not Exist]].\n",
@@ -1136,7 +1135,10 @@ fn two_operators_both_keep_their_key_visible(cx: &mut TestAppContext) {
         cx,
         &[(
             "long.md",
-            &format!("---\ncr: {}\n---\n{filler}and the tag #monster lives out here\n\n{filler}and a link to [[lair]] lives further out\n", 9),
+            &format!(
+                "---\ncr: {}\n---\n{filler}and the tag #monster lives out here\n\n{filler}and a link to [[lair]] lives further out\n",
+                9
+            ),
         )],
     );
     let cx = &mut VisualTestContext::from_window(window.into(), cx);

@@ -26,9 +26,9 @@ use std::rc::Rc;
 use std::time::Instant;
 
 use gpui::{
-    canvas, div, prelude::*, App, Bounds, Context, FocusHandle, Focusable, IntoElement,
-    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, ScrollDelta,
-    ScrollWheelEvent, SharedString, WeakEntity, Window,
+    App, Bounds, Context, FocusHandle, Focusable, IntoElement, MouseButton, MouseDownEvent,
+    MouseMoveEvent, MouseUpEvent, Pixels, Point, ScrollDelta, ScrollWheelEvent, SharedString,
+    WeakEntity, Window, canvas, div, prelude::*,
 };
 use shale_core::graph::filter::GraphFilter;
 use shale_core::graph::geom::{Camera, MIN_ZOOM, ZOOM_STEP};
@@ -48,7 +48,7 @@ pub(crate) use frame::GraphFrame;
 // path's types needs them named here.
 pub(crate) use panel::{DEFAULT_LOCAL_DEPTH, FILTER_CONTEXT};
 #[cfg(test)]
-pub(crate) use proj::{paint_graph3d, Projection};
+pub(crate) use proj::{Projection, paint_graph3d};
 pub(crate) use sim::{Dim, GraphSim};
 
 /// The key context the graph's bindings live in. It is a context of its own for the

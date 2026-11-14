@@ -16,10 +16,10 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use gpui::SharedString;
+use shale_core::graph::NodeKind;
 use shale_core::graph::geom::Grid;
 use shale_core::graph::index::{GraphIndex, NodeMeta};
 use shale_core::graph::sim::{Sim, SimParams};
-use shale_core::graph::NodeKind;
 use shale_core::vault::rel_text;
 
 use super::frame::{GraphFrame, GraphNode};
@@ -89,11 +89,7 @@ fn canonical_links<'a>(slots: &'a [Slot], edges: &[[u32; 2]]) -> Vec<(&'a str, &
         .map(|[a, b]| {
             let from = slots[*a as usize].key.as_str();
             let to = slots[*b as usize].key.as_str();
-            if from <= to {
-                (from, to)
-            } else {
-                (to, from)
-            }
+            if from <= to { (from, to) } else { (to, from) }
         })
         .collect();
     out.sort_unstable();

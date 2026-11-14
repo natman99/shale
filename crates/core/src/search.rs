@@ -41,10 +41,10 @@ pub fn search(
                     line_number: idx + 1,
                     line_text: line.to_string(),
                 });
-                if let Some(max) = opts.max_hits {
-                    if hits.len() >= max {
-                        return Ok(hits);
-                    }
+                if let Some(max) = opts.max_hits
+                    && hits.len() >= max
+                {
+                    return Ok(hits);
                 }
             }
         }
