@@ -76,6 +76,13 @@ with the same semantics including the way `t` stops short, and `enter` to the ne
 first non-blank — and the arrow keys do the same four, for when the hands are not on
 `hjkl`. Counts work on motions and operators: `3w`, `2dd`, `5j`.
 
+`h` and `l` stop at the line's edges in normal mode, which is vim's rule: `h` at column
+0 stays on the line the way `l` stays at its end, and `dh` there has nothing to delete.
+A characterwise visual selection (`v`) crosses the edge in **both** directions, because
+there the line break is part of the selection; linewise visual (`V`) keeps the edges,
+where `h`/`l` walk along the row. The arrow keys are the exception in normal mode too —
+they are a request to be somewhere, and they cross.
+
 **Paging.** `shift-up` / `shift-down` move the caret a viewful at a time and `ctrl-u` /
 `ctrl-d` half a viewful. Both are the letters' motion with a count in front of it, so
 they step *display* rows on a wrapped note, take the visual selection with them, and

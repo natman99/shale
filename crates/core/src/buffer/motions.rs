@@ -26,6 +26,18 @@ impl Buffer {
         let next = self.next_char_boundary(pos);
         self.set_cursor(next);
     }
+    /// Move left but never onto the line above: the start of a line is where `h`
+    /// stops, exactly as the end of a line is where `l` stops. Crossing the edge is a
+    /// visual-mode thing, where the newline is part of the selection (vim's
+    /// `whichwrap` is off for `h`/`l` by default for the same reason).
+    pub fn move_left_stay_on_line(&mut self) {
+        let (row, _) = self.row_col(self.cursor);
+        let start = self.line_start(row);
+        if self.cursor > start {
+            self.set_cursor(self.prev_char_boundary(self.cursor));
+        }
+    }
+
     /// Move right but never past the end of the current line (vim `l`).
     pub fn move_right_stay_on_line(&mut self) {
         let (row, _) = self.row_col(self.cursor);

@@ -116,7 +116,10 @@ impl Vim {
             Key::Char('W') => repeat(count, || buf.big_word_forward()),
             Key::Char('E') => repeat(count, || buf.big_word_end()),
             Key::Char('B') => repeat(count, || buf.big_word_backward()),
-            Key::Char('h') => repeat(count, || buf.move_left()),
+            // `dh` stops at the start of the line, the way `dl` stops at its end: at
+            // column 0 there is nothing to delete, and reaching over the edge would
+            // take the line break with it.
+            Key::Char('h') => repeat(count, || buf.move_left_stay_on_line()),
             Key::Char('l') => repeat(count, || buf.move_right_stay_on_line()),
             Key::Char(' ') => repeat(count, || buf.move_right_stay_on_line()),
             Key::Char('0') => buf.line_start_motion(view),

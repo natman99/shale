@@ -396,10 +396,22 @@ impl Vim {
         // adjusts where they come to rest below.
         match key {
             // Motions
-            Key::Char('h') => repeat(count, || buf.move_left()),
+            // `h`/`l` stop at the line's edges in normal mode, which is vim's rule:
+            // a `0` then `h` does not land on the line above, just as `$` then `l`
+            // does not land on the line below. Characterwise visual is the exception
+            // in both directions, because there the newline is part of the selection
+            // and the head has to be able to sit on it. Linewise visual (`V`) keeps
+            // the edges, where `h`/`l` walk along the row.
+            Key::Char('h') => repeat(count, || match self.mode {
+                Mode::Visual => buf.move_left(),
+                _ => buf.move_left_stay_on_line(),
+            }),
             Key::Char('j') => repeat(count, || buf.move_down(view)),
             Key::Char('k') => repeat(count, || buf.move_up(view)),
-            Key::Char('l') => repeat(count, || buf.move_right_stay_on_line()),
+            Key::Char('l') => repeat(count, || match self.mode {
+                Mode::Visual => buf.move_right(),
+                _ => buf.move_right_stay_on_line(),
+            }),
             // The leader, and nothing else. `space` arms the chords (`space f`
             // quick-open, `space s` vault search, the note's three views, `space y`
             // the clipboard, `space d` focus mode, `space g` the graph, `space e` the

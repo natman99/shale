@@ -22,6 +22,100 @@ fn normal_mode_motions_and_operators() {
     assert_eq!(b.text(), "second line\nthird");
 }
 
+/// `h` and `l` stop at the line's edges in normal mode. The start of a line is where
+/// `h` stops, exactly as the end of a line is where `l` stops — the pair is an inverse
+/// pair, and neither one walks over the line break.
+#[test]
+fn h_and_l_stop_at_the_line_edges_in_normal_mode() {
+    // The buffer is "hello world\nsecond line\nthird": line 1 begins at 12 and the
+    // newline that ends line 0 sits at 11.
+    let mut vim = Vim::new();
+    let mut b = buf();
+    type_keys(&mut vim, "jh", &mut b);
+    assert_eq!(b.cursor(), 12, "`h` at column 0 stays on the line");
+
+    let mut vim = Vim::new();
+    let mut b = buf();
+    type_keys(&mut vim, "$lll", &mut b);
+    assert_eq!(
+        b.cursor(),
+        11,
+        "`l` reaches the line's end and stops there; it never lands on the line below"
+    );
+
+    // Away from the edges they are ordinary character steps.
+    let mut vim = Vim::new();
+    let mut b = buf();
+    type_keys(&mut vim, "$h", &mut b);
+    assert_eq!(b.cursor(), 9, "`h` mid-line still steps back");
+    let mut vim = Vim::new();
+    let mut b = buf();
+    type_keys(&mut vim, "$2h", &mut b);
+    assert_eq!(b.cursor(), 8, "and a count walks them");
+}
+
+/// Characterwise visual is the exception in both directions: the newline is part of
+/// the selection, so the head has to be able to sit on it. Linewise visual keeps the
+/// edges, where `h`/`l` walk along the row.
+#[test]
+fn visual_selections_cross_the_line_edge_both_ways() {
+    let mut vim = Vim::new();
+    let mut b = buf();
+    type_keys(&mut vim, "v$ll", &mut b);
+    assert_eq!(
+        b.cursor(),
+        12,
+        "in characterwise visual the head crosses the break onto the line below"
+    );
+    assert_eq!(b.selection(), Some((0, 12)), "and the newline is inside it");
+
+    let mut vim = Vim::new();
+    let mut b = buf();
+    type_keys(&mut vim, "2jvh", &mut b);
+    assert_eq!(b.cursor(), 23, "`h` at column 0 reaches back over the edge");
+    assert_eq!(b.selection(), Some((24, 23)));
+
+    let mut vim = Vim::new();
+    let mut b = buf();
+    type_keys(&mut vim, "V$ll", &mut b);
+    assert_eq!(
+        b.cursor(),
+        11,
+        "`V` keeps the edge: `l` there walks the row, not the note"
+    );
+    assert_eq!(vim.mode(), Mode::VisualLine);
+}
+
+/// `dh` stops at the start of the line the way `dl` stops at its end: at column 0
+/// there is nothing to delete, and reaching over the edge would take the line break
+/// with it.
+#[test]
+fn dh_at_the_start_of_a_line_deletes_nothing() {
+    let mut vim = Vim::new();
+    let mut b = buf();
+    type_keys(&mut vim, "0dh", &mut b);
+    assert_eq!(b.text(), "hello world\nsecond line\nthird");
+    assert_eq!(b.cursor(), 0);
+
+    // The middle of the note is where the rule shows: at column 0 of line 1, a
+    // crossing `h` would take the line break and weld the two lines together.
+    let mut vim = Vim::new();
+    let mut b = buf();
+    type_keys(&mut vim, "jdh", &mut b);
+    assert_eq!(
+        b.text(),
+        "hello world\nsecond line\nthird",
+        "`dh` at column 0 has nothing to delete"
+    );
+
+    // One step in from the edge it still deletes the character to the left.
+    let mut b = buf();
+    type_keys(&mut vim, "l", &mut b);
+    vim.handle_normal_key(Key::Char('d'), &mut b, &mut ViewSlot::new());
+    vim.handle_normal_key(Key::Char('h'), &mut b, &mut ViewSlot::new());
+    assert_eq!(b.text(), "ello world\nsecond line\nthird");
+}
+
 #[test]
 fn counted_motions() {
     let mut vim = Vim::new();
