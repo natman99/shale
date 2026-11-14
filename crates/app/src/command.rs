@@ -1011,7 +1011,12 @@ mod tests {
             std::fs::write(path, &want).expect("could not write docs/commands.md");
             return;
         }
-        let got = std::fs::read_to_string(path).unwrap_or_else(|err| panic!("{path}: {err}"));
+        let got = std::fs::read_to_string(path)
+            .unwrap_or_else(|err| panic!("{path}: {err}"))
+            // A checkout with `core.autocrlf` stores the file with CRLF; the
+            // generated text is LF. The docs' bytes on disk are git's business,
+            // the comparison is about content.
+            .replace("\r\n", "\n");
         assert_eq!(
             got, want,
             "docs/commands.md is stale: run `SHALE_UPDATE_DOCS=1 cargo test -p shale-app`"
