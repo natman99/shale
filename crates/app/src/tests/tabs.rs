@@ -980,3 +980,136 @@ fn wqall_writes_and_leaves(cx: &mut TestAppContext) {
         "the write happened"
     );
 }
+
+// The tab bar's end marks. The coordinates are the bar's own geometry, measured from a
+// drawn frame: the window under test is 1920 wide, the panels are 260 wide, the bar is
+// 28 tall with 4px of padding, and a mark is a 20px square — so each mark sits 14px in
+// from wherever the bar starts and ends, and the bar starts and ends where the panels
+// leave off. A mark moves when its panel appears; that is the point of the numbers.
+const LEFT_WITH_TREE: f32 = 274.0;
+const LEFT_WITHOUT_TREE: f32 = 14.0;
+const RIGHT_WITHOUT_STRIP: f32 = 1906.0;
+const RIGHT_WITH_STRIP: f32 = 1628.0;
+const MARK_Y: f32 = 14.0;
+
+fn draw(cx: &mut VisualTestContext) {
+    for _ in 0..2 {
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+    }
+}
+
+fn click(cx: &mut VisualTestContext, x: f32) {
+    let at = gpui::point(gpui::px(x), gpui::px(MARK_Y));
+    cx.simulate_mouse_down(at, gpui::MouseButton::Left, gpui::Modifiers::default());
+    cx.simulate_mouse_up(at, gpui::MouseButton::Left, gpui::Modifiers::default());
+    cx.run_until_parked();
+    draw(cx);
+}
+
+fn marks(
+    window: &WindowHandle<Workspace>,
+    cx: &mut VisualTestContext,
+) -> (&'static str, &'static str) {
+    window.update(cx, |ws, _w, _cx| ws.chrome_marks()).unwrap()
+}
+
+fn panels(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> (bool, bool) {
+    window
+        .update(cx, |ws, _w, _cx| (ws.tree_visible(), ws.sidebar_visible()))
+        .unwrap()
+}
+
+/// The marks are the mouse's answer to `space e` and `space b`, and they go through the
+/// same door: the tree hides, and the status line says so in the same words.
+#[gpui::test]
+fn the_tab_bar_marks_toggle_the_panels_both_ways(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = two_notes(cx);
+    draw(&mut cx);
+    assert_eq!(panels(&window, &mut cx), (true, false), "the default state");
+    assert_eq!(
+        marks(&window, &mut cx),
+        (
+            crate::style::GLYPH_TREE_OPEN,
+            crate::style::GLYPH_STRIP_CLOSED
+        ),
+        "the mark's weight is its panel's state: filled open, hollow closed"
+    );
+
+    click(&mut cx, LEFT_WITH_TREE);
+    assert_eq!(
+        panels(&window, &mut cx),
+        (false, false),
+        "the mark closed the tree"
+    );
+    assert_eq!(
+        window.read_with(&cx, |ws, _| ws.status()).unwrap(),
+        "tree hidden"
+    );
+    click(&mut cx, RIGHT_WITHOUT_STRIP);
+    assert_eq!(
+        panels(&window, &mut cx),
+        (false, true),
+        "and the other mark opened the strip"
+    );
+    assert_eq!(
+        window.read_with(&cx, |ws, _| ws.status()).unwrap(),
+        "sidebar shown"
+    );
+
+    // Both marks move when their panel appears or goes away, because the bar starts and
+    // ends where the panels leave off — and both toggle again from there.
+    assert_eq!(
+        marks(&window, &mut cx),
+        (
+            crate::style::GLYPH_TREE_CLOSED,
+            crate::style::GLYPH_STRIP_OPEN
+        ),
+        "hollow closed, filled open"
+    );
+    click(&mut cx, LEFT_WITHOUT_TREE);
+    click(&mut cx, RIGHT_WITH_STRIP);
+    assert_eq!(
+        panels(&window, &mut cx),
+        (true, false),
+        "each mark toggles from wherever it now sits"
+    );
+    click(&mut cx, LEFT_WITH_TREE);
+    click(&mut cx, RIGHT_WITHOUT_STRIP);
+    assert_eq!(panels(&window, &mut cx), (false, true));
+}
+
+/// Closing a panel that holds the keyboard hands the keys to the note — the chevron is
+/// not allowed to leave the keyboard sitting on a row that is no longer drawn, which is
+/// the same rule `space e` already follows.
+#[gpui::test]
+fn closing_a_focused_panel_with_its_mark_hands_the_keys_to_the_note(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = two_notes(cx);
+    draw(&mut cx);
+    cx.simulate_keystrokes("ctrl-w h");
+    let focused = window
+        .update(&mut cx, |ws, window, _cx| {
+            ws.tree_focus().is_focused(window)
+        })
+        .unwrap();
+    assert!(focused, "the tree has the keyboard");
+
+    click(&mut cx, LEFT_WITH_TREE);
+    let (tree_open, note_focused) = window
+        .update(&mut cx, |ws, window, cx| {
+            (ws.tree_visible(), ws.editor_is_focused(window, cx))
+        })
+        .unwrap();
+    assert!(!tree_open, "the tree is gone");
+    assert!(note_focused, "and the note has the keyboard");
+}
+
+/// The marks belong to the bar, not to a note tab: the graph tab's bar carries them too.
+#[gpui::test]
+fn the_marks_are_on_the_graph_tab_s_bar_too(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = two_notes(cx);
+    cx.simulate_keystrokes("space g");
+    draw(&mut cx);
+    assert!(window.read_with(&cx, |ws, _cx| ws.showing_graph()).unwrap());
+    click(&mut cx, LEFT_WITH_TREE);
+    assert!(!window.read_with(&cx, |ws, _cx| ws.tree_visible()).unwrap());
+}

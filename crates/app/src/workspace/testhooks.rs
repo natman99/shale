@@ -553,6 +553,13 @@ impl Workspace {
         self.layout.rects()
     }
 
+    /// The glyph each tab-bar mark drew in the last frame: `(tree, strip)`. Hollow is a
+    /// closed panel, filled an open one; the value comes from the render path that
+    /// chooses it, not from a second copy of the same rule.
+    pub(crate) fn chrome_marks(&self) -> (&'static str, &'static str) {
+        self.chrome_marks.get()
+    }
+
     /// Whether the tab on screen is the graph.
     #[cfg(test)]
     pub(crate) fn showing_graph(&self) -> bool {

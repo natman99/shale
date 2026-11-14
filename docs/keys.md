@@ -344,6 +344,11 @@ narrows the picture, with a filtered node leaving the simulation as well as the 
 - Click in the note positions the caret; `ctrl`+click follows a link.
 - Click a tab to switch to it, click its `×` to close it, drag the divider
   between panes to resize them.
+- Click the mark at each end of the tab bar to open or close that panel: the left
+  one is the file tree, the right one the sidebar. Hollow means closed, filled means
+  open, and hovering names it. They are the mouse's answer to `space e` and `space b`
+  and go through the same door, so closing a panel that has the keyboard hands the
+  keys to the note.
 - Click a folded heading's `⋯ n more lines` marker to open it.
 - In the graph: the wheel magnifies at the cursor (`ctrl`+wheel travels), drag
   pans the view, drag a node moves it (a press only grabs after the pointer has

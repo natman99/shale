@@ -401,6 +401,11 @@ pub(crate) struct Workspace {
     /// Set by the tab paths that have no window to rehook with, and cleared by the
     /// next frame, which does.
     hover_stale: bool,
+    /// The glyph each tab-bar mark drew in the last frame: `(tree, strip)`. Test-only: in the last frame — hollow or filled. Test-only:
+    /// it lets a test pin the mark against the panel's state through the render path
+    /// that chooses it, rather than through a second copy of the same `if`.
+    #[cfg(test)]
+    chrome_marks: std::cell::Cell<(&'static str, &'static str)>,
     /// Whether the keyboard has to follow the frame. A tab owns its editor, so the
     /// node with the keyboard is the drawn tab's editor; after a tab change the
     /// keyboard is still on the entity that is no longer drawn, and the next keystroke
@@ -680,6 +685,8 @@ impl Workspace {
             _activation_events: None,
             _hover_events: None,
             hover_stale: false,
+            #[cfg(test)]
+            chrome_marks: std::cell::Cell::new(("", "")),
             focus_stale: false,
             _keystroke_observer: keystroke_observer,
         };

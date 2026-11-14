@@ -31,6 +31,20 @@ const TAB_ROW: gpui::Pixels = gpui::px(20.);
 /// a tab, so the frame the bar draws around its tabs is the same width on every side.
 const TAB_GAP: gpui::Pixels = crate::style::SPACE_1;
 
+/// The tab bar's end buttons: a square big enough to be a real target inside the
+/// 28px bar, and small enough not to crowd the tabs it brackets.
+const CHEVRON: gpui::Pixels = gpui::px(20.);
+
+/// Which chrome panel a tab-bar chevron is the door to. Both panels are window-level,
+/// so the chevron on a second pane's bar is the same door rather than a per-pane one —
+/// which is also what makes it honest: clicking either one changes what the user sees
+/// everywhere in the window.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Strip {
+    Tree,
+    Sidebar,
+}
+
 /// The gap between the vault's name and the note's in the window's title. An em
 /// dash with spaces, which is how a title's two parts are set off in prose; a
 /// plain `-` would make `my-vault - Welcome` read as one long hyphenated name,
@@ -55,6 +69,84 @@ impl Workspace {
     /// its own because a tab is not a thing that can be drawn without the window:
     /// clicking one moves the keyboard *to that pane* and closing one writes its
     /// note. Each pane draws its own bar; the bar's clicks name their pane.
+    /// The tab bar's end button for one panel: hollow when the panel is closed, filled
+    /// when it is open, and it toggles. It is the mouse's answer to `space e` /
+    /// `space b`, and it goes through the same `set_*_visible` door so the two cannot
+    /// disagree — including the rule that closing a panel that holds the keyboard hands
+    /// the keys to the note.
+    ///
+    /// The click stops there. A chevron press over an open picker toggles the panel and
+    /// leaves the picker alone: one click, one effect.
+    pub(crate) fn panel_chevron(
+        &self,
+        strip: Strip,
+        cx: &mut Context<Self>,
+    ) -> gpui::Stateful<gpui::Div> {
+        let (open, glyph, label) = match strip {
+            Strip::Tree => (
+                self.tree_visible,
+                if self.tree_visible {
+                    crate::style::GLYPH_TREE_OPEN
+                } else {
+                    crate::style::GLYPH_TREE_CLOSED
+                },
+                "file tree",
+            ),
+            Strip::Sidebar => (
+                self.sidebar_visible,
+                if self.sidebar_visible {
+                    crate::style::GLYPH_STRIP_OPEN
+                } else {
+                    crate::style::GLYPH_STRIP_CLOSED
+                },
+                "sidebar",
+            ),
+        };
+        let entity = cx.entity().clone();
+        let palette = std::rc::Rc::clone(&self.palette);
+        // What the bar actually drew, so a test can pin hollow-vs-filled against the
+        // panel's state instead of re-deriving it from the same `if`.
+        #[cfg(test)]
+        {
+            let mut marks = self.chrome_marks.get();
+            match strip {
+                Strip::Tree => marks.0 = glyph,
+                Strip::Sidebar => marks.1 = glyph,
+            }
+            self.chrome_marks.set(marks);
+        }
+        div()
+            .id(("panel-chevron", strip as usize))
+            .flex_none()
+            .size(CHEVRON)
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(CHIP_RADIUS)
+            .cursor(gpui::CursorStyle::PointingHand)
+            // Filled and in the foreground when the panel is there, hollow and quiet
+            // when it is not: the mark's weight is the panel's state.
+            .text_color(gpui::rgb(if open {
+                self.palette.ui_fg
+            } else {
+                self.palette.ui_dim
+            }))
+            .hover(|s| s.bg(gpui::rgb(self.palette.ui_hover_bg)))
+            .child(glyph)
+            .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| {
+                cx.stop_propagation();
+            })
+            .on_click(move |_, window, cx| {
+                entity.update(cx, |ws, cx| match strip {
+                    Strip::Tree => ws.set_tree_visible(!ws.tree_visible, window, cx),
+                    Strip::Sidebar => ws.set_sidebar_visible(!ws.sidebar_visible, window, cx),
+                });
+            })
+            .tooltip(move |window, cx| {
+                crate::tooltip::ChromeTooltip::build(label, &palette, window, cx)
+            })
+    }
+
     pub(crate) fn tab_bar(&self, pix: usize, cx: &mut Context<Self>) -> gpui::AnyElement {
         let tabs: Vec<gpui::Stateful<gpui::Div>> = self.panes[pix]
             .tab_state(cx)
@@ -177,7 +269,11 @@ impl Workspace {
             // The card's top corners: the bar's own background carries the
             // round (the chips are inset by TAB_GAP and never reach them).
             .rounded_t(crate::style::PANE_RADIUS)
+            // The pair brackets the tabs: the tree's mark at the left edge, the
+            // strip's at the right, each pointing at the edge its panel lives against.
+            .child(self.panel_chevron(Strip::Tree, cx))
             .children(tabs)
+            .child(self.panel_chevron(Strip::Sidebar, cx))
             .into_any_element()
     }
 

@@ -28,6 +28,7 @@ mod sidebar;
 mod style;
 mod table_view;
 mod theme;
+mod tooltip;
 mod tree;
 mod workspace;
 

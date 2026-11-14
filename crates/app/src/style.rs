@@ -197,6 +197,15 @@ pub(crate) const GLYPH_CLOSE: &str = "×";
 /// shows it when it is stuck to a note; a pinned tab would show the same mark.
 pub(crate) const GLYPH_PIN: &str = "◆";
 
+// The tab bar's pair of panel marks. Hollow is a panel that is closed, filled is one
+// that is open — the same "there is a thing here, and it is drawn" distinction the
+// tree's ▸/▾ make for a folder. Each mark points at the edge its panel lives against:
+// the tree's points left, the strip's points right.
+pub(crate) const GLYPH_TREE_CLOSED: &str = "◁";
+pub(crate) const GLYPH_TREE_OPEN: &str = "◀";
+pub(crate) const GLYPH_STRIP_CLOSED: &str = "▷";
+pub(crate) const GLYPH_STRIP_OPEN: &str = "▶";
+
 /// One key-chip: the key in a small boxed rule, then what it does in plain words.
 ///
 /// `design-language.md` §9 asks for keymap legends to render as boxed chips rather than
