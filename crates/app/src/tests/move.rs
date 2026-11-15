@@ -210,6 +210,28 @@ fn typing_a_folder_that_is_not_there_offers_to_create_it(cx: &mut TestAppContext
     assert!(dir.path().join("new/deep/Deep.md").is_file());
 }
 
+/// The vault's top level is a destination like any other, and `/` is how it is
+/// spelled on the command line: every empty part of a typed path is dropped, so
+/// `/` leaves no folder at all.
+#[gpui::test]
+fn move_to_the_vault_root(cx: &mut TestAppContext) {
+    let (dir, window) = two_folders(cx);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    open(&window, cx, "notes/Deep.md");
+    command_line("move /", cx);
+    assert!(
+        dir.path().join("Deep.md").is_file(),
+        "the note is at the top level: {:?}",
+        on_disk(dir.path())
+    );
+    assert!(
+        !dir.path().join("notes/Deep.md").exists(),
+        "and not in its folder: {:?}",
+        on_disk(dir.path())
+    );
+}
+
 /// The point of a move is that the vault still reads afterwards. A link that spells
 /// out the old folder has to follow; a link that still resolves is left alone.
 #[gpui::test]

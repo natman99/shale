@@ -64,8 +64,10 @@ moving, and they answer different questions:
   `notes/inbox/a.md`.
 - **Move** (`:move [folder]`, `m` in the tree, `ctrl-shift-m`) takes a **folder**,
   named from the vault root, and keeps the note's name. `:move inbox/` from
-  `notes/a.md` is `inbox/a.md`. Typing a folder that is not there offers to create
-  it, and `:move` with nothing typed opens a picker of the folders the vault holds.
+  `notes/a.md` is `inbox/a.md`, and `:move /` is the vault's top level — the note
+  leaves its folder and keeps its name. Typing a folder that is not there offers to
+  create it, and `:move` with nothing typed opens a picker of the folders the vault
+  holds, with **top level** as its first row.
 
 Both rewrite the links that point at the old path: a link that spells the folder the
 note left follows it, and a link that spells no folder stays exactly as written,
