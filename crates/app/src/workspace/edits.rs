@@ -1029,6 +1029,40 @@ impl Workspace {
         self.open_sourced_picker(&label, source, "", window, cx);
     }
 
+    /// The mouse answer to `m`: a note dropped on a row goes into the folder that row
+    /// names — a folder row is the folder, a note row is the folder that note sits in —
+    /// and the note keeps its name. Dropping on the tree's own background, below the
+    /// last row, is the vault's top level.
+    ///
+    /// A row where the note already lives is a no-op and says nothing: a drag that
+    /// changed nothing should not report a change, and the status line is the only
+    /// feedback there is.
+    pub(super) fn drop_note(&mut self, dragged: &Path, target: &Path, cx: &mut Context<Self>) {
+        if self.is_dir(dragged) {
+            // Nothing in the tree lifts a folder, so this is only reachable if some
+            // other surface ever starts one.
+            return;
+        }
+        let folder = if self.is_dir(target) {
+            target.to_path_buf()
+        } else {
+            target.parent().unwrap_or(Path::new("")).to_path_buf()
+        };
+        if dragged.parent().unwrap_or(Path::new("")) == folder.as_path() {
+            return;
+        }
+        let to_text = match self.move_destination(dragged, Some(&folder)) {
+            Ok(text) => text,
+            Err(err) => {
+                self.say(format!("{err:#}"), cx);
+                return;
+            }
+        };
+        if let Err(err) = self.perform_move(dragged, &to_text, "moved", cx) {
+            self.say(format!("{err:#}"), cx);
+        }
+    }
+
     /// The folder a picker row chose. `None` is the vault's top level.
     pub(super) fn move_chosen(&mut self, from: &Path, to: Option<&Path>, cx: &mut Context<Self>) {
         let to_text = match self.move_destination(from, to) {

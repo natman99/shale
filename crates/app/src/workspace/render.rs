@@ -16,7 +16,7 @@ use super::Workspace;
 use super::bar::{mode_label, save_indicator, word_badge};
 use super::sidebar::{RowState, push_row};
 use super::tabs::TabContent;
-use super::tree::{TreeState, push_node};
+use super::tree::{NoteDrag, TreeState, push_node};
 
 /// The height of the tab bar's row, and of one tab within it. A little taller than
 /// the status bar because it is something the pointer aims at, not something it
@@ -992,6 +992,22 @@ impl Render for Workspace {
                                         .flex_1()
                                         .min_h_0()
                                         .overflow_scroll()
+                                        // The tree's own background is the vault's top
+                                        // level: a note dropped in the empty space below
+                                        // the last row leaves its folder. This div fills
+                                        // the panel, so that space is its hitbox. A row
+                                        // that took the drop stops the propagation, so
+                                        // this only ever sees a drop that missed a row.
+                                        .on_drop::<NoteDrag>(cx.listener(
+                                            |this, drag: &NoteDrag, _window, cx| {
+                                                this.drop_note(
+                                                    &drag.path,
+                                                    std::path::Path::new(""),
+                                                    cx,
+                                                );
+                                            },
+                                        ))
+                                        .debug_selector(|| "tree-scroll".to_string())
                                         .track_scroll(&self.tree_scroll)
                                         .key_context(tree::CONTEXT)
                                         .track_focus(&self.tree_focus)

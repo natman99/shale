@@ -353,7 +353,12 @@ narrows the picture, with a filtered node leaving the simulation as well as the 
   means closed, filled means open, and hovering names it. They are the mouse's answer
   to `space e` and `space b` and go through the same door, so closing a panel that has
   the keyboard hands the keys to the note.
-- Click a folded heading's `⋯ n more lines` marker to open it.
+- In the file tree: drag a note onto a **folder row** to move it into that folder, onto
+  **another note's row** to move it into the folder that note sits in, or onto the
+  **empty space below the rows** to bring it to the vault's top level. The note keeps
+  its name, the links that spelled the old folder follow, and the status line says
+  where it went — the same move `m` and `:move` do. A folder row cannot be picked up:
+  folders do not move yet.
 - In the graph: the wheel magnifies at the cursor (`ctrl`+wheel travels), drag
   pans the view, drag a node moves it (a press only grabs after the pointer has
   travelled a little, and `shift` leaves it pinned), click a node to open it.

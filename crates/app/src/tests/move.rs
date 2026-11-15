@@ -232,6 +232,202 @@ fn move_to_the_vault_root(cx: &mut TestAppContext) {
     );
 }
 
+/// Paint a frame, so an element that only exists after an update has bounds to find.
+fn draw(cx: &mut VisualTestContext) {
+    for _ in 0..2 {
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+    }
+}
+
+/// The middle of a named element, in window px — the way a test puts the pointer on a
+/// tree row without guessing where the layout put it.
+fn centre(cx: &mut VisualTestContext, selector: &'static str) -> gpui::Point<gpui::Pixels> {
+    let bounds = cx
+        .debug_bounds(selector)
+        .unwrap_or_else(|| panic!("no element named {selector:?} on screen"));
+    gpui::point(
+        bounds.origin.x + bounds.size.width / 2.,
+        bounds.origin.y + bounds.size.height / 2.,
+    )
+}
+
+/// Pick up what is under the pointer and carry it to `to`, without letting go: the way
+/// a test looks at a drag that is still in the air.
+fn carry(
+    cx: &mut VisualTestContext,
+    from: gpui::Point<gpui::Pixels>,
+    to: gpui::Point<gpui::Pixels>,
+) {
+    cx.simulate_mouse_down(from, gpui::MouseButton::Left, gpui::Modifiers::default());
+    // A drag starts on movement, not on the press: a press that never moves is a click.
+    cx.simulate_mouse_move(
+        gpui::point(from.x + gpui::px(6.), from.y + gpui::px(6.)),
+        Some(gpui::MouseButton::Left),
+        gpui::Modifiers::default(),
+    );
+    cx.simulate_mouse_move(
+        to,
+        Some(gpui::MouseButton::Left),
+        gpui::Modifiers::default(),
+    );
+}
+
+/// Let go of whatever is being carried.
+fn let_go(cx: &mut VisualTestContext, to: gpui::Point<gpui::Pixels>) {
+    cx.simulate_mouse_up(to, gpui::MouseButton::Left, gpui::Modifiers::default());
+}
+
+/// Pick up what is under the pointer, carry it to `to`, and let go.
+fn drag(
+    cx: &mut VisualTestContext,
+    from: gpui::Point<gpui::Pixels>,
+    to: gpui::Point<gpui::Pixels>,
+) {
+    carry(cx, from, to);
+    let_go(cx, to);
+}
+
+/// The same, between two named elements.
+fn drag_between(cx: &mut VisualTestContext, from: &'static str, to: &'static str) {
+    let from = centre(cx, from);
+    let to = centre(cx, to);
+    drag(cx, from, to);
+}
+
+/// The mouse answer to `m`: pick a note up out of the tree and drop it on a folder.
+#[gpui::test]
+fn dragging_a_note_onto_a_folder_row_moves_it(cx: &mut TestAppContext) {
+    let (dir, window) = two_folders(cx);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    // The tree opens with its folders closed, so the note is only on screen once
+    // `notes` is open.
+    cx.simulate_keystrokes("ctrl-w h l");
+    let from = centre(cx, "tree-row notes/Deep.md");
+    let to = centre(cx, "tree-row other");
+    carry(cx, from, to);
+    assert!(
+        window
+            .update(cx, |_, _window, cx| cx.has_active_drag())
+            .unwrap(),
+        "the note is in the air, following the pointer"
+    );
+    let_go(cx, to);
+    assert!(
+        dir.path().join("other/Deep.md").is_file(),
+        "the note landed in the folder it was dropped on: {:?}",
+        on_disk(dir.path())
+    );
+    assert!(
+        !dir.path().join("notes/Deep.md").exists(),
+        "and not where it was: {:?}",
+        on_disk(dir.path())
+    );
+    assert!(
+        say(&window, cx).contains("moved to other/Deep.md"),
+        "the status line says what the drag did: {}",
+        say(&window, cx)
+    );
+}
+
+/// A note row is a destination too: the folder that note sits in. That is the only way
+/// to say "put it next to this one" with the mouse.
+#[gpui::test]
+fn dragging_a_note_onto_a_note_row_moves_it_into_that_folder(cx: &mut TestAppContext) {
+    let (dir, window) = two_folders(cx);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    window
+        .update(cx, |ws, _window, _cx| {
+            ws.toggle_dir(std::path::PathBuf::from("other"))
+        })
+        .unwrap();
+    draw(cx);
+    drag_between(cx, "tree-row top.md", "tree-row other/keep.md");
+    assert!(
+        dir.path().join("other/top.md").is_file(),
+        "the note joined the folder its neighbour lives in: {:?}",
+        on_disk(dir.path())
+    );
+}
+
+/// The tree's own background, below the last row, is the vault's top level.
+#[gpui::test]
+fn dropping_a_note_on_the_tree_background_moves_it_to_the_top_level(cx: &mut TestAppContext) {
+    let (dir, window) = two_folders(cx);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    cx.simulate_keystrokes("ctrl-w h l");
+    let panel = cx
+        .debug_bounds("tree-scroll")
+        .expect("the tree panel is on screen");
+    let from = centre(cx, "tree-row notes/Deep.md");
+    drag(
+        cx,
+        from,
+        gpui::point(
+            panel.origin.x + panel.size.width / 2.,
+            panel.origin.y + panel.size.height - gpui::px(20.),
+        ),
+    );
+    assert!(
+        dir.path().join("Deep.md").is_file(),
+        "the note left its folder: {:?}",
+        on_disk(dir.path())
+    );
+}
+
+/// A folder row does not lift: a folder cannot be moved, and a handle that always
+/// fails to land is worse than no handle.
+#[gpui::test]
+fn a_folder_row_does_not_lift(cx: &mut TestAppContext) {
+    let (dir, window) = two_folders(cx);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    let from = centre(cx, "tree-row notes");
+    let to = centre(cx, "tree-row other");
+    carry(cx, from, to);
+    assert!(
+        !window
+            .update(cx, |_, _window, cx| cx.has_active_drag())
+            .unwrap(),
+        "a folder never gets picked up: there is nothing in the air to drop"
+    );
+    let_go(cx, to);
+    assert!(
+        dir.path().join("notes/Deep.md").is_file(),
+        "the folder and everything in it stayed put: {:?}",
+        on_disk(dir.path())
+    );
+    assert!(
+        !say(&window, cx).contains("moved"),
+        "and nothing was claimed: {}",
+        say(&window, cx)
+    );
+}
+
+/// A drop on the folder the note already lives in changes nothing, and the status line
+/// does not claim that it did.
+#[gpui::test]
+fn a_note_dropped_where_it_already_lives_says_nothing(cx: &mut TestAppContext) {
+    let (dir, window) = two_folders(cx);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    cx.simulate_keystrokes("ctrl-w h l");
+    let before = say(&window, cx);
+    drag_between(cx, "tree-row notes/Deep.md", "tree-row notes");
+    assert!(
+        dir.path().join("notes/Deep.md").is_file(),
+        "the note is where it always was: {:?}",
+        on_disk(dir.path())
+    );
+    assert_eq!(
+        say(&window, cx),
+        before,
+        "a drop where the note already lives says nothing"
+    );
+}
+
 /// The point of a move is that the vault still reads afterwards. A link that spells
 /// out the old folder has to follow; a link that still resolves is left alone.
 #[gpui::test]

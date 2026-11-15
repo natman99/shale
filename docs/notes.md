@@ -68,6 +68,12 @@ moving, and they answer different questions:
   leaves its folder and keeps its name. Typing a folder that is not there offers to
   create it, and `:move` with nothing typed opens a picker of the folders the vault
   holds, with **top level** as its first row.
+- **With the mouse**, drag a note out of the tree and drop it: on a **folder row** to
+  put it in that folder, on **another note's row** to put it beside that note, or on
+  the **empty space below the rows** to bring it to the top level. The note keeps its
+  name and the links follow, exactly as with `:move`. A folder row does not lift: a
+  folder cannot be moved yet, because the notes inside it spell out the folder's name
+  and nothing rewrites those.
 
 Both rewrite the links that point at the old path: a link that spells the folder the
 note left follows it, and a link that spells no folder stays exactly as written,
