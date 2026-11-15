@@ -35,6 +35,20 @@ use super::vaults::VaultWindows;
 /// that a `kill` is answered before a person notices they asked.
 const TERMINATION_POLL: Duration = Duration::from_millis(200);
 
+/// The first note ahead of its file in any of these windows, named for the status
+/// line. A window the handle cannot reach (already closed) answers nothing.
+fn first_dirty_note_in(
+    handles: &[gpui::WindowHandle<Workspace>],
+    cx: &mut Context<Workspace>,
+) -> Option<String> {
+    handles.iter().find_map(|handle| {
+        handle
+            .read_with(cx, |ws, cx| ws.first_dirty_note(cx))
+            .ok()
+            .flatten()
+    })
+}
+
 impl Workspace {
     /// Start watching the flag a signal handler raises.
     ///
@@ -128,19 +142,18 @@ impl Workspace {
     /// too, for the reason in P2.5a: walking away from unanswered proposals without
     /// knowing is the failure that feature exists to prevent.
     pub(super) fn quit_all(&mut self, force: bool, cx: &mut Context<Self>) {
-        let handles = VaultWindows::all_windows(cx);
+        // The window that asked is one of the run's windows, and this code runs
+        // *inside* it. gpui refuses both ways of reaching across: a read of a window
+        // already on the stack panics ("attempted to read a window that is already on
+        // the stack"), and an update to it is dropped without running. So `self`
+        // answers its own questions and the registry is asked only about the OTHER
+        // windows — see [`Workspace::other_windows`].
+        let others = self.other_windows(cx);
         // A window the registry never learned about (a test built without it) is its
         // own whole run, so the questions below are asked of it directly.
-        let dirty = if handles.is_empty() {
-            self.first_dirty_note(cx)
-        } else {
-            handles.iter().find_map(|handle| {
-                handle
-                    .read_with(cx, |ws, cx| ws.first_dirty_note(cx))
-                    .ok()
-                    .flatten()
-            })
-        };
+        let dirty = self
+            .first_dirty_note(cx)
+            .or_else(|| first_dirty_note_in(&others, cx));
         if let Some(note) = dirty.as_ref() {
             if !force {
                 self.say(
@@ -154,20 +167,10 @@ impl Workspace {
             }
             tracing::warn!(note = %note, "quit discarded unsaved edits");
         }
-        // Only a run that is ahead of its files owes a write; a clean one goes
-        // straight to the questions below, and writing nothing means a refused quit
-        // does not leave a session file behind.
-        if !force && dirty.is_some() {
-            for handle in &handles {
-                let written = handle
-                    .update(cx, |ws, _window, cx| ws.write_all_tabs(cx))
-                    .unwrap_or(false);
-                if !written {
-                    cx.notify();
-                    return;
-                }
-            }
-        }
+        // A dirty run never reaches here without `force`: plain `:qall` refused above
+        // and told the user to write or bang, so there is no write to do on the way out
+        // — `:wqall` is the word that writes, and it does that through
+        // [`Workspace::write_all_windows`] before asking this question again.
         // Read the queue rather than trusting the last beat: a proposal that landed a
         // moment ago is exactly the one the user is about to walk away from.
         if !force {
@@ -182,12 +185,10 @@ impl Workspace {
             }
         }
         // Each window leaves by its own door, so each writes its own session and
-        // drains what it owns; the run ends when the last window goes.
-        if handles.is_empty() {
-            self.leave(cx);
-            return;
-        }
-        for handle in &handles {
+        // drains what it owns; the run ends when the last window goes. This window
+        // leaves by direct call — its handle would be refused, as above.
+        self.leave(cx);
+        for handle in &others {
             let _ = handle.update(cx, |ws, _window, cx| ws.leave(cx));
         }
     }
@@ -197,20 +198,19 @@ impl Workspace {
     /// four notes should report four, and one that writes nothing should not look like
     /// it did something.
     pub(super) fn write_all_windows(&mut self, cx: &mut Context<Self>) {
-        let handles = VaultWindows::all_windows(cx);
-        let written = if handles.is_empty() {
-            usize::from(self.write_all_tabs(cx))
-        } else {
-            let count = handles.iter().fold(0usize, |sum, handle| {
+        // The asking window answers about itself and writes its own tabs; the
+        // registry is only asked about the windows gpui is not already inside.
+        let others = self.other_windows(cx);
+        let written = self.dirty_tab_count(cx)
+            + others.iter().fold(0usize, |sum, handle| {
                 sum + handle
                     .read_with(cx, |ws, cx| ws.dirty_tab_count(cx))
                     .unwrap_or(0)
             });
-            for handle in &handles {
-                let _ = handle.update(cx, |ws, _window, cx| ws.write_all_tabs(cx));
-            }
-            count
-        };
+        self.write_all_tabs(cx);
+        for handle in &others {
+            let _ = handle.update(cx, |ws, _window, cx| ws.write_all_tabs(cx));
+        }
         self.say(
             match written {
                 0 => "nothing to write".to_string(),
@@ -220,6 +220,21 @@ impl Workspace {
             cx,
         );
         cx.notify();
+    }
+
+    /// Every window in this run except the one asking.
+    ///
+    /// gpui hands a window to its own update and refuses to be reached through a
+    /// handle while it is on the stack: a read of it panics ("attempted to read a
+    /// window that is already on the stack") and an update to it is dropped without
+    /// running. A whole-run command therefore answers for itself and asks the registry
+    /// only about the rest.
+    pub(super) fn other_windows(&self, cx: &gpui::App) -> Vec<gpui::WindowHandle<Workspace>> {
+        let here = self.self_window.map(|handle| handle.window_id());
+        VaultWindows::all_windows(cx)
+            .into_iter()
+            .filter(|handle| Some(handle.window_id()) != here)
+            .collect()
     }
 
     /// `:wq`: the write the user asked for, then the same cascade `:q` runs. Not one

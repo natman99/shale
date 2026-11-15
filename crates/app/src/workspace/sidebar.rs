@@ -12,10 +12,10 @@ use gpui::{Context, Window};
 
 use crate::acts::*;
 use crate::sidebar::{self, View};
-use shale_core::vault::rel_text;
 use shale_core::mdstyle::section::{
     Direction, Refusal, StructureEdit, move_section, relevel_section,
 };
+use shale_core::vault::rel_text;
 
 use super::Workspace;
 

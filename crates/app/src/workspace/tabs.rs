@@ -893,10 +893,7 @@ impl Workspace {
         let dirty = tab
             .editor()
             .is_some_and(|editor| editor.read_with(cx, |editor, _cx| editor.is_dirty()));
-        dirty
-            .then(|| tab.path())
-            .flatten()
-            .map(rel_text)
+        dirty.then(|| tab.path()).flatten().map(rel_text)
     }
 
     /// The tabs as the tab bar and the session file want them: whether the tab is the

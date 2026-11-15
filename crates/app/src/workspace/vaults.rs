@@ -163,10 +163,10 @@ pub(crate) fn claim_vault(root: &Path) -> Result<Option<Claim>> {
     use std::io::Write as _;
     use std::os::windows::fs::OpenOptionsExt;
     use std::os::windows::io::AsRawHandle;
-    use windows_sys::Win32::Foundation::{GetLastError, ERROR_LOCK_VIOLATION, HANDLE};
+    use windows_sys::Win32::Foundation::{ERROR_LOCK_VIOLATION, GetLastError, HANDLE};
     use windows_sys::Win32::Storage::FileSystem::{
-        LockFileEx, FILE_SHARE_READ, FILE_SHARE_WRITE, LOCKFILE_EXCLUSIVE_LOCK,
-        LOCKFILE_FAIL_IMMEDIATELY,
+        FILE_SHARE_READ, FILE_SHARE_WRITE, LOCKFILE_EXCLUSIVE_LOCK, LOCKFILE_FAIL_IMMEDIATELY,
+        LockFileEx,
     };
     use windows_sys::Win32::System::IO::OVERLAPPED;
 
@@ -254,9 +254,11 @@ impl Drop for Claim {
 }
 
 /// On unix the claim *is* the open file: dropping it closes the descriptor,
-/// and the kernel drops the `flock` with it.
+/// and the kernel drops the `flock` with it. The handle is never read for the
+/// same reason it is held — its job is to stay alive until the claim goes, not
+/// to answer questions — so the field is marked rather than renamed.
 #[cfg(unix)]
-pub(crate) struct Claim(File);
+pub(crate) struct Claim(#[allow(dead_code)] File);
 
 /// Any other platform: no claim, no lock. (macOS and Linux take the `flock`
 /// path above; this arm only exists so the code still builds elsewhere.)

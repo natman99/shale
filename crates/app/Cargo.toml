@@ -14,6 +14,12 @@ clap = { version = "4", features = ["derive"] }
 futures.workspace = true
 gpui.workspace = true
 gpui_platform.workspace = true
+# The window icon is an `image::RgbaImage` (`identity.rs`), which is the type gpui's
+# `WindowOptions::icon` asks for — and every window asks for it (`vaults.rs`), on every
+# platform, so this sits in the common dependencies rather than the Windows ones.
+# `image` is already compiled into the binary through gpui, so this names a crate the
+# build already has rather than adding one.
+image = { version = "0.25", default-features = false }
 # The graph's links are tessellated by hand (see `graph::render`), which means filling the
 # same vertex buffer gpui's own tessellators fill. lyon is already compiled into the binary
 # through gpui, so this names a crate the build already has rather than adding one.
@@ -49,10 +55,6 @@ windows-sys = { version = "0.61", features = [
     "Win32_Storage_FileSystem",
     "Win32_System_IO",
 ] }
-# The window icon is an `image::RgbaImage` (`identity.rs`), which is the type
-# gpui's `WindowOptions::icon` asks for. `image` is already in the tree through
-# gpui, so this names a crate the build already has rather than adding one.
-image = { version = "0.25", default-features = false }
 
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }

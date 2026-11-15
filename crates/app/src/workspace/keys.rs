@@ -895,7 +895,9 @@ mod docs_tests {
         }
         // CRLF in the working tree (autocrlf) is the same text as the LF the
         // generator writes; compare the content, not git's checkout spelling.
-        let have = std::fs::read_to_string(path).unwrap_or_default().replace("\r\n", "\n");
+        let have = std::fs::read_to_string(path)
+            .unwrap_or_default()
+            .replace("\r\n", "\n");
         assert_eq!(
             have, want,
             "docs/keymap.md is stale: run `SHALE_UPDATE_DOCS=1 cargo test -p shale-app`"

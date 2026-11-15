@@ -982,15 +982,14 @@ fn wqall_writes_and_leaves(cx: &mut TestAppContext) {
 }
 
 // The panel marks and where they live. A mark is in its panel's card while the panel is
-// on screen, and joins the tab bar only when the panel is away — so the coordinates
-// below are two homes per panel, measured from a drawn frame: the window under test is
-// 1920 wide, the cards are 260 wide, the bar is 28 tall with 4px of padding, a mark is a
-// 20px square, and it sits 4px in from the corner it lives in.
-const TREE_IN_CARD: f32 = 246.0;
-const TREE_IN_BAR: f32 = 14.0;
-const STRIP_IN_BAR: f32 = 1906.0;
-const STRIP_IN_CARD: f32 = 1674.0;
-const MARK_Y: f32 = 14.0;
+// on screen, and joins the tab bar only when the panel is away — so a mark has two
+// homes per panel, and which one is on screen changes with the layout and with how many
+// panes the window holds. The tests therefore name the mark rather than measure it:
+// `panel-chevron <panel> <home>`, the debug selector `panel_chevron` sets on itself.
+const TREE_IN_CARD: &str = "panel-chevron tree card";
+const TREE_IN_BAR: &str = "panel-chevron tree bar-0";
+const STRIP_IN_BAR: &str = "panel-chevron strip bar-0";
+const STRIP_IN_CARD: &str = "panel-chevron strip card";
 
 fn draw(cx: &mut VisualTestContext) {
     for _ in 0..2 {
@@ -998,8 +997,14 @@ fn draw(cx: &mut VisualTestContext) {
     }
 }
 
-fn click(cx: &mut VisualTestContext, x: f32) {
-    let at = gpui::point(gpui::px(x), gpui::px(MARK_Y));
+fn click(cx: &mut VisualTestContext, selector: &'static str) {
+    let bounds = cx
+        .debug_bounds(selector)
+        .unwrap_or_else(|| panic!("no mark named `{selector}` on screen"));
+    let at = gpui::point(
+        bounds.origin.x + bounds.size.width / 2.,
+        bounds.origin.y + bounds.size.height / 2.,
+    );
     cx.simulate_mouse_down(at, gpui::MouseButton::Left, gpui::Modifiers::default());
     cx.simulate_mouse_up(at, gpui::MouseButton::Left, gpui::Modifiers::default());
     cx.run_until_parked();
@@ -1089,11 +1094,14 @@ fn the_panel_marks_toggle_the_panels_and_move_to_where_the_panel_is(cx: &mut Tes
 fn a_panel_has_exactly_one_mark_at_a_time(cx: &mut TestAppContext) {
     let (_dir, window, mut cx) = two_notes(cx);
     draw(&mut cx);
-    click(&mut cx, TREE_IN_BAR);
+    assert!(
+        cx.debug_bounds(TREE_IN_BAR).is_none(),
+        "the tree was already open, and the bar's left end holds no mark to close it"
+    );
     assert_eq!(
         panels(&window, &mut cx),
         (true, false),
-        "the tree was already open, and the bar's left end holds no mark to close it"
+        "and it stayed open"
     );
     click(&mut cx, TREE_IN_CARD);
     assert_eq!(
@@ -1101,11 +1109,14 @@ fn a_panel_has_exactly_one_mark_at_a_time(cx: &mut TestAppContext) {
         (false, false),
         "the card's corner did"
     );
-    click(&mut cx, TREE_IN_CARD);
+    assert!(
+        cx.debug_bounds(TREE_IN_CARD).is_none(),
+        "with the tree gone the card is not drawn, so nothing answers there"
+    );
     assert_eq!(
         panels(&window, &mut cx),
         (false, false),
-        "and with the tree gone the card is not drawn, so nothing answers there"
+        "and it stayed closed"
     );
 
     // Counted, not just clicked: a panel answers at exactly one place per frame, so a
@@ -1171,4 +1182,59 @@ fn the_marks_are_there_with_the_graph_tab_on_screen(cx: &mut TestAppContext) {
     assert!(window.read_with(&cx, |ws, _cx| ws.showing_graph()).unwrap());
     click(&mut cx, TREE_IN_CARD);
     assert!(!window.read_with(&cx, |ws, _cx| ws.tree_visible()).unwrap());
+}
+
+/// A split window draws a pair of marks per pane, and every one of them answers.
+///
+/// They used to share one element id: gpui keys a stateful element's click handler,
+/// hover and tooltip by the chain of element ids above it, and no pane in the tree
+/// carries an id, so two panes' marks landed on one shared state — and only one mark
+/// per panel answered the mouse. The user's report: "the show sidebar buttons only work
+/// on the leftmost (or original/primary) pane… the tooltips for the buttons work on the
+/// first pane but not on the others."
+#[gpui::test]
+fn every_pane_s_marks_answer(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = two_notes(cx);
+    cx.simulate_keystrokes("ctrl-w v");
+    cx.run_until_parked();
+    cx.simulate_keystrokes("space e");
+    cx.run_until_parked();
+    draw(&mut cx);
+    assert_eq!(
+        window.read_with(&cx, |ws, _| ws.pane_count()).unwrap(),
+        2,
+        "the window is split"
+    );
+    assert_eq!(panels(&window, &mut cx), (false, false), "both panels away");
+
+    for (tree, strip) in [
+        ("panel-chevron tree bar-0", "panel-chevron strip bar-0"),
+        ("panel-chevron tree bar-1", "panel-chevron strip bar-1"),
+    ] {
+        click(&mut cx, tree);
+        assert_eq!(
+            panels(&window, &mut cx),
+            (true, false),
+            "{tree} opened the tree"
+        );
+        click(&mut cx, "panel-chevron tree card");
+        assert_eq!(
+            panels(&window, &mut cx),
+            (false, false),
+            "and the card's own mark closed it"
+        );
+
+        click(&mut cx, strip);
+        assert_eq!(
+            panels(&window, &mut cx),
+            (false, true),
+            "{strip} opened the sidebar"
+        );
+        click(&mut cx, "panel-chevron strip card");
+        assert_eq!(
+            panels(&window, &mut cx),
+            (false, false),
+            "and the card's own mark closed it"
+        );
+    }
 }
