@@ -91,10 +91,7 @@ pub(crate) fn call(server: &Server, name: &str, arguments: &Value) -> Result<Opt
     match name {
         "list_notes" => {
             let entries = profile.visible(&vault.list_markdown()?);
-            let lines: Vec<String> = entries
-                .iter()
-                .map(|e| rel_text(&e.path))
-                .collect();
+            let lines: Vec<String> = entries.iter().map(|e| rel_text(&e.path)).collect();
             Ok(Some(text_result(lines.join("\n"))))
         }
         "read_note" => {

@@ -38,7 +38,10 @@ fn names(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext, pix: usiz
         .update(cx, |ws, _window, cx| {
             ws.pane_tab_paths(pix, cx)
                 .into_iter()
-                .map(|p| p.map(|p| shale_core::vault::rel_text(&p)).unwrap_or_default())
+                .map(|p| {
+                    p.map(|p| shale_core::vault::rel_text(&p))
+                        .unwrap_or_default()
+                })
                 .collect::<Vec<_>>()
         })
         .unwrap()
