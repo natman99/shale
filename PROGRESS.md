@@ -1434,3 +1434,52 @@ The remaining 2.3/s is the vault watcher's 750 ms walk beat (~1.3/s) and the pen
 `read_dir` at 1 s (~1/s) — both intended behavior, both still on the clock.
 
 app 900 / core 857 / fixture 1 / mcp 42 — 1800 passed, 0 failed. fmt and clippy clean.
+
+## The vault's beats sleep until they have news (2026-11-15)
+
+**The dead end.** After the exit fix, the two beats left at rest were the vault
+watcher (walk every 750 ms–15 s) and the pending-queue read (every 1 s). Both
+were *intended behavior* — the tree following the disk, agent proposals arriving
+unasked — so the clocks stay. What went is the cost of agreeing nothing changed:
+each loop was a foreground gpui task, and a foreground task wakes the main
+thread at **every await** — timer, walk, all of it — even when the tick ends in
+`continue`.
+
+**The shape.** Both beats now look like the LSP reader thread: a background loop
+with only `Send` captures (timer, walk/read, compare-against-last) and a
+`futures::channel::mpsc::unbounded` for the news. A walk whose signature equals
+the last one's never sends; a queue read that matches the last one never sends;
+the folding task on the foreground side sits parked on the channel and the main
+thread never hears the beat at rest at all. Termination is a shared
+`AtomicBool` (the folding side raises it when the services entity is gone) plus
+the channel's own send-failure for the other direction.
+
+**Two pitfalls, both recorded because both cost a debugging cycle.**
+1. gpui v1.25.3's `AsyncApp` is **not `Send`** (`Weak<AppCell>` is `Rc`-based),
+   so a background loop cannot carry the app context across threads — the
+   channel is the only bridge.
+2. In gpui tests, `background_executor().timer()` is the **fake clock**: real
+   waiting never fires it, and `advance_clock` always does. The new
+   `tests/beats.rs` drives both loops deterministically with `advance_clock`
+   steps — no wall-clock sleeps, 0.02 s for both.
+
+**The behavior is pinned, not assumed.** `tests/beats.rs` opens a registry
+window (the beats belong to the vault's services), changes the disk under it,
+and asserts the change arrives *unasked* — the tree rows two outside notes
+beat after beat, and a proposal lands in the review strip within a beat. These
+are the regression gates for the unchanged-skip: a comparison that swallows a
+real change fails loudly.
+
+**Idle measurement** (headless, organic-1k with Home.md open, 15 s windows):
+
+| build | main-thread wake/s | CPU | RSS |
+|-------|-------------------|-----|-----|
+| before (foreground loops) | 2.3–2.4 | 0.47–0.53% | 31.5 MiB |
+| after (background + channel) | 0.0–0.1 | 0.20–0.33% | 31.7–32.0 MiB |
+
+The walk and the queue read still run on schedule — on background threads,
+which is where they belong. Combined with the exit fix, idle main-thread
+wakeups are down from 6.7–7.0/s to 0.0–0.1/s, and the remaining beats are
+only the ones with something to say.
+
+app 902 / core 857 / fixture 1 / mcp 42 — 1802 passed, 0 failed. fmt and clippy clean.

@@ -59,6 +59,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 mod autosave;
+mod beats;
 mod blocks;
 mod commands;
 mod dice;
