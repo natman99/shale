@@ -8,6 +8,7 @@ use std::sync::atomic::AtomicBool;
 use shale_core::RecentVaults;
 
 use super::*;
+use crate::tests::review::{command_line, say};
 use crate::workspace::vaults::{self, OpenOptions};
 
 /// A vault directory with one note in it, literally named `name` — the
@@ -432,4 +433,136 @@ fn two_windows_on_one_vault_share_one_services(cx: &mut TestAppContext) {
         .update(|cx| vaults::open_vault_window(&a, OpenOptions::default(), cx))
         .unwrap();
     w3.read_with(cx, |_ws, _cx| ()).unwrap();
+}
+
+/// The whole-run commands ask the registry about every window in the run, and the
+/// window that asked is one of them. gpui refuses to *read* a window that is already
+/// on the stack, and `:wall` runs inside the asking window's own update — so a
+/// registry that knows that window (every real window does; a test built without the
+/// registry does not) turns `:wall` into the panic
+/// "attempted to read a window that is already on the stack".
+#[gpui::test]
+fn wall_writes_every_window_including_the_one_that_asked(cx: &mut TestAppContext) {
+    let store = tempfile::tempdir().unwrap();
+    setup(cx, &store.path().join("recent.json"));
+    let (_dir, vault) = vault_dir("wall_where_the_registry_knows");
+    std::fs::write(vault.join("b.md"), "# Bee\n").unwrap();
+    let a = cx
+        .update(|cx| vaults::open_vault_window(&vault, OpenOptions::default(), cx))
+        .unwrap();
+    let b = cx
+        .update(|cx| vaults::open_extra_window(&vault, cx))
+        .unwrap();
+    a.update(cx, |ws, _window, cx| {
+        ws.open_note(&PathBuf::from("a.md"), cx)
+    })
+    .unwrap();
+    b.update(cx, |ws, _window, cx| {
+        ws.open_note(&PathBuf::from("b.md"), cx)
+    })
+    .unwrap();
+    let mut va = VisualTestContext::from_window(a.into(), cx);
+    let mut vb = VisualTestContext::from_window(b.into(), cx);
+    for vcx in [&mut va, &mut vb] {
+        for _ in 0..2 {
+            vcx.update(|window, cx| window.draw(cx).clear(cx));
+        }
+    }
+    // One note ahead of its file in each window: the asking one and the other.
+    vb.simulate_keystrokes("A");
+    vb.simulate_input(" edited there");
+    va.simulate_keystrokes("A");
+    va.simulate_input(" edited here");
+    command_line("wall", &mut va);
+    assert_eq!(
+        std::fs::read_to_string(vault.join("a.md")).unwrap(),
+        "# wall_where_the_registry_knows edited here\n",
+        "the asking window's note is written like any other window's"
+    );
+    assert_eq!(
+        std::fs::read_to_string(vault.join("b.md")).unwrap(),
+        "# Bee edited there\n",
+        "and so is the other window's"
+    );
+    assert_eq!(
+        say(&a, &mut va),
+        "wrote 2 notes",
+        "and the count is the whole run's, not the asking window's"
+    );
+}
+
+/// `:qall` from a window the registry knows: every window leaves by its own door, the
+/// one that asked included. Reaching into that window from inside its own update is
+/// refused by gpui — a read panics, an update is dropped without running — so the
+/// asking window stayed open while the others went.
+#[gpui::test]
+fn qall_closes_the_window_that_asked(cx: &mut TestAppContext) {
+    let store = tempfile::tempdir().unwrap();
+    setup(cx, &store.path().join("recent.json"));
+    let (_dir, vault) = vault_dir("qall_where_the_registry_knows");
+    let a = cx
+        .update(|cx| vaults::open_vault_window(&vault, OpenOptions::default(), cx))
+        .unwrap();
+    let b = cx
+        .update(|cx| vaults::open_extra_window(&vault, cx))
+        .unwrap();
+    let mut vcx = VisualTestContext::from_window(a.into(), cx);
+    for _ in 0..2 {
+        vcx.update(|window, cx| window.draw(cx).clear(cx));
+    }
+    command_line("qall", &mut vcx);
+    cx.run_until_parked();
+    let left = cx.update(|cx| {
+        let g = cx.global::<vaults::VaultWindows>();
+        g.window_count(&vault)
+    });
+    assert_eq!(
+        left, 0,
+        "both windows left the run, the asking one included"
+    );
+    let _ = b;
+}
+
+/// The whole run is asked, not only the window under the keyboard: a note ahead of its
+/// file in ANOTHER window stops this window's `:qall` and names itself.
+#[gpui::test]
+fn qall_refuses_for_a_dirty_note_in_another_window(cx: &mut TestAppContext) {
+    let store = tempfile::tempdir().unwrap();
+    setup(cx, &store.path().join("recent.json"));
+    let (_dir, vault) = vault_dir("qall_across_two_windows");
+    std::fs::write(vault.join("b.md"), "# Bee\n").unwrap();
+    let a = cx
+        .update(|cx| vaults::open_vault_window(&vault, OpenOptions::default(), cx))
+        .unwrap();
+    let b = cx
+        .update(|cx| vaults::open_extra_window(&vault, cx))
+        .unwrap();
+    a.update(cx, |ws, _window, cx| {
+        ws.open_note(&PathBuf::from("a.md"), cx)
+    })
+    .unwrap();
+    b.update(cx, |ws, _window, cx| {
+        ws.open_note(&PathBuf::from("b.md"), cx)
+    })
+    .unwrap();
+    let mut va = VisualTestContext::from_window(a.into(), cx);
+    let mut vb = VisualTestContext::from_window(b.into(), cx);
+    for vcx in [&mut va, &mut vb] {
+        for _ in 0..2 {
+            vcx.update(|window, cx| window.draw(cx).clear(cx));
+        }
+    }
+    vb.simulate_keystrokes("A");
+    vb.simulate_input(" unsaved there");
+    command_line("qall", &mut va);
+    assert_eq!(
+        std::fs::read_to_string(vault.join("b.md")).unwrap(),
+        "# Bee\n",
+        "nothing was written"
+    );
+    let said = say(&a, &mut va);
+    assert!(
+        said.contains("b.md"),
+        "the refusal names the note in the other window: {said}"
+    );
 }
