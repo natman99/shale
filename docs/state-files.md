@@ -28,9 +28,11 @@ use.
 
 ## Outside the vault: the app's own memory
 
-`$XDG_STATE_HOME/shale/recent.json` (falling back to `~/.local/state/shale/`) holds
+`$XDG_STATE_HOME/shale/recent.toml` (falling back to `~/.local/state/shale/`) holds
 the vaults the app knows — newest first, capped at 10. It is what `shale` with no
-argument opens, and what `:vault` lists. Deleting it costs you that list and
+argument opens, and what `:vault` lists. An older `recent.json` (the same TOML in a
+lying name) is still read once, and the next save lands on the honest one. Deleting
+these costs you that list and
 nothing else.
 
 ## How a file gets written

@@ -27,8 +27,19 @@ pub struct RecentVaults {
 }
 
 impl RecentVaults {
-    /// `shale/recent.json` under the XDG state directory.
+    /// `shale/recent.toml` under the XDG state directory.
     pub fn store_path() -> PathBuf {
+        Self::store_dir().join("recent.toml")
+    }
+
+    /// The file this list used to live in, TOML inside a `.json` name. Read
+    /// when [`store_path`](Self::store_path) has nothing yet, so an existing
+    /// memory survives the rename; the next save writes the honest name.
+    fn legacy_store_path() -> PathBuf {
+        Self::store_dir().join("recent.json")
+    }
+
+    fn store_dir() -> PathBuf {
         let base = match std::env::var_os("XDG_STATE_HOME") {
             Some(v) if !v.is_empty() => PathBuf::from(v),
             _ => {
@@ -39,20 +50,42 @@ impl RecentVaults {
                 home.join(".local").join("state")
             }
         };
-        base.join("shale").join("recent.json")
+        base.join("shale")
     }
 
     /// Read the list. A missing or unreadable file is not an error: an app
     /// with no memory still starts, it just has nothing to remember.
     pub fn load() -> Self {
-        Self::load_from(&Self::store_path())
+        Self::read_store(&Self::store_path(), &Self::legacy_store_path())
+    }
+
+    /// The one-file-or-the-legacy choice, split out so a test can point both
+    /// names at a temp dir without touching the environment.
+    fn read_store(path: &Path, legacy: &Path) -> Self {
+        if path.is_file() {
+            Self::load_from(path)
+        } else {
+            Self::load_from(legacy)
+        }
     }
 
     pub fn load_from(path: &Path) -> Self {
-        fs::read_to_string(path)
+        let mut memory: Self = fs::read_to_string(path)
             .ok()
             .and_then(|text| toml::from_str(&text).ok())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        // Self-heal a file written before the verbatim prefix was stopped at
+        // the door: the entries load clean, and the next save writes them
+        // that way.
+        memory.last = memory.last.as_deref().map(displayable);
+        let mut seen = std::collections::HashSet::new();
+        memory.recent = memory
+            .recent
+            .iter()
+            .map(|p| displayable(p))
+            .filter(|p| seen.insert(p.clone()))
+            .collect();
+        memory
     }
 
     pub fn save(&self) -> Result<()> {
@@ -66,7 +99,7 @@ impl RecentVaults {
         let text = toml::to_string_pretty(self).context("serialize recent vaults")?;
         // Same write-then-rename discipline as every other file Shale owns:
         // a crash mid-write must not leave a half-written memory behind.
-        let tmp = path.with_extension("json.tmp");
+        let tmp = path.with_extension("tmp");
         fs::write(tmp.as_path(), text).with_context(|| format!("write {}", tmp.display()))?;
         fs::rename(&tmp, path).with_context(|| format!("rename over {}", path.display()))?;
         Ok(())
@@ -75,9 +108,13 @@ impl RecentVaults {
     /// Record that `vault` was opened: it becomes the last vault and the head
     /// of the list, and any older entry for the same path is dropped. Paths
     /// are canonicalized so the same vault reached by two spellings is one
-    /// entry.
+    /// entry — then made displayable, because the canonical spelling on
+    /// Windows carries a `\\?\` prefix no picker should show.
     pub fn touch(&mut self, vault: &Path) {
-        let vault = vault.canonicalize().unwrap_or_else(|_| vault.to_path_buf());
+        let vault = vault
+            .canonicalize()
+            .map(|p| displayable(&p))
+            .unwrap_or_else(|_| vault.to_path_buf());
         self.recent.retain(|p| p != &vault);
         self.recent.insert(0, vault.clone());
         self.recent.truncate(MAX_RECENT);
@@ -90,6 +127,29 @@ impl RecentVaults {
     pub fn startup_vault(&self) -> Option<PathBuf> {
         self.last.as_ref().filter(|p| p.is_dir()).cloned()
     }
+}
+
+/// Strip Windows' verbatim (`\\?\`) prefix, which `canonicalize()` adds and
+/// no human wants to read in a picker: `\\?\C:\vault` becomes `C:\vault`,
+/// and the UNC form `\\?\UNC\server\share` becomes `\\server\share`. The
+/// prefix still rules inside the process — claims and window keys keep the
+/// canonical spelling — it just stops leaking into the file and the screen.
+#[cfg(windows)]
+pub fn displayable(path: &Path) -> PathBuf {
+    let text = path.to_string_lossy();
+    if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+        PathBuf::from(format!(r"\\{rest}"))
+    } else if let Some(rest) = text.strip_prefix(r"\\?\") {
+        PathBuf::from(rest)
+    } else {
+        path.to_path_buf()
+    }
+}
+
+/// Nothing canonical on other platforms ever grows this prefix.
+#[cfg(not(windows))]
+pub fn displayable(path: &Path) -> PathBuf {
+    path.to_path_buf()
 }
 
 #[cfg(test)]
@@ -111,8 +171,9 @@ mod tests {
         r.touch(&a);
         r.touch(&b);
         assert_eq!(r.recent.len(), 2);
-        assert_eq!(r.recent[0], b.canonicalize().unwrap(), "most recent first");
-        assert_eq!(r.last.as_deref(), Some(b.canonicalize().unwrap().as_path()));
+        let clean = displayable(&b.canonicalize().unwrap());
+        assert_eq!(r.recent[0], clean, "most recent first");
+        assert_eq!(r.last.as_deref(), Some(clean.as_path()));
     }
 
     #[cfg(unix)]
@@ -143,12 +204,59 @@ mod tests {
     fn save_and_load_round_trip() {
         let base = dir("roundtrip");
         let a = dir("rt-a");
-        let path = base.join("nested").join("recent.json");
+        let path = base.join("nested").join("recent.toml");
         let mut r = RecentVaults::default();
         r.touch(&a);
         r.save_to(&path).unwrap();
         let back = RecentVaults::load_from(&path);
         assert_eq!(back, r);
+    }
+
+    /// The memory moved from a lying `.json` name to an honest `.toml` one;
+    /// an old file is still read, and the next save lands on the new name.
+    #[test]
+    fn a_legacy_json_memory_is_read_once() {
+        let base = dir("legacy");
+        let a = dir("legacy-a");
+        let mut r = RecentVaults::default();
+        r.touch(&a);
+        r.save_to(&base.join("recent.json")).unwrap();
+
+        let back = RecentVaults::read_store(&base.join("recent.toml"), &base.join("recent.json"));
+        assert_eq!(back, r, "the old file still answers");
+        assert!(!base.join("recent.toml").exists(), "reading does not write");
+
+        back.save_to(&base.join("recent.toml")).unwrap();
+        let both =
+            RecentVaults::read_store(&base.join("recent.toml"), &base.join("recent.json"));
+        assert_eq!(both, r, "and from here the new name wins");
+    }
+
+    /// The Windows verbatim prefix `canonicalize()` grows must stop at the
+    /// file: what is stored, and what the picker shows, reads like a path.
+    #[cfg(windows)]
+    #[test]
+    fn the_verbatim_prefix_stops_at_the_memory() {
+        let base = dir("verbatim");
+        let mut r = RecentVaults::default();
+        r.touch(&base);
+        let stored = r.last.clone().unwrap();
+        let text = stored.to_string_lossy().into_owned();
+        assert!(!text.starts_with(r"\\?\"), "stored clean: {text}");
+        assert!(stored.is_dir(), "and still a real path");
+
+        // An old file that stored the prefixed spelling self-heals on read.
+        let old = base.join("old.json");
+        fs::write(
+            &old,
+            format!(
+                "last = '\\\\?\\{text}'\nrecent = ['\\\\?\\{text}']\n"
+            ),
+        )
+        .unwrap();
+        let healed = RecentVaults::load_from(&old);
+        assert_eq!(healed.last.as_deref(), Some(stored.as_path()));
+        assert_eq!(healed.recent, vec![stored]);
     }
 
     #[test]

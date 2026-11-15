@@ -123,14 +123,15 @@ fn opening_a_vault_records_it_for_the_next_start(cx: &mut TestAppContext) {
         .unwrap();
 
     let recent = RecentVaults::load_from(&store_path);
+    let clean = |p: &std::path::Path| shale_core::recent::displayable(p);
     assert_eq!(
         recent.recent,
-        vec![b.canonicalize().unwrap(), a.canonicalize().unwrap()],
-        "most recent first"
+        vec![clean(&b.canonicalize().unwrap()), clean(&a.canonicalize().unwrap())],
+        "most recent first, spelled the way a person would write it"
     );
     assert_eq!(
         recent.last.as_deref(),
-        Some(b.canonicalize().unwrap().as_path())
+        Some(clean(&b.canonicalize().unwrap()).as_path())
     );
     assert_eq!(
         cx.update(|cx| vaults::recent_vaults(cx)),
