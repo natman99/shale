@@ -16,11 +16,11 @@ Commands to insert callouts and tables at the cursor and props at the note head.
 
 Test multiple search operators again manually
 
-Update project to Rust 2024
+~~Update project to Rust 2024~~ — done in `8c00a9f`: `edition = "2024"` across the workspace, with the clippy fixer's let-chains swept in the same commit.
 
 Add rendering for images in the vault as a note. We already have image preview inside of notes but we can't see them in the file tree and can't view them outside of an embed.
 
-Make arrow keys move the cursor.
+~~Make arrow keys move the cursor.~~ — done in `2b1ce63`: the arrows are the same motion as `hjkl` (display rows, extend a visual selection, scroll at the edge), and `shift`+arrow / `ctrl-d` / `ctrl-u` page through it.
 
 What is `ctrl-t` even bound to? It duplicates the current note in a new tab.
 
@@ -30,7 +30,7 @@ Mouse drag text select.
 
 Right sidebar missing focus indicator on empty window (for example if there are now headings or links the sidebar is dead input and shows no indicator it's focused). The left sidebar always has at least one item to select.
 
-Add a little clickable button in the top left that will close/open the file tree and show if it's open or not.
+~~Add a little clickable button in the top left that will close/open the file tree and show if it's open or not.~~ — done in `21a3812` and `64f73fa`: one mark per panel, in the card's corner while it is open and at the end of the tab bar while it is away, hollow closed / filled open, with a tooltip. The half still open is the "only the leftmost pane answers" bug below.
 
 Merge "blank tab" and "new unnamed note"?
 
