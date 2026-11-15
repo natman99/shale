@@ -26,8 +26,6 @@ Make :q close a pane/tab, not the whole app. Add :wqall + related `all` commands
 
 Add rendering for images in the vault as a note. We already have image preview inside of notes but we can't see them in the file tree and can't view them outside of an embed.
 
-Top `---` of properties doesn't render colored, bottom does.
-
 Make arrow keys move the cursor.
 
 What is `ctrl-t` even bound to? It duplicates the current note in a new tab.
@@ -39,3 +37,20 @@ Mouse drag text select.
 Text selection in picker.
 
 Add a little clickable button in the top left that will close/open the file tree and show if it's open or not.
+
+Important: way to move notes to folders
+clicking focuses panes but doesn't move the focus border
+When outline scrolls put the target in the middle or top of the screen instead of the bottom row
+
+crash on windows. I believe it happened when waking from sleep. 
+thread 'main' (12572) panicked at C:\Users\nsimm\.cargo\git\checkouts\zed-a70e2ad075855582\8dd255c\crates\gpui\src\app.rs:3325:14:
+attempted to read a window that is already on the stack
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+The "show sidebar" buttons only work on the leftmost (or original/primary) pane. Buttons show up on all panes. Tooltips also broken on non-primary panes.
+
+Insert table/callout commands
+
+Soft wrap cutoff is cut off by the border/pane effects on the right side. It looks like about one char is covered up.
+
+Wrap boundries aren't updated/redraw the editor when the sidebars open/close causing a visible reflow upon next input and redraw.
