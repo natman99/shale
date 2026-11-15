@@ -1,4 +1,4 @@
-//! Rewriting the wiki-links that point at a note when it is renamed.
+//! Rewriting the wiki-links that point at a note when it is renamed or moved.
 //!
 //! A rename is only finished when the links that pointed at the old name point at
 //! the new one. Nothing in a vault records which notes those are, so the only way
@@ -35,11 +35,22 @@ pub struct Rewrite {
 /// re-file the `![[query]]` rows that name it, or the embed is left pointing at a
 /// file that no longer exists (roadmap P4.3 M4b).
 ///
-/// Only the name part of a target is rewritten (see
-/// [`crate::markdown::WikiLink::stem_start`]), so a link written as a path keeps
-/// its folder, a link to a heading keeps its anchor, an aliased link keeps its
-/// alias, and an embed keeps its `!`. The renamed note is scanned too, because a
-/// note can link to itself.
+/// What is rewritten depends on what the move did to the name the link spells:
+///
+/// - **The name changed.** Only the name part of the target is rewritten (see
+///   [`crate::markdown::WikiLink::stem_start`]), so a link written as a path keeps
+///   the folder its author typed.
+/// - **The folder changed and the link spells one.** The whole target is rewritten
+///   as the new vault-relative path, because a folder prefix that still names the
+///   old folder is a dead link: the resolver tries the path from the vault root,
+///   and that path is gone.
+/// - **The folder changed and the link spells no folder.** Nothing. A bare stem
+///   resolves by file name wherever the note lives, which is the whole reason a
+///   reader writes a link that way.
+///
+/// A link to a heading keeps its anchor, an aliased link keeps its alias, and an
+/// embed keeps its `!`. The renamed note is scanned too, because a note can link to
+/// itself.
 pub fn rewrites_for_rename(
     vault: &Vault,
     entries: &[VaultEntry],
@@ -48,17 +59,14 @@ pub fn rewrites_for_rename(
     new: impl AsRef<Path>,
 ) -> Result<Vec<Rewrite>> {
     let old = old.as_ref();
-    let Some(new_stem) = new
-        .as_ref()
-        .file_stem()
-        .map(|s| s.to_string_lossy().into_owned())
-    else {
+    if new.as_ref().file_stem().is_none() {
+        // A destination with no name has nothing for a link to point at.
         return Ok(Vec::new());
-    };
+    }
     let mut out = Vec::new();
     for entry in entries {
         let text = vault.read(&entry.path)?;
-        let (text, changed) = rename_targets(&text, entries, queries, vault, old, &new_stem);
+        let (text, changed) = rename_targets(&text, entries, queries, vault, old, new.as_ref());
         if changed > 0 {
             out.push(Rewrite {
                 path: entry.path.clone(),
@@ -165,9 +173,25 @@ fn rename_targets(
     queries: &[VaultEntry],
     vault: &Vault,
     old: &Path,
-    new_stem: &str,
+    new: &Path,
 ) -> (String, usize) {
-    let edits: Vec<(usize, usize)> = extract_wikilinks(text)
+    let stem = |path: &Path| {
+        path.file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    };
+    let (old_stem, new_stem) = (stem(old), stem(new));
+    // A move into a different folder is the case the name-only splice cannot
+    // answer: `[[notes/Target]]` still spells a folder that no longer holds the
+    // note, and the resolver reads a link's path from the vault root.
+    let folder_changed = old.parent() != new.parent();
+    // How a link has to be spelled for the moved note to resolve: the vault-relative
+    // path, with no extension, because that is how links spell notes.
+    let new_path = {
+        let text = crate::vault::rel_text(new);
+        text.strip_suffix(".md").map(str::to_owned).unwrap_or(text)
+    };
+    let edits: Vec<(usize, usize, String)> = extract_wikilinks(text)
         .iter()
         .filter_map(|link| {
             // Notes first, saved queries last: the order the resolver, the indexer and
@@ -178,7 +202,27 @@ fn rename_targets(
                 .ok()
                 .flatten()
                 .or_else(|| vault.resolve_link(&link.target, queries).ok().flatten())?;
-            (resolved.path == old).then_some((link.stem_start, link.stem_end))
+            if resolved.path != old {
+                return None;
+            }
+            let spells_a_folder = link.target.contains('/') || link.target.contains('\\');
+            if spells_a_folder && folder_changed {
+                // The whole target, not the name: the folder half is what died. The
+                // anchor and the alias are outside the range and stay byte for byte.
+                let mut start = link.start + if link.embed { 3 } else { 2 };
+                while text[start..].starts_with(' ') {
+                    start += 1;
+                }
+                Some((start, link.stem_end, new_path.clone()))
+            } else if new_stem != old_stem {
+                // The name changed, so the name is what moves — including for a link
+                // that spells a folder, whose folder the author chose and keeps.
+                Some((link.stem_start, link.stem_end, new_stem.clone()))
+            } else {
+                // Same name, new folder, and a link that spells no folder: the stem
+                // rule resolves it wherever the note went, so it needs no edit.
+                None
+            }
         })
         .collect();
     if edits.is_empty() {
@@ -188,10 +232,10 @@ fn rename_targets(
     // order and their ranges never overlap.
     let mut out = String::with_capacity(text.len());
     let mut from = 0;
-    for &(start, end) in &edits {
-        out.push_str(&text[from..start]);
-        out.push_str(new_stem);
-        from = end;
+    for (start, end, replacement) in &edits {
+        out.push_str(&text[from..*start]);
+        out.push_str(replacement);
+        from = *end;
     }
     out.push_str(&text[from..]);
     (out, edits.len())
@@ -405,8 +449,121 @@ mod tests {
         let (_d, vault, entries) = fixture()?;
         let rewrites = rewrites_for_rename(&vault, &entries, &[], "notes/Target.md", "Renamed.md")?;
         assert!(
-            rewrites.iter().all(|r| !r.text.contains("[[Renamed]]")),
-            "every bare [[Target]] in the vault means the root note"
+            rewrites.iter().all(|r| r.path != Path::new("a.md")),
+            "every bare [[Target]] in the vault means the root note, so a.md is not a rewrite"
+        );
+        let b = rewrites
+            .iter()
+            .find(|r| r.path == Path::new("notes/b.md"))
+            .expect("b.md spells the folder, which is the note that moved");
+        assert!(
+            b.text.contains("[[Target#A heading]]"),
+            "the anchor link means the root note and stays: {}",
+            b.text
+        );
+        assert!(
+            b.text.contains("[[Renamed]]"),
+            "the link that spelled the folder followed the note out of it: {}",
+            b.text
+        );
+        Ok(())
+    }
+
+    /// A vault with one note that will move, and links to it in each of the three
+    /// spellings: a bare stem, a path that spells the folder, and an embed.
+    fn move_fixture() -> Result<(tempfile::TempDir, Vault, Vec<VaultEntry>)> {
+        let dir = tempfile::tempdir()?;
+        let vault = Vault::open(dir.path())?;
+        vault.write("notes/Target.md", "the note that moves\n")?;
+        vault.write(
+            "notes/inner.md",
+            "same folder: [[Target]] and [[notes/Target]]\n",
+        )?;
+        vault.write(
+            "out.md",
+            "elsewhere: [[notes/Target#A heading|read this]], [[Target]] and ![[notes/Target]]\n",
+        )?;
+        vault.write("other/keep.md", "nothing links here\n")?;
+        let entries = vault.list_markdown()?;
+        Ok((dir, vault, entries))
+    }
+
+    /// A move keeps the name and changes the folder. A link that spells no folder
+    /// resolves by file name wherever the note lives, so it needs no edit; a link
+    /// that spells the old folder is a dead path the moment the note leaves it, so
+    /// the whole target moves.
+    #[test]
+    fn a_move_follows_the_links_that_spelled_the_folder() -> Result<()> {
+        let (_d, vault, entries) = move_fixture()?;
+        let rewrites =
+            rewrites_for_rename(&vault, &entries, &[], "notes/Target.md", "other/Target.md")?;
+        let inner = rewrites
+            .iter()
+            .find(|r| r.path == Path::new("notes/inner.md"))
+            .expect("inner.md links to the note both ways");
+        assert_eq!(
+            inner.text, "same folder: [[Target]] and [[other/Target]]\n",
+            "the bare stem stays and the spelled path follows"
+        );
+        let out = rewrites
+            .iter()
+            .find(|r| r.path == Path::new("out.md"))
+            .expect("out.md links to the note");
+        assert_eq!(
+            out.text,
+            "elsewhere: [[other/Target#A heading|read this]], [[Target]] and ![[other/Target]]\n",
+            "the anchor, the alias and the embed's `!` survive the splice"
+        );
+        assert_eq!(
+            inner.changed + out.changed,
+            3,
+            "the two spelled paths and the embed changed; the two bare stems did not"
+        );
+        Ok(())
+    }
+
+    /// A move that also renames: the name half moves wherever it is spelled, and a
+    /// link that spells the folder has both halves moved with it.
+    #[test]
+    fn a_move_that_also_renames_moves_both_halves_of_a_spelled_link() -> Result<()> {
+        let (_d, vault, entries) = move_fixture()?;
+        let rewrites =
+            rewrites_for_rename(&vault, &entries, &[], "notes/Target.md", "other/Renamed.md")?;
+        let inner = rewrites
+            .iter()
+            .find(|r| r.path == Path::new("notes/inner.md"))
+            .expect("inner.md links to the note both ways");
+        assert_eq!(
+            inner.text, "same folder: [[Renamed]] and [[other/Renamed]]\n",
+            "a bare link follows the new name, a spelled one the new path"
+        );
+        let out = rewrites
+            .iter()
+            .find(|r| r.path == Path::new("out.md"))
+            .expect("out.md links to the note");
+        assert_eq!(
+            out.text,
+            "elsewhere: [[other/Renamed#A heading|read this]], [[Renamed]] and ![[other/Renamed]]\n",
+            "and the anchor, the alias and the `!` are still there"
+        );
+        Ok(())
+    }
+
+    /// A rename inside the same folder is the case that has always worked, and the
+    /// folder prefix an author typed is theirs to keep.
+    #[test]
+    fn a_rename_in_its_folder_keeps_the_folder_a_link_spells() -> Result<()> {
+        let (_d, vault, entries) = move_fixture()?;
+        let rewrites =
+            rewrites_for_rename(&vault, &entries, &[], "notes/Target.md", "notes/Renamed.md")?;
+        let inner = rewrites
+            .iter()
+            .find(|r| r.path == Path::new("notes/inner.md"))
+            .expect("inner.md links to the note both ways");
+        assert_eq!(
+            inner.text, "same folder: [[Renamed]] and [[notes/Renamed]]\n",
+            "{}",
+            inner.text
         );
         Ok(())
     }
