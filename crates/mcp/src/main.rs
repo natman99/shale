@@ -95,7 +95,11 @@ fn main() -> Result<()> {
     // The vault's config is where the profiles are, so the server reads the same
     // file the app does. A vault with no config has no profiles, which is the
     // whole-vault scope this binary has always had.
-    let config = shale_core::Config::load(&args.vault).context("loading config")?;
+    let (config, config_warnings) =
+        shale_core::Config::load(&args.vault).context("loading config")?;
+    for warning in config_warnings {
+        eprintln!("shale-mcp: {warning}");
+    }
     let profile = chosen_profile(&config, args.profile.as_deref())?;
     let profile_name = args.profile.clone();
     if let Some(name) = &profile_name {
@@ -472,7 +476,7 @@ mod tests {
             "[mcp.profile.\"writing-help\"]\nwrite = [\"inbox/\"]\n\
              [mcp.profile.\"reader\"]\ntools = [\"read_note\"]\n",
         )?;
-        let config = shale_core::Config::load(dir.path())?;
+        let (config, _) = shale_core::Config::load(dir.path())?;
 
         let chosen = chosen_profile(&config, Some("writing-help"))?;
         assert_eq!(chosen.write, vec!["inbox/"]);
@@ -485,7 +489,7 @@ mod tests {
         assert!(err.contains("\"reader\""), "both of them: {err}");
 
         // A vault with no profiles at all says how to add one.
-        let empty = shale_core::Config::load(tempfile::tempdir()?.path())?;
+        let (empty, _) = shale_core::Config::load(tempfile::tempdir()?.path())?;
         let err = format!(
             "{:#}",
             chosen_profile(&empty, Some("anything")).unwrap_err()

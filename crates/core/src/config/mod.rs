@@ -220,18 +220,21 @@ impl Config {
 
     /// Read the vault's config, or defaults when there is none. Read-only: it
     /// creates nothing. An app opening a vault wants [`Config::load_or_create`].
-    pub fn load(vault_root: &Path) -> anyhow::Result<Config> {
+    pub fn load(vault_root: &Path) -> anyhow::Result<(Config, Vec<String>)> {
         Config::load_file(&Self::path(vault_root))
     }
 
     /// Read one config file by path, defaults when that file does not exist.
-    pub fn load_file(path: &Path) -> anyhow::Result<Config> {
+    /// Parsing is lenient (see [`Config::from_toml_lenient`]): the warnings
+    /// name whatever had to be ignored, so a config this Shale does not fully
+    /// understand opens the vault instead of barring it.
+    pub fn load_file(path: &Path) -> anyhow::Result<(Config, Vec<String>)> {
         if !path.is_file() {
-            return Ok(Config::default());
+            return Ok((Config::default(), Vec::new()));
         }
         let text = std::fs::read_to_string(path)
             .with_context(|| format!("reading config {}", path.display()))?;
-        Config::from_toml(&text).with_context(|| format!("parsing config {}", path.display()))
+        Ok(Config::from_toml_lenient(&text))
     }
 
     /// Read the vault's config, making sure the file exists first: a vault with
@@ -242,7 +245,7 @@ impl Config {
     ///
     /// Moved rather than also read, because there is one config location now: a
     /// second place to read from is a second place to wonder about later.
-    pub fn load_or_create(vault_root: &Path) -> anyhow::Result<(Config, ConfigSource)> {
+    pub fn load_or_create(vault_root: &Path) -> anyhow::Result<(Config, ConfigSource, Vec<String>)> {
         let path = Self::path(vault_root);
         let shale_dir = Self::shale_dir(vault_root);
         let source = if path.is_file() {
@@ -260,11 +263,73 @@ impl Config {
                 .with_context(|| format!("writing config {}", path.display()))?;
             ConfigSource::Created
         };
-        Ok((Config::load_file(&path)?, source))
+        let (config, warnings) = Config::load_file(&path)?;
+        Ok((config, source, warnings))
     }
 
     pub fn from_toml(text: &str) -> anyhow::Result<Config> {
         Ok(toml::from_str(text)?)
+    }
+
+    /// Parse for startup, leniently: a config this Shale does not fully
+    /// understand must not bar the door, because a user who cannot open the
+    /// app cannot fix the file that kept it shut. Unknown sections and unknown
+    /// fields inside known sections are dropped and named in the warnings, and
+    /// what the file *does* say still applies. A file that is not TOML at all,
+    /// or whose known settings are malformed past repair, yields the defaults
+    /// with a warning — the vault still opens, and the status line says so.
+    ///
+    /// The strict parser ([`Config::from_toml`]) stays strict, and stays what
+    /// the settings path uses: a command that changes one setting must refuse
+    /// a typo to the face that typed it. Only the way *in* is lenient.
+    pub fn from_toml_lenient(text: &str) -> (Config, Vec<String>) {
+        let mut warnings = Vec::new();
+        let mut table = match text.parse::<toml::Table>() {
+            Ok(table) => table,
+            Err(err) => {
+                warnings.push(format!("the config file is not valid TOML ({err}); starting with defaults"));
+                return (Config::default(), warnings);
+            }
+        };
+        // The schema oracle: the default config serialized is exactly the
+        // shape this Shale understands. Prune two levels deep only — unknown
+        // sections, and unknown fields inside known sections. Deeper than
+        // that, names belong to the user (`[mcp.profile.writing]`), and a
+        // malformed value there is the repair-past-hope case below.
+        let schema = toml::Value::try_from(Config::default())
+            .expect("the default config is a config file this Shale can read");
+        let schema = schema.as_table().expect("the config is a table");
+        let unknown_sections: Vec<String> = table
+            .keys()
+            .filter(|key| !schema.contains_key(*key))
+            .cloned()
+            .collect();
+        for section in unknown_sections {
+            table.remove(&section);
+            warnings.push(format!("ignored unknown section [{section}]"));
+        }
+        for (section, value) in table.iter_mut() {
+            let (Some(toml::Value::Table(known)), Some(fields)) =
+                (schema.get(section), value.as_table_mut())
+            else {
+                continue;
+            };
+            let unknown_fields: Vec<String> =
+                fields.keys().filter(|key| !known.contains_key(*key)).cloned().collect();
+            for field in unknown_fields {
+                fields.remove(&field);
+                warnings.push(format!("ignored unknown field {field} in [{section}]"));
+            }
+        }
+        match Config::deserialize(toml::Value::Table(table)) {
+            Ok(config) => (config, warnings),
+            Err(err) => {
+                warnings.push(format!(
+                    "the config could not be understood ({err}); starting with defaults"
+                ));
+                (Config::default(), warnings)
+            }
+        }
     }
 
     /// The config file Shale writes for a vault that has none: the core settings,
@@ -448,6 +513,41 @@ mod tests {
         }
     }
 
+    /// The way *in* is lenient even though the settings path is strict: a
+    /// config written by a newer Shale (or carrying a stray section) must not
+    /// bar the vault, because a user who cannot open the app cannot fix the
+    /// file that kept it shut.
+    #[test]
+    fn a_config_from_a_newer_shale_still_opens_the_vault() {
+        let (cfg, warnings) = Config::from_toml_lenient(
+            "[frobnicate]\ncadence = 3\n[editor]\nvim_mode = true\nbogus = 1\n",
+        );
+        assert!(cfg.editor.vim_mode, "what this Shale knows still applies");
+        assert_eq!(warnings.len(), 2, "both drops are named: {warnings:?}");
+        assert!(warnings.iter().any(|w| w.contains("[frobnicate]")));
+        assert!(warnings.iter().any(|w| w.contains("bogus")));
+    }
+
+    /// The pruning stops at the section's own fields: profile names belong to
+    /// the user, and an empty default schema must not eat them.
+    #[test]
+    fn user_profiles_survive_the_lenient_parse() {
+        let (cfg, warnings) =
+            Config::from_toml_lenient("[mcp.profile.writing]\nread = [\"inbox/\"]\n");
+        assert!(cfg.mcp.profile.contains_key("writing"));
+        assert!(warnings.is_empty(), "nothing was dropped: {warnings:?}");
+    }
+
+    /// Past repair — a *known* setting whose value no pruning can save — the
+    /// vault still opens on defaults, with the failure named.
+    #[test]
+    fn a_malformed_known_setting_falls_back_with_a_warning() {
+        let (cfg, warnings) = Config::from_toml_lenient("[editor]\nvim_mode = \"yes\"\n");
+        assert_eq!(cfg, Config::default());
+        assert_eq!(warnings.len(), 1, "the fallback is announced: {warnings:?}");
+        assert!(warnings[0].contains("defaults"));
+    }
+
     #[test]
     fn a_theme_can_be_named() {
         let cfg = Config::from_toml("[appearance]\ntheme = \"gruvbox\"\nfont_size = 12.0").unwrap();
@@ -547,7 +647,7 @@ live = false
     #[test]
     fn load_missing_file_gives_defaults() {
         let dir = tempfile::tempdir().unwrap();
-        let cfg = Config::load(dir.path()).unwrap();
+        let cfg = Config::load(dir.path()).unwrap().0;
         assert_eq!(cfg, Config::default());
     }
 
@@ -561,7 +661,7 @@ live = false
             dir.path().join(".shale").join("config.toml")
         );
         assert!(
-            Config::load(dir.path()).is_ok_and(|c| c == Config::default()),
+            Config::load(dir.path()).is_ok_and(|(c, _)| c == Config::default()),
             "and reading a vault with no config is not an error"
         );
     }
@@ -569,7 +669,7 @@ live = false
     #[test]
     fn opening_a_fresh_vault_writes_the_starter() {
         let dir = tempfile::tempdir().unwrap();
-        let (cfg, source) = Config::load_or_create(dir.path()).unwrap();
+        let (cfg, source, _) = Config::load_or_create(dir.path()).unwrap();
         assert_eq!(source, ConfigSource::Created);
         assert_eq!(cfg, Config::default());
         assert!(Config::path(dir.path()).is_file());
@@ -577,7 +677,7 @@ live = false
         // A second opening reads the file rather than writing over it, which is
         // what lets a hand-edit (or a saved theme) survive a restart.
         std::fs::write(Config::path(dir.path()), "[appearance]\ntheme = \"nord\"\n").unwrap();
-        let (cfg, source) = Config::load_or_create(dir.path()).unwrap();
+        let (cfg, source, _) = Config::load_or_create(dir.path()).unwrap();
         assert_eq!(source, ConfigSource::File);
         assert_eq!(cfg.appearance.theme, "nord");
     }
@@ -593,7 +693,7 @@ live = false
             "[appearance]\ntheme = \"nord\"\n",
         )
         .unwrap();
-        let (cfg, source) = Config::load_or_create(dir.path()).unwrap();
+        let (cfg, source, _) = Config::load_or_create(dir.path()).unwrap();
         assert_eq!(source, ConfigSource::Moved);
         assert_eq!(cfg.appearance.theme, "nord");
         assert!(

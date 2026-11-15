@@ -291,7 +291,7 @@ mod tests {
             &Value::Str("one-light".into()),
         )
         .unwrap();
-        let cfg = Config::load(dir.path()).unwrap();
+        let cfg = Config::load(dir.path()).unwrap().0;
         assert_eq!(cfg.appearance.theme, "one-light");
         // The rest of the starter is intact, comments and all, and the temp file
         // the atomic write used is gone.

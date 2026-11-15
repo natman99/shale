@@ -242,7 +242,7 @@ fn a_chosen_theme_is_saved_to_the_vault_config(cx: &mut TestAppContext) {
     assert!(text.contains("# the palette I look at all day"), "{text}");
     assert!(text.contains("[editor]\nvim_mode = true"), "{text}");
     assert_eq!(
-        Config::load(dir.path()).unwrap().appearance.theme,
+        Config::load(dir.path()).unwrap().0.appearance.theme,
         "gruvbox-dark",
         "and the file says what the window is drawn with"
     );

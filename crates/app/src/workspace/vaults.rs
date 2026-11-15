@@ -311,8 +311,12 @@ pub(crate) fn open_vault_window(
     let held = cx.global::<VaultWindows>()._claims.contains_key(&root);
     let vault = Rc::new(Vault::open(&root).context("opening vault")?);
     let claim = if held { None } else { claim_vault(&root)? };
-    let (config, source) = Config::load_or_create(vault.root()).context("loading config")?;
+    let (config, source, config_warnings) =
+        Config::load_or_create(vault.root()).context("loading config")?;
     tracing::info!(?source, path = %Config::path(vault.root()).display(), "config");
+    for warning in &config_warnings {
+        tracing::warn!("config: {warning}");
+    }
     let config = Rc::new(config);
 
     // Remember the vault for the picker and for the next no-argument start.
@@ -335,6 +339,16 @@ pub(crate) fn open_vault_window(
     start_watcher(&services, cx);
 
     let window = build_window(&services, &root, options, cx)?;
+
+    // A config this Shale had to read leniently gets one line on the status
+    // bar: the vault opened, and the window says what it left unread.
+    if !config_warnings.is_empty() {
+        let message = match config_warnings.as_slice() {
+            [only] => format!("config: {only}"),
+            many => format!("config: {} (+{} more)", many[0], many.len() - 1),
+        };
+        let _ = window.update(cx, |ws, _window, cx| ws.say(message, cx));
+    }
 
     cx.update_global::<VaultWindows, _>(|g, _cx| {
         g.windows.entry(root.clone()).or_default().push(window);
