@@ -4,13 +4,9 @@ For the note outline-- Already planned I think. Make sure the user can reorder h
 
 Contrast is kind of low on labels in 3d, it gets really hard to read them with all of the links and nodes all around. Can we fix that somehow? Make them bigger or brighter or whatever? They also seem to be slightly transparent and blend into nodes really well. They look okay in 2d. Do they follow the config font size?
 
-Can we also have the side mouse buttons (mouse 4/5 I think), bind to the jump list like browsers do?
-
 make `:e` take file paths
 
 Docs mistake: says `space` is vim's move right motion when it is only used for chords.
-
-Why does pressing escape in the graph view move to a different tab?
 
 Update docs about the DB being safely removable once it's storing more valuable information like timeline
 
@@ -22,8 +18,6 @@ Test multiple search operators again manually
 
 Update project to Rust 2024
 
-Make :q close a pane/tab, not the whole app. Add :wqall + related `all` commands and logic following neovim.
-
 Add rendering for images in the vault as a note. We already have image preview inside of notes but we can't see them in the file tree and can't view them outside of an embed.
 
 Make arrow keys move the cursor.
@@ -34,9 +28,11 @@ Do a massive grammar and text overhaul on like everything for consistency and se
 
 Mouse drag text select.
 
-Text selection in picker.
+Right sidebar missing focus indicator on empty window (for example if there are now headings or links the sidebar is dead input and shows no indicator it's focused). The left sidebar always has at least one item to select.
 
 Add a little clickable button in the top left that will close/open the file tree and show if it's open or not.
+
+Merge "blank tab" and "new unnamed note"?
 
 Important: way to move notes to folders
 clicking focuses panes but doesn't move the focus border
