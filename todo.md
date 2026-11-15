@@ -52,3 +52,5 @@ Soft wrap cutoff is cut off by the border/pane effects on the right side. It loo
 Wrap boundries aren't updated/redraw the editor when the sidebars open/close causing a visible reflow upon next input and redraw.
 
 Clicking under an editor on the same pane (so outside of the valid "hit" area that has proper cursor support), should put the caret at the bottom of the window, not the top like it is now. Clicking to edit the end of a note is very difficult
+
+On right side, the sidebar hide button overlaps with the sidebar label/name
