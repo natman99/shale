@@ -1394,3 +1394,43 @@ app 500 / core 477. Nine app tests (name from the line, cleaned not verbatim, `:
 into a folder, the refusal on a named note, the refusal on a collision, the number on a
 derived name, nothing written out of nothing, no escape from the vault, an exit naming
 rather than losing) and ten in core for the naming itself.
+
+## An idle run pays nothing for being killable (2026-11-15)
+
+**The dead end.** The termination signal (P1.5) was caught with an atomic flag and *polled*:
+every window asked "yet?" every 200 ms, forever. At rest that poll was the single biggest
+wakeup source in the process — 5 wakeups a second per window, on top of everything else.
+Being killable should cost an idle run nothing.
+
+**The plumbing.** The handler still does only what signal context allows — an atomic store
+plus a one-byte write to a `pipe2` self-pipe (nonblocking write end, blocking read end). A
+small reader thread sleeps in `read()` until a byte lands and then sends on a
+`futures::channel::mpsc::unbounded` — the same channel idiom the LSP reader thread uses.
+One watcher task per process waits on that channel; when it wakes it walks
+`VaultWindows::all_windows` — the same registry walk `:qall` takes — and runs
+`finish_termination` for every window. No per-window task, no timer, and a `kill` now
+answers for *every* window the process holds, not just the ones that had a watch attached.
+
+**The gpui pitfall, recorded because it cost an hour:** a `Task` is *cancelled when its
+handle drops*. `spawn_watcher` discarding the handle silently killed the watcher before it
+ran. The registry owns the handle (`VaultWindows::set_termination_watcher`) because the
+registry lives as long as the run.
+
+**The flag is still the fact.** The watcher checks it before every wait, so a signal that
+lands between `main` installing handlers and the watcher spawning is not lost — one of the
+four tests pins exactly that race. The other three pin the promise: the dirty note reaches
+the disk, the window closes, and two windows on two vaults are both written by one wake —
+asserted by which file holds which words.
+
+**Idle measurement** (headless gpui — no `WAYLAND_DISPLAY`/`DISPLAY`, so no GPU driver in
+the numbers; `examples/graph/organic-1k` with Home.md open; 15 s windows; 3 runs each):
+
+| build | main-thread wake/s | CPU | RSS |
+|-------|-------------------|-----|-----|
+| before (poll) | 6.7–7.0 | ~0.5% | 31.5 MiB |
+| after (self-pipe + watcher) | 2.3–2.4 | 0.47–0.53% | 31.5–31.9 MiB |
+
+The remaining 2.3/s is the vault watcher's 750 ms walk beat (~1.3/s) and the pending-queue
+`read_dir` at 1 s (~1/s) — both intended behavior, both still on the clock.
+
+app 900 / core 857 / fixture 1 / mcp 42 — 1800 passed, 0 failed. fmt and clippy clean.

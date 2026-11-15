@@ -14,8 +14,6 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
 
 use anyhow::{Context as _, Result};
 use gpui::{
@@ -69,26 +67,35 @@ pub(crate) struct VaultWindows {
     /// The open claim handles. Dropping one releases the lock, so these live
     /// exactly as long as the registry — which lives as long as the run.
     _claims: HashMap<PathBuf, Claim>,
-    /// The termination flag the signal handlers raise; every window polls it.
-    terminating: Arc<AtomicBool>,
     /// The first window's options, kept so a `--split` startup splits only
     /// the window it started in.
     first: bool,
+    /// The process's one termination watcher (see [`super::exit::spawn_watcher`]).
+    /// The registry owns it because a gpui task is cancelled when its handle
+    /// drops, and the wait has to outlive every window.
+    _termination: Option<gpui::Task<()>>,
 }
 
 impl VaultWindows {
-    pub(crate) fn new(terminating: Arc<AtomicBool>) -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             windows: HashMap::new(),
+            _termination: None,
             services: HashMap::new(),
             _claims: HashMap::new(),
-            terminating,
             first: true,
         }
     }
 }
 
 impl VaultWindows {
+    /// Keep the process's one termination watcher alive for the run: a gpui
+    /// task is cancelled when its handle drops, and the registry outlives
+    /// every window the wait spans (see [`super::exit::spawn_watcher`]).
+    pub(crate) fn set_termination_watcher(&mut self, task: gpui::Task<()>) {
+        self._termination = Some(task);
+    }
+
     /// Every window this process holds, across every vault: what `:qall` walks and
     /// what `:wall` writes. The registry is the only place that knows them all — a
     /// window can see its own tabs, but not its siblings'.
@@ -381,9 +388,9 @@ fn build_window(
 ) -> Result<WindowHandle<Workspace>> {
     let workspace = cx.new(|cx| Workspace::new_with(services.clone(), cx));
     let ws_for_build = workspace.clone();
-    let (first, terminating) = {
+    let first = {
         let g = cx.global::<VaultWindows>();
-        (g.first, g.terminating.clone())
+        g.first
     };
 
     // Where this window sat last time it held this session slot. The window
@@ -456,9 +463,6 @@ fn build_window(
         }
         ws.focus_active_tab(window, cx)
     });
-
-    // And a `kill` is answered the same way a quit is, in every window.
-    workspace.update(cx, |ws, cx| ws.watch_for_termination(terminating, cx));
 
     if first {
         cx.update_global::<VaultWindows, _>(|g, _cx| g.first = false);

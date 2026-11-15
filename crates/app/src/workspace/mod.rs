@@ -12,7 +12,7 @@
 mod bar;
 mod checker;
 mod edits;
-mod exit;
+pub(crate) mod exit;
 mod graph;
 pub(crate) mod index;
 mod jumps;
@@ -353,9 +353,6 @@ pub(crate) struct Workspace {
     /// startup pass can hold one handle on a background thread while the window
     /// keeps its own.
     db: Option<Arc<Db>>,
-    /// The task that watches for a termination signal. Only started by `main`, and
-    /// only for as long as the window is (see [`exit`]).
-    _termination: Option<Task<()>>,
     /// The vault's shared services: the index handle, the live MCP channel, and
     /// the loops that must run once per vault rather than once per window (see
     /// [`services`]). Kept so the entity lives exactly as long as some window is
@@ -678,7 +675,6 @@ impl Workspace {
             signature,
             db,
             _services: services,
-            _termination: None,
             live_snapshot,
             review,
             pending_unreadable: Vec::new(),

@@ -33,15 +33,16 @@ mod tree;
 mod workspace;
 
 use std::path::PathBuf;
-use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
 
 use anyhow::{Context as _, Result};
 use clap::Parser;
 use gpui::App;
 use shale_core::RecentVaults;
 
-use workspace::{keybindings, vaults};
+use workspace::{
+    exit::{self, Termination},
+    keybindings, vaults,
+};
 
 #[derive(Parser, Debug)]
 #[command(name = "shale", about = "Obsidian-style markdown editor")]
@@ -92,31 +93,77 @@ fn main() -> Result<()> {
 
     // Roadmap P1.5: a termination signal is an exit the user asked for, not a crash.
     // The handler runs in signal context, where the only safe work is an atomic
-    // store, so it raises a flag and the window polls it (`workspace::exit`).
+    // store and a one-byte write to a self-pipe, so it raises the flag and pokes a
+    // blocking reader thread, which wakes the windows' exit watchers
+    // (`workspace::exit`) — no window asks "yet?" on a timer.
     // SIGKILL cannot be caught, which is why the note writes themselves are atomic
     // (`shale_core::atomic`) and the index is a cache rather than a record.
-    let terminating = Arc::new(AtomicBool::new(false));
+    let (termination, termination_watcher) = Termination::new();
     // Signals are a unix thing, and so are the two crates that raise them; the
-    // flag stays, because the window's poll is the same code on every platform,
-    // and a Windows console handler is the part that would have to be written.
+    // waiting is the same code on every platform, and a Windows console handler
+    // is the part that would have to be written.
     #[cfg(unix)]
-    let _signal_handlers = [libc::SIGTERM, libc::SIGHUP, libc::SIGINT]
-        .into_iter()
-        .map(|signal| {
-            let flag = Arc::clone(&terminating);
-            // `register` chains whatever handler was already there — gpui installs
-            // none for these — and the action has to be async-signal-safe, which an
-            // atomic store is. The handles are kept for the run: dropping one puts
-            // the previous handler back, and the previous handler for SIGTERM is
-            // "drop the process where it stands".
-            unsafe {
-                signal_hook_registry::register(signal, move || {
-                    flag.store(true, std::sync::atomic::Ordering::SeqCst)
-                })
+    let _signal_handlers;
+    #[cfg(unix)]
+    {
+        // The self-pipe. The write end stays nonblocking so a signal handler is
+        // never held by a full pipe; the read end is cleared to blocking so the
+        // reader thread sleeps in the kernel until a signal actually lands.
+        // The two fds live for the run: they close with the process.
+        let mut fds = [0 as libc::c_int; 2];
+        if unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC | libc::O_NONBLOCK) } != 0 {
+            anyhow::bail!(
+                "opening the termination self-pipe: {}",
+                std::io::Error::last_os_error()
+            );
+        }
+        unsafe { libc::fcntl(fds[0], libc::F_SETFL, 0) };
+        _signal_handlers = [libc::SIGTERM, libc::SIGHUP, libc::SIGINT]
+            .into_iter()
+            .map(|signal| {
+                let flag = termination.flag();
+                let wake_write = fds[1];
+                // `register` chains whatever handler was already there — gpui installs
+                // none for these — and the action has to be async-signal-safe, which an
+                // atomic store and a write to an empty nonblocking pipe are. The
+                // handles are kept for the run: dropping one puts the previous handler
+                // back, and the previous handler for SIGTERM is "drop the process
+                // where it stands".
+                unsafe {
+                    signal_hook_registry::register(signal, move || {
+                        flag.store(true, std::sync::atomic::Ordering::SeqCst);
+                        libc::write(wake_write, b"\x01".as_ptr() as *const std::ffi::c_void, 1);
+                    })
+                }
+            })
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .context("installing the termination handlers")?;
+        // The reader thread: sleep on the pipe, and when a byte lands, wake the
+        // windows through the channel. It leaves when the pipe closes or errors;
+        // a signal that arrives after that has already raised the flag, and a
+        // watcher reads the flag before it ever sleeps.
+        let woken = termination.clone();
+        let read_fd = fds[0];
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 8];
+            loop {
+                let n = unsafe {
+                    libc::read(
+                        read_fd,
+                        buf.as_mut_ptr() as *mut std::ffi::c_void,
+                        buf.len(),
+                    )
+                };
+                if n > 0 {
+                    woken.wake();
+                } else if n == 0 {
+                    break; // the write end closed: the process is on its way out
+                } else if std::io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) {
+                    break;
+                }
             }
-        })
-        .collect::<std::result::Result<Vec<_>, _>>()
-        .context("installing the termination handlers")?;
+        });
+    }
 
     // Claim the vault before the GUI exists. A vault owned by another Shale
     // is then a message and an exit code, not a window; gpui's loop has no
@@ -140,7 +187,10 @@ fn main() -> Result<()> {
         // files that hold them. One Shale, one window per vault; the vault
         // switcher (`:vault`) adds windows to this rather than starting a
         // second copy of everything.
-        cx.set_global(vaults::VaultWindows::new(terminating.clone()));
+        cx.set_global(vaults::VaultWindows::new());
+        // One watcher for the whole process: it sleeps on the channel and, when a
+        // signal lands, exits every window the registry holds.
+        exit::spawn_watcher(termination_watcher, cx);
         vaults::seed_claim(root, claim, cx);
         if let Err(e) = vaults::open_vault_window(&vault_path, options, cx) {
             // The window is the app: no window, no app. The reason goes to
