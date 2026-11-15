@@ -34,6 +34,19 @@ const TAB_GAP: gpui::Pixels = crate::style::SPACE_1;
 /// The tab bar's end buttons: a square big enough to be a real target inside the
 /// 28px bar, and small enough not to crowd the tabs it brackets.
 const CHEVRON: gpui::Pixels = gpui::px(20.);
+/// The mark that lives in its panel's card: one per panel per window.
+const MARK_IN_CARD: usize = 0;
+/// The mark at the end of pane `pix`'s tab bar. Each pane draws its own bar, so each
+/// gets its own copy — see `panel_chevron`'s id.
+fn mark_in_bar(pix: usize) -> usize {
+    pix + 1
+}
+/// gpui's element ids take a name plus one number, so the panel and the copy of its
+/// mark share that number: `strip` is 0 or 1, so `copy * 2 + strip` is unique for
+/// every mark in the window.
+fn mark_slot(strip: Strip, copy: usize) -> usize {
+    copy * 2 + strip as usize
+}
 
 /// Which chrome panel a tab-bar chevron is the door to. Both panels are window-level,
 /// so the chevron on a second pane's bar is the same door rather than a per-pane one —
@@ -70,7 +83,11 @@ impl Workspace {
     /// clicking one moves the keyboard *to that pane* and closing one writes its
     /// note. Each pane draws its own bar; the bar's clicks name their pane.
     /// The tab bar's end button for one panel: hollow when the panel is closed, filled
-    /// when it is open, and it toggles. It is the mouse's answer to `space e` /
+    /// when it is open, and it toggles.
+    ///
+    /// `copy` says which copy of the mark this is — `MARK_IN_CARD` for the door in the
+    /// panel's own card, `mark_in_bar(pix)` for the end of pane `pix`'s tab bar. Every
+    /// copy in a window must get a different one; see the id below. It is the mouse's answer to `space e` /
     /// `space b`, and it goes through the same `set_*_visible` door so the two cannot
     /// disagree — including the rule that closing a panel that holds the keyboard hands
     /// the keys to the note.
@@ -80,6 +97,7 @@ impl Workspace {
     pub(crate) fn panel_chevron(
         &self,
         strip: Strip,
+        copy: usize,
         cx: &mut Context<Self>,
     ) -> gpui::Stateful<gpui::Div> {
         let (open, glyph, label) = match strip {
@@ -124,7 +142,12 @@ impl Workspace {
             self.chrome_marks.set(marks);
         }
         div()
-            .id(("panel-chevron", strip as usize))
+            // The copy is part of the id, and that is not decoration: gpui keys a
+            // stateful element's whole interactive life — its click handler, its
+            // hover, its tooltip — by the chain of element ids above it, and no pane
+            // in the tree carries an id. Two panes' marks sharing one id means one
+            // shared state, and only one of the two marks answers the mouse.
+            .id(("panel-chevron", mark_slot(strip, copy)))
             .flex_none()
             .size(CHEVRON)
             .flex()
@@ -152,6 +175,26 @@ impl Workspace {
             })
             .tooltip(move |window, cx| {
                 crate::tooltip::ChromeTooltip::build(label, &palette, window, cx)
+            })
+            // A test finds the mark by name rather than by a coordinate someone
+            // measured off a 1920-wide window: the marks move with the layout (a
+            // second pane puts another pair in the middle of the screen), and a
+            // hardcoded x is a guess about where the layout put it. No cost outside
+            // debug/test builds.
+            .debug_selector(move || {
+                format!(
+                    "panel-chevron {} {}",
+                    if strip == Strip::Tree {
+                        "tree"
+                    } else {
+                        "strip"
+                    },
+                    if copy == MARK_IN_CARD {
+                        "card".to_string()
+                    } else {
+                        format!("bar-{}", copy - 1)
+                    }
+                )
             })
     }
 
@@ -282,11 +325,11 @@ impl Workspace {
             // that card's corner instead — in the bar it read as a control for
             // scrolling the tabs, which is not what it is.
             .when(!self.tree_visible, |d| {
-                d.child(self.panel_chevron(Strip::Tree, cx))
+                d.child(self.panel_chevron(Strip::Tree, mark_in_bar(pix), cx))
             })
             .children(tabs)
             .when(!self.sidebar_visible, |d| {
-                d.child(self.panel_chevron(Strip::Sidebar, cx))
+                d.child(self.panel_chevron(Strip::Sidebar, mark_in_bar(pix), cx))
             })
             .into_any_element()
     }
@@ -915,11 +958,11 @@ impl Render for Workspace {
                                 // The card's own door, in the corner nearest the note
                                 // it pushes out of the way.
                                 .child(
-                                    div()
-                                        .absolute()
-                                        .top_1()
-                                        .right_1()
-                                        .child(self.panel_chevron(Strip::Tree, cx)),
+                                    div().absolute().top_1().right_1().child(self.panel_chevron(
+                                        Strip::Tree,
+                                        MARK_IN_CARD,
+                                        cx,
+                                    )),
                                 )
                                 .child(
                                     div()
@@ -1064,13 +1107,11 @@ impl Render for Workspace {
                                 .relative()
                                 // The strip's mirror of the tree's mark: the corner of
                                 // the card nearest the note it gives room to.
-                                .child(
-                                    div()
-                                        .absolute()
-                                        .top_1()
-                                        .left_1()
-                                        .child(self.panel_chevron(Strip::Sidebar, cx)),
-                                )
+                                .child(div().absolute().top_1().left_1().child(self.panel_chevron(
+                                    Strip::Sidebar,
+                                    MARK_IN_CARD,
+                                    cx,
+                                )))
                                 // The header strip is chrome, not a row (ruling 20):
                                 // `j` starts on the first real row, and the view's
                                 // name and count live here rather than in a row the
