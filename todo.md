@@ -38,7 +38,7 @@ Important: way to move notes to folders
 clicking focuses panes but doesn't move the focus border
 When outline scrolls put the target in the middle or top of the screen instead of the bottom row
 
-crash on windows. I believe it happened when waking from sleep. 
+~~crash on windows. I believe it happened when waking from sleep.~~ — not the sleep: it is `:qall` / `:wall` / `:wqall` reading the window they run inside through the vault's window registry, which gpui refuses (`app.rs:3325`). Fixed in `eb88c21`; the registry is now asked only about the OTHER windows.
 thread 'main' (12572) panicked at C:\Users\nsimm\.cargo\git\checkouts\zed-a70e2ad075855582\8dd255c\crates\gpui\src\app.rs:3325:14:
 attempted to read a window that is already on the stack
 note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
@@ -50,3 +50,5 @@ Insert table/callout commands
 Soft wrap cutoff is cut off by the border/pane effects on the right side. It looks like about one char is covered up.
 
 Wrap boundries aren't updated/redraw the editor when the sidebars open/close causing a visible reflow upon next input and redraw.
+
+Clicking under an editor on the same pane (so outside of the valid "hit" area that has proper cursor support), should put the caret at the bottom of the window, not the top like it is now. Clicking to edit the end of a note is very difficult
