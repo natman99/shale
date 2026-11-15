@@ -34,7 +34,7 @@ Right sidebar missing focus indicator on empty window (for example if there are 
 
 Merge "blank tab" and "new unnamed note"?
 
-Important: way to move notes to folders
+~~Important: way to move notes to folders~~ — done in `0a0aaed` and `aa0481e`: `:move [folder]` (vault-relative), `m` in the tree, `ctrl-shift-m`, and a folder picker that offers the vault's folders, the top level, and a new one. A link that spells the folder the note left follows it; a link that spells no folder stays. Moving a *folder* is still refused: the notes inside it spell the old name and nothing rewrites those yet.
 clicking focuses panes but doesn't move the focus border
 When outline scrolls put the target in the middle or top of the screen instead of the bottom row
 
