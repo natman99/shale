@@ -41,6 +41,31 @@ fn setup(cx: &mut TestAppContext, store: &std::path::Path) {
     });
 }
 
+/// The way in is lenient: a config this Shale does not fully understand —
+/// a section from a newer Shale, or a stray edit — opens the vault anyway,
+/// and the window says on the status line what it left unread.
+#[gpui::test]
+fn a_vault_with_an_unknown_config_section_still_opens(cx: &mut TestAppContext) {
+    let store = tempfile::tempdir().unwrap();
+    setup(cx, &store.path().join("recent.json"));
+    let (_k, dir) = vault_dir("alpha");
+    std::fs::write(
+        dir.join(".shale").join("config.toml"),
+        "[spellcheck]\nenabled = false\n\n[frobnicate]\ncadence = 3\n",
+    )
+    .unwrap();
+
+    let w = cx
+        .update(|cx| vaults::open_vault_window(&dir, OpenOptions::default(), cx))
+        .expect("the unknown section does not bar the vault");
+    let mut vcx = VisualTestContext::from_window(w.into(), cx);
+    let status = w.update(&mut vcx, |ws, _w, _cx| ws.status()).unwrap();
+    assert!(
+        status.contains("[frobnicate]"),
+        "the status line names what was ignored: {status:?}"
+    );
+}
+
 #[gpui::test]
 fn two_vaults_are_two_windows_in_one_process(cx: &mut TestAppContext) {
     let store = tempfile::tempdir().unwrap();
