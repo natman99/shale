@@ -43,7 +43,7 @@ thread 'main' (12572) panicked at C:\Users\nsimm\.cargo\git\checkouts\zed-a70e2a
 attempted to read a window that is already on the stack
 note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
 
-The "show sidebar" buttons only work on the leftmost (or original/primary) pane. Buttons show up on all panes. Tooltips also broken on non-primary panes.
+~~The "show sidebar" buttons only work on the leftmost (or original/primary) pane. Buttons show up on all panes. Tooltips also broken on non-primary panes.~~ — one bug, fixed in `5fd03ed`: every pane's mark was the same gpui element id (no pane carries an id, so the id chain was identical), and gpui keeps one click handler, hover and tooltip per id. The marks are now `MARK_IN_CARD` / `mark_in_bar(pix)`, and the tests find them by debug selector instead of by coordinates guessed from one window size.
 
 Insert table/callout commands
 
