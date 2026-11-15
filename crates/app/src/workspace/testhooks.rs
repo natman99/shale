@@ -984,6 +984,16 @@ fn render_target(target: &PickerTarget) -> String {
         // (the buffer is the authority for where an id sits).
         PickerTarget::Block { path, id } => format!("{}#^{}", rel_text(path), id),
         PickerTarget::RunQuery(path) => format!("query {}", rel_text(path)),
+        // A move: which note, and the folder it would go into. The top level is
+        // spelled out rather than left blank, so a test can tell "no folder" from a
+        // row that named nothing at all.
+        PickerTarget::MoveTo { from, to } => format!(
+            "move {} -> {}",
+            rel_text(from),
+            to.as_deref()
+                .map(rel_text)
+                .unwrap_or_else(|| "top level".into())
+        ),
         PickerTarget::SaveQuery(search) => format!("save {search}"),
         PickerTarget::Notice(reason) => reason.to_string(),
     }

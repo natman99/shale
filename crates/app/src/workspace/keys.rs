@@ -135,6 +135,7 @@ fn build() -> (Vec<KeyBinding>, Vec<KeymapRow>) {
         "ctrl-n" => NewNote,
         "ctrl-shift-n" => NewFolder,
         "ctrl-shift-r" => RenameNote,
+        "ctrl-shift-m" => MoveNote,
         "ctrl-shift-d" => DeleteNote,
         // Quick-open: jump to a note by typing part of its name or path. It lives
         // on the vim chords `space f` and `g f` and on `:e`, which frees `ctrl-o`
@@ -429,6 +430,7 @@ fn build() -> (Vec<KeyBinding>, Vec<KeymapRow>) {
         "n" => NewNote,
         "shift-n" => NewFolder,
         "r" => RenameNote,
+        "m" => MoveNote,
         "shift-d" => DeleteNote,
     ]);
     // The right-hand strip, while it has the keyboard (`ctrl-w l` from the rightmost

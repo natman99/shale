@@ -166,6 +166,10 @@ actions!(
         NewNote,
         NewFolder,
         RenameNote,
+        // Move a note into another folder. Its own verb rather than a spelling of
+        // `:rename`: a move names a folder and keeps the name, and the two ask
+        // different questions.
+        MoveNote,
         DeleteNote,
         FocusTree,
         FocusEditor,

@@ -7,7 +7,7 @@
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use anyhow::{Context as _, Result};
+use anyhow::{Context as _, Result, bail};
 use gpui::{Context, Entity, Focusable, Window, prelude::*};
 use shale_core::rename::Rewrite;
 use shale_core::vault::{rel_from_text, rel_text};
@@ -18,7 +18,9 @@ use crate::prompt;
 
 use super::Workspace;
 use super::known_names;
+use super::open::PickerTarget;
 use super::tabs::TabContent;
+use crate::picker::{PickerItem, RowSource};
 
 impl Workspace {
     /// Open the one-line prompt. This is the only place a name is typed, so it is
@@ -197,6 +199,10 @@ impl Workspace {
             },
             ex::Ex::WordCount(folder) => self.wordcount(&folder, cx),
             ex::Ex::RenameKey(old, new) => self.rename_key_command(&old, &new, window, cx),
+            // `:move` with nothing typed asks; with a folder it moves. Errors are said
+            // here rather than raised: the command line has already closed, and the
+            // status line is where a reader looks for why nothing moved.
+            ex::Ex::Move(folder) => self.move_command(&folder, window, cx),
             // The search arrives on the command line; the name is asked for after, because
             // the reader gives it and the command line does not (`:save-query`, P4.3 M6).
             ex::Ex::SaveQuery(search) => self.ask_save_query(&search, window, cx),
@@ -342,75 +348,10 @@ impl Workspace {
                 let from = self.rename_target(cx)?;
                 // The typed name stays **text** until the vault parses it:
                 // `rel_from_text` is what turns a typed `/` into folders on
-                // every platform and refuses a typed `\`.
+                // every platform and refuses a typed `\`. A rename's answer sits
+                // **beside** the note it names; a move's names a folder in the vault.
                 let to_text = sibling_path(&from, answer);
-                let to = rel_from_text(&to_text)?;
-                // The links have to be found against the vault as it was *before*
-                // the rename: resolving a target is what decides which notes point
-                // at this one, and once the file has moved the old name resolves
-                // to nothing. A folder rename is left for later — the links that
-                // would need it spell the folder out, which is a different splice.
-                let rewrites = if self.is_dir(&from) {
-                    Vec::new()
-                } else {
-                    shale_core::rename::rewrites_for_rename(
-                        &self.vault,
-                        &self.entries,
-                        &self.queries,
-                        &from,
-                        &to,
-                    )?
-                };
-                let renamed = self.vault.rename_to(&from, &to_text)?;
-                let report = self.apply_rewrites(Some((&from, &renamed)), &rewrites, cx)?;
-                self.refresh_entries(cx);
-                // The note itself moves in one step, and the notes the rename
-                // rewrote to point at it are re-indexed alongside it: Shale's own
-                // writes are stamped out of the watcher's view, so nothing else
-                // would ever notice them.
-                self.index_renamed(&from, &renamed);
-                self.index_rewrites(&report.written);
-                self.refresh_link_names(cx);
-                // The graph moves with the file: the old path is gone, and the new one
-                // has to be re-scanned for the links inside it.
-                self.graph_note_removed(&from);
-                if let Ok(text) = self.vault.read(&renamed) {
-                    self.graph_note_saved(&renamed, &text);
-                }
-                self.refresh_graph(cx);
-                // Every tab that was showing the old name now shows the new one.
-                // More than one can be, which is what a tab holding a note while
-                // another tab holds the same note looks like from here.
-                for pane in self.panes.iter_mut() {
-                    for tab in pane.tabs.iter_mut() {
-                        if let TabContent::Note { path, .. } = &mut tab.content
-                            && path.as_deref() == Some(from.as_path())
-                        {
-                            *path = Some(renamed.clone());
-                        }
-                    }
-                }
-                // The registry moves with the file, so an embed that now spells the
-                // new name finds the buffer the caret is editing rather than re-reading
-                // the disk copy — which, with unsaved edits in the block, is a version
-                // the author has already edited past.
-                self.notes.rename(&from, &renamed);
-                for pane in self.panes.iter() {
-                    for tab in pane.tabs.iter() {
-                        if let Some(editor) = tab.editor() {
-                            editor.update(cx, |editor, _cx| editor.embed_renamed(&from, &renamed));
-                        }
-                    }
-                }
-                // ...and a tab renamed out from under its proposals has to be told, or
-                // it keeps painting a proposal that now belongs to no tab at all.
-                self.sync_overlay(cx);
-                // The jump chain named the old path, and a chain that points at a
-                // note that no longer resolves is a dead end the user has to step
-                // over by hand.
-                self.jumps.rename(&from, &renamed);
-                self.tree_selection = Some(renamed.clone());
-                self.say(rename_status(&renamed, &report), cx);
+                self.perform_move(&from, &to_text, "renamed", cx)?;
             }
             // A command line is not a name for something on disk, and
             // `answer_prompt` sends it off to `answer_command` before this is
@@ -516,6 +457,18 @@ impl Workspace {
                     .is_some_and(|note| note.dirty.get());
             if dirty_here {
                 report.skipped.push(rewrite.path.clone());
+                continue;
+            }
+            // A rewrite whose text the file already holds is not a change. The pass
+            // hands back every note that *points at* the moved one, and a `[[Deep]]`
+            // that still resolves after the move needed no edit at all — writing it
+            // anyway dirties a clean file, wakes the checker, and lets the status
+            // line claim a link was updated when nothing was.
+            if self
+                .vault
+                .read(&path)
+                .is_ok_and(|on_disk| on_disk == rewrite.text)
+            {
                 continue;
             }
             self.vault.write(&path, &rewrite.text)?;
@@ -797,6 +750,299 @@ impl Workspace {
         );
     }
 
+    /// Move one note and put the vault back in order around it: the links that
+    /// point at it, the index, the graph, every tab holding it, the buffer
+    /// registry, the jump chain. Both verbs come through here — the rename prompt
+    /// types a sibling's name, `:move` names a folder — and the bookkeeping is the
+    /// same whichever spelling arrived.
+    ///
+    /// `to_text` is **typed text**, not a path: the vault parses it, so a `/` means
+    /// folders on every platform and a `\` is refused.
+    ///
+    /// `what` is the verb the status line reports in — "renamed" when the note's name
+    /// changed, "moved" when the folder did. The work is identical; the sentence the
+    /// reader asked for is not.
+    fn perform_move(
+        &mut self,
+        from: &Path,
+        to_text: &str,
+        what: &str,
+        cx: &mut Context<Self>,
+    ) -> Result<PathBuf> {
+        let from = from.to_path_buf();
+        let to = rel_from_text(to_text)?;
+        // The links have to be found against the vault as it was *before*
+        // the rename: resolving a target is what decides which notes point
+        // at this one, and once the file has moved the old name resolves
+        // to nothing. A folder rename is left for later — the links that
+        // would need it spell the folder out, which is a different splice.
+        let rewrites = if self.is_dir(&from) {
+            Vec::new()
+        } else {
+            shale_core::rename::rewrites_for_rename(
+                &self.vault,
+                &self.entries,
+                &self.queries,
+                &from,
+                &to,
+            )?
+        };
+        let renamed = self.vault.rename_to(&from, to_text)?;
+        let report = self.apply_rewrites(Some((&from, &renamed)), &rewrites, cx)?;
+        self.refresh_entries(cx);
+        // The note itself moves in one step, and the notes the rename
+        // rewrote to point at it are re-indexed alongside it: Shale's own
+        // writes are stamped out of the watcher's view, so nothing else
+        // would ever notice them.
+        self.index_renamed(&from, &renamed);
+        self.index_rewrites(&report.written);
+        self.refresh_link_names(cx);
+        // The graph moves with the file: the old path is gone, and the new one
+        // has to be re-scanned for the links inside it.
+        self.graph_note_removed(&from);
+        if let Ok(text) = self.vault.read(&renamed) {
+            self.graph_note_saved(&renamed, &text);
+        }
+        self.refresh_graph(cx);
+        // Every tab that was showing the old name now shows the new one.
+        // More than one can be, which is what a tab holding a note while
+        // another tab holds the same note looks like from here.
+        for pane in self.panes.iter_mut() {
+            for tab in pane.tabs.iter_mut() {
+                if let TabContent::Note { path, .. } = &mut tab.content
+                    && path.as_deref() == Some(from.as_path())
+                {
+                    *path = Some(renamed.clone());
+                }
+            }
+        }
+        // The registry moves with the file, so an embed that now spells the
+        // new name finds the buffer the caret is editing rather than re-reading
+        // the disk copy — which, with unsaved edits in the block, is a version
+        // the author has already edited past.
+        self.notes.rename(&from, &renamed);
+        for pane in self.panes.iter() {
+            for tab in pane.tabs.iter() {
+                if let Some(editor) = tab.editor() {
+                    editor.update(cx, |editor, _cx| editor.embed_renamed(&from, &renamed));
+                }
+            }
+        }
+        // ...and a tab renamed out from under its proposals has to be told, or
+        // it keeps painting a proposal that now belongs to no tab at all.
+        self.sync_overlay(cx);
+        // The jump chain named the old path, and a chain that points at a
+        // note that no longer resolves is a dead end the user has to step
+        // over by hand.
+        self.jumps.rename(&from, &renamed);
+        self.tree_selection = Some(renamed.clone());
+        self.say(rename_status(what, &renamed, &report), cx);
+        Ok(renamed)
+    }
+
+    /// `ctrl-shift-m`, `m` in the tree, and a bare `:move`: ask which folder the note
+    /// should live in. The note keeps its name — a move that also renames is the
+    /// rename prompt's job, and keeping the verbs apart is what lets this one ask
+    /// for a folder instead of a path.
+    pub(super) fn move_note(&mut self, _: &MoveNote, window: &mut Window, cx: &mut Context<Self>) {
+        let target = match self.rename_target(cx) {
+            Ok(target) => target,
+            Err(err) => {
+                self.say(format!("{err:#}"), cx);
+                cx.notify();
+                return;
+            }
+        };
+        if self.is_dir(&target) {
+            // A folder's links are its children's problem: the notes inside it spell
+            // out of the old folder name, and nothing rewrites those yet — renaming a
+            // folder through the tree leaves them alone for the same reason. Saying
+            // so beats moving
+            // the folder and leaving the vault full of dead links.
+            self.say(
+                "moving a folder is not built yet: the notes inside would break",
+                cx,
+            );
+            cx.notify();
+            return;
+        }
+        self.open_move_picker(&target, window, cx);
+    }
+
+    /// `:move [folder]`. Nothing typed asks with the picker; a folder moves the note
+    /// there and keeps its name. The path is **vault-relative** — `:move other/`
+    /// reaches the same folder from anywhere in the vault, which is what a sibling-
+    /// relative answer cannot do.
+    pub(super) fn move_command(
+        &mut self,
+        folder: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let from = match self.rename_target(cx) {
+            Ok(from) => from,
+            Err(err) => {
+                self.say(format!("{err:#}"), cx);
+                return;
+            }
+        };
+        let folder = folder.trim();
+        if folder.is_empty() {
+            self.open_move_picker(&from, window, cx);
+            return;
+        }
+        if self.is_dir(&from) {
+            self.say(
+                "moving a folder is not built yet: the notes inside would break",
+                cx,
+            );
+            return;
+        }
+        let dir = match rel_from_text(folder) {
+            Ok(dir) => dir,
+            Err(err) => {
+                self.say(format!("{err:#}"), cx);
+                return;
+            }
+        };
+        let to_text = match self.move_destination(&from, Some(&dir)) {
+            Ok(text) => text,
+            Err(err) => {
+                self.say(format!("{err:#}"), cx);
+                return;
+            }
+        };
+        if let Err(err) = self.perform_move(&from, &to_text, "moved", cx) {
+            self.say(format!("{err:#}"), cx);
+        }
+    }
+
+    /// The destination a move into `folder` names: the note's own file name, kept
+    /// whole (extension and all), hung under the folder the reader named. A folder
+    /// that does not exist yet is fine — `Vault::rename` makes the folders on the
+    /// way. Two mistakes are worth naming rather than leaving to the filesystem: a
+    /// folder that is one of the vault's notes (the OS answers `File exists`, which
+    /// reads like a bug), and a folder that is the note's own (which would move it
+    /// onto itself).
+    fn move_destination(&self, from: &Path, folder: Option<&Path>) -> Result<String> {
+        let name = from
+            .file_name()
+            .context("the note has no name to move")?
+            .to_string_lossy()
+            .to_string();
+        let Some(folder) = folder.filter(|folder| !folder.as_os_str().is_empty()) else {
+            // No folder is the vault's top level, which is a destination and not a
+            // missing argument: the picker's first row says so out loud.
+            return Ok(name);
+        };
+        if self.entries.iter().any(|entry| entry.path == folder) {
+            bail!("{} is a note, not a folder", rel_text(folder));
+        }
+        Ok(format!("{}/{}", rel_text(folder), name))
+    }
+
+    /// The folder picker: one row per folder the vault holds, one for the top level,
+    /// and — when what has been typed names no folder — one that creates it. The note
+    /// rides in every row because the picker outlives the moment it opened, and a
+    /// destination without the note it is for is nothing to act on.
+    fn open_move_picker(&mut self, from: &Path, window: &mut Window, cx: &mut Context<Self>) {
+        let from = from.to_path_buf();
+        // The label is built before the closure takes the note: the rows carry it,
+        // and the question is asked once.
+        let label = format!("Move {} to a folder", rel_text(&from));
+        let dirs = self.dirs.clone();
+        let entries = self.entries.clone();
+        let source: RowSource<PickerTarget> = Rc::new(move |query: &str| {
+            let query = query.trim();
+            let hit =
+                |needle: &str| query.is_empty() || shale_core::fuzzy_match(query, needle).is_some();
+            let mut rows: Vec<(PickerItem, PickerTarget)> = Vec::new();
+            // The folder the note already lives in is not a move, and offering it
+            // invites a refusal ("already exists") for a row that looked like an
+            // answer.
+            let here = from.parent().unwrap_or(Path::new(""));
+            // The top level leads: "out of this folder" is the move the picker
+            // exists for, and it is the one folder that is never in the list.
+            if !here.as_os_str().is_empty() && hit("top level") {
+                rows.push((
+                    PickerItem {
+                        label: "top level".into(),
+                        detail: "no folder".into(),
+                        detail_ranges: Vec::new(),
+                        search: "top level root vault".into(),
+                    },
+                    PickerTarget::MoveTo {
+                        from: from.clone(),
+                        to: None,
+                    },
+                ));
+            }
+            for dir in &dirs {
+                let text = rel_text(&dir.path);
+                if dir.path == here || !hit(&text) {
+                    continue;
+                }
+                let notes = entries
+                    .iter()
+                    .filter(|entry| entry.path.starts_with(&dir.path))
+                    .count();
+                rows.push((
+                    PickerItem {
+                        label: format!("{text}/").into(),
+                        detail: if notes == 1 {
+                            "1 note".into()
+                        } else {
+                            format!("{notes} notes").into()
+                        },
+                        detail_ranges: Vec::new(),
+                        search: text.into(),
+                    },
+                    PickerTarget::MoveTo {
+                        from: from.clone(),
+                        to: Some(dir.path.clone()),
+                    },
+                ));
+            }
+            // Typing a folder that is not there is asking for one, not failing to
+            // find one — the same rule the rename prompt follows when its answer
+            // names a folder that does not exist yet.
+            if !query.is_empty()
+                && !dirs.iter().any(|d| rel_text(&d.path) == query)
+                && let Ok(to) = rel_from_text(query)
+                && !to.as_os_str().is_empty()
+            {
+                rows.push((
+                    PickerItem {
+                        label: format!(r#"create "{query}/""#).into(),
+                        detail: "a new folder".into(),
+                        detail_ranges: Vec::new(),
+                        search: query.into(),
+                    },
+                    PickerTarget::MoveTo {
+                        from: from.clone(),
+                        to: Some(to),
+                    },
+                ));
+            }
+            rows
+        });
+        self.open_sourced_picker(&label, source, "", window, cx);
+    }
+
+    /// The folder a picker row chose. `None` is the vault's top level.
+    pub(super) fn move_chosen(&mut self, from: &Path, to: Option<&Path>, cx: &mut Context<Self>) {
+        let to_text = match self.move_destination(from, to) {
+            Ok(text) => text,
+            Err(err) => {
+                self.say(format!("{err:#}"), cx);
+                return;
+            }
+        };
+        if let Err(err) = self.perform_move(from, &to_text, "moved", cx) {
+            self.say(format!("{err:#}"), cx);
+        }
+    }
+
     pub(super) fn delete_note(
         &mut self,
         _: &DeleteNote,
@@ -840,12 +1086,14 @@ struct RewriteReport {
 /// What a rename did. Links that could not be updated because the note holding
 /// them has unsaved edits are named here rather than left for the user to find on
 /// their next save.
-fn rename_status(renamed: &Path, report: &RewriteReport) -> String {
-    let mut status = format!("renamed to {}", rel_text(renamed));
+fn rename_status(what: &str, renamed: &Path, report: &RewriteReport) -> String {
+    let mut status = format!("{what} to {}", rel_text(renamed));
     if report.changed > 0 {
+        let links = if report.changed == 1 { "link" } else { "links" };
+        let files = if report.files == 1 { "note" } else { "notes" };
         status = format!(
-            "{status}; {} links in {} updated",
-            report.changed, report.files
+            "{status}; {} {} in {} {} updated",
+            report.changed, links, report.files, files
         );
     }
     if let Some(note) = skipped_note(report) {

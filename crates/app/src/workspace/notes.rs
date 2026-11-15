@@ -633,7 +633,7 @@ impl Workspace {
         if let Some(existing) = existing {
             self.say(
                 format!(
-                    "{} already has a name: `:w` writes it, `:rename` moves it",
+                    "{} already has a name: `:w` writes it, `:move` takes it to another folder",
                     rel_text(&existing)
                 ),
                 cx,

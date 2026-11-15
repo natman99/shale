@@ -31,6 +31,7 @@ authority on ids and `:` spellings.
 | `ctrl-shift-p` | command palette (fuzzy; `:` is the exact-match command line, not this) |
 | `ctrl-shift-f`, `space s` | search every note for a line |
 | `ctrl-shift-r` | rename the selected note (rewrites the links to it) |
+| `ctrl-shift-m` | move the selected note to another folder (rewrites the links to it) |
 | `ctrl-shift-d` | delete the selected note |
 | `ctrl-n` | new note |
 | `ctrl-shift-n` | new folder |
@@ -230,6 +231,7 @@ While the tree has the keyboard (`ctrl-w h`):
 | `enter` | open the note |
 | `n` / `shift-n` | new note / new folder |
 | `r` | rename (rewrites the links to the note) |
+| `m` | move to another folder (type a folder that is not there to make one) |
 | `shift-d` | delete |
 | `space e` | hide the tree (works from inside it, which is how you get out) |
 | `escape` | hand the keyboard back to the note |

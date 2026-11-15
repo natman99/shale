@@ -38,6 +38,14 @@ pub(crate) enum PickerTarget {
     Vault(std::path::PathBuf),
     /// The file dialog that adds a vault the app has never seen.
     VaultPrompt,
+    /// A folder to move a note into (the tree's `m`, `:move`). The note rides along:
+    /// the picker outlives the moment it opened, and a destination with no note it is
+    /// for is nothing to act on. `to` is the folder, or `None` for the vault's top
+    /// level.
+    MoveTo {
+        from: std::path::PathBuf,
+        to: Option<std::path::PathBuf>,
+    },
     /// A property key from the vault-wide census (`:keys`, P4.3a M5). Choosing it
     /// does not open a new surface: it puts `prop:key` in the search field, which is
     /// the same question the pane is asking and can be refined from there.
@@ -435,6 +443,7 @@ impl Workspace {
                 self.search_vault_with(&seed, window, cx);
             }
             PickerTarget::RunQuery(path) => self.run_query(&path, window, cx),
+            PickerTarget::MoveTo { from, to } => self.move_chosen(&from, to.as_deref(), cx),
             PickerTarget::SaveQuery(search) => self.ask_save_query(&search, window, cx),
             PickerTarget::RenameKey(key) => {
                 // The pane has said *which* key; the prompt asks for the new

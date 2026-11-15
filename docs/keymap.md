@@ -24,6 +24,7 @@ in hand. `docs/keys.md` is the human map of both halves.
 | `ctrl-n` | New note | `NewNote` | `note.new` |
 | `ctrl-shift-n` | New folder | `NewFolder` | `folder.new` |
 | `ctrl-shift-r` | Rename the selected note | `RenameNote` | `note.rename` |
+| `ctrl-shift-m` | Move the selected note to another folder | `MoveNote` | `note.move` |
 | `ctrl-shift-d` | Delete the selected note | `DeleteNote` | `note.delete` |
 | `ctrl-o` | Jump back to the previous note | `JumpBack` | `jump.back` |
 | `ctrl-i` | Jump forward to the next note | `JumpForward` | `jump.forward` |
@@ -265,6 +266,7 @@ in hand. `docs/keys.md` is the human map of both halves.
 | `n` | New note | `NewNote` | `note.new` |
 | `shift-n` | New folder | `NewFolder` | `folder.new` |
 | `r` | Rename the selected note | `RenameNote` | `note.rename` |
+| `m` | Move the selected note to another folder | `MoveNote` | `note.move` |
 | `shift-d` | Delete the selected note | `DeleteNote` | `note.delete` |
 
 ### while `sidebar` has the keyboard

@@ -109,6 +109,12 @@ pub(crate) enum Ex {
     /// key list, no new name opens the prompt. A key with a space in it is reachable
     /// through the list, not typed here — the command line splits on spaces.
     RenameKey(String, String),
+    /// `move [folder]`: move the note in hand to another folder. No folder asks with
+    /// the folder picker; a folder moves it there and keeps its name. The path is
+    /// **vault-relative** — unlike `:rename`, whose answer sits beside the note it
+    /// names — and folders that are not there yet are created, the same rule a rename
+    /// follows. Renaming while moving is `:rename`'s job; this verb does not do it.
+    Move(String),
     /// `sections [pattern]`: jump to a section (P4.3b M3). No pattern outlines the
     /// note on screen from its buffer; a pattern searches the vault's sections through
     /// the index. The rest of the line is the pattern verbatim, because a section name
@@ -217,6 +223,7 @@ impl Ex {
             Ex::YankClipboard => "clipboard.copy",
             Ex::PasteClipboard => "clipboard.paste",
             Ex::WordCount(_) => "vault.wordcount",
+            Ex::Move(_) => "note.move",
             Ex::Props => "vault.props",
             Ex::PropertyKeys => "vault.keys",
             Ex::RenameKey(..) => "vault.rename-key",
@@ -427,6 +434,7 @@ pub(crate) fn parse(line: &str) -> Ex {
         "keys" => Ex::PropertyKeys,
         // A saved question, run rather than read: the picker lists the vault's `.shq`
         // files and the answer comes back as rows.
+        "move" => Ex::Move(rest.to_string()),
         "sections" => Ex::Sections(rest.to_string()),
         // One block, by its id. The same two halves as `:sections`: the note on screen
         // from its buffer, or the vault from the index.

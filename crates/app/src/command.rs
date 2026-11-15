@@ -362,6 +362,15 @@ const ALL: &[Command] = &[
         action: Some(|| Box::new(RenameNote)),
     },
     Command {
+        id: "note.move",
+        label: "Move the selected note to another folder",
+        keys: "ctrl-shift-m, m in the tree",
+        ex: &["move"],
+        args: "[folder]",
+        in_palette: true,
+        action: Some(|| Box::new(MoveNote)),
+    },
+    Command {
         id: "note.delete",
         label: "Delete the selected note",
         keys: "ctrl-shift-d, shift-d in the tree",

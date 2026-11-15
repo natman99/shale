@@ -71,6 +71,7 @@ mod jumps;
 mod keys;
 mod live;
 mod motions;
+mod r#move;
 mod overlay;
 mod paint;
 mod panes;

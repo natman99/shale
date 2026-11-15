@@ -53,12 +53,24 @@ A name you type is treated differently from a name that was inferred, in two way
 And `:w <name>` on a note that **already has a file** refuses out loud:
 
 ```
-a.md already has a name: :w writes it, :rename moves it
+a.md already has a name: :w writes it, :move takes it to another folder
 ```
 
-The command line will not clone or move a note by accident. Moving is `:rename`
-(`r` in the tree, `ctrl-shift-r`), which also rewrites the links that point at the old
-name. That difference is the whole reason the two are separate commands.
+The command line will not clone or move a note by accident. Two other verbs do the
+moving, and they answer different questions:
+
+- **Rename** (`r` in the tree, `ctrl-shift-r`) takes a **name**, and the name lands
+  **beside** the note it renames. `inbox/Deep` from `notes/a.md` is
+  `notes/inbox/a.md`.
+- **Move** (`:move [folder]`, `m` in the tree, `ctrl-shift-m`) takes a **folder**,
+  named from the vault root, and keeps the note's name. `:move inbox/` from
+  `notes/a.md` is `inbox/a.md`. Typing a folder that is not there offers to create
+  it, and `:move` with nothing typed opens a picker of the folders the vault holds.
+
+Both rewrite the links that point at the old path: a link that spells the folder the
+note left follows it, and a link that spells no folder stays exactly as written,
+because a bare name resolves wherever the note went. That difference is the whole
+reason the two are separate verbs.
 
 ### Other names the same note answers to
 

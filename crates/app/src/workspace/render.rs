@@ -823,6 +823,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::new_note))
             .on_action(cx.listener(Self::new_folder))
             .on_action(cx.listener(Self::rename_note))
+            .on_action(cx.listener(Self::move_note))
             .on_action(cx.listener(Self::delete_note))
             // A frontmatter block for the note under the caret. On the window's
             // chain rather than the tree's, because it writes a note and not a
@@ -1019,6 +1020,7 @@ impl Render for Workspace {
                                         .on_action(cx.listener(Self::new_note))
                                         .on_action(cx.listener(Self::new_folder))
                                         .on_action(cx.listener(Self::rename_note))
+                                        .on_action(cx.listener(Self::move_note))
                                         .on_action(cx.listener(Self::delete_note))
                                         .p_2()
                                         .pt_1()
