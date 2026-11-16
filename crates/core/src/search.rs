@@ -121,9 +121,34 @@ impl NoteCache {
         if query.is_empty() {
             return Ok(Vec::new());
         }
+        // The stat is the floor of a warm search — one syscall per note —
+        // and it is read-only, so the notes get stated in parallel below.
+        // Each thread fills its own slice of `stamps`, so the order, and
+        // therefore the results, are exactly the sequential ones. Small
+        // vaults stay single-threaded: the spawns would cost more than
+        // the stats.
+        let mut stamps: Vec<Option<Stamp>> = vec![None; entries.len()];
+        let threads = (entries.len() / 256).min(8);
+        if threads > 1 {
+            let per = entries.len().div_ceil(threads);
+            std::thread::scope(|s| {
+                for (paths, slots) in entries.chunks(per).zip(stamps.chunks_mut(per)) {
+                    s.spawn(move || {
+                        for (entry, slot) in paths.iter().zip(slots.iter_mut()) {
+                            *slot = vault.stamp(&entry.path);
+                        }
+                    });
+                }
+            });
+        } else {
+            for (entry, slot) in entries.iter().zip(stamps.iter_mut()) {
+                *slot = vault.stamp(&entry.path);
+            }
+        }
+
         let mut hits = Vec::new();
-        for entry in entries {
-            let Some(stamp) = vault.stamp(&entry.path) else {
+        for (entry, stamp) in entries.iter().zip(stamps) {
+            let Some(stamp) = stamp else {
                 // Gone or unstatable: drop any text held for it, then let
                 // the read below decide, exactly as `search` would.
                 if let Some((_, old)) = self.texts.remove(&entry.path) {

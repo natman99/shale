@@ -1594,3 +1594,21 @@ The remaining cost is the dynamic program itself — O(query × candidate) per
 matching row — and every matching candidate in the bench matches, so
 pruning has nothing to prune. At vault sizes (1k names) half a millisecond
 per keystroke is inside the frame; noted, not chased further.
+
+## Search: the stat floor, parallelized (2026-11-15)
+
+With the note cache in place, the warm keystroke's remaining cost was the
+stats — one syscall per note, sequential. The stat is read-only, so
+`NoteCache::search` states the notes through `std::thread::scope`: each
+thread fills its own slice of the stamp vector, so the order — and the
+results — are exactly the sequential ones. Vaults under 256 notes stay
+single-threaded; the spawns would cost more than the stats they replace.
+
+| build | warm query, 1k notes |
+|-------|---------------------|
+| read every note (before) | 6.7 ms |
+| stamp-checked cache | 2.9 ms |
+| + parallel stats | **1.85 ms** |
+
+3.6× off the original per-keystroke cost. The scan of cached text and the
+hit construction are what's left, and they are noise at vault sizes.
