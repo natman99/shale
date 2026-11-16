@@ -1483,3 +1483,39 @@ wakeups are down from 6.7–7.0/s to 0.0–0.1/s, and the remaining beats are
 only the ones with something to say.
 
 app 902 / core 857 / fixture 1 / mcp 42 — 1802 passed, 0 failed. fmt and clippy clean.
+
+## Cold start: what the 420 ms actually is (2026-11-15)
+
+**The harness bug first.** The 8.5 s "paint outliers" were never the app. gpui
+paints only when dirty, so two 50 ms polls can straddle the single first paint
+with no pair-difference to see; the diff-based detector then reported the *next*
+visual change — spell underlines arriving seconds later — as the paint. Fixed:
+`paint_ns` is now the first screenshot with content (PIL extrema, numeric per
+the bench rules), not the first pair-difference. The outliers vanished.
+
+**The breakdown** (warm page cache, real display, phase markers since removed):
+
+| phase | time |
+|-------|------|
+| exec → main → claim → `application()` | ~19 ms |
+| shale's own vault work (config, db, sessions, beats, workspace) | ~19 ms |
+| `cx.open_window` — first window | **~550 ms** |
+| — of which NVIDIA ioctls (wgpu device + shaders) | ~234 ms |
+| — of which font file I/O (461 files) | ~20 ms |
+| — of which Vulkan ICD enumeration | ~3 ms |
+
+`WGPU_BACKEND=vulkan` vs `gl` made no difference — the cost is the GPU device
+and shader setup gpui does for the first window, on any backend. It is gpui
+territory, not shale's: **shale's own startup is ~40 ms**, and the rest is the
+toolkit meeting the graphics driver. Chasing it means patching gpui (persisted
+pipeline cache, lazy device) — noted, not done.
+
+**Honest cold-start numbers** (dnd vault, 155 notes, fixed harness, 5 runs):
+mapped 372–439 ms, paint 410–496 ms, settled 629–713 ms, PSS ~141 MB. The PSS
+is mostly the GPU driver (NVIDIA libs ~75 MB + enumerated Vulkan ICDs ~10 MB);
+shale's own heap is **18 MB** (smaps breakdown) — the headless RSS of 31 MiB
+remains the honest app-size number.
+
+Note for the next profiler: `perf` is blocked on this machine
+(`perf_event_paranoid=2` + SELinux); `strace -f -T` with per-syscall totals
+attributed the startup well enough, and phase markers in the app beat both.

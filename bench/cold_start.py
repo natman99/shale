@@ -6,7 +6,7 @@ window-mapped, first-paint, and pixels-settled; sample process-tree PSS.
 
 Checkpoints per run (all ns, monotonic, t0 = just before exec):
   mapped_ns   niri reports the app's window
-  paint_ns    first screenshot that differs from the previous poll (non-blank)
+  paint_ns    first screenshot with content (a non-flat frame)
   settled_ns  two consecutive screenshots identical (initial render burst over)
   pss_*_kb    process-tree PSS at settled, +1s, +3s
 
@@ -40,20 +40,22 @@ def one_run(app: str, vault: Path, tmp: Path) -> dict:
         rec["mapped_ns"] = int((time.monotonic() - t0) * 1e9)
         wid = win["id"]
 
-        # First paint: poll screenshots until two consecutive differ.
+        # First paint: the first screenshot with content. A diff of
+        # consecutive shots used to stand in, but a paint-only-when-dirty
+        # toolkit (gpui) can paint once between two polls and show no pair
+        # difference — the diff then lands on the NEXT change (spell
+        # underlines seconds later), reporting a wildly late fake paint.
         a, b = tmp / "a.png", tmp / "b.png"
-        prev = None
         paint = None
         deadline = t0 + 30
         while time.monotonic() < deadline:
             if B.shot(app, wid, b):
-                if prev is not None and not B.pixels_equal(a, b):
+                if B.nonblank(b):
                     paint = time.monotonic()
                     break
-                a, b, prev = b, a, a
             time.sleep(0.05)
         if paint is None:
-            rec["error"] = "no pixel change observed"
+            rec["error"] = "no content ever appeared"
             return rec
         rec["paint_ns"] = int((paint - t0) * 1e9)
 

@@ -114,6 +114,22 @@ def newest_png() -> Path | None:
     return pngs[-1] if pngs else None
 
 
+def nonblank(path: Path) -> bool:
+    """True when a screenshot holds content rather than a flat frame.
+
+    A mapped-but-unpainted window screenshots as one uniform color; any real
+    frame has a light-dark spread. Numeric (PIL extrema), per the rule that
+    paint detection never trusts eyeballs.
+    """
+    try:
+        from PIL import Image
+        extrema = Image.open(path).convert("L").getextrema()
+        lo, hi = extrema[0], extrema[1]
+    except Exception:
+        return False
+    return hi - lo > 8
+
+
 def pixels_equal(a: Path, b: Path) -> bool:
     """Byte-compare two PNGs (niri's encoder is deterministic for identical
     pixels; good enough for change detection)."""
