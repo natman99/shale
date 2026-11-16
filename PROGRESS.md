@@ -1659,3 +1659,48 @@ sizes (the dnd vault's longest notes) a frame is ~3–5 ms and a keystroke
 ~5–7 ms: inside one frame with room to spare.
 
 app 903 / core 862 / fixture 1 / mcp 42 — 1808 passed, 0 failed. fmt and clippy clean.
+
+## The wrap cache keys on what the measurement saw, not on the buffer (2026-11-15)
+
+**The change.** The soft-wrap cache was keyed on the buffer's change id, so
+every keystroke re-measured every row's break points. `CachedRow` now carries
+what the measurement was a function of — the *painted* text (markers hidden,
+quotes redrawn), the wrapper index (face and size), and one level up the
+width — and a row is reused while those hold. A keystroke re-measures its own
+row and nothing else.
+
+**Two bugs the bench caught before this was true, both worth remembering.**
+
+1. *Keying on the raw bytes misses style moving under them.* The bench's
+   keystroke deletes characters (normal-mode `x`), and an eaten `**` cascades
+   bold across the rest of the note: the raw row text is unchanged, but the
+   painted text and the wrapper are not. Display lines piled up 66→681 as
+   rows kept stale narrow-face breaks. The key had to be the painted text,
+   not the row's bytes.
+2. *Absolute break offsets go stale when the row shifts.* Breaks were cached
+   as absolute buffer offsets; a deletion above a row shifts it left, the
+   text comparison still passes, and the re-validation guard happily lets the
+   shifted breaks through. Breaks are stored relative to the row start now.
+
+Both were invisible in the unit tests and obvious in the bench's primitive
+count (quads 26→2) and display-line count — the graph-paint bench's rule
+that the primitive count rides along because it does not move with the
+machine, paying for itself again.
+
+| words | frame | keystroke | 999j |
+|-------|-------|-----------|------|
+| 500 before | 3.43 ms | 5.36 ms | 12.9 ms |
+| 500 after | **1.19 ms** | **1.88 ms** | **5.6 ms** |
+| 2000 before | 4.99 ms | 6.70 ms | 21.2 ms |
+| 2000 after | 4.26 ms | 6.80 ms | 21.3 ms |
+| 8000 before | 28.3 ms | 45.6 ms | 132 ms |
+| 8000 after | 27.8 ms | 42.2 ms | 129 ms |
+
+Honest reading: the win is at real note sizes, where the per-frame whole-note
+re-measure was a big share of the frame — at 500 words a keystroke is now
+1.9 ms. At 8000 words the keystroke is dominated by the *other* whole-buffer
+passes that still run per change (restyle, row styles, marker/paint plans,
+and gpui laying out ~1000 display lines); the wrap measure was only part of
+it. Those passes are the next levers, noted not done.
+
+app 903 / core 862 / fixture 1 / mcp 42 — 1808 passed, 0 failed. fmt and clippy clean.
