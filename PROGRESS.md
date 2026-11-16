@@ -1612,3 +1612,50 @@ single-threaded; the spawns would cost more than the stats they replace.
 
 3.6× off the original per-keystroke cost. The scan of cached text and the
 hit construction are what's left, and they are noise at vault sizes.
+
+## The editor's frame: line geometry was quadratic (2026-11-15)
+
+**The bench.** `crates/app/src/tests/editor_bench.rs` (ignored, release-only,
+graph-paint-bench conventions): a real `MarkdownEditor` in a test window —
+a forced frame, a keystroke plus the frame that shows it, and a `999j`
+scroll. The first numbers were ugly and *superlinear*: 16× the note, 150×
+the frame. quads stayed at 26, so paint was virtualized — the cost was
+everything before it.
+
+**The cause.** `Buffer::line_start(row)` scanned the text from byte 0, and
+`line_count()` counted newlines across the whole text. The render path asks
+for line geometry *per row* — row_styles, hidden_markers, row_paint,
+display_lines, folds — so every frame cost rows × text. At 8000 words that
+is 89 ms for `row_styles` alone, 104 ms for markers+paint, and a 560 ms
+frame.
+
+**The fix.** `Buffer` keeps a line-start table cached against `change_id`,
+rebuilt only when the text moved; `line_start`/`line_end`/`line_count`
+answer from it. The naive scan and the table are pinned equal by a new test
+across insert, delete, undo, redo, `set_text`, and empty text.
+
+**The bug the fix exposed — and the rule it taught.** `snapshot()` bumps
+`change_id` *before* an edit, and `open_line_below` asks `line_end(row)`
+*between* the bump and its own `replace_range`: the cache got stamped with
+the fresh id and the stale text, and the splice that followed went
+unannounced. Four app tests caught it red-handed (a painted line containing
+a newline). The discipline now lives in one place: every text splice goes
+through `Buffer::splice`, which moves the id *after* the text. A bump before
+an edit is for the UI's sake; a cache must never be fillable between the
+bump and the mutation.
+
+| words | frame | keystroke | 999j |
+|-------|-------|-----------|------|
+| 2000 before | 39.8 ms | 59.9 ms | 155 ms |
+| 2000 after | **5.0 ms** | **6.7 ms** | **21 ms** |
+| 8000 before | 560 ms | 837 ms | 2.01 s |
+| 8000 after | **28.3 ms** | **45.6 ms** | **132 ms** |
+
+Scaling is linear now. What is left at 8k words is the per-keystroke re-wrap
+of every row (the wrap cache is keyed on the whole-buffer change id) and
+gpui laying out ~1000 display lines per frame — viewport-windowed wrap and
+element virtualization are the next levers, noted not done. At real note
+sizes (the dnd vault's longest notes) a frame is ~3–5 ms and a keystroke
+~5–7 ms: inside one frame with room to spare.
+
+app 903 / core 862 / fixture 1 / mcp 42 — 1808 passed, 0 failed. fmt and clippy clean.
