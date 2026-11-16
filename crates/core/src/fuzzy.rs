@@ -48,34 +48,43 @@ pub struct FuzzyMatch {
 /// cost. Returns `None` when the characters do not appear in order.
 pub fn fuzzy_match(query: &str, candidate: &str) -> Option<FuzzyMatch> {
     let query: Vec<char> = query.chars().map(lower).collect();
+    match_with_query(&query, candidate, &mut Scratch::default())
+}
+
+/// The match for an already-lowercased query, so a caller that matches one
+/// query against many candidates lowers it once instead of per candidate.
+/// `scratch` carries the alignment's buffers, which a loop over candidates
+/// can reuse from one candidate to the next.
+fn match_with_query(query: &[char], candidate: &str, scratch: &mut Scratch) -> Option<FuzzyMatch> {
     if query.is_empty() {
         return Some(FuzzyMatch {
             score: 0,
             ranges: Vec::new(),
         });
     }
-    let chars: Vec<char> = candidate.chars().map(lower).collect();
-    // Byte offset of each character, so the ranges are usable on `candidate`.
-    let mut offsets = Vec::with_capacity(chars.len());
+    scratch.chars.clear();
+    scratch.chars.extend(candidate.chars().map(lower));
+    scratch.offsets.clear();
+    scratch.offsets.reserve(scratch.chars.len());
     let mut byte = 0;
     for c in candidate.chars() {
-        offsets.push(byte);
+        scratch.offsets.push(byte);
         byte += c.len_utf8();
     }
 
-    let (mut score, taken) = best_alignment(&query, &chars)?;
+    let (mut score, taken) = best_alignment(query, scratch)?;
     // A long candidate is a worse answer than a short one that matched just as
     // well. This term does not depend on where the characters went, so it sits
     // outside the alignment.
-    score -= (chars.len() - query.len()) as i64 / LENGTH_PENALTY_DIVISOR;
-    if chars.len() == query.len() {
+    score -= (scratch.chars.len() - query.len()) as i64 / LENGTH_PENALTY_DIVISOR;
+    if scratch.chars.len() == query.len() {
         score += EXACT_BONUS;
     }
 
     let ranges = taken
         .iter()
         .map(|&i| {
-            let start = offsets[i];
+            let start = scratch.offsets[i];
             (
                 start,
                 start + candidate[start..].chars().next().unwrap().len_utf8(),
@@ -83,6 +92,42 @@ pub fn fuzzy_match(query: &str, candidate: &str) -> Option<FuzzyMatch> {
         })
         .collect();
     Some(FuzzyMatch { score, ranges })
+}
+
+/// True when the lowercased `candidate` holds `query`'s characters in order.
+/// A subsequence check is a single scan with no allocations, and it fails
+/// exactly when the alignment would find no placement — so a caller can
+/// reject the non-matches cheaply before paying for the dynamic program.
+fn is_subsequence(query: &[char], candidate: &str) -> bool {
+    let mut qi = 0;
+    for c in candidate.chars().map(lower) {
+        if c == query[qi] {
+            qi += 1;
+            if qi == query.len() {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// The alignment's buffers, kept between candidates so a ranking loop does
+/// not reallocate them per candidate.
+#[derive(Default)]
+struct Scratch {
+    /// The lowercased candidate, refilled per candidate.
+    chars: Vec<char>,
+    /// Byte offset of each character of the current `chars`, so the ranges
+    /// are usable on the original candidate.
+    offsets: Vec<usize>,
+    row: Vec<i64>,
+    next: Vec<i64>,
+    /// The parents of every query character, laid end to end: row `qi` of
+    /// `query.len()` rows, each `chars.len()` wide. Only the cells where a
+    /// query character landed are ever written or read — a traceback walks
+    /// matched cells only — so stale entries from a previous candidate are
+    /// never observed.
+    parents: Vec<usize>,
 }
 
 /// The highest-scoring way to place `query` inside `chars` as a subsequence, as
@@ -99,20 +144,25 @@ pub fn fuzzy_match(query: &str, candidate: &str) -> Option<FuzzyMatch> {
 /// character either continues a run (worth [`RUN_BONUS`]) or skips characters
 /// (one [`GAP_PENALTY`] each), so the best predecessor is the best of those two,
 /// and the second is kept as a running maximum instead of rescanning.
-fn best_alignment(query: &[char], chars: &[char]) -> Option<(i64, Vec<usize>)> {
+fn best_alignment(query: &[char], scratch: &mut Scratch) -> Option<(i64, Vec<usize>)> {
     /// Low enough that no real alignment can lose to it, high enough that adding
     /// a bonus to it cannot look like a score.
     const NEG: i64 = i64::MIN / 4;
 
-    let mut row: Vec<i64> = vec![NEG; chars.len()];
-    // For each query character, the index the previous one landed on for the best
-    // alignment that ends at each candidate index: how the alignment is walked
-    // back once the last character is placed.
-    let mut parents: Vec<Vec<usize>> = Vec::with_capacity(query.len());
+    let Scratch {
+        chars,
+        row,
+        next,
+        parents,
+        ..
+    } = scratch;
+    row.clear();
+    row.resize(chars.len(), NEG);
+    next.resize(chars.len(), NEG);
+    parents.resize(query.len() * chars.len(), usize::MAX);
 
     for (qi, &q) in query.iter().enumerate() {
-        let mut next: Vec<i64> = vec![NEG; chars.len()];
-        let mut parent: Vec<usize> = vec![usize::MAX; chars.len()];
+        next.fill(NEG);
         // The best `row[prev] + prev * GAP_PENALTY` over the candidate indices at
         // least two before the one being scored. Adding `-(ci + 1) * GAP_PENALTY`
         // to it turns that into the gap penalty between `prev` and `ci`.
@@ -133,13 +183,13 @@ fn best_alignment(query: &[char], chars: &[char]) -> Option<(i64, Vec<usize>)> {
                 } else {
                     if ci > 0 && row[ci - 1] > NEG {
                         next[ci] = row[ci - 1] + base + RUN_BONUS;
-                        parent[ci] = ci - 1;
+                        parents[qi * chars.len() + ci] = ci - 1;
                     }
                     if running > NEG {
                         let score = running + base - (ci + 1) as i64 * GAP_PENALTY;
                         if score > next[ci] {
                             next[ci] = score;
-                            parent[ci] = running_at;
+                            parents[qi * chars.len() + ci] = running_at;
                         }
                     }
                 }
@@ -155,8 +205,7 @@ fn best_alignment(query: &[char], chars: &[char]) -> Option<(i64, Vec<usize>)> {
                 }
             }
         }
-        row = next;
-        parents.push(parent);
+        std::mem::swap(row, next);
     }
 
     let mut at = usize::MAX;
@@ -170,10 +219,13 @@ fn best_alignment(query: &[char], chars: &[char]) -> Option<(i64, Vec<usize>)> {
     if at == usize::MAX {
         return None;
     }
+    // The traceback only ever reads the parent of a cell a query character
+    // landed on, and every such cell had its parent written when it scored —
+    // so the matrix needs no clearing between candidates.
     let mut taken = vec![0usize; query.len()];
     for qi in (0..query.len()).rev() {
         taken[qi] = at;
-        at = parents[qi][at];
+        at = parents[qi * chars.len() + at];
     }
     Some((score, taken))
 }
@@ -186,11 +238,36 @@ pub fn ranked<T, K>(query: &str, items: &[T], limit: usize, key: K) -> Vec<(Fuzz
 where
     K: Fn(&T) -> &str,
 {
-    let mut scored: Vec<(FuzzyMatch, usize)> = items
-        .iter()
-        .enumerate()
-        .filter_map(|(idx, item)| fuzzy_match(query, key(item)).map(|m| (m, idx)))
-        .collect();
+    let query: Vec<char> = query.chars().map(lower).collect();
+    if query.is_empty() {
+        // Every item matches an empty query with score 0, the order is kept,
+        // and the limit cuts the same way it does after the sort.
+        return (0..items.len().min(limit))
+            .map(|idx| {
+                (
+                    FuzzyMatch {
+                        score: 0,
+                        ranges: Vec::new(),
+                    },
+                    idx,
+                )
+            })
+            .collect();
+    }
+    let mut scored: Vec<(FuzzyMatch, usize)> = Vec::new();
+    let mut scratch = Scratch::default();
+    for (idx, item) in items.iter().enumerate() {
+        let candidate = key(item);
+        // The scan rejects exactly the candidates the dynamic program would
+        // place nowhere, and it costs one pass with no allocations — which is
+        // most of a ranking call, because most rows do not match.
+        if !is_subsequence(&query, candidate) {
+            continue;
+        }
+        if let Some(m) = match_with_query(&query, candidate, &mut scratch) {
+            scored.push((m, idx));
+        }
+    }
     // A stable sort keeps equal scores in the order the caller passed them.
     scored.sort_by_key(|(matched, _)| std::cmp::Reverse(matched.score));
     scored.truncate(limit);

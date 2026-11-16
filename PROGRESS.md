@@ -1568,3 +1568,29 @@ test drives the real picker: warm a search, write the note from outside
 while the picker is open, retype — the row is the new line.
 
 app 903 / core 861 / fixture 1 / mcp 42 — 1807 passed, 0 failed. fmt and clippy clean.
+
+## Fuzzy ranking: the picker's other per-keystroke path (2026-11-15)
+
+`ranked` matched every candidate from scratch: the query was re-lowered per
+candidate, the alignment allocated two vectors per query character, and the
+parents matrix was copied row by row. Three changes, scoring untouched (the
+12 existing tests pin placements, scores and ranges exactly):
+
+- the query is lowered **once** per `ranked` call;
+- a no-allocation **subsequence pre-check** rejects candidates the dynamic
+  program would place nowhere — free for the common case of a picker full of
+  non-matches;
+- one **scratch** (chars, offsets, rows, parents) is reused across
+  candidates, and parents are written only into cells a query character
+  actually landed on — a traceback walks matched cells only, so stale
+  entries are never read and the matrix needs no clearing.
+
+| build | ranked, 1k names | ranked, 10k names |
+|-------|------------------|-------------------|
+| before | 736 µs | 7.40 ms |
+| after | **512 µs** | **6.19 ms** |
+
+The remaining cost is the dynamic program itself — O(query × candidate) per
+matching row — and every matching candidate in the bench matches, so
+pruning has nothing to prune. At vault sizes (1k names) half a millisecond
+per keystroke is inside the frame; noted, not chased further.
