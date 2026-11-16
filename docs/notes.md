@@ -75,6 +75,15 @@ moving, and they answer different questions:
   folder cannot be moved yet, because the notes inside it spell out the folder's name
   and nothing rewrites those.
 
+A third way a file arrives is the drag from **outside** the vault: drop it on the tree
+and it is copied in, into whichever folder the pointer let go over (see
+[keys.md](keys.md)). Only a markdown note or an image is taken — `png`, `jpg`, `jpeg`,
+`gif`, `webp`, `svg`, `bmp` — and nothing that is already there is overwritten: a taken
+name is refused by name, because dropping the same screenshot in twice is ordinary and
+quietly replacing the note the author has been embedding is not. A file that already
+lives in the vault is refused as well; inside the vault, files **move**, and a move takes
+the links with it.
+
 Both rewrite the links that point at the old path: a link that spells the folder the
 note left follows it, and a link that spells no folder stays exactly as written,
 because a bare name resolves wherever the note went. That difference is the whole

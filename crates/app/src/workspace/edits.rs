@@ -10,7 +10,7 @@ use std::rc::Rc;
 use anyhow::{Context as _, Result, bail};
 use gpui::{Context, Entity, Focusable, Window, prelude::*};
 use shale_core::rename::Rewrite;
-use shale_core::vault::{rel_from_text, rel_text};
+use shale_core::vault::{is_image_name, is_note_name, rel_from_text, rel_text};
 
 use crate::acts::*;
 use crate::ex;
@@ -1043,11 +1043,7 @@ impl Workspace {
             // other surface ever starts one.
             return;
         }
-        let folder = if self.is_dir(target) {
-            target.to_path_buf()
-        } else {
-            target.parent().unwrap_or(Path::new("")).to_path_buf()
-        };
+        let folder = self.drop_folder(target);
         if dragged.parent().unwrap_or(Path::new("")) == folder.as_path() {
             return;
         }
@@ -1061,6 +1057,89 @@ impl Workspace {
         if let Err(err) = self.perform_move(dragged, &to_text, "moved", cx) {
             self.say(format!("{err:#}"), cx);
         }
+    }
+
+    /// The folder a drop target names: a folder row **is** that folder, a note row is
+    /// the folder that note sits in, and anything else — the tree's own background — is
+    /// the vault's top level. One rule, so an internal drag and an import from outside
+    /// the vault cannot land in different places under the same pointer.
+    fn drop_folder(&self, target: &Path) -> PathBuf {
+        if self.is_dir(target) {
+            target.to_path_buf()
+        } else {
+            target.parent().unwrap_or(Path::new("")).to_path_buf()
+        }
+    }
+
+    /// A drop from **outside** the vault: the files the pointer let go over are copied
+    /// in, into the folder the row under the pointer names — the same three destinations
+    /// an internal drag has.
+    ///
+    /// Only a markdown note or an image comes in. Everything else is counted and left
+    /// where it is: a vault full of whatever the file manager happened to be holding is
+    /// not what a drag asked for, and the author can see the count in the status line.
+    ///
+    /// Nothing is overwritten. A name that is taken is refused by name, because the
+    /// common case — dropping the same screenshot in twice — should say "that is
+    /// already here" rather than quietly replace the one the author has been embedding.
+    pub(super) fn import_files(
+        &mut self,
+        paths: &[PathBuf],
+        target: &Path,
+        cx: &mut Context<Self>,
+    ) {
+        let folder = self.drop_folder(target);
+        let mut imported: Vec<PathBuf> = Vec::new();
+        let mut refused: usize = 0;
+        let mut failures: Vec<String> = Vec::new();
+        for src in paths {
+            let name = src
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            if name.is_empty() || !(is_note_name(&name) || is_image_name(&name)) {
+                refused += 1;
+                continue;
+            }
+            match self.vault.import(src, folder.join(&name)) {
+                Ok(rel) => imported.push(rel),
+                Err(err) => failures.push(format!("{err:#}")),
+            }
+        }
+        if imported.is_empty() {
+            let status = import_status(&imported, refused, &failures);
+            if !status.is_empty() {
+                self.say(status, cx);
+            }
+            return;
+        }
+        self.refresh_entries(cx);
+        for rel in &imported {
+            // Only a note goes in the note index. An attachment is walked in with the
+            // rest of the vault; indexing it as a note would invent a note nobody wrote.
+            if rel
+                .file_name()
+                .is_some_and(|n| is_note_name(&n.to_string_lossy()))
+            {
+                self.index_created(rel);
+            }
+        }
+        self.refresh_link_names(cx);
+        // Reveal what came in: the folder is opened and the first imported **note** is
+        // selected. An attachment is not in the tree yet, so selecting it would select
+        // a row that is not drawn.
+        if let Some(note) = imported.iter().find(|rel| {
+            rel.file_name()
+                .is_some_and(|n| is_note_name(&n.to_string_lossy()))
+        }) {
+            if let Some(parent) = note.parent()
+                && !parent.as_os_str().is_empty()
+            {
+                self.expanded.insert(parent.to_path_buf());
+            }
+            self.tree_selection = Some(note.clone());
+        }
+        self.say(import_status(&imported, refused, &failures), cx);
     }
 
     /// The folder a picker row chose. `None` is the vault's top level.
@@ -1120,6 +1199,35 @@ struct RewriteReport {
 /// What a rename did. Links that could not be updated because the note holding
 /// them has unsaved edits are named here rather than left for the user to find on
 /// their next save.
+/// What an import says. A drop of twelve files should not print twelve lines, so the
+/// count carries the successes; a refusal gives its reason, and a failure names itself
+/// because "it did not come in" without the reason is a bug report waiting to happen.
+fn import_status(imported: &[PathBuf], refused: usize, failures: &[String]) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    match imported.len() {
+        0 => {}
+        1 => parts.push(format!("imported {}", rel_text(&imported[0]))),
+        n => {
+            let first = &imported[0];
+            let where_ = first
+                .parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .map(|p| format!("{}/", rel_text(p)))
+                .unwrap_or_else(|| "the top level".to_string());
+            let files = if n == 1 { "file" } else { "files" };
+            parts.push(format!("imported {n} {files} into {where_}"));
+        }
+    }
+    if refused > 0 {
+        let files = if refused == 1 { "file" } else { "files" };
+        parts.push(format!(
+            "skipped {refused} {files}: only notes and images come in"
+        ));
+    }
+    parts.extend(failures.iter().cloned());
+    parts.join("; ")
+}
+
 fn rename_status(what: &str, renamed: &Path, report: &RewriteReport) -> String {
     let mut status = format!("{what} to {}", rel_text(renamed));
     if report.changed > 0 {

@@ -359,6 +359,13 @@ narrows the picture, with a filtered node leaving the simulation as well as the 
   its name, the links that spelled the old folder follow, and the status line says
   where it went — the same move `m` and `:move` do. A folder row cannot be picked up:
   folders do not move yet.
+- Drag a file **in from outside** the app and drop it on the file tree: it is copied
+  into the vault — into the folder row under the pointer, into the folder of the note row
+  under the pointer, or at the top level when dropped below the rows. Only a markdown
+  note or an image comes in; anything else is counted and left where it is. A name that
+  is taken is refused rather than overwritten, and a file that already lives in the vault
+  is refused too — inside the vault, files move with `:move`.
+- Click a folded heading's `⋯ n more lines` marker to open it.
 - In the graph: the wheel magnifies at the cursor (`ctrl`+wheel travels), drag
   pans the view, drag a node moves it (a press only grabs after the pointer has
   travelled a little, and `shift` leaves it pinned), click a node to open it.

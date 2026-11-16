@@ -17,6 +17,7 @@ use super::bar::{mode_label, save_indicator, word_badge};
 use super::sidebar::{RowState, push_row};
 use super::tabs::TabContent;
 use super::tree::{NoteDrag, TreeState, push_node};
+use gpui::ExternalPaths;
 
 /// The height of the tab bar's row, and of one tab within it. A little taller than
 /// the status bar because it is something the pointer aims at, not something it
@@ -1002,6 +1003,17 @@ impl Render for Workspace {
                                             |this, drag: &NoteDrag, _window, cx| {
                                                 this.drop_note(
                                                     &drag.path,
+                                                    std::path::Path::new(""),
+                                                    cx,
+                                                );
+                                            },
+                                        ))
+                                        // The same for a file from outside the vault: the
+                                        // empty space below the rows is the top level.
+                                        .on_drop::<ExternalPaths>(cx.listener(
+                                            |this, paths: &ExternalPaths, _window, cx| {
+                                                this.import_files(
+                                                    paths.paths(),
                                                     std::path::Path::new(""),
                                                     cx,
                                                 );

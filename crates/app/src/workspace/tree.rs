@@ -9,8 +9,8 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use gpui::{
-    Context, InteractiveElement, IntoElement, ParentElement, Render, StatefulInteractiveElement,
-    Styled, Window, div, prelude::*, px,
+    Context, ExternalPaths, InteractiveElement, IntoElement, ParentElement, Render,
+    StatefulInteractiveElement, Styled, Window, div, prelude::*, px,
 };
 use shale_core::theme::Palette;
 
@@ -139,9 +139,20 @@ pub(super) fn push_node(
                 this.drop_note(&drag.path, &path, cx);
             })
         })
+        // A drop from outside the vault lands in the same folder this row names: the
+        // pointer decides where a file goes, whether the file came from inside the vault
+        // or from the file manager.
+        .on_drop({
+            let path = node.path.clone();
+            cx.listener(move |this, paths: &ExternalPaths, _window, cx| {
+                this.import_files(paths.paths(), &path, cx);
+            })
+        })
         // The row under the pointer takes the hover fill, so the drop's target is
-        // visible before the button lets go.
+        // visible before the button lets go. Both kinds of drag wear it: the note being
+        // carried, and the files the window has accepted from the platform.
         .drag_over::<NoteDrag>(move |s, _, _, _| s.bg(gpui::rgb(hover_bg)))
+        .drag_over::<ExternalPaths>(move |s, _, _, _| s.bg(gpui::rgb(hover_bg)))
         .debug_selector(|| format!("tree-row {}", shale_core::vault::rel_text(&node.path)))
         .child(label)
         // Only a note lifts. A folder cannot be moved — the notes inside it spell out
