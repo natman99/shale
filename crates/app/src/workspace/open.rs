@@ -8,7 +8,7 @@
 use std::rc::Rc;
 
 use gpui::{Context, Focusable, SharedString, Window, prelude::*};
-use shale_core::search::{SearchOptions, search};
+use shale_core::search::SearchOptions;
 use shale_core::vault::{VaultEntry, rel_text};
 
 use crate::acts::{CommandPalette, QuickOpen, SearchVault};
@@ -165,8 +165,10 @@ impl Workspace {
     ///
     /// Unlike the other two, the rows cannot be listed up front — finding them
     /// means reading every note — so the picker is given a [`RowSource`] and asks
-    /// it on each keystroke. That is cheap for a vault of this size and will want
-    /// the planned database (or at least a cached index) for a big one.
+    /// it on each keystroke. The workspace's note cache keeps that from costing
+    /// a whole-vault read per keystroke: a note whose size and mtime are
+    /// unchanged since the last query is scanned from cached text, and only
+    /// changed notes are read again.
     pub(super) fn search_vault(
         &mut self,
         _: &SearchVault,
@@ -188,6 +190,7 @@ impl Workspace {
         let vault = Rc::clone(&self.vault);
         let entries = self.entries.clone();
         let db = self.db.clone();
+        let cache = Rc::clone(&self.note_cache);
         let source: RowSource<PickerTarget> = Rc::new(move |query: &str| {
             let query = query.trim();
             if query.is_empty() {
@@ -296,7 +299,7 @@ impl Workspace {
                 max_hits: Some(MAX_SEARCH_HITS),
                 ..Default::default()
             };
-            let Ok(hits) = search(&vault, &scoped, text, &opts) else {
+            let Ok(hits) = cache.borrow_mut().search(&vault, &scoped, text, &opts) else {
                 return Vec::new();
             };
             hits.into_iter()

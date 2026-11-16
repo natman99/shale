@@ -1519,3 +1519,52 @@ remains the honest app-size number.
 Note for the next profiler: `perf` is blocked on this machine
 (`perf_event_paranoid=2` + SELinux); `strace -f -T` with per-syscall totals
 attributed the startup well enough, and phase markers in the app beat both.
+
+## Hot-path breakdown + the search cache (2026-11-15)
+
+**The unbenched paths got benches.** `crates/core/src/bench_paths.rs`
+(ignored, same style as the graph benches): the editor's per-paint styling,
+the block map, vault-wide search, and the picker's fuzzy ranking. First
+numbers, ranked by what a keystroke pays:
+
+| path | cost |
+|------|------|
+| search, 1k-note vault | **6.7–6.8 ms/query** |
+| fuzzy ranked, 10k names | 7.4 ms/call |
+| fuzzy ranked, 1k names | 0.74 ms/call |
+| style_spans, 8k-word note | 146 µs/call |
+| block_map, 8k-word note | 43 µs/call |
+
+Search is the picker's `ctrl-shift-f` row source, asked on every keystroke:
+it reads every note from disk every time. A probe said the reads, not the
+scan, are the cost (stat×1000 ≈ 2.5 ms, read×1000 ≈ 9 ms in the probe's
+units; scan is noise next to the read).
+
+**The fix: `search::NoteCache`.** Each note's text is kept with the `Stamp`
+(size + mtime) read with it, and a query re-reads only notes whose stamp
+changed. Freshness is *exactly* what search had: every note is still stated
+on every query, so an edit made outside the app is seen before the note is
+scanned — only the read is skipped when the stamp says the note cannot have
+changed. Deleted notes drop their cached text. A 32 MiB budget bounds the
+memory; over budget the cache keeps nothing and search behaves as before.
+New `Vault::stamp` is the stat primitive. The Workspace holds the cache
+per window (the picker's row source runs without `cx`, so it captures an
+`Rc` clone); the cache lives for the window's life.
+
+| build | warm query, 1k notes |
+|-------|---------------------|
+| before (read every note) | 6.7–6.8 ms |
+| after (stamp-checked cache) | **2.9–3.2 ms** |
+
+The first query still pays the reads; every later keystroke pays stats and
+scan. The stat is now the floor (~2.5 ms for 1000 notes) — the next lever
+is parallel stats or trusting the watcher's signature, both noted, neither
+done: 3 ms is inside one frame.
+
+**Pinned, not assumed.** Four core tests: cached answers equal direct
+answers, an external edit shows up in the very next search, a deleted note
+is not answered from cache, and an over-budget cache still answers. One app
+test drives the real picker: warm a search, write the note from outside
+while the picker is open, retype — the row is the new line.
+
+app 903 / core 861 / fixture 1 / mcp 42 — 1807 passed, 0 failed. fmt and clippy clean.

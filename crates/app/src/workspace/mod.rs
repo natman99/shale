@@ -66,6 +66,12 @@ use crate::prompt;
 pub(crate) struct Workspace {
     focus_handle: gpui::FocusHandle,
     vault: Rc<Vault>,
+    /// The search picker's note-text cache: a keystroke re-reads only the
+    /// notes whose size or mtime changed since the last query (see
+    /// [`shale_core::search::NoteCache`]). Per-window because the picker's
+    /// row source runs without `cx` and holds an `Rc` clone of this, not a
+    /// reach into the vault's services.
+    note_cache: Rc<std::cell::RefCell<shale_core::search::NoteCache>>,
     /// Which session slot this window owns: its own slice of
     /// `.shale/session.json`, so two windows on one vault remember different
     /// rooms and neither overwrites the other. Claimed from the vault's
@@ -586,6 +592,7 @@ impl Workspace {
         let mut workspace = Self {
             focus_handle: cx.focus_handle(),
             vault,
+            note_cache: Rc::default(),
             session_slot,
             last_bounds: None,
             self_window: None,
