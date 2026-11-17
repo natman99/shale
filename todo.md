@@ -53,4 +53,6 @@ Wrap boundries aren't updated/redraw the editor when the sidebars open/close cau
 
 Clicking under an editor on the same pane (so outside of the valid "hit" area that has proper cursor support), should put the caret at the bottom of the window, not the top like it is now. Clicking to edit the end of a note is very difficult
 
-On right side, the sidebar hide button overlaps with the sidebar label/name
+~~On right side, the sidebar hide button overlaps with the sidebar label/name~~ — done in `29df45e`: the strip's header starts 30px into the card — 4px for the mark's inset, 20px for the mark itself, 6px of gap — so the view's name begins clear of the mark in the card's corner. The tree card gets the same room on its other side, where a long vault folder name would have run under its mark.
+
+Is image preview built for the app (view images as notes)? If not, build it, if so, make sure images are visible in the file tree because they aren't right now
