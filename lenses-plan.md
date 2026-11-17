@@ -73,8 +73,13 @@ so in §5 by number.
   strip names the lens and says it is not answering, with the database's own sentence.
 - **EDGE-L7 — the lens re-runs when the index moves or the lens file changes**, the same
   rule an embedded query follows (`overlay.rs:644`). A lens that never re-runs shows a
-  picture of a vault that no longer exists; nodes entering and leaving go through the
-  existing filter-change path, which already handles nodes appearing and disappearing.
+  picture of a vault that no longer exists. But the query and the layout are two costs:
+  re-running the query is one SQL call, while re-heating the layout on every index move
+  would pay ~0.9 s of sim work for a 2000-node answer while the reader is typing
+  (`PROGRESS.md`, 2026-11-17). So: re-run the query on an index move, and disturb the
+  layout only when the answer's **node set actually changed**. Nodes entering and leaving
+  go through the existing filter-change path, which already handles nodes appearing and
+  disappearing.
 - **EDGE-L8 — the lens belongs to the graph tab**, like the camera and the filter seat.
   Two graph tabs can wear two lenses; each is restored with its tab.
 - **EDGE-L9 — `:lens none` is a name, not a mode.** Clearing the lens is the same
@@ -100,11 +105,17 @@ so in §5 by number.
 Split by dependency; each ends with the gate green, its own tests, the falsifications
 named under it, and the docs it owes.
 
-- **M0 — the measurement, before anything is promised.** A temporary `#[ignore]` probe on
-  the real fixture vaults (`examples/graph/organic-*`, 100/1k/5k) via `settled_frame`,
-  sweeping the selected-set size: what a lens over 100 / 500 / 1k / all notes costs in
-  settle time and frames. Table into `PROGRESS.md`, probe removed. This decides whether
-  the vault-wide lens ships with a warning, a cap, or nothing at all.
+- **M0 — the measurement, before anything is promised. Closed 2026-11-17.** The probe ran
+  on `examples/graph/organic-1k` and `organic-5k`, keeping every *k*-th note so the
+  selected set is spread rather than one neighbourhood, and the table is in `PROGRESS.md`
+  ("What the force layout costs over a selected set"). The finding is a **bound**: settle
+  cost is superlinear in the kept set (5 ms at 100 notes, 280 ms at 1000, 900 ms at 2000,
+  4.3 s at 5000), but a selected set never costs more than the whole vault — the
+  5000-of-5119 row and the whole-fixture row are the same number — and the whole vault is
+  what the graph tab settles today. Ticks stay at 300 whatever the size, so the cost is
+  per-tick work: 1.0–1.5 ms per tick at 1000 kept, 16–18 ms at 5000. A lens is always
+  cheaper than the picture it replaces, which retires the cap question (ruling 7) and
+  leaves the layout half of EDGE-L7 as the thing to build carefully.
 - **M1 — the dimension.** `GraphFilter.lens: Option<LensScope>` (a name and the set of
   vault-relative paths), `apply()` chaining it, tags/ghosts per EDGE-L4, and the core
   tests: a lens keeps exactly its nodes, edges follow both ends, tags follow notes,
@@ -161,9 +172,10 @@ unless told otherwise.
 5. **`:lens` with no argument.** Recommendation: opens the picker, mirroring `:query`.
 6. **A lens answering with paths that have no node.** Recommendation: they are counted and
    reported in the strip, not silently dropped (EDGE-L5).
-7. **The vault-wide lens.** Recommendation: decide after M0. If the settle cost over a
-   large selected set is bad, the lens still ships — with the count in the strip and a
-   warning at whatever size the measurement says, not a cap invented now.
+7. **The vault-wide lens — answered by M0 (2026-11-17): no cap, no warning.** A selected
+   set never costs more than the whole vault, and the whole vault is what the graph tab
+   already settles today. The node count in the strip is the disclosure. Open only if you
+   want a warning at some size anyway — say where, and it goes in.
 8. **Two graph tabs, two lenses.** Recommendation: yes, per tab, restored with the tab
    (EDGE-L8). The alternative (one lens per vault run) makes the graph tab's state live
    outside the tab that shows it.

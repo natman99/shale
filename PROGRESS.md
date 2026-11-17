@@ -1394,3 +1394,47 @@ app 500 / core 477. Nine app tests (name from the line, cleaned not verbatim, `:
 into a folder, the refusal on a named note, the refusal on a collision, the number on a
 derived name, nothing written out of nothing, no escape from the vault, an exit naming
 rather than losing) and ten in core for the naming itself.
+
+## What the force layout costs over a selected set (measured, 2026-11-17)
+
+The graph lens item (roadmap P4.16) has been deferring one number: "measure the *sim*
+over a large selected set before promising a vault-wide lens; the 5k paint numbers
+(2.3–2.6 ms) are not the constraint, the force layout is." A lens hides everything its
+query did not answer, so the sim runs over the answer alone — the same `Vec<bool>` mask
+`graph::filter::apply` already hands back. A temporary `#[ignore]` probe in
+`crates/app/src/tests/graph/paint_bench.rs` (removed after this record) built the index
+for the organic fixtures, kept every *k*-th note so the subset is **spread** rather than
+one neighbourhood, and ran the sim to `settled()`. Release build, three runs, machine
+lightly loaded (load average ~1.7); the band across runs was within ~5% except at 100
+kept nodes, where the fixed cost makes the noise visible.
+
+| kept notes | settle, total | worst tick |
+| --- | --- | --- |
+| 100 | 5.0–8.1 ms | 24–84 µs |
+| 250 | 30–31 ms | 134–281 µs |
+| 500 | 87–93 ms | 311–563 µs |
+| 1000 | 279–292 ms | 1.0–1.5 ms |
+| 2000 | 878–902 ms | 3.3–4.5 ms |
+| 5000 | 4.33–4.42 s | 15.5–17.9 ms |
+| 5119 (the whole fixture) | 4.33–4.34 s | 16.1–16.7 ms |
+
+**The finding is a bound, not a warning.** Cost is superlinear in the kept set — about
+50 ms per 1k kept at 100 nodes, about 870 ms per 1k at 5000 — but a selected set can
+never cost more than the whole vault, and the whole vault is what the graph tab settles
+today: the 5000-of-5119 row and the 5119 row are the same number. A lens is always
+cheaper than the picture it replaces, so the item ships without a cap or a warning
+threshold. The honest guard is the node count the strip already shows.
+
+**Ticks do not grow** — 300 every time, which is the cooling schedule (`alpha_decay`
+0.0228 down to `alpha_min` 0.001), so the cost is per-tick work rather than a longer
+settle. The frame budget is the thing to watch: 1.0–1.5 ms per tick at 1000 kept,
+3.3–4.5 ms at 2000, 16–18 ms at 5000. The last is over budget, and it is today's
+whole-vault behaviour, not something a lens introduces.
+
+**What it changes in the plan:** EDGE-L7 ("a lens re-runs when the index moves") needs a
+second half. Re-running the *query* is one SQL call and cheap; re-heating the *layout* on
+every index move would pay ~0.9 s of sim work for a 2000-node answer while the reader is
+typing. So the rule is: re-run the query on an index move, and disturb the layout only
+when the answer's node set actually changed. The re-heat cost itself was **not** measured
+— the app's `GraphSim` keeps `reheat` private to its physics enum — but it is bounded by
+the cold settle above, since a re-heat starts at a lower alpha.
