@@ -2024,6 +2024,12 @@ edges, query nodes, MCP canvas tools) is P6.10.
     each lens's node count. And a lens **filters** the graph: only the matching nodes are
     drawn, not the whole vault with the misses dimmed — the ruling that a lens is a
     different *view of the graph* rather than a filter over a table holds here.
+  - **Design pass (2026-11-17): `lenses-plan.md`** — the machinery survey (the one query
+    chain `query_note::ask`, the filter mask `graph::filter::apply`, the search→SQL
+    translation keep-a-search already has, the tab chip's graph branch), the EDGE-L
+    ledger, milestones M0–M6 — **M0 is the owed measurement**, a settle-time probe on the
+    fixture vaults before any vault-wide lens is promised — and the nine rulings still
+    owed at the end of the plan.
 
 - **P4.17 One note, one buffer per window (the registry)** — **added 2026-11-06 by the
   P4.0b design pass; it is P4.0b's first commit, not a later cleanup.** A per-window
