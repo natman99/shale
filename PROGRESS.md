@@ -1483,3 +1483,38 @@ Three rules worth their weight:
   column is the fallback, because the file is the authority. A cell that is not text is not
   a path — it lands in the count of answers with no node (EDGE-L5) rather than being
   guessed at.
+
+## The lens door: `:lens`, the picker, and a settled sim that ships nothing (P4.16 M3, 2026-11-17)
+
+The verb and the picker are in `crates/app/src/workspace/graph.rs`, next to the filter code
+that already owned the mask: `graph_lens_command` (`:lens [name]`), `graph_lens_action` (the
+palette row), `graph_lens_chosen` (a picker row), `set_lens` (the one place a name becomes a
+`LensScope`), and `open_lens_picker`. `PickerTarget::Lens(name)` carries the choice;
+`Ex::Lens` and the `graph.lens` registry row carry the word.
+
+What the door refuses to do matters as much as what it does:
+
+- **The palette row asks; it never acts.** `:lens` with nothing typed and the palette's
+  "Choose a lens for the graph" both open the picker, so there is no way to wear a lens
+  nobody chose (ruling 5).
+- **`none` is a name, not a mode** (EDGE-L9), and saying it with nothing on says "no lens is
+  on the graph" rather than pretending to undo.
+- **A lens that will not answer is not worn.** The status line gets core's sentence — the
+  same one the picker and an embedded table give for that file — and the picture stands
+  (EDGE-L6). An empty answer is different: it *is* an answer, so the picture goes empty.
+- **The picker measures at the moment it opens** (EDGE-L10), one query per lens on one read
+  connection, so two lenses cannot answer against two snapshots of the index. A lens whose
+  query will not run shows `—` and is still choosable: the row is how the reader finds out.
+
+The finding is **EDGE-L15**. The first version re-made the picture the way the strip's own
+path does — `rebuild_graph` then `pump_graph` — and every test that checked the *counts*
+stayed at three notes while the mask underneath had changed. `pump_graph` returns at once
+when the sim is **settled**, and a lens that only removes nodes can leave it settled: nobody
+ticks, so nobody ships a frame, and the view keeps the old picture and the old numbers.
+`refresh_graph` is the door that ships summary, frame and filter whatever the sim's heat,
+and M4's live re-run (EDGE-L7) owes the same.
+
+Ten app tests (`crates/app/src/tests/lens.rs`) run the whole door through the real keymap
+and picker; twelve mutations, all red (`falsify_lens_door.py`). `docs/graph.md` has a lens
+section, `docs/state-files.md` lists `lenses/<name>.shq`, and `docs/commands.md` regenerated
+the `graph.lens` row.

@@ -61,6 +61,29 @@ were reading when the vault became a neighbourhood, and it is marked. The centre
 stored in the session: a remembered centre could be a note you deleted on the way out.
 The **depth** is stored.
 
+## A lens
+
+A **lens** is a saved query the graph wears: a `.shq` file under `.shale/lenses/` whose
+note column names the notes the picture is allowed to show ([notes.md](notes.md) covers
+what a saved query is). `:lens <name>` puts one on, `:lens none` takes it off, and
+`:lens` with nothing typed opens a picker that lists each lens with how many notes it
+answers **now** — a lens whose query will not run shows `—` and can still be chosen,
+because the picture is not the place to find out. The palette's "Choose a lens for the
+graph" row opens the same picker.
+
+Like local scope, a lens is a **filter dimension**: what it did not answer leaves the
+simulation as well as the paint, and the layout closes up around what is left. A lens and
+a local scope **and** each other — a lens worn on a neighbourhood is the notes in both —
+and the strip's chips and search still cut inside the answer.
+
+The file is read when the lens goes on, so editing it in any editor takes effect the next
+time. A lens that cannot be answered — SQL that fails, or a query with no note column —
+says so on the status line and leaves the picture standing; an answer that names notes the
+graph has no node for counts them out loud rather than dropping them.
+
+Saving a lens from a search you typed, and a lens row in the strip, are not built yet: for
+now a lens is a file you write.
+
 ## The camera moves, and then it stops
 
 Every camera move the app makes for you (a filter change, a hop, a node click) drives a

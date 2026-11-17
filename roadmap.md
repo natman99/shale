@@ -72,9 +72,14 @@ words** (P4.18, 2026-11-13) — plus a long todo-driven sweep, 2026-11-13 to 202
 jumplist and mouse 4/5, arrows and paging, the `h`/`l` line-edge rule, frontmatter folding,
 the panel marks and their per-pane fix, the whole-run crash, moving a note between folders
 by keyboard and mouse, and importing a file from outside the vault (**P4.19**, below).
-**Next is P4.16, the graph lens**: ruled twice, unbuilt, and its 2026-11-13 rulings are now
-recorded on the item. What it unblocks is the GM screen (P7.4) and canvas-as-saved-selection
-(P6.10). Two items the user keeps asking for are still unstarted: **P4.10 trash** and
+**P4.16, the graph lens, is being built now** (2026-11-17): the design pass, the
+measurement, all nine rulings, then **M1** (the lens as a filter dimension), **M2** (the
+`.shale/lenses/*.shq` files and the reader) and **M3** (`:lens`, the picker, the palette
+row) closed the same day. What is left on the item is **M4** (the view taking the mask
+live, the tab title's `· lens`, the strip's lens row), **M5** (the door that *makes* one:
+`s` in the strip, `:lens save`) and **M6** (the seat, restore, docs). Until M5 lands a lens
+is a file you write by hand. What P4.16 unblocks is the GM screen (P7.4) and
+canvas-as-saved-selection (P6.10). Two items the user keeps asking for are still unstarted: **P4.10 trash** and
 **P4.12 attachment capture**. `ctrl-t` scratch tabs are ruled in full (2026-11-13) and
 genuinely unbuilt — `ctrl-t` still duplicates the current note.
 
@@ -2030,7 +2035,21 @@ edges, query nodes, MCP canvas tools) is P6.10.
     ledger, milestones M0–M6 — **M0 measured the same day** (the bound: a selected set
     never costs more than the whole-vault settle the graph already pays; table in
     `PROGRESS.md`) — and **all nine rulings ruled 2026-11-17**, every recommendation taken.
-    The item is ready to build; M1 is the filter dimension.
+  - **M1 closed (2026-11-17):** `GraphFilter.lens: Option<LensScope>` is the seventh
+    dimension on the mask, anding with folder scope, tags and ghosts through the one
+    neighbour pass, chips and search still cutting inside the answer. Six core tests, six
+    mutations red.
+  - **M2 closed (2026-11-17):** `shale_core::lens` — `dir`/`list`/`read`/`answer`/
+    `paths_from`/`unmatched`. A lens name is one name (separators refused before the
+    name-shape guard, on purpose), the note column is found by name, and the file is read
+    on use so a hand edit takes effect. Fourteen core tests, ten mutations red.
+  - **M3 closed (2026-11-17):** `:lens <name>`, `:lens none`, `:lens` alone opening the
+    picker, the `graph.lens` registry row and the palette row (both ask, neither acts), and
+    rows carrying what each lens answers **now**. Ten app tests, twelve mutations red. The
+    finding is **EDGE-L15**: a lens that only removes nodes can leave the sim settled, and
+    `pump_graph` no-ops on a settled sim — the view keeps the old picture and the old
+    counts. `refresh_graph` is the door that ships regardless, and M4's live re-run owes
+    the same.
 
 - **P4.17 One note, one buffer per window (the registry)** — **added 2026-11-06 by the
   P4.0b design pass; it is P4.0b's first commit, not a later cleanup.** A per-window

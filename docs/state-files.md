@@ -12,6 +12,7 @@ refuse to touch anything under one.
 | `props.toml` | optional: the key types you declare, `cr = "number"` | no — that is your vocabulary, not a cache |
 | `session.json` | one slot per window: panes, tabs, cursors, the jump chain, the graph's camera and filter, the window's frame; plus the vault's recent notes at the top level | yes — you lose the arrangement |
 | `themes/<name>.toml` | your palettes | yes |
+| `lenses/<name>.shq` | saved queries the graph can wear ([graph.md](graph.md)); the index never reads them as notes | no — that is your query, not a cache |
 | `shale.db` (+`-wal`, `-shm`) | the index cache: notes, tags, links, properties, word counts, the event log | yes — rebuilt from the notes |
 | `backups/shale-<day>.db` | one copy per day of **the index**, newest 7 kept | yes |
 | `pending-edits/<epoch>-<profile>-<tool>-<hex>.toml` | the agent's proposals waiting for review | only on purpose — that is the queue |

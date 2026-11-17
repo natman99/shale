@@ -99,6 +99,13 @@ so in §5 by number.
 - **EDGE-L14 — the count in the tab title and the count in the strip come from one
   answer.** One producer, as the embed's badge rule requires: a title that re-derived the
   number could disagree with the strip.
+- **EDGE-L15 — a filter change that does not heat the layout still has to ship a frame.**
+  Found building M3: `rebuild_graph` re-slots the sim and `pump_graph` starts the tick
+  loop, but `pump_graph` returns at once when the sim is already **settled** — and a lens
+  that only removes nodes can leave it settled. The view then keeps the old picture and
+  the old counts while the mask underneath has changed. `refresh_graph` is the door that
+  ships summary, frame and filter whatever the sim's heat; M4's live re-run (EDGE-L7) has
+  to go through the same door, not the strip's.
 
 ## 4. Milestones
 
@@ -142,10 +149,21 @@ named under it, and the docs it owes.
   `../secret` was being refused only by accident of the dot guard sitting in front of the
   separator guard — which made the first battery run report a false red. The guards are now
   ordered on purpose, with the reason in a comment.
-- **M3 — the verb and the picker.** `:lens <name>`, `:lens none`, `:lens` alone opening
-  the picker, the registry row, the palette row, and the picker's node counts
-  (EDGE-L10). Tests: the verb sets and clears, an unknown name says so and changes
-  nothing, the picker's rows carry counts.
+- **M3 — the verb and the picker. Closed 2026-11-17.** `:lens <name>` puts a lens on the
+  graph, `:lens none` takes it off (EDGE-L9 — and saying it with nothing on says so rather
+  than pretending to undo), and `:lens` alone opens the picker (ruling 5). The registry row
+  `graph.lens` and the palette row open the same picker rather than acting, so the palette
+  never wears a lens nobody chose. The picker's rows carry what each lens answers **now**
+  (EDGE-L10), measured on one read connection so two lenses cannot answer against two
+  snapshots; a lens whose query will not run shows `—` and is still choosable, and a lens
+  already on offers `no lens` as the first row. The file is read on use, so a hand edit
+  takes effect the next time. Ten app tests (`tests/lens.rs`) cover the verb, the picker,
+  the palette row, and the refusals: EDGE-L5's count-out-loud, EDGE-L6's standing picture,
+  EDGE-L12's index-off sentence. Twelve mutations, all red (`falsify_lens_door.py`). The
+  one real finding: the first version re-made the picture with `rebuild_graph` +
+  `pump_graph`, which is what the strip's own path does — and every test that checked the
+  **counts** stayed at three notes, because a settled sim means `pump_graph` has nothing to
+  tick. That is EDGE-L15, and `refresh_graph` is now the door.
 - **M4 — the picture and the title.** The graph view taking the mask, the tab chip reading
   `Graph · <lens>`, the strip naming the lens with its count, and EDGE-L6/L7's live
   behaviour (a failing lens keeps the picture; an index move re-runs it).
