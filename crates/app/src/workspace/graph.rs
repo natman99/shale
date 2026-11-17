@@ -27,7 +27,9 @@ use gpui::{Context, Entity, Window, prelude::*};
 use shale_core::vault::{VaultEntry, rel_text};
 use shale_core::watch::VaultChanges;
 
-use crate::acts::OpenGraph;
+use crate::acts::{GraphLens, OpenGraph};
+use crate::picker::PickerItem;
+use crate::workspace::open::{PickerTarget, notice};
 
 use super::Workspace;
 use super::tabs::{Tab, TabContent};
@@ -377,6 +379,216 @@ impl Workspace {
         let built = self.rebuild_graph();
         self.pump_graph(cx);
         built
+    }
+
+    // The lens (roadmap P4.16): a saved query the graph wears. The dimension itself is
+    // core's (`graph::filter::LensScope`); what lives here is the door — the verb, the
+    // picker, and the moment the answer becomes a mask and the picture is re-made.
+
+    /// `:lens [name]`. An empty name opens the picker (ruling 5: `:lens` alone mirrors
+    /// `:query`); a name puts that lens on the graph.
+    pub(crate) fn graph_lens_command(
+        &mut self,
+        name: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let name = name.trim();
+        if name.is_empty() {
+            self.open_lens_picker(window, cx);
+            return;
+        }
+        self.set_lens(name, cx);
+    }
+
+    /// The palette row: `:lens` with nothing typed, which asks rather than acts.
+    pub(crate) fn graph_lens_action(
+        &mut self,
+        _: &GraphLens,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_lens_picker(window, cx);
+    }
+
+    /// A lens chosen in the picker.
+    pub(crate) fn graph_lens_chosen(&mut self, name: &str, cx: &mut Context<Self>) {
+        self.set_lens(name, cx);
+    }
+
+    /// Put a lens on the graph, or take it off.
+    ///
+    /// The file is the authority: it is read here, on use, so an edit made in an editor
+    /// outside Shale takes effect the next time the lens is put on rather than needing an
+    /// import. A lens that will not answer leaves the picture standing (EDGE-L6) and says
+    /// why on the status line, because the command line has already closed and the status
+    /// line is where a reader looks for why nothing changed.
+    fn set_lens(&mut self, name: &str, cx: &mut Context<Self>) {
+        // EDGE-L9: `none` is a name, not a mode — the same dimension set back to None.
+        if name == "none" {
+            if self.graph_filter.lens.is_none() {
+                self.say("no lens is on the graph", cx);
+                return;
+            }
+            self.graph_filter.lens = None;
+            self.remake_graph(cx);
+            self.say("lens off", cx);
+            return;
+        }
+        let text = match shale_core::lens::read(self.vault.root(), name) {
+            Ok(text) => text,
+            Err(err) => {
+                self.say(format!("{err:#}"), cx);
+                return;
+            }
+        };
+        // EDGE-L12: with the index off there is nothing to answer from, and "no note
+        // answers this" would be a lie about the vault rather than about the setting.
+        let Some(db) = self.db.as_ref() else {
+            self.say(
+                "there is no vault index to read (index.enabled = false)",
+                cx,
+            );
+            return;
+        };
+        let conn = match db.read() {
+            Ok(conn) => conn,
+            Err(err) => {
+                self.say(format!("the vault index could not be read: {err}"), cx);
+                return;
+            }
+        };
+        let stem = name
+            .strip_suffix(&format!(".{}", shale_core::query_note::EXTENSION))
+            .unwrap_or(name);
+        match shale_core::lens::answer(&text, stem, &conn) {
+            shale_core::lens::LensOutcome::Refused { why } => {
+                // The picture stands; the sentence is core's, the same one the picker and
+                // an embedded table give for the same file.
+                self.say(format!("lens `{name}`: {why}"), cx);
+            }
+            shale_core::lens::LensOutcome::Empty { name } => {
+                self.graph_filter.lens = Some(shale_core::graph::filter::LensScope {
+                    name: name.clone(),
+                    paths: Vec::new(),
+                });
+                self.remake_graph(cx);
+                self.say(format!("lens `{name}`: no note answers this"), cx);
+            }
+            shale_core::lens::LensOutcome::Answered { name, paths } => {
+                // EDGE-L5: an answer can name paths the graph has no node for. They are
+                // counted out loud rather than dropped.
+                let missing = self
+                    .graph
+                    .as_ref()
+                    .map(|index| shale_core::lens::unmatched(index, &paths).len())
+                    .unwrap_or(0);
+                let kept = paths.len() - missing;
+                self.graph_filter.lens = Some(shale_core::graph::filter::LensScope {
+                    name: name.clone(),
+                    paths,
+                });
+                self.remake_graph(cx);
+                let extra = if missing > 0 {
+                    format!(", {missing} with no node")
+                } else {
+                    String::new()
+                };
+                self.say(
+                    format!("lens `{name}`: {kept} {}{extra}", Self::notes_word(kept)),
+                    cx,
+                );
+            }
+        }
+    }
+
+    /// One note or many, so the status line and the picker read like sentences.
+    fn notes_word(count: usize) -> &'static str {
+        if count == 1 { "note" } else { "notes" }
+    }
+
+    /// Re-make the picture for a filter the view did not ask for, and tell the view what
+    /// the filter now says.
+    ///
+    /// [`Workspace::refresh_graph`] rather than `rebuild_graph` + `pump_graph`: a lens can
+    /// shrink a picture without heating the layout at all, and a settled sim means
+    /// `pump_graph` has nothing to tick — the view would keep the old frame and the old
+    /// counts. `refresh_graph` ships both, settled or not.
+    fn remake_graph(&mut self, cx: &mut Context<Self>) {
+        self.refresh_graph(cx);
+    }
+
+    /// The lens picker: one row per lens the vault holds, each carrying how many nodes it
+    /// answers **now** (EDGE-L10: measured when the picker opens, one query per lens, on
+    /// one read-only connection so two lenses cannot answer against two different
+    /// snapshots). A lens that will not answer shows `—` and still opens, because
+    /// EDGE-L6 keeps the picture standing.
+    fn open_lens_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let lenses = shale_core::lens::list(self.vault.root());
+        let current = self
+            .graph_filter
+            .lens
+            .as_ref()
+            .map(|lens| lens.name.clone())
+            .unwrap_or_default();
+        let conn = self.db.as_ref().and_then(|db| db.read().ok());
+        let mut rows: Vec<(PickerItem, PickerTarget)> = Vec::new();
+        if conn.is_none() {
+            rows.push(notice(
+                "there is no vault index to read (index.enabled = false), so no lens can answer",
+            ));
+        }
+        if !current.is_empty() {
+            rows.push((
+                PickerItem {
+                    label: "no lens".to_string().into(),
+                    detail: format!("currently wearing `{current}`").into(),
+                    detail_ranges: Vec::new(),
+                    search: "no lens none".to_string().into(),
+                },
+                PickerTarget::Lens("none".to_string()),
+            ));
+        }
+        for name in &lenses {
+            let detail = match (
+                conn.as_ref(),
+                shale_core::lens::read(self.vault.root(), name),
+            ) {
+                (Some(conn), Ok(text)) => match shale_core::lens::answer(&text, name, conn) {
+                    shale_core::lens::LensOutcome::Answered { paths, .. } => {
+                        let missing = self
+                            .graph
+                            .as_ref()
+                            .map(|index| shale_core::lens::unmatched(index, &paths).len())
+                            .unwrap_or(0);
+                        let kept = paths.len() - missing;
+                        format!("{} {}", kept, Self::notes_word(kept))
+                    }
+                    shale_core::lens::LensOutcome::Empty { .. } => "0 notes".to_string(),
+                    shale_core::lens::LensOutcome::Refused { .. } => {
+                        "\u{2014} not answering".to_string()
+                    }
+                },
+                // A lens whose file cannot be read still gets a row: the row is how the
+                // reader finds out, and a picker that hides it hides the problem too.
+                _ => "\u{2014}".to_string(),
+            };
+            rows.push((
+                PickerItem {
+                    label: name.clone().into(),
+                    detail: detail.into(),
+                    detail_ranges: Vec::new(),
+                    search: name.clone().into(),
+                },
+                PickerTarget::Lens(name.clone()),
+            ));
+        }
+        if lenses.is_empty() {
+            rows.push(notice(
+                "no lenses yet: a lens is a .shq file under .shale/lenses",
+            ));
+        }
+        self.open_picker("Lens", rows, window, cx);
     }
 
     /// A new mode, from the graph tab: run the window's physics in the other space.

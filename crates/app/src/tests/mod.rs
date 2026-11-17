@@ -70,6 +70,7 @@ mod r#import;
 mod index;
 mod jumps;
 mod keys;
+mod lens;
 mod live;
 mod motions;
 mod r#move;

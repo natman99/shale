@@ -203,6 +203,10 @@ impl Workspace {
             // here rather than raised: the command line has already closed, and the
             // status line is where a reader looks for why nothing moved.
             ex::Ex::Move(folder) => self.move_command(&folder, window, cx),
+            // `:lens` with nothing typed asks; with a name it wears that lens. A lens that
+            // will not answer leaves the picture standing and says why on the status line
+            // (EDGE-L6), so nothing here raises.
+            ex::Ex::Lens(name) => self.graph_lens_command(&name, window, cx),
             // The search arrives on the command line; the name is asked for after, because
             // the reader gives it and the command line does not (`:save-query`, P4.3 M6).
             ex::Ex::SaveQuery(search) => self.ask_save_query(&search, window, cx),

@@ -362,6 +362,15 @@ const ALL: &[Command] = &[
         action: Some(|| Box::new(RenameNote)),
     },
     Command {
+        id: "graph.lens",
+        label: "Choose a lens for the graph",
+        keys: "",
+        ex: &["lens"],
+        args: "[name]",
+        in_palette: true,
+        action: Some(|| Box::new(GraphLens)),
+    },
+    Command {
         id: "note.move",
         label: "Move the selected note to another folder",
         keys: "ctrl-shift-m, m in the tree",

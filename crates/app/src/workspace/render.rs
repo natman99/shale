@@ -833,6 +833,9 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::rename_note))
             .on_action(cx.listener(Self::move_note))
             .on_action(cx.listener(Self::delete_note))
+            // The graph wearing a saved query (P4.16). On the window's chain: the
+            // lens is the graph's, and the row can be reached from any focus.
+            .on_action(cx.listener(Self::graph_lens_action))
             // A frontmatter block for the note under the caret. On the window's
             // chain rather than the tree's, because it writes a note and not a
             // selection: with the tree focused it still means the note the

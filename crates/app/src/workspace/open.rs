@@ -46,6 +46,9 @@ pub(crate) enum PickerTarget {
         from: std::path::PathBuf,
         to: Option<std::path::PathBuf>,
     },
+    /// A lens for the graph to wear (`:lens`, the lens picker; P4.16 M3). The name is the
+    /// lens file's stem, and `none` is a name that means no lens (EDGE-L9).
+    Lens(String),
     /// A property key from the vault-wide census (`:keys`, P4.3a M5). Choosing it
     /// does not open a new surface: it puts `prop:key` in the search field, which is
     /// the same question the pane is asking and can be refined from there.
@@ -444,6 +447,7 @@ impl Workspace {
             }
             PickerTarget::RunQuery(path) => self.run_query(&path, window, cx),
             PickerTarget::MoveTo { from, to } => self.move_chosen(&from, to.as_deref(), cx),
+            PickerTarget::Lens(name) => self.graph_lens_chosen(&name, cx),
             PickerTarget::SaveQuery(search) => self.ask_save_query(&search, window, cx),
             PickerTarget::RenameKey(key) => {
                 // The pane has said *which* key; the prompt asks for the new

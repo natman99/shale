@@ -381,6 +381,9 @@ actions!(
         // means "show the graph": a second press moves the frame to the tab that
         // already holds it rather than opening another (roadmap P3.4).
         OpenGraph,
+        // `:lens` with nothing typed: ask which lens the graph should wear (P4.16 M3).
+        // Setting one by name is the command line's job; this row only opens the picker.
+        GraphLens,
         // The graph tab's keyboard (`graph` context, roadmap P3.4 Task 7). `enter` and
         // `f` are plain names; the camera and selection keys below carry their step,
         // because the direction is decided in the keymap and one action per direction

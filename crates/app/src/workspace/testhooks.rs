@@ -994,6 +994,7 @@ fn render_target(target: &PickerTarget) -> String {
                 .map(rel_text)
                 .unwrap_or_else(|| "top level".into())
         ),
+        PickerTarget::Lens(name) => format!("lens {name}"),
         PickerTarget::SaveQuery(search) => format!("save {search}"),
         PickerTarget::Notice(reason) => reason.to_string(),
     }
