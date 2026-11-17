@@ -35,6 +35,13 @@ const TAB_GAP: gpui::Pixels = crate::style::SPACE_1;
 /// The tab bar's end buttons: a square big enough to be a real target inside the
 /// 28px bar, and small enough not to crowd the tabs it brackets.
 const CHEVRON: gpui::Pixels = gpui::px(20.);
+
+/// A panel card's header text starts clear of the mark that lives in that card's corner.
+/// The mark sits 4px in from the edge (`top_1` and `left_1`/`right_1`) and is `CHEVRON`
+/// square, so 4 + 20 + a 6px gap is where the text may begin. Pinned by
+/// `the_card_headers_start_clear_of_the_mark_in_their_corner`, which measures both boxes
+/// rather than trusting this number.
+const HEADER_CLEAR: gpui::Pixels = gpui::px(30.);
 /// The mark that lives in its panel's card: one per panel per window.
 const MARK_IN_CARD: usize = 0;
 /// The mark at the end of pane `pix`'s tab bar. Each pane draws its own bar, so each
@@ -968,16 +975,25 @@ impl Render for Workspace {
                                 )
                                 .child(
                                     div()
-                                        .p_2()
+                                        .pt_2()
                                         .pb_1()
+                                        .pl_2()
+                                        // The card's mark is in this card's top-right
+                                        // corner: a long vault folder name should end
+                                        // clear of it, not run under it.
+                                        .pr(HEADER_CLEAR)
                                         .font_weight(gpui::FontWeight::BOLD)
                                         .child(
-                                            self.vault
-                                                .root()
-                                                .file_name()
-                                                .unwrap_or_default()
-                                                .to_string_lossy()
-                                                .to_string(),
+                                            div()
+                                                .debug_selector(|| "tree-header".to_string())
+                                                .child(
+                                                    self.vault
+                                                        .root()
+                                                        .file_name()
+                                                        .unwrap_or_default()
+                                                        .to_string_lossy()
+                                                        .to_string(),
+                                                ),
                                         ),
                                 )
                                 // The prompt is a sibling of the tree, not a child of
@@ -1148,24 +1164,33 @@ impl Render for Workspace {
                                 // keyboard can get stuck on.
                                 .child(
                                     div()
-                                        .px_2()
                                         .pt_2()
                                         .pb_1()
-                                        .font_weight(gpui::FontWeight::BOLD)
-                                        .text_color(gpui::rgb(self.palette.ui_fg))
-                                        // The pin mark rides the header, not a row: the
-                                        // strip is fixed to one note and has stopped
-                                        // following the tabs (sidebar-plan.md M5).
-                                        .child(format!(
-                                            "{} · {}{}",
-                                            self.sidebar_view.label(),
-                                            self.sidebar_rows.len(),
-                                            if self.sidebar_pinned.is_some() {
-                                                format!(" · {}", crate::style::GLYPH_PIN)
-                                            } else {
-                                                String::new()
-                                            }
-                                        )),
+                                        .pr_2()
+                                        // The card's mark lives in this corner, so the
+                                        // view's name starts clear of it rather than
+                                        // under it.
+                                        .pl(HEADER_CLEAR)
+                                        .child(
+                                            div()
+                                                .debug_selector(|| "sidebar-header".to_string())
+                                                .font_weight(gpui::FontWeight::BOLD)
+                                                .text_color(gpui::rgb(self.palette.ui_fg))
+                                                // The pin mark rides the header, not a row:
+                                                // the strip is fixed to one note and has
+                                                // stopped following the tabs
+                                                // (sidebar-plan.md M5).
+                                                .child(format!(
+                                                    "{} · {}{}",
+                                                    self.sidebar_view.label(),
+                                                    self.sidebar_rows.len(),
+                                                    if self.sidebar_pinned.is_some() {
+                                                        format!(" · {}", crate::style::GLYPH_PIN)
+                                                    } else {
+                                                        String::new()
+                                                    }
+                                                )),
+                                        ),
                                 )
                                 .when(!self.sidebar_view.built(), |d| {
                                     // A view that is planned but not built says so,
