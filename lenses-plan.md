@@ -151,34 +151,30 @@ named under it, and the docs it owes.
   today; adding one is unrelated to lenses and is not slipped in here.
 - **Dimming.** Ruled out: a lens hides, it does not dim.
 
-## 6. Rulings I need
+## 6. Rulings — all ruled 2026-11-17
 
-Answered by number. Each carries a recommendation; the recommendation is what I build
-unless told otherwise.
+The user answered all nine in one reply; every recommendation was taken. Ruling 7 was
+settled by the measurement rather than by taste.
 
-1. **How a lens is made.** Recommendation: `s` in the graph's filter strip saves the
-   picture as a lens, using the search→SQL translation keep-a-search already has
+1. **How a lens is made. RULED.** `s` in the graph's filter strip saves the picture as a
+   lens, using the search→SQL translation keep-a-search already has
    (`db/index.rs:1588`), plus `:lens save <name>`. The strip's chips (orphans, missing,
    tags) are **not** encoded into the query — they stay filter dimensions, so a lens does
    not freeze a chip choice into a file the author will later want to edit by hand.
-2. **Does a lens combine with the strip's dimensions, or replace them?**
-   Recommendation: combine (EDGE-L3). The lens says which notes belong; the chips still
-   decide whether unlinked notes, ghosts and tags are drawn inside it.
-3. **Tags inside a lens.** Recommendation: a tag survives when a lens note links it —
+2. **Combine, not replace. RULED.** The lens is one more dimension (EDGE-L3): it says
+   which notes belong; the chips still decide whether unlinked notes, ghosts and tags are
+   drawn inside it.
+3. **Tags follow their notes. RULED.** A tag survives a lens when a lens note links it —
    folder scope's rule, so the two scopes behave alike (EDGE-L4).
-4. **When the lens re-runs.** Recommendation: on an index move or a lens-file change, the
-   embedded query's rule (EDGE-L7). The alternative — re-run only when the lens is
-   (re)applied — keeps a stale picture on screen while the vault changes under it.
-5. **`:lens` with no argument.** Recommendation: opens the picker, mirroring `:query`.
-6. **A lens answering with paths that have no node.** Recommendation: they are counted and
-   reported in the strip, not silently dropped (EDGE-L5).
-7. **The vault-wide lens — answered by M0 (2026-11-17): no cap, no warning.** A selected
-   set never costs more than the whole vault, and the whole vault is what the graph tab
-   already settles today. The node count in the strip is the disclosure. Open only if you
-   want a warning at some size anyway — say where, and it goes in.
-8. **Two graph tabs, two lenses.** Recommendation: yes, per tab, restored with the tab
-   (EDGE-L8). The alternative (one lens per vault run) makes the graph tab's state live
-   outside the tab that shows it.
-9. **Does the strip get a lens row of its own, or does the lens live only in the title and
-   the picker?** Recommendation: a row in the strip naming the lens, its node count and
-   the no-node count, because that is where the graph already says what it is drawing.
+4. **Re-run on an index move or a lens-file change. RULED.** The embedded query's rule
+   (EDGE-L7), with the layout half: the layout is disturbed only when the answer's node
+   set actually changed.
+5. **`:lens` alone opens the picker. RULED.** Mirrors `:query`.
+6. **Answers with no node are counted, not dropped. RULED.** Reported in the strip
+   (EDGE-L5).
+7. **No cap, no warning. RULED** (and answered by M0 first). A selected set never costs
+   more than the whole vault, which is what the graph tab settles today; the node count in
+   the strip is the disclosure.
+8. **One lens per graph tab. RULED.** Restored with its tab (EDGE-L8).
+9. **The strip gets a lens row. RULED.** Lens name, node count and the no-node count —
+   that is where the graph already says what it is drawing.

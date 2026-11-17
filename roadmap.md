@@ -2029,7 +2029,8 @@ edges, query nodes, MCP canvas tools) is P6.10.
     translation keep-a-search already has, the tab chip's graph branch), the EDGE-L
     ledger, milestones M0–M6 — **M0 measured the same day** (the bound: a selected set
     never costs more than the whole-vault settle the graph already pays; table in
-    `PROGRESS.md`) — and the eight rulings still owed at the end of the plan.
+    `PROGRESS.md`) — and **all nine rulings ruled 2026-11-17**, every recommendation taken.
+    The item is ready to build; M1 is the filter dimension.
 
 - **P4.17 One note, one buffer per window (the registry)** — **added 2026-11-06 by the
   P4.0b design pass; it is P4.0b's first commit, not a later cleanup.** A per-window
