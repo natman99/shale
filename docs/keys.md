@@ -6,8 +6,13 @@ list, the note is prose, and neither should have to borrow the other's keys.
 
 Three prefixes are worth knowing before the tables:
 
-- **`space` is the leader.** It is also vim's "move right" motion, so the engine
-  decides: a lone `space` moves, `space` plus a letter is a chord.
+- **`space` is the leader, and a lone `space` moves nothing.** It used to be vim's "move
+  right" motion, and that is exactly why it stopped: every leader chord jumped the caret a
+  column before its second key landed. It is out of the motions, out of table-cell stepping
+  and out of visual selection. `space` plus a letter the leader has taken is a chord; a
+  letter it has not taken does its own thing, and `escape` drops the chord. Where `space`
+  is not the leader it keeps its old meaning: `d space` deletes to the end of the line (it
+  is `dl`), and `f space` / `t space` find a space character.
 - **`g` starts a two-stroke command** (`gd`, `gD`, `gt`, `gT`, `gf`). Like
   `space`, a lone `g` is held only as long as a chord is still possible.
 - **`ctrl-w` is the window alphabet** (panes and panels). A lone `ctrl-w` is

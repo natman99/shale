@@ -60,6 +60,24 @@ unblocks is the sequence the dependency order already wrote. **P4.3b is closed t
 schema v4's `headings` table, one heading scanner for the whole app, and `:sections` as its
 reader — see its item below). Next is **P4.9** block refs, then the computed surfaces (P4.15)
 and the consumers that were waiting — the graph lens (P4.16) and the GM screen (P7.4).**
+
+**What is being built next (refreshed 2026-11-17).** The paragraph above is kept as the
+read it was. Since it was written: **P4.9 block refs closed 2026-11-11** (M1–M6 — the one
+block scan and `Style::BlockAnchor`, schema v5's `blocks` table, the anchor becoming a
+*kind* shared by links and embeds, `[[note#^id]]` jumps and `![[note#^id]]` embeds,
+`:block-id` and `:blocks`, and the `i^` / `a^` text object), the **sidebar** (P4.13 M1–M5,
+2026-11-11) with its **tab pin** (P4.13a, 2026-11-12), the **dice chip** (P4.15 M1–M3 plus
+the `K` verb, 2026-11-12), and the **exit
+words** (P4.18, 2026-11-13) — plus a long todo-driven sweep, 2026-11-13 to 2026-11-17: the
+jumplist and mouse 4/5, arrows and paging, the `h`/`l` line-edge rule, frontmatter folding,
+the panel marks and their per-pane fix, the whole-run crash, moving a note between folders
+by keyboard and mouse, and importing a file from outside the vault (**P4.19**, below).
+**Next is P4.16, the graph lens**: ruled twice, unbuilt, and its 2026-11-13 rulings are now
+recorded on the item. What it unblocks is the GM screen (P7.4) and canvas-as-saved-selection
+(P6.10). Two items the user keeps asking for are still unstarted: **P4.10 trash** and
+**P4.12 attachment capture**. `ctrl-t` scratch tabs are ruled in full (2026-11-13) and
+genuinely unbuilt — `ctrl-t` still duplicates the current note.
+
 P4.0 closed on 2026-11-08 (the hover card was its last owed item; `![[query-name]]` waits
 on P4.3 and block refs on P4.9). **P4.3a's indexing half is closed:** M1 (the parser, the
 `props` table, `:props`) and M2 (the projections — `tags`, `aliases`, and `edges` finally
@@ -145,7 +163,9 @@ block's rows and folding inside a block are done (2026-11-08): a block being edi
 with `za`, its disclosure is clickable, and the rows behind a closed fold leave both the
 paint and the display model the caret's motions read. P3.2's move/exchange/rotate and
 `:pin` remain open and are the cheap alternative if a session wants a small, low-risk
-win.
+win. *(Then vs now: `:pin` closed on 2026-11-12 as P4.13a — the tab grows a `◆` and a jump
+opens a new tab instead of reading over it. What is still open from that sentence is P3.2's
+move/exchange/rotate.)*
 
 **Plan audit (2026-11-05).** Every ruled design in `brainstorm.md` was checked against
 the roadmap's items and the code. The finding: **the roadmap had been losing features
@@ -175,7 +195,11 @@ popup panel, scrolling picker list, hover-capability check, live grammar fixes,
 `K` with count, horizontal scrolling, `bench/` work. Five that were on this list
 are now done in Phase 0: **`/` search** (P0.5, 2026-10-28), **autosave**,
 **persisting the theme switch**, **config → `<vault>/.shale/`**, and **module splits**
-(nothing is over 1000 lines anymore).
+(nothing is over 1000 lines anymore). *(Then vs now, 2026-11-17: that last one has
+drifted back — `db/index.rs` 3518, `editor/mod.rs` 2701, `graph/mod.rs` 1771,
+`transclude.rs` 1484, `vault.rs` 1373, `workspace/render.rs` 1357. AGENTS.md asks for a
+refactor at 1000 lines, so a split round is owed; it is not on the roadmap under any
+number.)*
 
 **Key insight:** three foundations unlock most of the brainstormed feature set:
 1. **The DB + provenance + event log** → query notes, word counts, tag tree,
@@ -1992,6 +2016,14 @@ edges, query nodes, MCP canvas tools) is P6.10.
     the same mechanism — that item becomes one more query. Measure the *sim* over a
     large selected set before promising a vault-wide lens; the 5k paint numbers
     (2.3–2.6 ms) are not the constraint, the force layout is.
+  - **Ruled into shape 2026-11-13** (the user, answering the item's open questions): the
+    verb is `:lens <name>`, plus a picker on the graph tab. A lens is a file under
+    `<vault>/.shale/lenses/` holding a saved `.shq`, so the lens *is* the query and the two
+    cannot drift. The graph tab's title reads `Graph · <lens>` while one is on, and
+    `:lens none` clears it. The last lens is remembered with the session. The picker shows
+    each lens's node count. And a lens **filters** the graph: only the matching nodes are
+    drawn, not the whole vault with the misses dimmed — the ruling that a lens is a
+    different *view of the graph* rather than a filter over a table holds here.
 
 - **P4.17 One note, one buffer per window (the registry)** — **added 2026-11-06 by the
   P4.0b design pass; it is P4.0b's first commit, not a later cleanup.** A per-window
@@ -2053,6 +2085,27 @@ edges, query nodes, MCP canvas tools) is P6.10.
   scoping test above, and one case named a test that did not exist and reported green
   against zero matches. The registry grew `tab.close`, `tab.close-force`,
   `tab.write-close` and `tab.close-write` (the `×`), and `app.quit` moved to `:qall`.
+
+- **P4.19 Moving a note between folders, and bringing a file in from outside the vault** —
+  **closed 2026-11-17**, built from `todo.md` ("I need a way to move notes between folders")
+  rather than from a brainstorm ruling, and it had no roadmap line until this audit.
+  `:move other/` is **vault-relative** where the rename prompt stays sibling-relative —
+  different verbs asking different questions — and `:move /` names the top level, because
+  every empty part of a typed path is dropped. The doors are `m` in the tree,
+  `ctrl-shift-m` anywhere, the palette, and the command line; the destination is the app's
+  existing picker, filtered as you type, with one row that creates the folder you typed and
+  one for the top level. **A move rewrites the links that spelled the folder and leaves the
+  ones that didn't**: a bare `[[Deep]]` resolves by file name wherever the note went, so it
+  is untouched, and when only the name changed the author's own folder prefix stays theirs.
+  Mouse drag inside the tree moves the same note (folder row = that folder, note row = its
+  parent, empty space = top level); **folders do not lift**, because the notes inside them
+  spell the folder's name and nothing rewrites those yet — that half belongs here too, and
+  is the item's one unbuilt clause. A file dragged in from **outside** the vault is *copied*
+  — markdown and images only, never over an existing name, atomically through the same
+  staged write note saves use — and inside the vault a file only ever *moves*, because a
+  copy would leave the original standing with its links pointing at two files. Known gap,
+  not papered over: an imported image's `![[name.png]]` embeds do not follow it, because the
+  rewrite pass resolves notes and queries, not attachments; that belongs to P4.12.
 
 **Exit criteria:** restore any note to any retained point; a `.shq` embedded in
 three notes renders live and refreshes on edit; tag rename rewrites every note

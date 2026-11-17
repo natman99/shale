@@ -520,9 +520,12 @@ after a `;`) is refused before it runs: not because it could do damage, but beca
 that quietly runs two statements answers a different question than the one you wrote.
 
 Query notes are files the author owns: they appear in the file tree and open in the editor
-like any other file. They are not in quick-open, which stays a list of notes, and they are
-not attachments — `![[my-query]]` does not resolve to one yet, and will mean the query
-when query embedding lands.
+like any other file. They are not in quick-open, which stays a list of notes.
+`![[my-query]]` embeds one in a note: the row that asked for it grows a badge and the
+answer's rows hang under it, a row naming a note is that note, and the embed asserts a
+link to the `.shq`, so the index and the graph know the note asked for it. If the `.shq` is
+open in a tab with unsaved edits, the embed answers with the program in that tab, and the
+answer is re-run when the program or the index moves rather than on every keystroke.
 
 ## Spelling and grammar
 

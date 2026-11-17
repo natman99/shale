@@ -29,11 +29,15 @@ Obsidian has sync, mobile and a plugin ecosystem; Shale will never have any of t
 
 Built: the editor and the vim engine, the vault model and file tree, tabs and splits,
 the graph (flat, projected 3D, local neighbourhood), live / raw / preview views,
-transclusion and editable embeds, tables, callouts, themes, and the MCP server with its
-profiles and review queue.
+transclusion and editable embeds, block references (`^id`), saved queries (`.shq`) and
+the query note, the right-hand sidebar (outline, backlinks, outgoing links, tags,
+properties), frontmatter properties, tags, tables, callouts, inline dice, spell and
+grammar checking, themes, and the MCP server with its profiles and review queue.
 
-Not built: the canvas, the vault-history scrubber, and the TTRPG toolkit. Frontmatter
-(properties) indexing is being written now, so the index schema will move under you.
+Not built: the canvas, the vault-history scrubber, and the TTRPG toolkit. The index
+schema is at v6, and an index written by an older build is dropped and rebuilt rather
+than migrated; deleting `<vault>/.shale/shale.db` rebuilds the whole thing from the
+notes.
 
 ## Quick start
 
@@ -45,9 +49,11 @@ cargo build --release
 Requires a Rust toolchain and a Linux desktop (Wayland or X11). With no vault named,
 Shale opens the vault it opened last.
 
-Windows is not shipped. The core test suite has been run under Wine (437 passed, 7
-failed, 10 ignored) and the path-separator invariant those failures point at is settled
-in [PROJECT.md](PROJECT.md); the app build and its console handling are still owed.
+Windows is not shipped. The whole workspace's tests — core, app, graph and MCP — run
+under Wine (`cargo test --workspace --target x86_64-pc-windows-gnu`) and pass, and that
+is a standing gate at the end of every round; the path-separator bug the first Wine run
+turned up is settled in [PROJECT.md](PROJECT.md). What a Windows build still owes is the
+console handler that raises the termination flag, and a real desktop run.
 
 Spell and grammar checking comes from
 [`harper-ls`](https://github.com/Automattic/harper), which is optional - a server that is
@@ -86,10 +92,10 @@ The user-facing docs live in [`docs/`](docs/) - start with
 | [keys.md](docs/keys.md) | the keys, explained: what each is for and why it sits where it does |
 | [keymap.md](docs/keymap.md) | every gpui binding, by surface (**generated**) |
 | [commands.md](docs/commands.md) | every command: id, keys, `:` spelling, argument (**generated**) |
-| [notes.md](docs/notes.md) | notes, folders, the tree, saving and naming, wiki-links, search, word counts |
+| [notes.md](docs/notes.md) | notes, folders and the tree, saving and naming, wiki-links and embeds, block ids, tags and properties, saved queries, dice, search |
 | [windows-panes-tabs.md](docs/windows-panes-tabs.md) | windows, vaults, splits, tabs, and what comes back next launch |
 | [graph.md](docs/graph.md) | the link graph: flat, projected 3D, the local neighbourhood |
-| [sidebar.md](docs/sidebar.md) | the right-hand strip: the outline, the mark, scrubbing and jumping |
+| [sidebar.md](docs/sidebar.md) | the right-hand strip: outline, backlinks, outgoing links, tags, properties |
 | [mcp.md](docs/mcp.md) | the MCP surface: tools, profiles and scopes, the review queue |
 | [config.md](docs/config.md) | `<vault>/.shale/config.toml`, themes, fonts |
 | [state-files.md](docs/state-files.md) | everything Shale writes to disk, and what is safe to delete |
@@ -107,10 +113,11 @@ they are described where they are used.
 The repo's own planning and design documents are at the root: [PROJECT.md](PROJECT.md)
 (what the app is and every ruling that binds it), [roadmap.md](roadmap.md) (what is
 built and what is next), [brainstorm.md](brainstorm.md) (ideas and their status),
-[design-language.md](design-language.md) (the visual grammar),
+[design-language.md](design-language.md) (the visual grammar), [PROGRESS.md](PROGRESS.md)
+(the working log), and one plan per feature round, each named `<feature>-plan.md` —
 [graph-view-plan.md](graph-view-plan.md), [canvas-plan.md](canvas-plan.md),
-[transclusion-plan.md](transclusion-plan.md) and [properties-plan.md](properties-plan.md)
-(feature plans), [PROGRESS.md](PROGRESS.md) (the working log).
+[transclusion-plan.md](transclusion-plan.md) and [queries-plan.md](queries-plan.md) are
+examples, not the whole set.
 
 ## Layout
 
