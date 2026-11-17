@@ -11,6 +11,7 @@ pub mod frontmatter;
 pub mod fuzzy;
 pub mod glob;
 pub mod graph;
+pub mod lens;
 pub mod live;
 pub mod markdown;
 pub mod mdlayout;

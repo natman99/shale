@@ -129,9 +129,19 @@ named under it, and the docs it owes.
   no answer. The `inert` mutation exposed a weak assert on the way: the combine test was
   green with the dimension entirely absent until it also asserted the note that only the
   lens hides.
-- **M2 — the lens files and the reader.** `.shale/lenses/` listing, one lens read through
-  `ask()` with `host = None`, the answer's first column resolved to note paths, and the
-  "answers with no node" count (EDGE-L5). Core tests for the path set and the refusals.
+- **M2 — the lens files and the reader. Closed 2026-11-17.** `crates/core/src/lens.rs`:
+  `dir` (`.shale/lenses`), `list` (stems, sorted; a folder, another extension and a hidden
+  file are not lenses), `read` (a name is one name — separators refused **before** the
+  name-shape guard, a missing lens named in its own sentence, a trailing `.shq` forgiven),
+  `answer` (through `query_note::ask` with `host = None`, so EDGE-L13's refusal is `ask`'s
+  own sentence and not a lens-invented one), `paths_from` (the column by name — `note`,
+  then `path` — falling back to the first, and a cell that is not text is not a path), and
+  `unmatched` against the `GraphIndex` (EDGE-L5). Fourteen core tests; ten mutations, all
+  red (`falsify_lens_files.py`). Two weak spots caught on the way: the column rule was
+  indistinguishable from "take the first column" until a test put `note` second, and
+  `../secret` was being refused only by accident of the dot guard sitting in front of the
+  separator guard — which made the first battery run report a false red. The guards are now
+  ordered on purpose, with the reason in a comment.
 - **M3 — the verb and the picker.** `:lens <name>`, `:lens none`, `:lens` alone opening
   the picker, the registry row, the palette row, and the picker's node counts
   (EDGE-L10). Tests: the verb sets and clears, an unknown name says so and changes

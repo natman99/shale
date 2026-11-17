@@ -1459,3 +1459,27 @@ Two rules the tests hold apart, because they look alike and are not:
 
 Nothing in the app sets a lens yet: session restore carries `lens: None` and says so in a
 comment, with `GraphFilterSeat.lens` owed by M6.
+
+## A lens is a file the vault will not look at (P4.16 M2, 2026-11-17)
+
+`crates/core/src/lens.rs` is a lens's whole life outside the graph: where it lives
+(`<vault>/.shale/lenses/<name>.shq` — and `.shale` is already in the vault's ignore list,
+which is what puts a lens out of the tree, out of quick-open, out of the index and out of
+the agent's note tools while leaving it plain text: EDGE-L1), how a vault's lenses are
+listed, how one is read by name, and how its answer becomes a set of note paths.
+
+Three rules worth their weight:
+
+- **A lens name is one name.** A separator is refused *before* the name-shape guard, on
+  purpose: `../secret` is a path trying to walk out of the lens folder, and the sentence
+  that says so is the one worth reading. The dot guard would also have stopped it, by
+  accident of where the dots sit — and a refusal that lands by accident is one the next
+  edit can lose.
+- **A lens has no host.** `answer` always passes `host = None` into `query_note::ask`, so a
+  query that declares `relative = "current"` is refused in the picker's own words for the
+  same file (EDGE-L13). There is no lens-specific wording for the two doors to disagree in.
+- **The column is found by name.** A saved search compiles to `SELECT path AS note`, so
+  `note` is the name a lens reads; `path` is the hand-written query's habit; the first
+  column is the fallback, because the file is the authority. A cell that is not text is not
+  a path — it lands in the count of answers with no node (EDGE-L5) rather than being
+  guessed at.
