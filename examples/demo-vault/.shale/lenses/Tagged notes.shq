@@ -1,0 +1,10 @@
++++
+name = "Tagged notes"
++++
+-- A lens is a saved query the graph wears (`:lens Tagged notes`): its **note column** is
+-- the whole answer, and the picture keeps exactly those notes. Everything else the query
+-- selects is decoration, and the order is the answer's own.
+--
+-- This one keeps the three notes that write a tag — the tour, the welcome page, and the
+-- test note — and drops the note that writes none.
+SELECT DISTINCT note FROM props WHERE key = 'tags' ORDER BY note

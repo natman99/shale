@@ -15,6 +15,10 @@ refs/
 !examples/demo-vault/.shale/
 examples/demo-vault/.shale/*
 !examples/demo-vault/.shale/config.toml
+# …and the demo vault's lenses, which are the worked example of the format: a lens is a
+# `.shq` under `.shale/lenses/`, a folder that is otherwise the app's own state.
+!examples/demo-vault/.shale/lenses/
+!examples/demo-vault/.shale/lenses/**
 
 # Vendored icon reference clone (ISC-licensed), used as the vocabulary for the
 # callout marks. Not part of the build, and 4040 files is a lot to catch by accident.

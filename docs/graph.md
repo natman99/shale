@@ -82,7 +82,9 @@ says so on the status line and leaves the picture standing; an answer that names
 graph has no node for counts them out loud rather than dropping them.
 
 Saving a lens from a search you typed, and a lens row in the strip, are not built yet: for
-now a lens is a file you write.
+now a lens is a file you write. The demo vault ships one to read — `:lens Tagged notes`
+narrows the picture to the three notes that write a tag — at
+`examples/demo-vault/.shale/lenses/Tagged notes.shq`.
 
 ## The camera moves, and then it stops
 
