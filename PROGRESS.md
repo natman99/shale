@@ -1438,3 +1438,24 @@ typing. So the rule is: re-run the query on an index move, and disturb the layou
 when the answer's node set actually changed. The re-heat cost itself was **not** measured
 — the app's `GraphSim` keeps `reheat` private to its physics enum — but it is bounded by
 the cold settle above, since a re-heat starts at a lower alpha.
+
+## The lens is a filter dimension (P4.16 M1, 2026-11-17)
+
+`GraphFilter` gained `lens: Option<LensScope>` — a name, and the vault-relative paths one
+saved query answered. `apply()` chains it after folder scope and **ands** with it: a lens
+worn on a folder-scoped graph is the intersection, which is what "combine" was ruled to
+mean (EDGE-L3). Tags and ghosts go through the one neighbour pass folder scope already
+had, so a tag survives a lens when a lens note carries it and a ghost is drawn when a lens
+note names it (EDGE-L4). The chips and the search keep cutting inside the answer, which is
+what stops the filter strip lying about a lensed picture.
+
+Two rules the tests hold apart, because they look alike and are not:
+
+- **An empty answer is an answer.** A lens that came back with nothing draws nothing. A
+  local scope whose centre the index does not know leaves the graph alone, because the
+  window owns that centre; a lens's answer is not the window's to second-guess.
+- **A path with no node keeps nothing and is not an error.** Counting those answers is the
+  app's job (EDGE-L5), because `apply` answers with a bitmask and nothing else.
+
+Nothing in the app sets a lens yet: session restore carries `lens: None` and says so in a
+comment, with `GraphFilterSeat.lens` owed by M6.

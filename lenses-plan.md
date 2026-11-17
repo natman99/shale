@@ -116,10 +116,19 @@ named under it, and the docs it owes.
   per-tick work: 1.0–1.5 ms per tick at 1000 kept, 16–18 ms at 5000. A lens is always
   cheaper than the picture it replaces, which retires the cap question (ruling 7) and
   leaves the layout half of EDGE-L7 as the thing to build carefully.
-- **M1 — the dimension.** `GraphFilter.lens: Option<LensScope>` (a name and the set of
-  vault-relative paths), `apply()` chaining it, tags/ghosts per EDGE-L4, and the core
-  tests: a lens keeps exactly its nodes, edges follow both ends, tags follow notes,
-  ghosts pass, an empty answer keeps nothing but says so.
+- **M1 — the dimension. Closed 2026-11-17.** `GraphFilter.lens: Option<LensScope>`
+  (`name` + the answer's vault-relative paths), chained in `apply()` after folder scope
+  and **anding** with it, tags and ghosts decided by the one neighbour pass folder scope
+  already had (EDGE-L4), and the kind chips and the search still cutting inside the answer
+  (EDGE-L3). Six core tests: exactly the answered notes, tags and ghosts following their
+  notes, an edge standing only where both ends survive, the chips and other scopes
+  composing, an empty answer keeping nothing (unlike a local scope whose centre is
+  missing), and an answer naming a path with no node keeping the rest. Six mutations, all
+  red (`falsify_lens.py`): replace-not-and, dimension inert, answer ignored, tags/ghosts
+  forced off, the neighbour pass not knowing about the lens, and an empty answer treated as
+  no answer. The `inert` mutation exposed a weak assert on the way: the combine test was
+  green with the dimension entirely absent until it also asserted the note that only the
+  lens hides.
 - **M2 — the lens files and the reader.** `.shale/lenses/` listing, one lens read through
   `ask()` with `host = None`, the answer's first column resolved to note paths, and the
   "answers with no node" count (EDGE-L5). Core tests for the path set and the refusals.

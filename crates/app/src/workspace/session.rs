@@ -310,6 +310,9 @@ impl Workspace {
                 tags: seat.tags,
                 search: seat.search.clone(),
                 folder: None,
+                // No lens yet: the seat has no lens field, so a restored window starts
+                // without one. `GraphFilterSeat.lens` is M6 of P4.16.
+                lens: None,
             };
         }
 
