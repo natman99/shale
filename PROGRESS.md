@@ -1913,3 +1913,64 @@ Twelve tests (`tests/graph/node_card.rs`), twelve mutations red. The ghost rule 
 guards broken at once — the window's filter and the card's own path check each hold the line
 alone — which is the battery's own lesson: a doubly-guarded rule needs a doubly-broken
 mutation before a green suite means anything.
+
+## The perf branch, measured against the tree it replaced (2026-11-18)
+
+The perf work landed through a merge, so its numbers were recorded on a tree that has since
+absorbed 22 commits of features — block refs, dice chips, the lens, the alias fix, the node
+card — several of which add passes over the buffer per change. Two questions, both answered
+with measurements rather than memory.
+
+**Did the wins survive the merge?** Measured on both trees on the same machine minutes apart:
+the perf tip (`7f960ab`) in a scratch worktree, and merged main (`bc71780`).
+
+**What did the tree look like before the perf branch at all?** `75547da` — the merge base —
+was built in a second worktree, and the benchmark files the perf branch *added*
+(`editor_bench.rs`, `bench_paths.rs`) were copied onto it, so both sides run the same bench
+code. The pre-perf tree has no note cache, so its cache bench was dropped; its plain search
+line **is** the pre-perf keystroke cost.
+
+| path | pre-perf `75547da` | merged main `bc71780` | |
+|------|---|---|---|
+| picker search, per keystroke, 1k notes | 6.56 ms | 1.90 ms (cache + parallel stats) | **3.5×** |
+| fuzzy `ranked`, 1k names | 744 µs | 502 µs | 1.5× |
+| fuzzy `ranked`, 10k names | 7.77 ms | 5.66 ms | 1.4× |
+| `style_spans`, 8k words | 143 µs | 136 µs | flat |
+| `block_map`, 8k words | 42.3 µs | 43.8 µs | flat |
+| editor frame, 500 words | 3.59 ms | 1.18 ms | **3.0×** |
+| editor keystroke, 500 words | 5.60 ms | 1.81 ms | **3.1×** |
+| `999j` scroll, 500 words | 16.4 ms | 5.52 ms | **3.0×** |
+| editor frame, 2000 words | 41.7 ms | 5.17 ms | **8.1×** |
+| editor keystroke, 2000 words | 66.1 ms | 6.45 ms | **10.3×** |
+| editor frame, 8000 words | 568 ms | 32.9 ms | **17×** |
+| editor keystroke, 8000 words | 835 ms | 60.8 ms | **13.7×** |
+| `999j` scroll, 8000 words | 2.00 s | 120 ms | **16.7×** |
+
+The 8000-word rows are the shape of the thing: pre-perf the frame grew **super**linearly
+(3.6 ms → 41.7 ms → 568 ms across 4× the words), because row geometry was rebuilt per row
+from the buffer's start. Post-perf it grows roughly linearly (1.2 → 5.2 → 32.9 ms). The
+`quads=26` column never moved, which is the check that the *work* changed and not just the
+clock.
+
+**Cold start did not move, and that is the finding.** Same harness (`bench/cold_start.py`,
+fixed-window niri screenshots, 5 runs each, dnd vault), both binaries, minutes apart:
+
+| | pre-perf | merged main |
+|---|---|---|
+| mapped | 366 ms | 367 ms |
+| first content (paint) | 397 ms | 398 ms |
+| settled | 613 ms | 614 ms |
+| PSS at settled | 142.5 MB | 142.3 MB |
+
+Startup is gpui meeting the GPU driver; shale's own work is the ~40 ms between mapped and
+paint. The perf branch aimed at the hot paths — search, fuzzy, beats, the per-change editor
+passes — and that is exactly where the movement is.
+
+**The measurement lesson, which cost an hour to learn.** The first pass read main's warm
+search at 2.7 ms and its 8000-word frame at 36–38 ms — a 40% "regression" against the perf
+branch. It was the machine: those runs sat at a **load average of 5.6–6.7** (release builds
+competing for the same cores). The same binaries at load **2.0–2.5** read 1.90 ms and
+26.8 ms — indistinguishable from the perf branch. So: every number here carries a load
+reading, a suspicious gap gets re-run rather than explained, and the primitive count is the
+check that the work didn't change when the time did. A wall-clock benchmark without a load
+average next to it is a story, not a measurement.
