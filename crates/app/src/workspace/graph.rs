@@ -67,10 +67,11 @@ fn apply_graph_change(
     entries: &[VaultEntry],
     attachments: &[VaultEntry],
     queries: &[VaultEntry],
+    aliases: &[(String, String)],
 ) {
     match change {
         GraphChange::Saved(path, text) => {
-            index.set_note(&path, &text, entries, attachments, queries);
+            index.set_note(&path, &text, entries, attachments, queries, aliases);
         }
         GraphChange::Removed(path) => index.remove_note(&path),
     }
@@ -766,11 +767,16 @@ impl Workspace {
     /// is useful at, and it is what the integration contract's "incremental now,
     /// DB-backed extraction deferred" ruling covers.
     pub(super) fn graph_changes(&mut self, changes: &VaultChanges) {
-        let Some(index) = self.graph.as_mut() else {
-            // No index yet. If a scan is in flight it read the disk before these changes
-            // and will not have seen them, so they go on the queue and are folded in when
-            // it lands; with no scan running there is no graph to keep current, which is
-            // the same answer either way.
+        // A scan in flight is the case that matters: it read the disk before these changes
+        // and will not have seen them, so they go on the queue and are folded in when it
+        // lands — **even when an index is already live**. A live index is not enough on its
+        // own since the alias rebuild (below) can leave an old index standing while a new
+        // scan runs; a change applied only to the old one would be lost when the new one
+        // arrives. With no index and no scan there is no graph to keep current, which is
+        // the same answer either way.
+        let building = self.graph_build.is_some();
+        let live = if building { None } else { self.graph.as_mut() };
+        let Some(index) = live else {
             for removed in &changes.removed {
                 self.queue_graph_change(GraphChange::Removed(removed.clone()));
             }
@@ -791,9 +797,14 @@ impl Workspace {
         }
         for path in changes.added.iter().chain(changes.modified.iter()) {
             match self.vault.read(path) {
-                Ok(text) => {
-                    index.set_note(path, &text, &self.entries, &self.attachments, &self.queries)
-                }
+                Ok(text) => index.set_note(
+                    path,
+                    &text,
+                    &self.entries,
+                    &self.attachments,
+                    &self.queries,
+                    &self.aliases,
+                ),
                 Err(err) => tracing::warn!(path = %path.display(), "graph re-scan failed: {err:#}"),
             }
         }
@@ -802,11 +813,38 @@ impl Workspace {
     /// The graph follows a note Shale wrote itself. The watcher is stamped over our own
     /// saves, so this is the only way a link typed in the editor reaches the graph.
     pub(crate) fn graph_note_saved(&mut self, path: &Path, text: &str) {
-        if let Some(index) = self.graph.as_mut() {
-            index.set_note(path, text, &self.entries, &self.attachments, &self.queries);
+        // The same rule as [`Workspace::graph_changes`]: a scan in flight has not seen this
+        // save, so it belongs on the queue whether or not an index is standing.
+        let building = self.graph_build.is_some();
+        let live = if building { None } else { self.graph.as_mut() };
+        if let Some(index) = live {
+            index.set_note(
+                path,
+                text,
+                &self.entries,
+                &self.attachments,
+                &self.queries,
+                &self.aliases,
+            );
         } else {
             self.queue_graph_change(GraphChange::Saved(path.to_path_buf(), text.to_string()));
         }
+    }
+
+    /// The aliases the vault declares changed, so the graph's edges may have changed
+    /// **everywhere** — and the graph re-scans from the files.
+    ///
+    /// An alias is declared in one note's frontmatter and written in another note's body,
+    /// so the note that was saved is not the note whose link it is: re-scanning only the
+    /// saved note would leave `[[the deep one]]` a dead node in `b.md` while the editor is
+    /// already painting it live, which is the one disagreement the alias feature's own
+    /// comment says it cannot have. A full re-scan is what opening the tab already does —
+    /// on the background executor, and only when the alias set actually moved.
+    pub(crate) fn graph_aliases_changed(&mut self, cx: &mut Context<Self>) {
+        if self.graph.is_none() || self.graph_build.is_some() {
+            return;
+        }
+        self.start_graph_build(cx);
     }
 
     /// A note that is gone leaves the graph — and the ghosts and tags only it linked to
@@ -878,13 +916,20 @@ impl Workspace {
         let entries = self.entries.clone();
         let attachments = self.attachments.clone();
         let queries = self.queries.clone();
+        let aliases = self.aliases.clone();
         self.graph_pending.clear();
         self.graph_build = Some(cx.spawn(async move |ws, cx| {
             let started = Instant::now();
             let built = cx
                 .background_executor()
                 .spawn(async move {
-                    shale_core::graph::GraphIndex::build(&vault, &entries, &attachments, &queries)
+                    shale_core::graph::GraphIndex::build(
+                        &vault,
+                        &entries,
+                        &attachments,
+                        &queries,
+                        &aliases,
+                    )
                 })
                 .await;
             ws.update(cx, |ws, cx| ws.graph_index_arrived(built, started, cx))
@@ -912,6 +957,7 @@ impl Workspace {
                         &self.entries,
                         &self.attachments,
                         &self.queries,
+                        &self.aliases,
                     );
                 }
                 // Info, not debug: this is the line that answers "how long does the graph

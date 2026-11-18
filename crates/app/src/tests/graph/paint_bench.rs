@@ -484,7 +484,8 @@ fn settled_frame(root: &std::path::Path, dim: Dim) -> GraphFrame {
     let vault = Vault::open(root).expect("the fixture is a vault");
     let notes = vault.list_markdown().expect("listing the vault");
     let attachments = vault.list_attachments().expect("listing the vault");
-    let index = GraphIndex::build(&vault, &notes, &attachments, &[]).expect("building the index");
+    let index =
+        GraphIndex::build(&vault, &notes, &attachments, &[], &[]).expect("building the index");
     let visible = vec![true; index.graph().node_count()];
     let mut sim = GraphSim::build(&index, None, &visible, dim);
     // The layout is measured at rest: a settling graph is a different workload (it also

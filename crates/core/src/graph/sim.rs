@@ -933,6 +933,7 @@ fn the_1k_fixture_settles_and_stays_bounded() -> anyhow::Result<()> {
         &vault.list_markdown()?,
         &vault.list_attachments()?,
         &vault.list_queries()?,
+        &[],
     )?;
     let g = index.graph();
     let n = g.node_count();

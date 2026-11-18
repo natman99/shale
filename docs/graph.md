@@ -15,6 +15,13 @@ Nodes are notes, attachments, saved queries (`.shq`, drawn with an `ƒ` and the 
 link. A→b and b→a is one edge, flagged bidirectional. Tag hues are derived from the palette
 in OKLCH, so a tag's colour follows the theme rather than being fixed.
 
+A link written by an **alias** is an edge to the note that declares the alias, not a ghost:
+the graph resolves through the same table the link colour, the hover card and `ctrl-]` use,
+so a note reached only by the names it declares is still a note people write about. An
+alias never takes a link away from a note that already answers it, and because an alias is
+declared in one note and written in another, declaring one re-scans the vault rather than
+only the note that changed.
+
 A query is a node whether or not anything embeds it — an unasked question is still a
 question, and the `orphans` chip hides it the way it hides a note nobody links to. The
 embed is what draws the edge: a query's own program is SQL, so a `[[` inside it is not a

@@ -624,6 +624,10 @@ impl Workspace {
         }
         self.aliases = aliases;
         self.known = known_names(&self.entries, &self.queries, &self.aliases);
+        // The graph resolves links through the same table, and an alias link usually
+        // stands in some *other* note's body — so a moved alias set means re-scanning the
+        // vault, not just the note that was saved.
+        self.graph_aliases_changed(cx);
         for tab in self.pane().tabs.iter() {
             let Some(editor) = tab.editor() else {
                 continue;
@@ -644,12 +648,19 @@ impl Workspace {
         self.dirs = self.vault.list_dirs().unwrap_or_default();
         // The aliases come from the index rather than from the files, because the index
         // is what already read them, and it has been updated before this runs.
-        self.aliases = self
+        let aliases = self
             .db
             .as_ref()
             .and_then(|db| db.aliases().ok())
             .unwrap_or_default();
+        let aliases_moved = aliases != self.aliases;
+        self.aliases = aliases;
         self.known = known_names(&self.entries, &self.queries, &self.aliases);
+        if aliases_moved {
+            // Same reason as in [`Workspace::refresh_link_names`]: the link an alias
+            // connects belongs to a note that did not change on disk.
+            self.graph_aliases_changed(cx);
+        }
         self.attachments = self.vault.list_attachments().unwrap_or_default();
         // The saved queries ride the same refresh, so a `.shq` an agent just wrote is a
         // tree row and a `:query` candidate without a restart.

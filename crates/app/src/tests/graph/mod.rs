@@ -193,6 +193,7 @@ fn sim_positions(cx: &mut VisualTestContext, window: &WindowHandle<Workspace>) -
         .unwrap()
 }
 
+mod aliases;
 mod canvas;
 mod filter;
 mod interactions;

@@ -1518,3 +1518,34 @@ Ten app tests (`crates/app/src/tests/lens.rs`) run the whole door through the re
 and picker; twelve mutations, all red (`falsify_lens_door.py`). `docs/graph.md` has a lens
 section, `docs/state-files.md` lists `lenses/<name>.shq`, and `docs/commands.md` regenerated
 the `graph.lens` row.
+
+## The graph learned what an alias is (2026-11-17)
+
+A link written by an alias — `[[the deep one]]` where `Deep.md` declares `aliases: [the
+deep one]` — was drawn as a **dead node**, and the edge went to the dead node, leaving
+`Deep.md` looking like nobody writes about it.
+
+It was never a resolution bug. `LinkResolver`'s fourth rule is aliases, and
+`with_aliases` is how a door learns them; the link colour, the hover card, the embed door
+and `ctrl-]` all call it. `GraphIndex::build` and `set_note` built plain resolvers and
+never did. The graph's own doc comment already states the rule the fix restores: *"four
+surfaces, one order, or the picture disagrees with the text it is a picture of."* The
+alias feature's comment in `refresh_link_names` goes further — *"the colour disagreeing
+with the resolution … is the one disagreement this feature cannot have"* — and the graph
+was the surface that had not been told.
+
+Two things worth keeping:
+
+- **An alias is declared in one note and written in another.** So the note that changed is
+  not the note whose link it is: `set_note` on the saved note cannot reach the edge. A
+  moved alias set now re-scans the vault (`graph_aliases_changed` → the same background
+  build opening the tab runs), and while that scan is in flight a save is queued **even
+  when an index is already standing** — otherwise the new index arrives without it.
+- **An alias connects a link, never steals one.** The resolver's order (exact path, path
+  with `.md`, stem, alias) holds in the graph, pinned by a fixture that has to put the real
+  note in a folder: at the vault root the exact-path rule answers first and the test says
+  nothing about the stem-vs-alias order. That fixture was too weak until the falsification
+  run said so — swapping the two rules in the resolver stayed green.
+
+Seven tests (three core, four through the live window), seven mutations, all red
+(`falsify_alias_graph.py`). `docs/graph.md` says it in the reader's words now.

@@ -436,6 +436,7 @@ mod tests {
             &vault.list_markdown()?,
             &vault.list_attachments()?,
             &vault.list_queries()?,
+            &[],
         )?;
         assert_eq!(unmatched(&index, &paths), vec!["deleted.md".to_string()]);
         Ok(())

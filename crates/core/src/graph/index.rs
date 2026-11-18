@@ -103,16 +103,26 @@ impl GraphIndex {
     /// files, which resolve `![[name]]` the same way the index, the link colour
     /// and `gd` already do — four surfaces, one order, or the picture disagrees
     /// with the text it is a picture of.
+    ///
+    /// `aliases` is the same list the link colour, the hover card, the embed door and
+    /// `ctrl-]` hand to `LinkResolver::with_aliases`: `(alias, vault-relative path of the
+    /// note that declares it)`, which is what the `props` table already holds under
+    /// `aliases`. It belongs here for the same reason the other three lists do: a note
+    /// linked by alias **is** linked, and a graph that has not been taught the alias draws
+    /// a dead node in place of the real edge — a fifth surface disagreeing with the text.
+    /// The resolver's own rule holds here: an alias can connect a link, never steal one,
+    /// so a note actually named `anon.md` keeps `[[anon]]` whatever another note declares.
     pub fn build(
         vault: &Vault,
         notes: &[VaultEntry],
         attachments: &[VaultEntry],
         queries: &[VaultEntry],
+        aliases: &[(String, String)],
     ) -> Result<Self> {
         // Resolution tables built once for the whole vault: per-link
         // scans over `notes` made this loop quadratic (18 s on a 5k-note
         // vault, all of it on the UI thread of the first `:graph`).
-        let note_res = LinkResolver::new(notes);
+        let note_res = LinkResolver::new(notes).with_aliases(aliases);
         let attach_res = LinkResolver::new(attachments);
         let query_res = LinkResolver::new(queries);
         let mut note_links = HashMap::new();
@@ -204,11 +214,16 @@ impl GraphIndex {
         notes: &[VaultEntry],
         attachments: &[VaultEntry],
         queries: &[VaultEntry],
+        aliases: &[(String, String)],
     ) {
         // Tables rebuilt per call: one save rescans the entry lists once
         // (milliseconds at vault scale), which beats caching tables that
-        // go stale the moment a file appears or moves.
-        let note_res = LinkResolver::new(notes);
+        // go stale the moment a file appears or moves. The aliases go in for the
+        // same reason and for one more: the alias a note declares is in that note's own
+        // frontmatter, so saving a note can create or destroy an alias edge **pointing at
+        // other notes**, and a graph that only re-reads the saved note's text would keep
+        // the old shape either way. `rebuild` re-slots every note's links, not just this one.
+        let note_res = LinkResolver::new(notes).with_aliases(aliases);
         let attach_res = LinkResolver::new(attachments);
         let query_res = LinkResolver::new(queries);
         if path.as_ref().extension().is_some_and(|e| e == EXTENSION) {
@@ -556,7 +571,132 @@ mod tests {
             &vault.list_markdown()?,
             &vault.list_attachments()?,
             &vault.list_queries()?,
+            &[],
         )
+    }
+
+    /// A link written by an alias is a link **to the note that declares it**. The graph
+    /// resolves through the same `LinkResolver` the link colour, the hover card, the embed
+    /// door and `ctrl-]` use, and the alias table is that resolver's fourth rule — a graph
+    /// that has not been taught it draws a dead node in place of the real edge, and leaves
+    /// the note looking like nobody writes about it.
+    #[test]
+    fn a_link_written_by_alias_reaches_the_note_that_declares_it() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let root = dir.path().to_path_buf();
+        fs::write(
+            root.join("Deep.md"),
+            "---\naliases: [the deep one]\n---\n\nthe well\n",
+        )?;
+        fs::write(root.join("b.md"), "see [[the deep one]]\n")?;
+        let vault = Vault::open(root)?;
+        let aliases = [("the deep one".to_string(), "Deep.md".to_string())];
+        let index = GraphIndex::build(
+            &vault,
+            &vault.list_markdown()?,
+            &vault.list_attachments()?,
+            &vault.list_queries()?,
+            &aliases,
+        )?;
+
+        let deep = index.node_for_path("Deep.md").unwrap();
+        let writer = index.node_for_path("b.md").unwrap();
+        assert_eq!(
+            index.graph().edges_connecting(writer, deep).count(),
+            1,
+            "the edge is on the note"
+        );
+        assert_eq!(index.degree(deep), 1, "and the note is not an orphan");
+        let ghosts: Vec<String> = index
+            .graph
+            .node_indices()
+            .filter(|n| index.meta(*n).kind == NodeKind::Ghost)
+            .map(|n| index.meta(n).label.clone())
+            .collect();
+        assert!(
+            ghosts.is_empty(),
+            "no dead node where the alias was written: {ghosts:?}"
+        );
+        Ok(())
+    }
+
+    /// The incremental door carries the table too. This is the ordinary case in the live
+    /// app: the alias was declared some time ago, and the link is typed now — so the note
+    /// being re-scanned is the note writing the alias, and a `set_note` that resolved
+    /// without the table would file the new edge as a ghost.
+    #[test]
+    fn a_link_written_after_the_alias_exists_reaches_the_note() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let root = dir.path().to_path_buf();
+        fs::write(
+            root.join("Deep.md"),
+            "---\naliases: [the deep one]\n---\n\nthe well\n",
+        )?;
+        fs::write(root.join("b.md"), "nothing yet\n")?;
+        let vault = Vault::open(root)?;
+        let notes = vault.list_markdown()?;
+        let attachments = vault.list_attachments()?;
+        let aliases = [("the deep one".to_string(), "Deep.md".to_string())];
+        let mut index = GraphIndex::build(&vault, &notes, &attachments, &[], &aliases)?;
+
+        index.set_note(
+            "b.md",
+            "now [[the deep one]]\n",
+            &notes,
+            &attachments,
+            &[],
+            &aliases,
+        );
+        let deep = index.node_for_path("Deep.md").unwrap();
+        let writer = index.node_for_path("b.md").unwrap();
+        assert_eq!(
+            index.graph().edges_connecting(writer, deep).count(),
+            1,
+            "the typed alias resolves to the note that declares it"
+        );
+        assert_eq!(index.degree(deep), 1);
+        Ok(())
+    }
+
+    /// The resolver's rule holds here unchanged: an alias can **connect** a link, never
+    /// **steal** one. A note actually called `anon.md` keeps `[[anon]]` whatever another
+    /// note declares, so teaching the graph aliases cannot move an edge that already had
+    /// a home.
+    #[test]
+    fn an_alias_never_steals_a_link_a_note_already_answers() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let root = dir.path().to_path_buf();
+        // The note is in a folder, so the only file rule that can reach `[[anon]]` is the
+        // **stem** rule — the one that sits directly under the alias rule in the resolver.
+        // A fixture at the vault root would be caught by the exact-path rule first and the
+        // test would say nothing about the order.
+        fs::create_dir_all(root.join("notes"))?;
+        fs::write(root.join("notes/anon.md"), "the real anon\n")?;
+        fs::write(
+            root.join("Other.md"),
+            "---\naliases: [anon]\n---\n\nalso calls itself anon\n",
+        )?;
+        fs::write(root.join("b.md"), "see [[anon]]\n")?;
+        let vault = Vault::open(root)?;
+        let aliases = [("anon".to_string(), "Other.md".to_string())];
+        let index = GraphIndex::build(
+            &vault,
+            &vault.list_markdown()?,
+            &vault.list_attachments()?,
+            &vault.list_queries()?,
+            &aliases,
+        )?;
+
+        let real = index.node_for_path("notes/anon.md").unwrap();
+        let claimer = index.node_for_path("Other.md").unwrap();
+        let writer = index.node_for_path("b.md").unwrap();
+        assert_eq!(index.graph().edges_connecting(writer, real).count(), 1);
+        assert_eq!(
+            index.degree(claimer),
+            0,
+            "the note that declared the alias gains nothing it did not write"
+        );
+        Ok(())
     }
 
     #[test]
@@ -643,7 +783,7 @@ mod tests {
         let (_dir, vault) = fixture()?;
         let notes = vault.list_markdown()?;
         let attachments = vault.list_attachments()?;
-        let mut index = GraphIndex::build(&vault, &notes, &attachments, &[])?;
+        let mut index = GraphIndex::build(&vault, &notes, &attachments, &[], &[])?;
 
         // Sever Welcome's link to Another Note; the ghost it gains must show.
         index.set_note(
@@ -651,6 +791,7 @@ mod tests {
             "Now pointing at [[gone]].",
             &notes,
             &attachments,
+            &[],
             &[],
         );
         let welcome = index.node_for_path("Welcome.md").unwrap();
@@ -731,7 +872,7 @@ mod tests {
         let notes = vault.list_markdown()?;
         let attachments = vault.list_attachments()?;
         let queries = vault.list_queries()?;
-        let mut index = GraphIndex::build(&vault, &notes, &attachments, &queries)?;
+        let mut index = GraphIndex::build(&vault, &notes, &attachments, &queries, &[])?;
         assert_eq!(
             index.degree(index.node_for_path("queries/Ratings.shq").unwrap()),
             0
@@ -744,6 +885,7 @@ mod tests {
             &notes,
             &attachments,
             &queries,
+            &[],
         );
         let query = index.node_for_path("queries/Ratings.shq").unwrap();
         assert_eq!(index.meta(query).kind, NodeKind::Query);
@@ -756,6 +898,7 @@ mod tests {
             &notes,
             &attachments,
             &queries,
+            &[],
         );
         let query = index.node_for_path("queries/Ratings.shq").unwrap();
         assert_eq!(index.meta(query).kind, NodeKind::Query);
@@ -800,7 +943,7 @@ mod tests {
         let (_dir, vault) = fixture()?;
         let notes = vault.list_markdown()?;
         let attachments = vault.list_attachments()?;
-        let mut index = GraphIndex::build(&vault, &notes, &attachments, &[])?;
+        let mut index = GraphIndex::build(&vault, &notes, &attachments, &[], &[])?;
 
         // Another Note is gone from the vault but Welcome's scan still points
         // at it: the edge survives, aimed at a ghost, not a dangling index.

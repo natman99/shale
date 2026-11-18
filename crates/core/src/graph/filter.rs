@@ -252,6 +252,7 @@ mod tests {
             &vault.list_markdown()?,
             &vault.list_attachments()?,
             &vault.list_queries()?,
+            &[],
         )?;
         Ok((dir, vault, index))
     }
