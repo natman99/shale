@@ -13,7 +13,7 @@ use crate::style::CHIP_RADIUS;
 use crate::tree;
 
 use super::Workspace;
-use super::bar::{mode_label, save_indicator, word_badge};
+use super::bar::{lens_badge, mode_label, save_indicator, word_badge};
 use super::sidebar::{RowState, push_row};
 use super::tabs::TabContent;
 use super::tree::{NoteDrag, TreeState, push_node};
@@ -534,6 +534,8 @@ impl Render for Workspace {
         // how many places answer for one panel.
         #[cfg(test)]
         self.chrome_drawn.borrow_mut().clear();
+        #[cfg(test)]
+        self.bar_lens.borrow_mut().take();
         // A tab change that had no window to rehook the hover subscription with gets
         // it here, one frame later, rather than never: the pointer can only hover over
         // the note that is drawn, so the subscription has to be the drawn tab's. The
@@ -767,6 +769,17 @@ impl Render for Workspace {
             }
             _ => String::new(),
         };
+        // The lens the graph on screen is wearing. Only the graph tab: on a note tab the
+        // segment would read as a property of the note, and a lens on a graph you are not
+        // looking at belongs in that tab's title, not here. Accent, like `focus`: a lens
+        // on means the picture is not the whole vault, which is the thing this segment
+        // exists to keep un-forgettable.
+        let worn = if self.pane().active_tab().is_graph() {
+            self.graph_filter.lens.as_ref()
+        } else {
+            None
+        };
+        let lens = lens_badge(worn.map(|lens| lens.name.as_str()));
         // The checker's count, so "no underlines" can be told apart from "the
         // checker has not answered yet". Preview draws no underlines at all, so it
         // has nothing to count either, and the graph tab has no note to check.
@@ -1307,6 +1320,14 @@ impl Render for Workspace {
                                 .text_color(gpui::rgb(self.palette.accent))
                                 .child(focus),
                         )
+                    })
+                    .when(!lens.is_empty(), |d| {
+                        // Recorded where the branch is taken, not where the string is
+                        // built: a test that only re-derived the string would stay green
+                        // with the segment deleted from the bar entirely.
+                        #[cfg(test)]
+                        self.bar_lens.borrow_mut().replace(lens.clone());
+                        d.child(div().text_color(gpui::rgb(self.palette.accent)).child(lens))
                     })
                     // The save state gets its own element and the palette's
                     // accent rather than riding along in the mode string: it is

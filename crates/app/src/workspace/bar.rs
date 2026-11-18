@@ -35,6 +35,17 @@ pub(crate) fn mode_label(mode: shale_core::vim::Mode) -> &'static str {
     }
 }
 
+/// The status bar's lens badge: the saved query the graph on screen is wearing, or
+/// empty when it is wearing none.
+///
+/// The name and nothing else. The counts belong to the graph's own strip, where they sit
+/// beside the nodes they count; the bar's job is the one question that is otherwise hard
+/// to ask without focusing the strip — *is the picture I am looking at the whole vault?*
+/// A lens that quietly narrows a graph is a lens the reader will forget is on.
+pub(crate) fn lens_badge(lens: Option<&str>) -> String {
+    lens.map(|name| format!("lens {name}")).unwrap_or_default()
+}
+
 /// The status bar's word-count badge for the note on screen, or empty when there is
 /// no note to count — an empty segment is still a flex item, so it would put a gap
 /// on both sides of nothing.

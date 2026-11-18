@@ -11,6 +11,7 @@ use super::commands::run_palette;
 use super::review::{command_line, say};
 use super::*;
 use gpui::WindowHandle;
+use std::path::PathBuf;
 
 /// The counts the strip's row is drawn from: what the picture is holding.
 fn counts(
@@ -308,5 +309,87 @@ fn the_palette_row_asks_which_lens_to_wear(cx: &mut TestAppContext) {
         shown,
         vec![("ab".to_string(), "1 note".to_string())],
         "the row opened the lens picker rather than acting"
+    );
+}
+
+// ---------------------------------------------------------------- the status bar
+
+/// Paint a frame, so what a test reads is what the bar **drew** rather than what a
+/// function could have drawn. The segment's text is one thing; whether the bar gave it a
+/// slot is the thing a later edit can lose.
+fn draw(cx: &mut VisualTestContext) {
+    for _ in 0..2 {
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+    }
+}
+
+/// The lens segment the bar drew last frame, or `None` when it drew none.
+fn bar_lens(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> Option<String> {
+    window.update(cx, |ws, _window, _cx| ws.bar_lens()).unwrap()
+}
+
+/// A lens is easy to forget is on, so the bar says it beside the view badge: the one
+/// place that answers "is this the whole vault?" without the strip being focused.
+#[gpui::test]
+fn the_status_bar_names_the_lens_the_graph_is_wearing(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = lens_vault(
+        cx,
+        &[("ab", "SELECT path AS note FROM notes WHERE path = 'b.md'")],
+    );
+    on_graph(&mut cx, &window);
+    draw(&mut cx);
+    assert_eq!(
+        bar_lens(&window, &mut cx),
+        None,
+        "a graph wearing no lens has no lens segment"
+    );
+
+    command_line("lens ab", &mut cx);
+    draw(&mut cx);
+    assert_eq!(
+        bar_lens(&window, &mut cx).as_deref(),
+        Some("lens ab"),
+        "the bar names the lens the picture is wearing"
+    );
+
+    command_line("lens none", &mut cx);
+    draw(&mut cx);
+    assert_eq!(
+        bar_lens(&window, &mut cx),
+        None,
+        "taking the lens off takes the segment with it"
+    );
+}
+
+/// The segment describes the picture, not the note. With a note tab on screen the bar
+/// goes quiet about a lens the graph is still wearing — this is the bar refusing to
+/// claim something about what is drawn, not the window forgetting it.
+#[gpui::test]
+fn the_status_bar_keeps_the_lens_off_a_note_tab(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = lens_vault(
+        cx,
+        &[("ab", "SELECT path AS note FROM notes WHERE path = 'b.md'")],
+    );
+    on_graph(&mut cx, &window);
+    command_line("lens ab", &mut cx);
+    draw(&mut cx);
+    assert_eq!(bar_lens(&window, &mut cx).as_deref(), Some("lens ab"));
+
+    window
+        .update(&mut cx, |ws, _window, cx| {
+            ws.open_note(&PathBuf::from("b.md"), cx)
+        })
+        .unwrap();
+    cx.run_until_parked();
+    draw(&mut cx);
+    assert_eq!(
+        bar_lens(&window, &mut cx),
+        None,
+        "a note tab's bar says nothing about the graph's lens"
+    );
+    assert_eq!(
+        worn(&window, &mut cx).map(|(name, _)| name).as_deref(),
+        Some("ab"),
+        "the lens is still on the graph, segment or no segment"
     );
 }

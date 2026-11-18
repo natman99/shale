@@ -1549,3 +1549,23 @@ Two things worth keeping:
 
 Seven tests (three core, four through the live window), seven mutations, all red
 (`falsify_alias_graph.py`). `docs/graph.md` says it in the reader's words now.
+
+## The bar says what the graph is wearing (2026-11-17)
+
+A lens on the graph had no indicator anywhere: the strip's filter line answers only while
+the strip is focused, and the tab title's `· lens` segment is M4. So a narrowed picture
+looked like the vault, which is the failure mode a lens has — the reader forgets it is on
+and starts reasoning about absence.
+
+The status bar now carries `lens <name>` beside the view badge, in the accent colour the
+bar reserves for states that are not the default, and only while the **graph tab is on
+screen**: on a note tab the segment would read as a property of the note, and a lens on a
+graph you are not looking at belongs in that tab's title.
+
+The test asserts what the frame **drew**, not what a helper could have computed: the frame
+records the segment where the `.when` branch is taken, into a `#[cfg(test)]` cell cleared
+at the top of every frame — the same shape `chrome_drawn` uses for the panel marks. A hook
+that re-derived the string would have stayed green with the segment deleted from the bar
+entirely, and that mutation is the first one the battery runs. Three mutations, all red
+(`falsify_lens_bar.py`): no slot in the bar, the segment ignoring which tab is up, and a
+segment appearing with no lens on.

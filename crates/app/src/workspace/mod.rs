@@ -410,6 +410,11 @@ pub(crate) struct Workspace {
     /// answer at exactly one place: its card while it is open, the bar while it is not.
     #[cfg(test)]
     chrome_drawn: std::cell::RefCell<Vec<&'static str>>,
+    /// What the status bar drew for the lens this frame: the segment's text, or nothing
+    /// when the bar drew no lens segment. `#[cfg(test)]` because the frame is the only
+    /// thing that decides whether a segment is drawn at all.
+    #[cfg(test)]
+    bar_lens: std::cell::RefCell<Option<String>>,
     /// Whether the keyboard has to follow the frame. A tab owns its editor, so the
     /// node with the keyboard is the drawn tab's editor; after a tab change the
     /// keyboard is still on the entity that is no longer drawn, and the next keystroke
@@ -693,6 +698,8 @@ impl Workspace {
             chrome_marks: std::cell::Cell::new(("", "")),
             #[cfg(test)]
             chrome_drawn: std::cell::RefCell::new(Vec::new()),
+            #[cfg(test)]
+            bar_lens: std::cell::RefCell::new(None),
             focus_stale: false,
             _keystroke_observer: keystroke_observer,
         };

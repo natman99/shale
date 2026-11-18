@@ -147,6 +147,13 @@ impl Workspace {
                 .unwrap_or(0),
         )
     }
+    /// The lens segment the status bar **drew** last frame, or `None` when it drew no
+    /// lens segment. The badge's text alone would stay green with the segment deleted
+    /// from the bar, so this is what the tests assert.
+    #[cfg(test)]
+    pub(crate) fn bar_lens(&self) -> Option<String> {
+        self.bar_lens.borrow().clone()
+    }
     /// The cursor's buffer position (row, column), 0-based: how a test checks
     /// that choosing a search hit lands on the line that row was showing.
     #[cfg(test)]

@@ -83,6 +83,12 @@ simulation as well as the paint, and the layout closes up around what is left. A
 a local scope **and** each other — a lens worn on a neighbourhood is the notes in both —
 and the strip's chips and search still cut inside the answer.
 
+While a lens is on, the **status bar says so**: a segment beside the view badge reads
+`lens <name>`, in the colour the bar reserves for states that are not the default. It is
+there because a lens that narrows the picture quietly is a lens the reader forgets is on,
+and the strip's filter line only answers when the strip is focused. It appears on the graph
+tab and not on a note tab, because there it would read as a property of the note.
+
 The file is read when the lens goes on, so editing it in any editor takes effect the next
 time. A lens that cannot be answered — SQL that fails, or a query with no note column —
 says so on the status line and leaves the picture standing; an answer that names notes the
