@@ -1569,3 +1569,38 @@ that re-derived the string would have stayed green with the segment deleted from
 entirely, and that mutation is the first one the battery runs. Three mutations, all red
 (`falsify_lens_bar.py`): no slot in the bar, the segment ignoring which tab is up, and a
 segment appearing with no lens on.
+
+## A graph pays a resting pointer a card (2026-11-17)
+
+The alias fix closed with the user's next word: "aliases are just invisible now". The graph
+has no way to say it — a frame's edges are pairs of node slots with no kind, so "draw alias
+edges differently" would push a kind through the frame, the simulation, the filter and the
+paint. The card is the cheaper half: the dot that was reached by an alias can say
+`also known as: …` above the note's first lines.
+
+The card is the same `card::Preview` the editor's link card uses, for the same reason — one
+look answers "what is this?" wherever the pointer asks it. The difference is the **wait**:
+500 ms of stillness (`card::NODE_DWELL`). Prose holds few links, so the editor answers the
+moment the pointer finds one; a graph is dots packed together and sweeping across one is
+ordinary, so an immediate card flashes at every dot on the way past.
+
+The window asks the picture where the pointer came to rest, once per frame; the graph does
+not tell it. Telling is the shape gpui refuses — the graph is usually being called *by* this
+window when its hover changes — and asking turns out to be free as well: a frame that
+reshuffles every slot simply answers differently next frame, so a changed frame costs no
+extra bookkeeping. A press ends the rest (`resting_on` refuses while the drag is down), and a
+graph tab sitting behind another tab is not asked at all — its hover is the last one the
+pointer left there, and reading it raises a card over a note the pointer is on. That last one
+was a bug the test found, not the code.
+
+Two traps the tests walked into before they pinned anything. A two-note graph fits itself to
+`MAX_ZOOM` (8.0), so the wheel that moves a dot in a small vault is the wheel **out** —
+zooming in from the fit is the one wheel the view refuses, and a zoom-in test there proves
+nothing. And the alias line reads the window's alias table, which arrives with a *delivered*
+index pass: a test that writes notes after the window opens has a graph and no aliases, so
+that vault is built the way the alias graph tests build theirs.
+
+Twelve tests (`tests/graph/node_card.rs`), twelve mutations red. The ghost rule needed **both**
+guards broken at once — the window's filter and the card's own path check each hold the line
+alone — which is the battery's own lesson: a doubly-guarded rule needs a doubly-broken
+mutation before a green suite means anything.

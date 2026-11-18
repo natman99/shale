@@ -155,10 +155,20 @@ pub(crate) struct Workspace {
     /// uses, so a card about a link inside the block being edited hangs off a row of
     /// the other note. Re-placed every frame: it follows the note as it scrolls, and
     /// goes away when the line does.
-    card_anchor: Option<crate::editor::LineRef>,
+    card_anchor: Option<popups::CardAnchor>,
     /// Where in the link's row the card hangs: the byte the link starts at, so the card
     /// sits under the link rather than at the beginning of the line it is written on.
     card_link_start: Option<usize>,
+    /// The dwell countdown for a graph node card, and the number that says which
+    /// countdown is current: a pointer that moves on drops the parked task, and one that
+    /// has already woken writes only if its number is still the current one — the same
+    /// pair of braces `say` puts on the status line's countdown.
+    _node_card: Option<Task<()>>,
+    node_card_seq: usize,
+    /// The node the pointer was resting on as of the last frame. The window compares the
+    /// graph's answer to this each frame, which is how a rest is noticed without the graph
+    /// reaching into the window mid-update.
+    graph_rest: Option<usize>,
     /// How far the note was scrolled when the floating surface last asked the pointer's
     /// question. Scrolling moves text under a pointer that never moved, and gpui reports
     /// no mouse move for it, so the pointer's question has to be asked again against the
@@ -615,6 +625,9 @@ impl Workspace {
             card: None,
             card_anchor: None,
             card_link_start: None,
+            _node_card: None,
+            node_card_seq: 0,
+            graph_rest: None,
             surface_scroll: 0.0,
             surface_reask: false,
             #[cfg(test)]

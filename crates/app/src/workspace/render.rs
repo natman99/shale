@@ -546,6 +546,22 @@ impl Render for Workspace {
         if self.focus_stale {
             cx.on_next_frame(window, |ws, window, cx| ws.focus_active_tab(window, cx));
         }
+        // The pointer's rest on a graph node, asked of the picture each frame. A hover
+        // change dirties the view, so the frame it asks for is the frame the window learns
+        // about it in — and asking is the only shape that works, because the graph spends
+        // most of its hover changes being called by this window.
+        let resting = if self.pane().active_tab().is_graph() {
+            self.graph_view()
+                .and_then(|view| view.read(cx).resting_on())
+        } else {
+            // A graph tab sitting behind another tab keeps the hover the pointer left on
+            // it. Reading that would raise a card over a note the pointer is on.
+            None
+        };
+        if resting != self.graph_rest {
+            self.graph_rest = resting;
+            self.graph_pointer_rest(resting, cx);
+        }
         // The same one-frame deferral for a neighbourhood that moved with the note: the
         // picture is re-made outside whatever borrow the tab change arrived in.
         if self.graph_follow_pending {

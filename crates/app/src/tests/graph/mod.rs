@@ -198,6 +198,7 @@ mod canvas;
 mod filter;
 mod interactions;
 // Timing sweeps, every test in it `#[ignore]`d: see the module's own note on how to run.
+mod node_card;
 mod paint_bench;
 mod tab;
 mod three_d;

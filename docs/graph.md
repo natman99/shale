@@ -131,6 +131,22 @@ that, a press is a click, and a click opens the node. Dragging a node begins by 
 **at its own position**, so a shaky hand cannot throw the layout across the screen.
 `shift` leaves a node pinned where you put it, for as long as the window lives.
 
+A pointer that **stops** on a node for half a second raises a card: the note's name, the
+first lines of it with the markers hidden, and how many lines the card left out. The wait
+is the whole difference from the card a wikilink raises in a note. Prose holds few links,
+so the editor answers the moment the pointer finds one; a graph is dots packed together,
+and sweeping across one is ordinary, so without the wait a card would flash at every dot
+on the way past. Pressing ends the wait, and so does moving off the dot: the card belongs
+to the pointer and never takes the keyboard. It is placed against the dot each frame, so a
+view that zooms or pans under a still pointer takes the card with it.
+
+A note reached only by the names it declares is otherwise indistinguishable — same dot,
+same label — so the card puts `also known as: …` above the lines when the note declares
+aliases. That row is the graph's half of the alias rule: the edge already lands on the
+right note, and now the dot can say what it was reached by.
+
+Ghosts and tags get no card. Neither is a note, so neither has lines to preview.
+
 ## The filter strip
 
 `/` opens it; `escape` closes it and leaves the keyboard where it was — on the strip a

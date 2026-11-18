@@ -962,6 +962,42 @@ impl GraphView {
         (*self.projection.borrow()).as_ref()?.screen(slot)
     }
 
+    /// Where a node's dot is on the screen, and how big it is there. The window places a
+    /// node card with this: the centre says where the card hangs, the radius keeps it off
+    /// the dot.
+    ///
+    /// The two modes answer differently because only the 3D view keeps a projection — the
+    /// flat view's points come from its camera — and both take the dot's size from the
+    /// renderer's own `radius * zoom`, so a card cannot land where the dot is not.
+    pub(crate) fn node_screen(&self, slot: usize) -> Option<([f32; 2], f32)> {
+        let node = self.frame.as_ref()?.nodes.get(slot)?;
+        let camera = self.camera()?;
+        let at = match self.mode() {
+            Dim::Two => camera.to_screen(node.position),
+            Dim::Three => (*self.projection.borrow()).as_ref()?.screen(slot)?,
+        };
+        Some((at, node.radius * camera.zoom))
+    }
+
+    /// Which note a node is a picture of, in the frame's own words. `None` for a ghost or
+    /// a tag node, which name no note.
+    pub(crate) fn node_path(&self, slot: usize) -> Option<SharedString> {
+        self.frame.as_ref()?.node_path(slot)
+    }
+
+    /// Which node the pointer is **resting** on: hovered, and with no button held. A hand
+    /// on the canvas is travelling or dragging, not asking, and a card about wherever a
+    /// pan happened to stop is a card nobody asked for.
+    ///
+    /// The window asks this once per frame rather than being told on the move: the graph is
+    /// usually being called *by* the window when its hover changes — a frame arriving from
+    /// the sim, a filter the window re-ran — and gpui refuses an update of an entity that
+    /// is already being updated. Asking is also what makes a frame that reshuffles every
+    /// slot cost nothing extra: the answer is simply different this frame.
+    pub(crate) fn resting_on(&self) -> Option<usize> {
+        self.drag.is_none().then_some(self.hover).flatten()
+    }
+
     /// The projected view's answer to "which node is under here", asked of a frame the
     /// view is not holding. The test that pins the stale-projection crash needs to put a
     /// bigger graph in front of the picture on the shelf, which is exactly what a pointer

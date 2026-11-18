@@ -760,6 +760,150 @@ impl Workspace {
         self.open_note(&PathBuf::from(path), cx);
     }
 
+    /// The pointer moved over the graph: which node it is resting on, or `None` when it is
+    /// resting on nothing — including the moment it presses, which is the end of resting.
+    ///
+    /// The graph reports every move; the window decides, and the decision is a **wait**.
+    /// A graph is dots packed together, and sweeping the pointer across one to reach
+    /// another is ordinary, so a card that answered the moment the pointer arrived would
+    /// flash at every dot on the way past. The dwell is the whole answer, and it is why
+    /// the card is not simply drawn from the graph's own hover state.
+    pub(crate) fn graph_pointer_rest(&mut self, slot: Option<usize>, cx: &mut Context<Self>) {
+        // Only a node that is a picture of a note has anything to preview: a ghost names a
+        // link nobody resolved, and a tag names a word.
+        let resting = slot.filter(|slot| {
+            self.graph_view().is_some_and(|view| {
+                view.read_with(cx, |view, _cx| view.node_path(*slot))
+                    .is_some()
+            })
+        });
+        let Some(slot) = resting else {
+            self.close_card(cx);
+            return;
+        };
+        // Already showing exactly this node: leave it alone, so the card does not reopen
+        // on every mouse-move event over the same dot.
+        if self.card_anchor == Some(crate::workspace::popups::CardAnchor::Node(slot)) {
+            return;
+        }
+        self.node_card_seq += 1;
+        let seq = self.node_card_seq;
+        self._node_card = Some(cx.spawn(async move |ws, cx| {
+            cx.background_executor()
+                .timer(crate::card::NODE_DWELL)
+                .await;
+            let _ = ws.update(cx, |ws, cx| {
+                // The belt to the brace: a countdown that woke after the pointer moved on
+                // writes nothing.
+                if ws.node_card_seq != seq {
+                    return;
+                }
+                ws.open_node_card(slot, cx);
+            });
+        }));
+    }
+
+    /// Put up the card for the node the pointer has been resting on.
+    ///
+    /// The path is asked for again here rather than carried through the wait: a frame can
+    /// arrive while the pointer is resting, and its slots are that frame's slots. Asking
+    /// the current view is what keeps a card from naming a note the picture no longer has.
+    fn open_node_card(&mut self, slot: usize, cx: &mut Context<Self>) {
+        let Some(path) = self
+            .graph_view()
+            .and_then(|view| view.read_with(cx, |view, _cx| view.node_path(slot)))
+        else {
+            return;
+        };
+        let path = PathBuf::from(path.as_str());
+        let Some((title, lines, hidden)) = self.node_preview(&path, cx) else {
+            return;
+        };
+        let (palette, family, size) = self.picker_style(cx);
+        let card =
+            cx.new(|_cx| crate::card::Preview::new(title, lines, hidden, palette, family, size));
+        self.card = Some(card);
+        self.card_anchor = Some(crate::workspace::popups::CardAnchor::Node(slot));
+        self.card_link_start = None;
+        cx.notify();
+    }
+
+    /// What a node card can say about a note: its name, the first lines of it with the
+    /// markers hidden, how many it left out, and — ahead of them — the names the note
+    /// declares for itself.
+    ///
+    /// The lines go through the same paint an embed's rows and the note's own rows use, so
+    /// a heading in a card is a heading and not a `#`. The text comes from the buffer while
+    /// a tab holds the note and from the disk otherwise — the rule the review strip already
+    /// follows, for the reason it states: a preview that lagged an unsaved edit would
+    /// disagree with the note the user is looking at.
+    fn node_preview(
+        &self,
+        path: &Path,
+        cx: &Context<Self>,
+    ) -> Option<(String, Vec<String>, usize)> {
+        let text = self.note_body(path, cx);
+        let mut written: Vec<String> = text.lines().map(|line| line.to_string()).collect();
+        // The frontmatter block is the note's bookkeeping, not its prose: the same fence
+        // the fold, the checker and the embed door already skip.
+        if let Some(block) = shale_core::frontmatter::block(&text) {
+            let (open, close) = block.lines;
+            written.drain(open..(close + 1).min(written.len()));
+        }
+        let painted = crate::editor::embeds::paint_body(
+            &written,
+            &[],
+            crate::editor::embeds::Reveal::default(),
+        );
+        let shown = crate::card::VISIBLE_LINES;
+        let mut lines: Vec<String> = painted
+            .into_iter()
+            .map(|row| row.text)
+            .take(shown)
+            .collect();
+        // A note that opens with a blank row — the gap under the frontmatter fence — would
+        // start the card with a hole. The card begins at the first row with something on
+        // it; the count of what is still below is untouched, because those rows are still
+        // there in the note.
+        while lines.first().is_some_and(|line| line.trim().is_empty()) {
+            lines.remove(0);
+        }
+        let hidden = written.len().saturating_sub(shown);
+        // The alias line goes first: it is a fact about *which note this is*, and what
+        // follows is what the note says. A note that declares nothing gets no line, so the
+        // card never spends a row saying nothing.
+        let aliases = self.declared_aliases(path);
+        if !aliases.is_empty() {
+            lines.insert(0, format!("also known as: {}", aliases.join(", ")));
+        }
+        let title = path
+            .file_stem()
+            .map(|stem| stem.to_string_lossy().to_string())
+            .unwrap_or_else(|| path.display().to_string());
+        Some((title, lines, hidden))
+    }
+
+    /// The note's text: the buffer while a tab holds it, the disk otherwise.
+    fn note_body(&self, path: &Path, cx: &Context<Self>) -> String {
+        if let Some(index) = self.tab_for_path(path) {
+            self.pane().tabs[index]
+                .editor()
+                .map(|editor| editor.read_with(cx, |editor, _cx| editor.text()))
+                .unwrap_or_default()
+        } else {
+            self.vault.read(path).unwrap_or_default()
+        }
+    }
+
+    /// The names a note declares for itself, in the order the vault lists them.
+    fn declared_aliases(&self, path: &Path) -> Vec<String> {
+        self.aliases
+            .iter()
+            .filter(|(_, owner)| Path::new(owner) == path)
+            .map(|(alias, _)| alias.clone())
+            .collect()
+    }
+
     /// Fold one set of disk changes into the graph, if it has been built.
     ///
     /// `set_note` and `remove_note` each rebuild the arena, so a burst of changes costs
