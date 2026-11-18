@@ -2,9 +2,6 @@
 //! the claim that keeps other processes out, and the recent list the switcher
 //! reads.
 
-use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
-
 use shale_core::RecentVaults;
 
 use super::*;
@@ -37,7 +34,7 @@ fn vault_dir(name: &str) -> (tempfile::TempDir, std::path::PathBuf) {
 fn setup(cx: &mut TestAppContext, store: &std::path::Path) {
     cx.update(|cx| {
         cx.bind_keys(keybindings());
-        cx.set_global(vaults::VaultWindows::new(Arc::new(AtomicBool::new(false))));
+        cx.set_global(vaults::VaultWindows::new());
         cx.set_global(vaults::RecentStore(store.to_path_buf()));
     });
 }

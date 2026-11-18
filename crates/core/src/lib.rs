@@ -1,4 +1,6 @@
 mod atomic;
+#[cfg(test)]
+mod bench_paths;
 pub mod buffer;
 pub mod config;
 pub mod continuation;

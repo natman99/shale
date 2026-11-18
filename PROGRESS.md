@@ -1395,6 +1395,315 @@ into a folder, the refusal on a named note, the refusal on a collision, the numb
 derived name, nothing written out of nothing, no escape from the vault, an exit naming
 rather than losing) and ten in core for the naming itself.
 
+## An idle run pays nothing for being killable (2026-11-15)
+
+**The dead end.** The termination signal (P1.5) was caught with an atomic flag and *polled*:
+every window asked "yet?" every 200 ms, forever. At rest that poll was the single biggest
+wakeup source in the process — 5 wakeups a second per window, on top of everything else.
+Being killable should cost an idle run nothing.
+
+**The plumbing.** The handler still does only what signal context allows — an atomic store
+plus a one-byte write to a `pipe2` self-pipe (nonblocking write end, blocking read end). A
+small reader thread sleeps in `read()` until a byte lands and then sends on a
+`futures::channel::mpsc::unbounded` — the same channel idiom the LSP reader thread uses.
+One watcher task per process waits on that channel; when it wakes it walks
+`VaultWindows::all_windows` — the same registry walk `:qall` takes — and runs
+`finish_termination` for every window. No per-window task, no timer, and a `kill` now
+answers for *every* window the process holds, not just the ones that had a watch attached.
+
+**The gpui pitfall, recorded because it cost an hour:** a `Task` is *cancelled when its
+handle drops*. `spawn_watcher` discarding the handle silently killed the watcher before it
+ran. The registry owns the handle (`VaultWindows::set_termination_watcher`) because the
+registry lives as long as the run.
+
+**The flag is still the fact.** The watcher checks it before every wait, so a signal that
+lands between `main` installing handlers and the watcher spawning is not lost — one of the
+four tests pins exactly that race. The other three pin the promise: the dirty note reaches
+the disk, the window closes, and two windows on two vaults are both written by one wake —
+asserted by which file holds which words.
+
+**Idle measurement** (headless gpui — no `WAYLAND_DISPLAY`/`DISPLAY`, so no GPU driver in
+the numbers; `examples/graph/organic-1k` with Home.md open; 15 s windows; 3 runs each):
+
+| build | main-thread wake/s | CPU | RSS |
+|-------|-------------------|-----|-----|
+| before (poll) | 6.7–7.0 | ~0.5% | 31.5 MiB |
+| after (self-pipe + watcher) | 2.3–2.4 | 0.47–0.53% | 31.5–31.9 MiB |
+
+The remaining 2.3/s is the vault watcher's 750 ms walk beat (~1.3/s) and the pending-queue
+`read_dir` at 1 s (~1/s) — both intended behavior, both still on the clock.
+
+app 900 / core 857 / fixture 1 / mcp 42 — 1800 passed, 0 failed. fmt and clippy clean.
+
+## The vault's beats sleep until they have news (2026-11-15)
+
+**The dead end.** After the exit fix, the two beats left at rest were the vault
+watcher (walk every 750 ms–15 s) and the pending-queue read (every 1 s). Both
+were *intended behavior* — the tree following the disk, agent proposals arriving
+unasked — so the clocks stay. What went is the cost of agreeing nothing changed:
+each loop was a foreground gpui task, and a foreground task wakes the main
+thread at **every await** — timer, walk, all of it — even when the tick ends in
+`continue`.
+
+**The shape.** Both beats now look like the LSP reader thread: a background loop
+with only `Send` captures (timer, walk/read, compare-against-last) and a
+`futures::channel::mpsc::unbounded` for the news. A walk whose signature equals
+the last one's never sends; a queue read that matches the last one never sends;
+the folding task on the foreground side sits parked on the channel and the main
+thread never hears the beat at rest at all. Termination is a shared
+`AtomicBool` (the folding side raises it when the services entity is gone) plus
+the channel's own send-failure for the other direction.
+
+**Two pitfalls, both recorded because both cost a debugging cycle.**
+1. gpui v1.25.3's `AsyncApp` is **not `Send`** (`Weak<AppCell>` is `Rc`-based),
+   so a background loop cannot carry the app context across threads — the
+   channel is the only bridge.
+2. In gpui tests, `background_executor().timer()` is the **fake clock**: real
+   waiting never fires it, and `advance_clock` always does. The new
+   `tests/beats.rs` drives both loops deterministically with `advance_clock`
+   steps — no wall-clock sleeps, 0.02 s for both.
+
+**The behavior is pinned, not assumed.** `tests/beats.rs` opens a registry
+window (the beats belong to the vault's services), changes the disk under it,
+and asserts the change arrives *unasked* — the tree rows two outside notes
+beat after beat, and a proposal lands in the review strip within a beat. These
+are the regression gates for the unchanged-skip: a comparison that swallows a
+real change fails loudly.
+
+**Idle measurement** (headless, organic-1k with Home.md open, 15 s windows):
+
+| build | main-thread wake/s | CPU | RSS |
+|-------|-------------------|-----|-----|
+| before (foreground loops) | 2.3–2.4 | 0.47–0.53% | 31.5 MiB |
+| after (background + channel) | 0.0–0.1 | 0.20–0.33% | 31.7–32.0 MiB |
+
+The walk and the queue read still run on schedule — on background threads,
+which is where they belong. Combined with the exit fix, idle main-thread
+wakeups are down from 6.7–7.0/s to 0.0–0.1/s, and the remaining beats are
+only the ones with something to say.
+
+app 902 / core 857 / fixture 1 / mcp 42 — 1802 passed, 0 failed. fmt and clippy clean.
+
+## Cold start: what the 420 ms actually is (2026-11-15)
+
+**The harness bug first.** The 8.5 s "paint outliers" were never the app. gpui
+paints only when dirty, so two 50 ms polls can straddle the single first paint
+with no pair-difference to see; the diff-based detector then reported the *next*
+visual change — spell underlines arriving seconds later — as the paint. Fixed:
+`paint_ns` is now the first screenshot with content (PIL extrema, numeric per
+the bench rules), not the first pair-difference. The outliers vanished.
+
+**The breakdown** (warm page cache, real display, phase markers since removed):
+
+| phase | time |
+|-------|------|
+| exec → main → claim → `application()` | ~19 ms |
+| shale's own vault work (config, db, sessions, beats, workspace) | ~19 ms |
+| `cx.open_window` — first window | **~550 ms** |
+| — of which NVIDIA ioctls (wgpu device + shaders) | ~234 ms |
+| — of which font file I/O (461 files) | ~20 ms |
+| — of which Vulkan ICD enumeration | ~3 ms |
+
+`WGPU_BACKEND=vulkan` vs `gl` made no difference — the cost is the GPU device
+and shader setup gpui does for the first window, on any backend. It is gpui
+territory, not shale's: **shale's own startup is ~40 ms**, and the rest is the
+toolkit meeting the graphics driver. Chasing it means patching gpui (persisted
+pipeline cache, lazy device) — noted, not done.
+
+**Honest cold-start numbers** (dnd vault, 155 notes, fixed harness, 5 runs):
+mapped 372–439 ms, paint 410–496 ms, settled 629–713 ms, PSS ~141 MB. The PSS
+is mostly the GPU driver (NVIDIA libs ~75 MB + enumerated Vulkan ICDs ~10 MB);
+shale's own heap is **18 MB** (smaps breakdown) — the headless RSS of 31 MiB
+remains the honest app-size number.
+
+Note for the next profiler: `perf` is blocked on this machine
+(`perf_event_paranoid=2` + SELinux); `strace -f -T` with per-syscall totals
+attributed the startup well enough, and phase markers in the app beat both.
+
+## Hot-path breakdown + the search cache (2026-11-15)
+
+**The unbenched paths got benches.** `crates/core/src/bench_paths.rs`
+(ignored, same style as the graph benches): the editor's per-paint styling,
+the block map, vault-wide search, and the picker's fuzzy ranking. First
+numbers, ranked by what a keystroke pays:
+
+| path | cost |
+|------|------|
+| search, 1k-note vault | **6.7–6.8 ms/query** |
+| fuzzy ranked, 10k names | 7.4 ms/call |
+| fuzzy ranked, 1k names | 0.74 ms/call |
+| style_spans, 8k-word note | 146 µs/call |
+| block_map, 8k-word note | 43 µs/call |
+
+Search is the picker's `ctrl-shift-f` row source, asked on every keystroke:
+it reads every note from disk every time. A probe said the reads, not the
+scan, are the cost (stat×1000 ≈ 2.5 ms, read×1000 ≈ 9 ms in the probe's
+units; scan is noise next to the read).
+
+**The fix: `search::NoteCache`.** Each note's text is kept with the `Stamp`
+(size + mtime) read with it, and a query re-reads only notes whose stamp
+changed. Freshness is *exactly* what search had: every note is still stated
+on every query, so an edit made outside the app is seen before the note is
+scanned — only the read is skipped when the stamp says the note cannot have
+changed. Deleted notes drop their cached text. A 32 MiB budget bounds the
+memory; over budget the cache keeps nothing and search behaves as before.
+New `Vault::stamp` is the stat primitive. The Workspace holds the cache
+per window (the picker's row source runs without `cx`, so it captures an
+`Rc` clone); the cache lives for the window's life.
+
+| build | warm query, 1k notes |
+|-------|---------------------|
+| before (read every note) | 6.7–6.8 ms |
+| after (stamp-checked cache) | **2.9–3.2 ms** |
+
+The first query still pays the reads; every later keystroke pays stats and
+scan. The stat is now the floor (~2.5 ms for 1000 notes) — the next lever
+is parallel stats or trusting the watcher's signature, both noted, neither
+done: 3 ms is inside one frame.
+
+**Pinned, not assumed.** Four core tests: cached answers equal direct
+answers, an external edit shows up in the very next search, a deleted note
+is not answered from cache, and an over-budget cache still answers. One app
+test drives the real picker: warm a search, write the note from outside
+while the picker is open, retype — the row is the new line.
+
+app 903 / core 861 / fixture 1 / mcp 42 — 1807 passed, 0 failed. fmt and clippy clean.
+
+## Fuzzy ranking: the picker's other per-keystroke path (2026-11-15)
+
+`ranked` matched every candidate from scratch: the query was re-lowered per
+candidate, the alignment allocated two vectors per query character, and the
+parents matrix was copied row by row. Three changes, scoring untouched (the
+12 existing tests pin placements, scores and ranges exactly):
+
+- the query is lowered **once** per `ranked` call;
+- a no-allocation **subsequence pre-check** rejects candidates the dynamic
+  program would place nowhere — free for the common case of a picker full of
+  non-matches;
+- one **scratch** (chars, offsets, rows, parents) is reused across
+  candidates, and parents are written only into cells a query character
+  actually landed on — a traceback walks matched cells only, so stale
+  entries are never read and the matrix needs no clearing.
+
+| build | ranked, 1k names | ranked, 10k names |
+|-------|------------------|-------------------|
+| before | 736 µs | 7.40 ms |
+| after | **512 µs** | **6.19 ms** |
+
+The remaining cost is the dynamic program itself — O(query × candidate) per
+matching row — and every matching candidate in the bench matches, so
+pruning has nothing to prune. At vault sizes (1k names) half a millisecond
+per keystroke is inside the frame; noted, not chased further.
+
+## Search: the stat floor, parallelized (2026-11-15)
+
+With the note cache in place, the warm keystroke's remaining cost was the
+stats — one syscall per note, sequential. The stat is read-only, so
+`NoteCache::search` states the notes through `std::thread::scope`: each
+thread fills its own slice of the stamp vector, so the order — and the
+results — are exactly the sequential ones. Vaults under 256 notes stay
+single-threaded; the spawns would cost more than the stats they replace.
+
+| build | warm query, 1k notes |
+|-------|---------------------|
+| read every note (before) | 6.7 ms |
+| stamp-checked cache | 2.9 ms |
+| + parallel stats | **1.85 ms** |
+
+3.6× off the original per-keystroke cost. The scan of cached text and the
+hit construction are what's left, and they are noise at vault sizes.
+
+## The editor's frame: line geometry was quadratic (2026-11-15)
+
+**The bench.** `crates/app/src/tests/editor_bench.rs` (ignored, release-only,
+graph-paint-bench conventions): a real `MarkdownEditor` in a test window —
+a forced frame, a keystroke plus the frame that shows it, and a `999j`
+scroll. The first numbers were ugly and *superlinear*: 16× the note, 150×
+the frame. quads stayed at 26, so paint was virtualized — the cost was
+everything before it.
+
+**The cause.** `Buffer::line_start(row)` scanned the text from byte 0, and
+`line_count()` counted newlines across the whole text. The render path asks
+for line geometry *per row* — row_styles, hidden_markers, row_paint,
+display_lines, folds — so every frame cost rows × text. At 8000 words that
+is 89 ms for `row_styles` alone, 104 ms for markers+paint, and a 560 ms
+frame.
+
+**The fix.** `Buffer` keeps a line-start table cached against `change_id`,
+rebuilt only when the text moved; `line_start`/`line_end`/`line_count`
+answer from it. The naive scan and the table are pinned equal by a new test
+across insert, delete, undo, redo, `set_text`, and empty text.
+
+**The bug the fix exposed — and the rule it taught.** `snapshot()` bumps
+`change_id` *before* an edit, and `open_line_below` asks `line_end(row)`
+*between* the bump and its own `replace_range`: the cache got stamped with
+the fresh id and the stale text, and the splice that followed went
+unannounced. Four app tests caught it red-handed (a painted line containing
+a newline). The discipline now lives in one place: every text splice goes
+through `Buffer::splice`, which moves the id *after* the text. A bump before
+an edit is for the UI's sake; a cache must never be fillable between the
+bump and the mutation.
+
+| words | frame | keystroke | 999j |
+|-------|-------|-----------|------|
+| 2000 before | 39.8 ms | 59.9 ms | 155 ms |
+| 2000 after | **5.0 ms** | **6.7 ms** | **21 ms** |
+| 8000 before | 560 ms | 837 ms | 2.01 s |
+| 8000 after | **28.3 ms** | **45.6 ms** | **132 ms** |
+
+Scaling is linear now. What is left at 8k words is the per-keystroke re-wrap
+of every row (the wrap cache is keyed on the whole-buffer change id) and
+gpui laying out ~1000 display lines per frame — viewport-windowed wrap and
+element virtualization are the next levers, noted not done. At real note
+sizes (the dnd vault's longest notes) a frame is ~3–5 ms and a keystroke
+~5–7 ms: inside one frame with room to spare.
+
+app 903 / core 862 / fixture 1 / mcp 42 — 1808 passed, 0 failed. fmt and clippy clean.
+
+## The wrap cache keys on what the measurement saw, not on the buffer (2026-11-15)
+
+**The change.** The soft-wrap cache was keyed on the buffer's change id, so
+every keystroke re-measured every row's break points. `CachedRow` now carries
+what the measurement was a function of — the *painted* text (markers hidden,
+quotes redrawn), the wrapper index (face and size), and one level up the
+width — and a row is reused while those hold. A keystroke re-measures its own
+row and nothing else.
+
+**Two bugs the bench caught before this was true, both worth remembering.**
+
+1. *Keying on the raw bytes misses style moving under them.* The bench's
+   keystroke deletes characters (normal-mode `x`), and an eaten `**` cascades
+   bold across the rest of the note: the raw row text is unchanged, but the
+   painted text and the wrapper are not. Display lines piled up 66→681 as
+   rows kept stale narrow-face breaks. The key had to be the painted text,
+   not the row's bytes.
+2. *Absolute break offsets go stale when the row shifts.* Breaks were cached
+   as absolute buffer offsets; a deletion above a row shifts it left, the
+   text comparison still passes, and the re-validation guard happily lets the
+   shifted breaks through. Breaks are stored relative to the row start now.
+
+Both were invisible in the unit tests and obvious in the bench's primitive
+count (quads 26→2) and display-line count — the graph-paint bench's rule
+that the primitive count rides along because it does not move with the
+machine, paying for itself again.
+
+| words | frame | keystroke | 999j |
+|-------|-------|-----------|------|
+| 500 before | 3.43 ms | 5.36 ms | 12.9 ms |
+| 500 after | **1.19 ms** | **1.88 ms** | **5.6 ms** |
+| 2000 before | 4.99 ms | 6.70 ms | 21.2 ms |
+| 2000 after | 4.26 ms | 6.80 ms | 21.3 ms |
+| 8000 before | 28.3 ms | 45.6 ms | 132 ms |
+| 8000 after | 27.8 ms | 42.2 ms | 129 ms |
+
+Honest reading: the win is at real note sizes, where the per-frame whole-note
+re-measure was a big share of the frame — at 500 words a keystroke is now
+1.9 ms. At 8000 words the keystroke is dominated by the *other* whole-buffer
+passes that still run per change (restyle, row styles, marker/paint plans,
+and gpui laying out ~1000 display lines); the wrap measure was only part of
+it. Those passes are the next levers, noted not done.
+
+app 903 / core 862 / fixture 1 / mcp 42 — 1808 passed, 0 failed. fmt and clippy clean.
 ## What the force layout costs over a selected set (measured, 2026-11-17)
 
 The graph lens item (roadmap P4.16) has been deferring one number: "measure the *sim*

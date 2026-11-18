@@ -6,32 +6,49 @@
 use super::Buffer;
 
 impl Buffer {
-    pub fn line_count(&self) -> usize {
-        self.text.matches('\n').count() + 1
-    }
-    /// Byte offset of the first character of `row`.
-    pub fn line_start(&self, row: usize) -> usize {
-        if row == 0 {
-            return 0;
-        }
-        let mut lines_seen = 0;
-        for (idx, b) in self.text.char_indices() {
-            if b == '\n' {
-                lines_seen += 1;
-                if lines_seen == row {
-                    return idx + 1;
+    /// Refresh the line-start table when the text changed since the last
+    /// build. The change id is the whole invalidation rule: every path
+    /// that mutates `text` (edits, undo, redo, `set_text`) moves it.
+    fn refresh_line_index(&self) {
+        let stale = self
+            .line_index
+            .borrow()
+            .as_ref()
+            .is_none_or(|(id, _)| *id != self.change_id);
+        if stale {
+            let mut starts = Vec::with_capacity(self.text.matches('\n').count() + 1);
+            starts.push(0usize);
+            // `\n` is one byte and never appears inside a multi-byte
+            // character, so a byte scan finds every line boundary.
+            for (i, b) in self.text.bytes().enumerate() {
+                if b == b'\n' {
+                    starts.push(i + 1);
                 }
             }
+            *self.line_index.borrow_mut() = Some((self.change_id, starts));
         }
-        self.text.len()
+    }
+    /// Answer from the current line-start table.
+    fn with_line_starts<T>(&self, f: impl FnOnce(&[usize]) -> T) -> T {
+        self.refresh_line_index();
+        let cell = self.line_index.borrow();
+        f(&cell.as_ref().expect("refresh_line_index filled it").1)
+    }
+    pub fn line_count(&self) -> usize {
+        self.with_line_starts(|starts| starts.len())
+    }
+    /// Byte offset of the first character of `row`; a row past the end
+    /// answers at the end of the text, as the scan did.
+    pub fn line_start(&self, row: usize) -> usize {
+        self.with_line_starts(|starts| *starts.get(row).unwrap_or(&self.text.len()))
     }
     /// Byte offset just past the last character of `row` (the newline or EOF).
     pub fn line_end(&self, row: usize) -> usize {
-        let start = self.line_start(row);
-        match self.text[start..].find('\n') {
-            Some(len) => start + len,
+        self.with_line_starts(|starts| match starts.get(row + 1) {
+            // The next row starts one byte past this row's newline.
+            Some(&next) => next - 1,
             None => self.text.len(),
-        }
+        })
     }
     /// The text of `count` whole lines from `row`, with a trailing newline when
     /// the range does not end at EOF (the linewise yank text).

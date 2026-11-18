@@ -15,13 +15,22 @@
 //! they stop with it, and `Drop` takes the MCP lockfile down the same way
 //! [`Workspace::stop_live`] used to for a single window.
 
+use std::collections::BTreeMap;
+use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use futures::StreamExt;
+use futures::channel::mpsc::unbounded;
 use gpui::{App, Context, Entity};
 use shale_core::db::Db;
+use shale_core::watch::Stamp;
 use shale_core::{Config, Vault};
+
+/// What one vault looked like at a moment: the watcher's unit of comparison.
+type Signature = BTreeMap<PathBuf, Stamp>;
 
 use crate::live::{LiveServer, Snapshot};
 
@@ -310,23 +319,51 @@ impl VaultServices {
     /// out — so the read moved here and the judgement stayed in
     /// [`Workspace::apply_pending_queue`](Workspace::apply_pending_queue).
     fn start_queue_watch(&mut self, cx: &mut Context<Self>) {
+        // A copy, not the `Rc`: the read runs on a background thread, and `Rc`
+        // cannot cross one.
+        let root = self.vault.root().to_path_buf();
+        // The same shape as the watcher's beat: the timer, the read and the
+        // comparison run on the background executor, and only news crosses
+        // the channel. A queue that stands still — the state nine runs out
+        // of ten — costs the main thread nothing, because the folding task is
+        // parked on the channel and nothing wakes it.
+        //
+        // The promise is the same one the 1 s beat always made: a proposal is
+        // on screen within a beat of landing. A window opened between beats
+        // scans the queue itself (`Workspace::scan_pending`), so skipping an
+        // unchanged fan-out cannot starve it.
+        let (tx, mut rx) = unbounded::<shale_core::pending::Queue>();
+        let executor = cx.background_executor().clone();
+        let stopping = Arc::new(AtomicBool::new(false));
+        let read_stopping = Arc::clone(&stopping);
+        let ticker = executor.clone();
+        executor
+            .spawn(async move {
+                let mut last: Option<shale_core::pending::Queue> = None;
+                loop {
+                    ticker.timer(PENDING_POLL).await;
+                    if read_stopping.load(Ordering::SeqCst) {
+                        break;
+                    }
+                    let queue = shale_core::pending::list(&root);
+                    if last.as_ref() == Some(&queue) {
+                        continue;
+                    }
+                    last = Some(queue.clone());
+                    if tx.unbounded_send(queue).is_err() {
+                        break;
+                    }
+                }
+            })
+            .detach();
         let watched = cx.entity().downgrade();
         cx.spawn(async move |_services, cx| {
-            loop {
-                cx.background_executor().timer(PENDING_POLL).await;
+            while let Some(queue) = rx.next().await {
                 let Some(services) = watched.upgrade() else {
-                    // The vault's last window closed; there is nobody left to show a
-                    // proposal to.
+                    stopping.store(true, Ordering::SeqCst);
                     break;
                 };
-                // The read stays on the main thread, as it was per window: the queue is
-                // a `read_dir` of a folder that is almost always empty, not a walk of
-                // the vault, and the walk's reason for a background thread — a big tree
-                // taking an unpredictable time — is not this folder's reason.
-                services.update(cx, |s, cx| {
-                    let queue = shale_core::pending::list(s.vault.root());
-                    s.fan_out_queue(queue, cx);
-                });
+                services.update(cx, |s, cx| s.fan_out_queue(queue, cx));
             }
         })
         .detach();
@@ -400,39 +437,78 @@ impl Drop for VaultServices {
 /// Only a weak handle to the services is held, so the last window closing
 /// ends the loop.
 pub(crate) fn start_watcher(services: &Entity<VaultServices>, cx: &mut App) {
-    // A copy, not the `Rc`: the walk runs on a background thread, and `Rc` cannot
+    // A copy, not the `Rc`: the loop runs on a background thread, and `Rc` cannot
     // cross one.
     let vault = (*services.read(cx).vault).clone();
     let watched = services.downgrade();
+    // The beat runs on the background executor and the folding waits on a
+    // channel — the LSP reader thread's shape. A task on the *foreground*
+    // executor wakes the main thread at every await, timer and walk alike,
+    // which is the idle cost a watcher of a still disk should never pay;
+    // `AsyncApp` is not `Send`, so the loop cannot carry the app context
+    // across either. What crosses instead is the news itself: a signature
+    // that differs from the last walk's. An idle run — a disk that stands
+    // still, the state nine runs out of ten — never sends, and the main
+    // thread never hears the beat at all.
+    let (tx, mut rx) = unbounded::<Signature>();
+    let executor = cx.background_executor().clone();
+    // Both halves stop together: the folding side raises the flag when the
+    // services are gone, and the walk reads it before every beat. (The
+    // channel's own failure catches the other direction — a folding side
+    // that went away mid-queue.)
+    let stopping = Arc::new(AtomicBool::new(false));
+    let walk_stopping = Arc::clone(&stopping);
+    let ticker = executor.clone();
+    executor
+        .spawn(async move {
+            let mut interval = WATCH_INTERVAL;
+            // What the last walk saw, compared before any window is reached.
+            // The walk itself keeps its beat: an outside edit is still
+            // caught within one interval, exactly as before.
+            let mut last: Option<Signature> = None;
+            loop {
+                ticker.timer(interval).await;
+                if walk_stopping.load(Ordering::SeqCst) {
+                    break;
+                }
+                let started = std::time::Instant::now();
+                let Ok(signature) = vault.signature() else {
+                    continue;
+                };
+                let walked = started.elapsed();
+                // The walk times itself: the next interval is sized so the walk owns
+                // at most ~1/300th of the clock, floored at the interactive 750 ms
+                // and capped at [`WATCH_INTERVAL_MAX`].
+                interval = (walked * WATCH_DUTY)
+                    .max(WATCH_INTERVAL)
+                    .min(WATCH_INTERVAL_MAX);
+                if last.as_ref() == Some(&signature) {
+                    // The disk stands where the last walk left it. Every window
+                    // already holds that signature — it folded the last change,
+                    // or opened with the disk as it was — so there is nothing
+                    // this fan-out could tell anybody.
+                    continue;
+                }
+                last = Some(signature.clone());
+                if tx.unbounded_send(signature).is_err() {
+                    // The folding side is gone; the vault has nobody left to
+                    // keep current.
+                    break;
+                }
+            }
+        })
+        .detach();
+    // The folding side: parked on the channel at rest, and every message it
+    // wakes for is news. Fan out — every workspace folds the same signature
+    // in; a closed window is pruned on the way.
     cx.spawn(async move |cx| {
-        let mut interval = WATCH_INTERVAL;
-        loop {
-            cx.background_executor().timer(interval).await;
-            let vault = vault.clone();
-            let walked = cx
-                .background_executor()
-                .spawn(async move {
-                    let started = std::time::Instant::now();
-                    let signature = vault.signature()?;
-                    Ok::<_, anyhow::Error>((signature, started.elapsed()))
-                })
-                .await;
-            let Ok((signature, walked)) = walked else {
-                continue;
-            };
-            // The walk times itself: the next interval is sized so the walk owns
-            // at most ~1/300th of the clock, floored at the interactive 750 ms
-            // and capped at [`WATCH_INTERVAL_MAX`].
-            interval = (walked * WATCH_DUTY)
-                .max(WATCH_INTERVAL)
-                .min(WATCH_INTERVAL_MAX);
+        while let Some(signature) = rx.next().await {
             let Some(services) = watched.upgrade() else {
                 // The vault's last window closed, so there is nothing left to
-                // keep current.
+                // keep current; tell the walk to stop too.
+                stopping.store(true, Ordering::SeqCst);
                 break;
             };
-            // Fan out: every workspace folds the same signature in. A closed
-            // window is pruned on the way.
             let windows = services.read_with(cx, |s, _| s.windows.clone());
             let mut live = Vec::new();
             for ws in windows {

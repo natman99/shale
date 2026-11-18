@@ -66,6 +66,16 @@ impl Buffer {
             self.snapshot();
         }
     }
+    /// The one way the text changes outside `set_text`: apply the splice,
+    /// then move the change id. The id must move *after* the text: an edit
+    /// function that asks line geometry between `snapshot`'s bump and its
+    /// own splice (``open_line_below`` measures the line it is about to
+    /// extend) would otherwise stamp the line-index cache with the fresh id
+    /// and the stale text, and the splice that follows would go unannounced.
+    fn splice(&mut self, range: std::ops::Range<usize>, text: &str) {
+        self.text.replace_range(range, text);
+        self.change_id += 1;
+    }
     /// Replace the selection (or insert at the cursor) with `text`.
     pub fn insert(&mut self, view: &ViewSlot, text: &str) {
         if view.is_read_only() {
@@ -73,7 +83,7 @@ impl Buffer {
         }
         self.snapshot_for_edit();
         let (start, end) = self.selection_range();
-        self.text.replace_range(start..end, text);
+        self.splice(start..end, text);
         let new_cursor = start + text.len();
         self.selection = None;
         self.cursor = new_cursor;
@@ -84,7 +94,7 @@ impl Buffer {
         }
         self.snapshot();
         let (start, end) = self.selection_range();
-        self.text.replace_range(start..end, "");
+        self.splice(start..end, "");
         self.selection = None;
         self.cursor = start;
     }
@@ -102,7 +112,7 @@ impl Buffer {
         }
         self.snapshot_for_edit();
         let prev = self.prev_char_boundary(self.cursor);
-        self.text.replace_range(prev..self.cursor, "");
+        self.splice(prev..self.cursor, "");
         self.cursor = prev;
     }
     /// Delete the character after the cursor (or the selection, if any).
@@ -119,7 +129,7 @@ impl Buffer {
             return;
         }
         self.snapshot_for_edit();
-        self.text.replace_range(self.cursor..end, "");
+        self.splice(self.cursor..end, "");
     }
     /// Delete the word before the cursor — insert-mode `ctrl-backspace`, and the
     /// same pair normal-mode `db` makes. Any blanks just before the cursor go with
@@ -154,7 +164,7 @@ impl Buffer {
             return;
         }
         self.snapshot();
-        self.text.replace_range(self.cursor..end, "");
+        self.splice(self.cursor..end, "");
         self.selection = None;
         self.cursor = self.clamp(self.cursor);
     }
@@ -170,7 +180,7 @@ impl Buffer {
             return;
         }
         self.snapshot_for_edit();
-        self.text.replace_range(start..end, "");
+        self.splice(start..end, "");
         self.selection = None;
         self.cursor = self.clamp(start);
     }
@@ -185,7 +195,7 @@ impl Buffer {
             return;
         }
         self.snapshot();
-        self.text.replace_range(start..end, "");
+        self.splice(start..end, "");
         self.cursor = self.clamp(start.min(self.text.len()));
         self.selection = None;
     }
@@ -291,7 +301,7 @@ impl Buffer {
         // break sits at.
         let break_came_first = self.text[start..end].starts_with('\n');
         self.snapshot();
-        self.text.replace_range(start..end, "\n");
+        self.splice(start..end, "\n");
         // Either way the cursor ends up on the emptied line: before the break when
         // the break trails it, after it when the break leads.
         self.cursor = self.clamp(if break_came_first { start + 1 } else { start });
@@ -307,7 +317,7 @@ impl Buffer {
         }
         let offset = self.clamp(offset);
         self.snapshot_for_edit();
-        self.text.insert_str(offset, text);
+        self.splice(offset..offset, text);
         self.cursor = self.clamp(offset + text.len());
         self.selection = None;
     }
@@ -321,7 +331,7 @@ impl Buffer {
         let (row, _) = self.row_col(self.cursor);
         let end = self.line_end(row);
         let n = count.max(1);
-        self.text.replace_range(end..end, &"\n".repeat(n));
+        self.splice(end..end, &"\n".repeat(n));
         self.cursor = end + n;
         self.selection = None;
     }
@@ -334,7 +344,7 @@ impl Buffer {
         let (row, _) = self.row_col(self.cursor);
         let start = self.line_start(row);
         let n = count.max(1);
-        self.text.replace_range(start..start, &"\n".repeat(n));
+        self.splice(start..start, &"\n".repeat(n));
         self.cursor = start;
         self.selection = None;
     }
@@ -364,6 +374,7 @@ impl Buffer {
                 selection: self.selection,
             });
             self.text = snap.text;
+            self.change_id += 1; // the id must trail the text (see `splice`)
             self.cursor = self.clamp(snap.cursor);
             self.selection = snap.selection;
         }
@@ -381,6 +392,7 @@ impl Buffer {
                 selection: self.selection,
             });
             self.text = snap.text;
+            self.change_id += 1; // the id must trail the text (see `splice`)
             self.cursor = self.clamp(snap.cursor);
             self.selection = snap.selection;
         }

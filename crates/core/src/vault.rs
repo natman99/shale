@@ -479,6 +479,20 @@ impl Vault {
         self.resolve(rel).map(|p| p.is_file()).unwrap_or(false)
     }
 
+    /// The stamp (size + mtime) of a note, without reading it — the cheap
+    /// "has this changed" check. A note that cannot be stated (gone, or a
+    /// path the vault refuses) has no stamp, which callers read as "not
+    /// there" rather than as an error: the stamp is an optimization, and a
+    /// missing one only costs a read attempt.
+    pub fn stamp(&self, rel: impl AsRef<Path>) -> Option<Stamp> {
+        let path = self.resolve(rel).ok()?;
+        let meta = fs::metadata(&path).ok()?;
+        Some(Stamp::File {
+            len: meta.len(),
+            mtime: meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH),
+        })
+    }
+
     pub fn read(&self, rel: impl AsRef<Path>) -> Result<String> {
         let path = self.resolve(rel)?;
         fs::read_to_string(&path).with_context(|| format!("reading note {}", path.display()))
