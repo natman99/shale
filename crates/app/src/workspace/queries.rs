@@ -241,7 +241,7 @@ impl Workspace {
     /// A name to start the prompt with, from what the search asks for:
     /// `tag:monster prop:cr<=5` becomes `monster-cr`. The reader edits it — this is a
     /// starting point, not a decision about what their question is called.
-    fn query_name(search: &str) -> String {
+    pub(super) fn query_name(search: &str) -> String {
         let mut parts: Vec<String> = Vec::new();
         for token in search.split_whitespace() {
             // The operator is the question's shape, not its name, and the comparison is

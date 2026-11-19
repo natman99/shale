@@ -227,7 +227,7 @@ impl Command {
              `app.quit-force` and `app.write-quit` are the exit that throws unsaved edits\n\
              away and the one that keeps them (not a row to offer next to *Quit Shale* in\n\
              a list you pick from), and the `review.*` keys other than `review.focus` mean\n\
-             nothing while the review strip is off screen — which is only when nothing is\n\
+             nothing while the review view is off screen — which is only when nothing is\n\
              waiting.\n",
             hidden.join(", "),
         ));
@@ -268,7 +268,7 @@ const ALL: &[Command] = &[
     // says they meant it.
     Command {
         id: "tab.close-force",
-        label: "Close this tab, discarding its unsaved edits",
+        label: "Close this tab, discarding unsaved edits",
         keys: "",
         ex: &["q!", "quit!"],
         args: "",
@@ -279,7 +279,7 @@ const ALL: &[Command] = &[
     // the docs list it and the parity test covers `:wq`.
     Command {
         id: "tab.write-close",
-        label: "Write the note, then close this tab",
+        label: "Save, then close this tab",
         keys: "",
         ex: &["wq", "x", "xit", "exit"],
         args: "",
@@ -308,7 +308,7 @@ const ALL: &[Command] = &[
     },
     Command {
         id: "note.write-all",
-        label: "Write every dirty note",
+        label: "Save every dirty note",
         keys: "",
         ex: &["wall", "wa"],
         args: "",
@@ -318,7 +318,7 @@ const ALL: &[Command] = &[
     // Also a composite: the write is unconditional and the exit depends on it.
     Command {
         id: "app.write-quit",
-        label: "Write every note, then quit Shale",
+        label: "Save every note, then quit Shale",
         keys: "",
         ex: &["wqall", "wqa"],
         args: "",
@@ -345,7 +345,7 @@ const ALL: &[Command] = &[
     },
     Command {
         id: "note.add-properties",
-        label: "Add frontmatter properties to the top of the note",
+        label: "Add frontmatter properties to the note",
         keys: "",
         ex: &[],
         args: "",
@@ -360,6 +360,24 @@ const ALL: &[Command] = &[
         args: "",
         in_palette: true,
         action: Some(|| Box::new(RenameNote)),
+    },
+    Command {
+        id: "graph.lens",
+        label: "Choose a lens for the graph",
+        keys: "",
+        ex: &["lens", "lens save"],
+        args: "[name]",
+        in_palette: true,
+        action: Some(|| Box::new(GraphLens)),
+    },
+    Command {
+        id: "note.move",
+        label: "Move the selected note to another folder",
+        keys: "ctrl-shift-m, m in the tree",
+        ex: &["move"],
+        args: "[folder]",
+        in_palette: true,
+        action: Some(|| Box::new(MoveNote)),
     },
     Command {
         id: "note.delete",
@@ -437,7 +455,7 @@ const ALL: &[Command] = &[
     },
     Command {
         id: "theme.export",
-        label: "Write the palette on screen to a theme file",
+        label: "Save the palette to a theme file",
         keys: "",
         // The command line only: it needs a name for the new file, so there is
         // nothing for a palette row or a key to mean.
@@ -466,7 +484,7 @@ const ALL: &[Command] = &[
     },
     Command {
         id: "checker.show",
-        label: "Show the checker's note for the word here, or its card",
+        label: "Show the checker's note for this word",
         keys: "K",
         ex: &[],
         args: "",
@@ -475,7 +493,7 @@ const ALL: &[Command] = &[
     },
     Command {
         id: "view.raw",
-        label: "Show the note as markdown source",
+        label: "Show the note as source",
         keys: "space r",
         ex: &["raw", "source", "src"],
         args: "",
@@ -484,7 +502,7 @@ const ALL: &[Command] = &[
     },
     Command {
         id: "view.live",
-        label: "Show the note with live preview",
+        label: "Show the note as live preview",
         keys: "space l",
         ex: &["live"],
         args: "",
@@ -493,7 +511,7 @@ const ALL: &[Command] = &[
     },
     Command {
         id: "view.preview",
-        label: "Preview the note, without editing it",
+        label: "Show the note as read-only preview",
         keys: "space p",
         ex: &["preview", "view"],
         args: "",
@@ -502,7 +520,7 @@ const ALL: &[Command] = &[
     },
     Command {
         id: "focus.toggle",
-        label: "Dim everything but the block the cursor is in",
+        label: "Dim everything but this block",
         keys: "space d",
         // Bare `:focus` is the toggle the action runs; `on|off` and the scope
         // words are argument forms handled in `ex`, spelled here for the docs.
@@ -513,7 +531,7 @@ const ALL: &[Command] = &[
     },
     Command {
         id: "typewriter.toggle",
-        label: "Keep the cursor's line near the middle of the window",
+        label: "Centre the view on the caret",
         keys: "",
         ex: &["typewriter"],
         args: "[on|off]",
@@ -533,7 +551,7 @@ const ALL: &[Command] = &[
     },
     Command {
         id: "sidebar.toggle",
-        label: "Show or hide the right-hand strip",
+        label: "Show or hide the sidebar",
         keys: "space b",
         // The bare form is the toggle; `on|off` and a view word (`:sidebar outline`) are
         // answered in the ex parser.
@@ -544,7 +562,7 @@ const ALL: &[Command] = &[
     },
     Command {
         id: "sidebar.focus",
-        label: "Focus the right-hand strip",
+        label: "Focus the sidebar",
         keys: "ctrl-w l",
         ex: &[],
         args: "",
@@ -597,7 +615,7 @@ const ALL: &[Command] = &[
     // chord and the four `:` words are one command, one handler, one id.
     Command {
         id: "clipboard.copy",
-        label: "Copy the selection, or the last yank, to the clipboard",
+        label: "Copy to clipboard",
         keys: "ctrl-shift-c, space y",
         ex: &["y", "yank", "clip", "copy"],
         args: "",
@@ -606,7 +624,7 @@ const ALL: &[Command] = &[
     },
     Command {
         id: "clipboard.paste",
-        label: "Paste from the clipboard",
+        label: "Paste from clipboard",
         keys: "ctrl-shift-v",
         ex: &["paste", "p"],
         args: "",
@@ -615,7 +633,7 @@ const ALL: &[Command] = &[
     },
     Command {
         id: "vault.props",
-        label: "Show the open note's properties",
+        label: "Show this note's properties",
         keys: "",
         ex: &["props", "properties"],
         args: "",
@@ -705,7 +723,7 @@ const ALL: &[Command] = &[
     // one table, and a command that is not here is a command no door can name.
     Command {
         id: "review.focus",
-        label: "Review the agent edits that are waiting",
+        label: "Review the pending hunks",
         keys: "",
         ex: &["review", "pending"],
         args: "",
@@ -715,7 +733,7 @@ const ALL: &[Command] = &[
     Command {
         id: "review.next",
         label: "Next pending hunk",
-        keys: "j in the strip, ]a in the note",
+        keys: "j in the sidebar, ]a in the note",
         ex: &[],
         args: "",
         in_palette: false,
@@ -724,7 +742,7 @@ const ALL: &[Command] = &[
     Command {
         id: "review.prev",
         label: "Previous pending hunk",
-        keys: "k in the strip, [a in the note",
+        keys: "k in the sidebar, [a in the note",
         ex: &[],
         args: "",
         in_palette: false,
@@ -733,7 +751,7 @@ const ALL: &[Command] = &[
     Command {
         id: "review.accept",
         label: "Accept the pending hunk under the marker",
-        keys: "y in the strip",
+        keys: "y in the sidebar",
         ex: &[],
         args: "",
         in_palette: false,
@@ -742,7 +760,7 @@ const ALL: &[Command] = &[
     Command {
         id: "review.reject",
         label: "Reject the pending hunk under the marker",
-        keys: "x in the strip",
+        keys: "x in the sidebar",
         ex: &[],
         args: "",
         in_palette: false,
@@ -751,7 +769,7 @@ const ALL: &[Command] = &[
     Command {
         id: "review.open-note",
         label: "Open the note the pending hunk is about",
-        keys: "o in the strip",
+        keys: "o in the sidebar",
         ex: &[],
         args: "",
         in_palette: false,
@@ -759,8 +777,8 @@ const ALL: &[Command] = &[
     },
     Command {
         id: "review.collapse",
-        label: "Collapse or expand the pending proposal under the marker",
-        keys: "za in the strip",
+        label: "Collapse or expand the pending hunk under the marker",
+        keys: "za in the sidebar",
         ex: &[],
         args: "",
         in_palette: false,
@@ -782,7 +800,7 @@ const ALL: &[Command] = &[
     },
     Command {
         id: "tab.next",
-        label: "Go to the next tab",
+        label: "Next tab",
         keys: "gt",
         ex: &["tabnext", "tabn"],
         args: "",
@@ -791,7 +809,7 @@ const ALL: &[Command] = &[
     },
     Command {
         id: "tab.prev",
-        label: "Go to the previous tab",
+        label: "Previous tab",
         keys: "gT",
         ex: &["tabprev", "tabp"],
         args: "",
@@ -800,7 +818,7 @@ const ALL: &[Command] = &[
     },
     Command {
         id: "tab.close-write",
-        label: "Close this tab, writing its note first",
+        label: "Close this tab, saving first",
         keys: "the tab's ×",
         ex: &["tabclose", "tabc"],
         args: "",
@@ -821,7 +839,7 @@ const ALL: &[Command] = &[
     // able to ask what it means from the palette.
     Command {
         id: "tab.pin",
-        label: "Pin this tab: a jump opens a new tab instead",
+        label: "Pin or unpin this tab",
         keys: "",
         ex: &["pin"],
         args: "",
@@ -852,7 +870,7 @@ const ALL: &[Command] = &[
     },
     Command {
         id: "window.close",
-        label: "Close this pane, saving its notes first",
+        label: "Close this pane, saving first",
         keys: "ctrl-w q",
         ex: &["close", "clo"],
         args: "",
@@ -872,7 +890,7 @@ const ALL: &[Command] = &[
     // command line calls the window directly, the way `:theme <name>` does.
     Command {
         id: "tab.move",
-        label: "Move this tab to a position",
+        label: "Move this tab",
         keys: "",
         ex: &["tabmove"],
         args: "<n>",
@@ -897,7 +915,7 @@ const ALL: &[Command] = &[
     // says what the words are, and `:graph3d` is what a config or a macro wants.
     Command {
         id: "graph.flat",
-        label: "Graph: flat view",
+        label: "Graph: flat",
         keys: "2 (graph)",
         ex: &["graph2d"],
         args: "",
@@ -919,7 +937,7 @@ const ALL: &[Command] = &[
     },
     Command {
         id: "graph.global",
-        label: "Graph: the whole vault again",
+        label: "Graph: the whole vault",
         keys: "\\ (graph)",
         ex: &["graph-global"],
         args: "",
@@ -928,7 +946,7 @@ const ALL: &[Command] = &[
     },
     Command {
         id: "graph.projected",
-        label: "Graph: projected 3D view",
+        label: "Graph: 3D",
         keys: "3 (graph)",
         ex: &["graph3d"],
         args: "",

@@ -957,7 +957,7 @@ mod tests {
         assert_eq!(
             normals(hand),
             normals(&stroked),
-            "every vertex carries the normal gpui's own stroker gives it, which is what makes \n             the two shade alike"
+            "every vertex carries the normal gpui's own stroker gives it, which is what makes the two shade alike"
         );
         let corners = |path: &gpui::Path<Pixels>| {
             let mut points: Vec<(f32, f32)> = path

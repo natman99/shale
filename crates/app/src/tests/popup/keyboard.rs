@@ -228,7 +228,7 @@ fn the_preview_view_shows_no_checker(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("^ shift-k");
     assert!(shown(cx, &window), "a panel is up in the default view");
     cx.simulate_keystrokes("ctrl-shift-p");
-    cx.simulate_input("preview");
+    cx.simulate_input("read");
     cx.simulate_keystrokes("enter");
     assert!(
         !shown(cx, &window),

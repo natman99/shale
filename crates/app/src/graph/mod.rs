@@ -348,6 +348,11 @@ pub(crate) struct GraphView {
     /// and it is the only thing in the tab with a text field, so it is also the only
     /// thing that takes the keyboard away from the graph.
     panel: bool,
+    /// The sentence for why the filter line is currently refused, if it is. Drawn under
+    /// the line ([`GraphView::filter_panel`]) and echoed in the colour of the line itself
+    /// ([`crate::field::FieldOwner::refused`]), because the graph's strip is too far from
+    /// the status bar for a sentence said there to be seen.
+    refusal: Option<String>,
     /// What the strip's chips show. The window owns the filter that does the work — its
     /// mask decides what the simulation holds — and this is the copy the chips are drawn
     /// from, pushed back on every refresh.
@@ -357,6 +362,15 @@ pub(crate) struct GraphView {
     /// The strip's keyboard, so the `graph-filter` context can be the active one and the
     /// field can receive the letters a query is made of.
     panel_focus: FocusHandle,
+    /// What the filter strip's lens row **drew** last frame, or `None` when it drew no
+    /// such row. A test that re-derived the sentence would stay green with the row deleted
+    /// from the strip, so the frame records what it painted (the `bar_lens` rule).
+    #[cfg(test)]
+    strip_lens: std::cell::RefCell<Option<String>>,
+    /// What the filter strip's **refusal row** drew last frame, or `None` when it drew no
+    /// such row — recorded the same way, for the same reason, as `strip_lens`.
+    #[cfg(test)]
+    strip_said: std::cell::RefCell<Option<String>>,
     /// The window, because the simulation and the notes are its, not the view's: a
     /// node drag and a click both go through it. Weak — the window owns this view, and
     /// a strong handle back would be a cycle.
@@ -398,11 +412,16 @@ impl GraphView {
             selected: None,
             drag: None,
             panel: false,
+            refusal: None,
             // Everything on, which is what the window's default filter is and what an
             // empty strip with no query says.
             filter: GraphFilter::default(),
             filter_field: Field::new(""),
             panel_focus: cx.focus_handle(),
+            #[cfg(test)]
+            strip_lens: Default::default(),
+            #[cfg(test)]
+            strip_said: Default::default(),
             workspace,
         }
     }
@@ -874,6 +893,18 @@ impl GraphView {
             .map(|(slot, _)| slot)
     }
 
+    /// The refusal row the strip drew last frame, in the exact words the frame painted.
+    #[cfg(test)]
+    pub(crate) fn strip_said(&self) -> Option<String> {
+        self.strip_said.borrow().clone()
+    }
+
+    /// The lens row the strip drew last frame, in the exact words the frame painted.
+    #[cfg(test)]
+    pub(crate) fn strip_lens(&self) -> Option<String> {
+        self.strip_lens.borrow().clone()
+    }
+
     /// Whether the view is currently moving its own camera.
     #[cfg(test)]
     pub(crate) fn reframing(&self) -> bool {
@@ -960,6 +991,42 @@ impl GraphView {
     #[cfg(test)]
     pub(crate) fn projection_slot(&self, slot: usize) -> Option<[f32; 2]> {
         (*self.projection.borrow()).as_ref()?.screen(slot)
+    }
+
+    /// Where a node's dot is on the screen, and how big it is there. The window places a
+    /// node card with this: the centre says where the card hangs, the radius keeps it off
+    /// the dot.
+    ///
+    /// The two modes answer differently because only the 3D view keeps a projection — the
+    /// flat view's points come from its camera — and both take the dot's size from the
+    /// renderer's own `radius * zoom`, so a card cannot land where the dot is not.
+    pub(crate) fn node_screen(&self, slot: usize) -> Option<([f32; 2], f32)> {
+        let node = self.frame.as_ref()?.nodes.get(slot)?;
+        let camera = self.camera()?;
+        let at = match self.mode() {
+            Dim::Two => camera.to_screen(node.position),
+            Dim::Three => (*self.projection.borrow()).as_ref()?.screen(slot)?,
+        };
+        Some((at, node.radius * camera.zoom))
+    }
+
+    /// Which note a node is a picture of, in the frame's own words. `None` for a ghost or
+    /// a tag node, which name no note.
+    pub(crate) fn node_path(&self, slot: usize) -> Option<SharedString> {
+        self.frame.as_ref()?.node_path(slot)
+    }
+
+    /// Which node the pointer is **resting** on: hovered, and with no button held. A hand
+    /// on the canvas is travelling or dragging, not asking, and a card about wherever a
+    /// pan happened to stop is a card nobody asked for.
+    ///
+    /// The window asks this once per frame rather than being told on the move: the graph is
+    /// usually being called *by* the window when its hover changes — a frame arriving from
+    /// the sim, a filter the window re-ran — and gpui refuses an update of an entity that
+    /// is already being updated. Asking is also what makes a frame that reshuffles every
+    /// slot cost nothing extra: the answer is simply different this frame.
+    pub(crate) fn resting_on(&self) -> Option<usize> {
+        self.drag.is_none().then_some(self.hover).flatten()
     }
 
     /// The projected view's answer to "which node is under here", asked of a frame the

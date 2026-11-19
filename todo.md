@@ -6,13 +6,13 @@ Contrast is kind of low on labels in 3d, it gets really hard to read them with a
 
 make `:e` take file paths
 
-Docs mistake: says `space` is vim's move right motion when it is only used for chords.
+~~Docs mistake: says `space` is vim's move right motion when it is only used for chords.~~ — done in `2d4adfb`: `docs/keys.md` now says a lone `space` moves nothing (ruling 46), with `d space` / `f space` / `t space` keeping their own meanings.
 
-Update docs about the DB being safely removable once it's storing more valuable information like timeline
+~~Update docs about the DB being safely removable once it's storing more valuable information like timeline~~ — the rule is stated in `2d4adfb`: `README.md` says an index written by an older build is rebuilt rather than migrated and that deleting `<vault>/.shale/shale.db` rebuilds the whole thing, and `docs/notes.md` calls it "a cache that can be deleted at any time". The caveat stays live: the day the DB holds something the vault does not (a timeline, review history), both sentences become a lie and have to change.
 
 Do a cargo deny pass later
 
-Commands to insert callouts and tables at the cursor and props at the note head.
+Commands to insert callouts and tables at the cursor and props at the note head. Ruled on 2026-11-13 (`:callout [type]`, `:table`, `:props` as verbs) and **not built**: `ex.rs` has no `callout` or `table` word, and the `:props` that does exist jumps to the properties view — it does not write frontmatter at the note head, which is what this asks for. The one-line entry near the end of this file is the same ask.
 
 Test multiple search operators again manually
 
@@ -30,11 +30,11 @@ Mouse drag text select.
 
 Right sidebar missing focus indicator on empty window (for example if there are now headings or links the sidebar is dead input and shows no indicator it's focused). The left sidebar always has at least one item to select.
 
-~~Add a little clickable button in the top left that will close/open the file tree and show if it's open or not.~~ — done in `21a3812` and `64f73fa`: one mark per panel, in the card's corner while it is open and at the end of the tab bar while it is away, hollow closed / filled open, with a tooltip. The half still open is the "only the leftmost pane answers" bug below.
+~~Add a little clickable button in the top left that will close/open the file tree and show if it's open or not.~~ — done in `21a3812` and `64f73fa`: one mark per panel, in the card's corner while it is open and at the end of the tab bar while it is away, hollow closed / filled open, with a tooltip. The half that was still open — only the leftmost pane answering — closed in `5fd03ed`, and the mark sitting on the strip's own label closed in `29df45e`.
 
 Merge "blank tab" and "new unnamed note"?
 
-Important: way to move notes to folders
+~~Important: way to move notes to folders~~ — done in `0a0aaed` and `aa0481e`: `:move [folder]` (vault-relative), `m` in the tree, `ctrl-shift-m`, and a folder picker that offers the vault's folders, the top level, and a new one. A link that spells the folder the note left follows it; a link that spells no folder stays. Moving a *folder* is still refused: the notes inside it spell the old name and nothing rewrites those yet.
 clicking focuses panes but doesn't move the focus border
 When outline scrolls put the target in the middle or top of the screen instead of the bottom row
 
@@ -45,7 +45,7 @@ note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
 
 ~~The "show sidebar" buttons only work on the leftmost (or original/primary) pane. Buttons show up on all panes. Tooltips also broken on non-primary panes.~~ — one bug, fixed in `5fd03ed`: every pane's mark was the same gpui element id (no pane carries an id, so the id chain was identical), and gpui keeps one click handler, hover and tooltip per id. The marks are now `MARK_IN_CARD` / `mark_in_bar(pix)`, and the tests find them by debug selector instead of by coordinates guessed from one window size.
 
-Insert table/callout commands
+Insert table/callout commands — the same ask as the insert-verbs line above; one entry, not two.
 
 Soft wrap cutoff is cut off by the border/pane effects on the right side. It looks like about one char is covered up.
 
@@ -53,4 +53,6 @@ Wrap boundries aren't updated/redraw the editor when the sidebars open/close cau
 
 Clicking under an editor on the same pane (so outside of the valid "hit" area that has proper cursor support), should put the caret at the bottom of the window, not the top like it is now. Clicking to edit the end of a note is very difficult
 
-On right side, the sidebar hide button overlaps with the sidebar label/name
+~~On right side, the sidebar hide button overlaps with the sidebar label/name~~ — done in `29df45e`: the strip's header starts 30px into the card — 4px for the mark's inset, 20px for the mark itself, 6px of gap — so the view's name begins clear of the mark in the card's corner. The tree card gets the same room on its other side, where a long vault folder name would have run under its mark.
+
+Is image preview built for the app (view images as notes)? If not, build it, if so, make sure images are visible in the file tree because they aren't right now

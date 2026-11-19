@@ -13,10 +13,11 @@ use crate::style::CHIP_RADIUS;
 use crate::tree;
 
 use super::Workspace;
-use super::bar::{mode_label, save_indicator, word_badge};
+use super::bar::{lens_badge, mode_label, save_indicator, word_badge};
 use super::sidebar::{RowState, push_row};
 use super::tabs::TabContent;
-use super::tree::{TreeState, push_node};
+use super::tree::{NoteDrag, TreeState, push_node};
+use gpui::ExternalPaths;
 
 /// The height of the tab bar's row, and of one tab within it. A little taller than
 /// the status bar because it is something the pointer aims at, not something it
@@ -34,6 +35,13 @@ const TAB_GAP: gpui::Pixels = crate::style::SPACE_1;
 /// The tab bar's end buttons: a square big enough to be a real target inside the
 /// 28px bar, and small enough not to crowd the tabs it brackets.
 const CHEVRON: gpui::Pixels = gpui::px(20.);
+
+/// A panel card's header text starts clear of the mark that lives in that card's corner.
+/// The mark sits 4px in from the edge (`top_1` and `left_1`/`right_1`) and is `CHEVRON`
+/// square, so 4 + 20 + a 6px gap is where the text may begin. Pinned by
+/// `the_card_headers_start_clear_of_the_mark_in_their_corner`, which measures both boxes
+/// rather than trusting this number.
+const HEADER_CLEAR: gpui::Pixels = gpui::px(30.);
 /// The mark that lives in its panel's card: one per panel per window.
 const MARK_IN_CARD: usize = 0;
 /// The mark at the end of pane `pix`'s tab bar. Each pane draws its own bar, so each
@@ -206,8 +214,15 @@ impl Workspace {
             .map(|(index, tab)| {
                 let label = if tab.graph {
                     // The graph tab has no file name to show, and "graph" is what the
-                    // tab is: the same word the status bar's badge uses.
-                    "graph".to_string()
+                    // tab is: the same word the status bar's badge uses. While a lens is
+                    // on, the tab says what the picture is wearing (ruled 2026-11-13:
+                    // `Graph · <lens>`) — a lens changes which graph the tab *is*, not
+                    // merely what it happens to be showing, which is why it belongs in
+                    // the title and not only in the strip.
+                    match self.graph_filter.lens.as_ref() {
+                        Some(lens) => format!("graph · {}", lens.name),
+                        None => "graph".to_string(),
+                    }
                 } else {
                     tab.path
                         .as_ref()
@@ -219,6 +234,10 @@ impl Workspace {
                         })
                         .unwrap_or_else(|| "no note".to_string())
                 };
+                #[cfg(test)]
+                if tab.graph {
+                    self.tab_labels.borrow_mut().push(label.clone());
+                }
                 let entity = cx.entity().clone();
                 let close = cx.entity().clone();
                 let id = tab.id;
@@ -526,6 +545,10 @@ impl Render for Workspace {
         // how many places answer for one panel.
         #[cfg(test)]
         self.chrome_drawn.borrow_mut().clear();
+        #[cfg(test)]
+        self.bar_lens.borrow_mut().take();
+        #[cfg(test)]
+        self.tab_labels.borrow_mut().clear();
         // A tab change that had no window to rehook the hover subscription with gets
         // it here, one frame later, rather than never: the pointer can only hover over
         // the note that is drawn, so the subscription has to be the drawn tab's. The
@@ -535,6 +558,22 @@ impl Render for Workspace {
         }
         if self.focus_stale {
             cx.on_next_frame(window, |ws, window, cx| ws.focus_active_tab(window, cx));
+        }
+        // The pointer's rest on a graph node, asked of the picture each frame. A hover
+        // change dirties the view, so the frame it asks for is the frame the window learns
+        // about it in — and asking is the only shape that works, because the graph spends
+        // most of its hover changes being called by this window.
+        let resting = if self.pane().active_tab().is_graph() {
+            self.graph_view()
+                .and_then(|view| view.read(cx).resting_on())
+        } else {
+            // A graph tab sitting behind another tab keeps the hover the pointer left on
+            // it. Reading that would raise a card over a note the pointer is on.
+            None
+        };
+        if resting != self.graph_rest {
+            self.graph_rest = resting;
+            self.graph_pointer_rest(resting, cx);
         }
         // The same one-frame deferral for a neighbourhood that moved with the note: the
         // picture is re-made outside whatever borrow the tab change arrived in.
@@ -759,6 +798,17 @@ impl Render for Workspace {
             }
             _ => String::new(),
         };
+        // The lens the graph on screen is wearing. Only the graph tab: on a note tab the
+        // segment would read as a property of the note, and a lens on a graph you are not
+        // looking at belongs in that tab's title, not here. Accent, like `focus`: a lens
+        // on means the picture is not the whole vault, which is the thing this segment
+        // exists to keep un-forgettable.
+        let worn = if self.pane().active_tab().is_graph() {
+            self.graph_filter.lens.as_ref()
+        } else {
+            None
+        };
+        let lens = lens_badge(worn.map(|lens| lens.name.as_str()));
         // The checker's count, so "no underlines" can be told apart from "the
         // checker has not answered yet". Preview draws no underlines at all, so it
         // has nothing to count either, and the graph tab has no note to check.
@@ -823,7 +873,11 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::new_note))
             .on_action(cx.listener(Self::new_folder))
             .on_action(cx.listener(Self::rename_note))
+            .on_action(cx.listener(Self::move_note))
             .on_action(cx.listener(Self::delete_note))
+            // The graph wearing a saved query (P4.16). On the window's chain: the
+            // lens is the graph's, and the row can be reached from any focus.
+            .on_action(cx.listener(Self::graph_lens_action))
             // A frontmatter block for the note under the caret. On the window's
             // chain rather than the tree's, because it writes a note and not a
             // selection: with the tree focused it still means the note the
@@ -966,16 +1020,25 @@ impl Render for Workspace {
                                 )
                                 .child(
                                     div()
-                                        .p_2()
+                                        .pt_2()
                                         .pb_1()
+                                        .pl_2()
+                                        // The card's mark is in this card's top-right
+                                        // corner: a long vault folder name should end
+                                        // clear of it, not run under it.
+                                        .pr(HEADER_CLEAR)
                                         .font_weight(gpui::FontWeight::BOLD)
                                         .child(
-                                            self.vault
-                                                .root()
-                                                .file_name()
-                                                .unwrap_or_default()
-                                                .to_string_lossy()
-                                                .to_string(),
+                                            div()
+                                                .debug_selector(|| "tree-header".to_string())
+                                                .child(
+                                                    self.vault
+                                                        .root()
+                                                        .file_name()
+                                                        .unwrap_or_default()
+                                                        .to_string_lossy()
+                                                        .to_string(),
+                                                ),
                                         ),
                                 )
                                 // The prompt is a sibling of the tree, not a child of
@@ -991,6 +1054,33 @@ impl Render for Workspace {
                                         .flex_1()
                                         .min_h_0()
                                         .overflow_scroll()
+                                        // The tree's own background is the vault's top
+                                        // level: a note dropped in the empty space below
+                                        // the last row leaves its folder. This div fills
+                                        // the panel, so that space is its hitbox. A row
+                                        // that took the drop stops the propagation, so
+                                        // this only ever sees a drop that missed a row.
+                                        .on_drop::<NoteDrag>(cx.listener(
+                                            |this, drag: &NoteDrag, _window, cx| {
+                                                this.drop_note(
+                                                    &drag.path,
+                                                    std::path::Path::new(""),
+                                                    cx,
+                                                );
+                                            },
+                                        ))
+                                        // The same for a file from outside the vault: the
+                                        // empty space below the rows is the top level.
+                                        .on_drop::<ExternalPaths>(cx.listener(
+                                            |this, paths: &ExternalPaths, _window, cx| {
+                                                this.import_files(
+                                                    paths.paths(),
+                                                    std::path::Path::new(""),
+                                                    cx,
+                                                );
+                                            },
+                                        ))
+                                        .debug_selector(|| "tree-scroll".to_string())
                                         .track_scroll(&self.tree_scroll)
                                         .key_context(tree::CONTEXT)
                                         .track_focus(&self.tree_focus)
@@ -1019,6 +1109,7 @@ impl Render for Workspace {
                                         .on_action(cx.listener(Self::new_note))
                                         .on_action(cx.listener(Self::new_folder))
                                         .on_action(cx.listener(Self::rename_note))
+                                        .on_action(cx.listener(Self::move_note))
                                         .on_action(cx.listener(Self::delete_note))
                                         .p_2()
                                         .pt_1()
@@ -1118,24 +1209,33 @@ impl Render for Workspace {
                                 // keyboard can get stuck on.
                                 .child(
                                     div()
-                                        .px_2()
                                         .pt_2()
                                         .pb_1()
-                                        .font_weight(gpui::FontWeight::BOLD)
-                                        .text_color(gpui::rgb(self.palette.ui_fg))
-                                        // The pin mark rides the header, not a row: the
-                                        // strip is fixed to one note and has stopped
-                                        // following the tabs (sidebar-plan.md M5).
-                                        .child(format!(
-                                            "{} · {}{}",
-                                            self.sidebar_view.label(),
-                                            self.sidebar_rows.len(),
-                                            if self.sidebar_pinned.is_some() {
-                                                format!(" · {}", crate::style::GLYPH_PIN)
-                                            } else {
-                                                String::new()
-                                            }
-                                        )),
+                                        .pr_2()
+                                        // The card's mark lives in this corner, so the
+                                        // view's name starts clear of it rather than
+                                        // under it.
+                                        .pl(HEADER_CLEAR)
+                                        .child(
+                                            div()
+                                                .debug_selector(|| "sidebar-header".to_string())
+                                                .font_weight(gpui::FontWeight::BOLD)
+                                                .text_color(gpui::rgb(self.palette.ui_fg))
+                                                // The pin mark rides the header, not a row:
+                                                // the strip is fixed to one note and has
+                                                // stopped following the tabs
+                                                // (sidebar-plan.md M5).
+                                                .child(format!(
+                                                    "{} · {}{}",
+                                                    self.sidebar_view.label(),
+                                                    self.sidebar_rows.len(),
+                                                    if self.sidebar_pinned.is_some() {
+                                                        format!(" · {}", crate::style::GLYPH_PIN)
+                                                    } else {
+                                                        String::new()
+                                                    }
+                                                )),
+                                        ),
                                 )
                                 .when(!self.sidebar_view.built(), |d| {
                                     // A view that is planned but not built says so,
@@ -1249,6 +1349,14 @@ impl Render for Workspace {
                                 .text_color(gpui::rgb(self.palette.accent))
                                 .child(focus),
                         )
+                    })
+                    .when(!lens.is_empty(), |d| {
+                        // Recorded where the branch is taken, not where the string is
+                        // built: a test that only re-derived the string would stay green
+                        // with the segment deleted from the bar entirely.
+                        #[cfg(test)]
+                        self.bar_lens.borrow_mut().replace(lens.clone());
+                        d.child(div().text_color(gpui::rgb(self.palette.accent)).child(lens))
                     })
                     // The save state gets its own element and the palette's
                     // accent rather than riding along in the mode string: it is

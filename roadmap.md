@@ -60,6 +60,38 @@ unblocks is the sequence the dependency order already wrote. **P4.3b is closed t
 schema v4's `headings` table, one heading scanner for the whole app, and `:sections` as its
 reader — see its item below). Next is **P4.9** block refs, then the computed surfaces (P4.15)
 and the consumers that were waiting — the graph lens (P4.16) and the GM screen (P7.4).**
+
+**What is being built next (refreshed 2026-11-17).** The paragraph above is kept as the
+read it was. Since it was written: **P4.9 block refs closed 2026-11-11** (M1–M6 — the one
+block scan and `Style::BlockAnchor`, schema v5's `blocks` table, the anchor becoming a
+*kind* shared by links and embeds, `[[note#^id]]` jumps and `![[note#^id]]` embeds,
+`:block-id` and `:blocks`, and the `i^` / `a^` text object), the **sidebar** (P4.13 M1–M5,
+2026-11-11) with its **tab pin** (P4.13a, 2026-11-12), the **dice chip** (P4.15 M1–M3 plus
+the `K` verb, 2026-11-12), and the **exit
+words** (P4.18, 2026-11-13) — plus a long todo-driven sweep, 2026-11-13 to 2026-11-17: the
+jumplist and mouse 4/5, arrows and paging, the `h`/`l` line-edge rule, frontmatter folding,
+the panel marks and their per-pane fix, the whole-run crash, moving a note between folders
+by keyboard and mouse, and importing a file from outside the vault (**P4.19**, below).
+**P4.16, the graph lens, is closed** (2026-11-17 to 2026-11-18): the design pass, the
+measurement, all nine rulings, then **M1** (the lens as a filter dimension), **M2** (the
+`.shale/lenses/*.shq` files and the reader) and **M3** (`:lens`, the picker, the palette
+row) the first day; **M4** (the tab title's `graph · <lens>`, the strip's lens row, and a
+lens that re-runs when the vault moves), **M5** (`alt-s` in the strip and `:lens save`,
+which keep the filter line's question as a lens and put it on) and **M6** (the seat, which
+remembers a lens by name and re-asks it in the next window) on the second. A lens is not
+only a file you write by hand. **Follow-up the same day:** the filter strip's line and the
+vault search's line are now **one grammar** — the operators in the strip ask the index the
+same question `space s` asks, the words left over stay a label match, and a token that only
+looks like an operator is said rather than searched, so `alt-s` saves the question the
+picture in front of the reader was actually narrowed by. Two more from the same thread: a
+refused line now says so **under the line it was typed in** (danger colour, plus the sentence
+in a row of its own) rather than on the status bar a panel away, and a bare word that lands on
+a tag or a hole **brings the notes it is about** — one hop — so `monster` lights the tag and
+the notes wearing it instead of one dot with nothing to explain it. What P4.16 unblocks is the GM screen (P7.4) and
+canvas-as-saved-selection (P6.10). Two items the user keeps asking for are still unstarted: **P4.10 trash** and
+**P4.12 attachment capture**. `ctrl-t` scratch tabs are ruled in full (2026-11-13) and
+genuinely unbuilt — `ctrl-t` still duplicates the current note.
+
 P4.0 closed on 2026-11-08 (the hover card was its last owed item; `![[query-name]]` waits
 on P4.3 and block refs on P4.9). **P4.3a's indexing half is closed:** M1 (the parser, the
 `props` table, `:props`) and M2 (the projections — `tags`, `aliases`, and `edges` finally
@@ -145,7 +177,9 @@ block's rows and folding inside a block are done (2026-11-08): a block being edi
 with `za`, its disclosure is clickable, and the rows behind a closed fold leave both the
 paint and the display model the caret's motions read. P3.2's move/exchange/rotate and
 `:pin` remain open and are the cheap alternative if a session wants a small, low-risk
-win.
+win. *(Then vs now: `:pin` closed on 2026-11-12 as P4.13a — the tab grows a `◆` and a jump
+opens a new tab instead of reading over it. What is still open from that sentence is P3.2's
+move/exchange/rotate.)*
 
 **Plan audit (2026-11-05).** Every ruled design in `brainstorm.md` was checked against
 the roadmap's items and the code. The finding: **the roadmap had been losing features
@@ -175,7 +209,11 @@ popup panel, scrolling picker list, hover-capability check, live grammar fixes,
 `K` with count, horizontal scrolling, `bench/` work. Five that were on this list
 are now done in Phase 0: **`/` search** (P0.5, 2026-10-28), **autosave**,
 **persisting the theme switch**, **config → `<vault>/.shale/`**, and **module splits**
-(nothing is over 1000 lines anymore).
+(nothing is over 1000 lines anymore). *(Then vs now, 2026-11-17: that last one has
+drifted back — `db/index.rs` 3518, `editor/mod.rs` 2701, `graph/mod.rs` 1771,
+`transclude.rs` 1484, `vault.rs` 1373, `workspace/render.rs` 1357. AGENTS.md asks for a
+refactor at 1000 lines, so a split round is owed; it is not on the roadmap under any
+number.)*
 
 **Key insight:** three foundations unlock most of the brainstormed feature set:
 1. **The DB + provenance + event log** → query notes, word counts, tag tree,
@@ -1992,6 +2030,57 @@ edges, query nodes, MCP canvas tools) is P6.10.
     the same mechanism — that item becomes one more query. Measure the *sim* over a
     large selected set before promising a vault-wide lens; the 5k paint numbers
     (2.3–2.6 ms) are not the constraint, the force layout is.
+  - **Ruled into shape 2026-11-13** (the user, answering the item's open questions): the
+    verb is `:lens <name>`, plus a picker on the graph tab. A lens is a file under
+    `<vault>/.shale/lenses/` holding a saved `.shq`, so the lens *is* the query and the two
+    cannot drift. The graph tab's title reads `Graph · <lens>` while one is on, and
+    `:lens none` clears it. The last lens is remembered with the session. The picker shows
+    each lens's node count. And a lens **filters** the graph: only the matching nodes are
+    drawn, not the whole vault with the misses dimmed — the ruling that a lens is a
+    different *view of the graph* rather than a filter over a table holds here.
+  - **Design pass (2026-11-17): `lenses-plan.md`** — the machinery survey (the one query
+    chain `query_note::ask`, the filter mask `graph::filter::apply`, the search→SQL
+    translation keep-a-search already has, the tab chip's graph branch), the EDGE-L
+    ledger, milestones M0–M6 — **M0 measured the same day** (the bound: a selected set
+    never costs more than the whole-vault settle the graph already pays; table in
+    `PROGRESS.md`) — and **all nine rulings ruled 2026-11-17**, every recommendation taken.
+  - **M1 closed (2026-11-17):** `GraphFilter.lens: Option<LensScope>` is the seventh
+    dimension on the mask, anding with folder scope, tags and ghosts through the one
+    neighbour pass, chips and search still cutting inside the answer. Six core tests, six
+    mutations red.
+  - **M2 closed (2026-11-17):** `shale_core::lens` — `dir`/`list`/`read`/`answer`/
+    `paths_from`/`unmatched`. A lens name is one name (separators refused before the
+    name-shape guard, on purpose), the note column is found by name, and the file is read
+    on use so a hand edit takes effect. Fourteen core tests, ten mutations red.
+  - **M3 closed (2026-11-17):** `:lens <name>`, `:lens none`, `:lens` alone opening the
+    picker, the `graph.lens` registry row and the palette row (both ask, neither acts), and
+    rows carrying what each lens answers **now**. Ten app tests, twelve mutations red. The
+    finding is **EDGE-L15**: a lens that only removes nodes can leave the sim settled, and
+    `pump_graph` no-ops on a settled sim — the view keeps the old picture and the old
+    counts. `refresh_graph` is the door that ships regardless, and M4's live re-run owes
+    the same.
+  - **M4 closed (2026-11-18):** the tab title reads `graph · <lens>`, the strip carries a
+    lens row (`lens <name> · 3 notes`, or `· not answering: <why>`, with `, N with no node`
+    appended), and a worn lens **re-runs** when the index moves or when the file changes
+    under an editor's hands — the layout is disturbed only when the answer's node set moved,
+    which is the half M0 measured for (EDGE-L7). A lens that stops answering keeps the last
+    good picture and carries the sentence (EDGE-L6); a lens file deleted from under the
+    graph says it is gone (EDGE-L11). Eight app tests, all mutations red.
+  - **M5 closed (2026-11-18):** the door that *makes* one. `alt-s` in the filter strip keeps
+    the line's question as a lens through the search→SQL translation P4.3 M6 already had;
+    `:lens save <name>` is the same door with the name already given; a saved lens goes on
+    right away (ruled 2026-11-18). It never overwrites a lens a reader wrote, refuses a
+    question the index cannot be asked again before a name is spent on it, and keeps the
+    strip's chips out of the file (ruling 1 — pinned by showing an orphan come back when its
+    chip does, inside the lens). Seven app tests, thirteen mutations red.
+  - **M6 closed (2026-11-18): P4.16 is closed.** `GraphFilterSeat.lens` remembers a lens by
+    **name**, never by the paths it answered — that would be a lie by the next morning — and
+    the next window re-asks the file (EDGE-L1). A lens that no longer answers leaves the
+    window unfiltered and says so, rather than opening on an empty picture. The seat is
+    restored before any tab opens, so the graph tab's first frame is laid out under the lens;
+    the index has usually not read the vault yet at that moment, so a restored lens answers
+    empty for the length of one pass and fills in when it lands. Five app tests, five
+    mutations red.
 
 - **P4.17 One note, one buffer per window (the registry)** — **added 2026-11-06 by the
   P4.0b design pass; it is P4.0b's first commit, not a later cleanup.** A per-window
@@ -2053,6 +2142,64 @@ edges, query nodes, MCP canvas tools) is P6.10.
   scoping test above, and one case named a test that did not exist and reported green
   against zero matches. The registry grew `tab.close`, `tab.close-force`,
   `tab.write-close` and `tab.close-write` (the `×`), and `app.quit` moved to `:qall`.
+
+- **P4.19 Moving a note between folders, and bringing a file in from outside the vault** —
+  **closed 2026-11-17**, built from `todo.md` ("I need a way to move notes between folders")
+  rather than from a brainstorm ruling, and it had no roadmap line until this audit.
+  `:move other/` is **vault-relative** where the rename prompt stays sibling-relative —
+  different verbs asking different questions — and `:move /` names the top level, because
+  every empty part of a typed path is dropped. The doors are `m` in the tree,
+  `ctrl-shift-m` anywhere, the palette, and the command line; the destination is the app's
+  existing picker, filtered as you type, with one row that creates the folder you typed and
+  one for the top level. **A move rewrites the links that spelled the folder and leaves the
+  ones that didn't**: a bare `[[Deep]]` resolves by file name wherever the note went, so it
+  is untouched, and when only the name changed the author's own folder prefix stays theirs.
+  Mouse drag inside the tree moves the same note (folder row = that folder, note row = its
+  parent, empty space = top level); **folders do not lift**, because the notes inside them
+  spell the folder's name and nothing rewrites those yet — that half belongs here too, and
+  is the item's one unbuilt clause. A file dragged in from **outside** the vault is *copied*
+  — markdown and images only, never over an existing name, atomically through the same
+  staged write note saves use — and inside the vault a file only ever *moves*, because a
+  copy would leave the original standing with its links pointing at two files. Known gap,
+  not papered over: an imported image's `![[name.png]]` embeds do not follow it, because the
+  rewrite pass resolves notes and queries, not attachments; that belongs to P4.12.
+
+- **P4.20 Starting with no path named: the vault picker, and a vault to make** — **closed
+  2026-11-18**, because the app could not be a real app until it could be launched from an
+  icon instead of a terminal with a hard-coded path. `shale` with no argument opens the
+  vault it remembers; with nothing to remember, or a remembered folder that is gone, it
+  opens a small window that asks: the remembered vaults newest first, `Open a folder…` for
+  one it has never seen, and `New vault…`. Ruled with the user: a picker **window**, not a
+  Workspace with no vault — the Workspace assumes a vault in everything it touches, and half
+  a window would mean a second of everything — so what the screen reuses is the picker
+  widget, and the rows, the filtering and the keyboard are `:vault`'s. A vault another
+  Shale already holds **opens the picker instead of dying**, with the reason drawn in the
+  danger role and the keyboard left where the failure happened. A path *named* on the
+  command line and no good is still a **terminal** answer: a script needs an exit code, not
+  a screen it cannot see. `New vault…` asks for a name in a field rather than a folder
+  dialog — a dialog that can choose a folder can rarely *make* one; a bare name lands under
+  the home folder and a spelled-out path is honored as spelled, and a folder with things in
+  it is refused (`.shale` alone does not count: that is a vault opened once and emptied).
+  The screen is not a window on a vault, so the termination watcher takes it through a
+  second registry handle (EDGE-V16).
+
+- **P4.21 The words in the app: one verb, one noun, one grammar** — **closed 2026-11-19**,
+  because the palette said `Save` and `Write` for one thing, `hunk` and `proposal` for one
+  thing, `strip` and `sidebar` for one thing, and `caret` and `cursor` for one thing — in one
+  case in two adjacent rows of the same table (`Backspace` said "before the cursor",
+  `FieldBackspace` said "before the caret"). Seven rules, the first two the user's (parity:
+  opposite and similar actions rhyme, different actions do not; directness: name the action
+  and its object, no scenery), and mine: one thing one noun, reachable by the word people
+  type, one tail grammar for qualifiers, a state never says "again", and a length budget the
+  column can hold. Ruled with the user: **Save** over Write, **caret** over cursor, **search**
+  as the act and **query** as the saved `.shq`, **sidebar** for the panel and **review view**
+  for its pending-hunk view and **search bar** for what `/` opens, the graph's **filter strip**
+  keeping its name, and keys and `:` words untouched — muscle memory is not vocabulary. 103
+  prose lines and 33 palette rows later, the longest row is 40 characters where it was 52.
+  What makes it stick is a lint, not a habit: a banned-word list over the command table, the
+  keymap and every page in `docs/`, a 40-character budget, and 19 reachability assertions
+  against the palette's offered rows — the last because a rename that drops the typed noun
+  does not fail a test, it makes a green test run a different command.
 
 **Exit criteria:** restore any note to any retained point; a `.shq` embedded in
 three notes renders live and refreshes on edit; tag rename rewrites every note

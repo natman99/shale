@@ -675,6 +675,38 @@ fn a_search_with_no_hits_has_nothing_to_choose(cx: &mut TestAppContext) {
     assert_eq!(active, "", "and no note was opened");
 }
 
+/// The note cache must not make a search stale. A note edited outside the
+/// app while the picker is open is re-read before it is scanned — every
+/// note is stated on every query — so the rows answer the disk as it is,
+/// not as it was when the first keystroke warmed the cache.
+#[gpui::test]
+fn a_search_sees_an_edit_made_outside_the_app(cx: &mut TestAppContext) {
+    let (dir, window) = needle_vault(cx);
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    cx.simulate_keystrokes("ctrl-shift-f");
+    cx.simulate_input("needle");
+    assert_eq!(
+        matches(&window, cx),
+        Some(2),
+        "the first query warms the cache"
+    );
+
+    std::fs::write(
+        dir.path().join("Welcome.md"),
+        "first line\na phrase the cache never saw\n",
+    )
+    .unwrap();
+    cx.simulate_keystrokes("backspace backspace backspace backspace backspace backspace");
+    cx.simulate_input("never saw");
+    assert_eq!(
+        matches(&window, cx),
+        Some(1),
+        "the external edit is searched, not the stale cached text"
+    );
+    assert_eq!(choice(&window, cx).as_deref(), Some("Welcome.md:2"));
+}
+
 // --- search operators (P4.14) -------------------------------------------------
 
 /// Notes that differ in exactly the ways an operator can ask about: a tag written

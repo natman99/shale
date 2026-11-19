@@ -24,7 +24,7 @@ use shale_core::theme::Palette;
 
 use crate::acts::{
     FieldBackspace, FieldDelete, FieldDeleteWordBack, FieldLeft, FieldRight, GraphFilterClose,
-    GraphFilterMissing, GraphFilterOpen, GraphFilterOrphans, GraphFilterTags,
+    GraphFilterMissing, GraphFilterOpen, GraphFilterOrphans, GraphFilterSaveLens, GraphFilterTags,
 };
 use crate::field::{Field, FieldElement, FieldOwner, approx_char_width};
 use crate::field_key_actions;
@@ -54,6 +54,30 @@ enum Chip {
     Tags,
     /// The neighbourhood of the note on screen (M2b). Its label carries the depth.
     Local,
+}
+
+/// What the strip says about the lens the picture is wearing (ruling 9): the name, how
+/// many notes it answers, and how many of its answers this graph has no node for
+/// (EDGE-L5). When the lens has stopped answering the row says *that*, with the sentence
+/// for why: the picture on screen is the last good one (EDGE-L6), and the strip is where
+/// a reader looks to find out why it stopped matching the vault.
+fn lens_said(lens: &shale_core::graph::filter::LensScope) -> String {
+    match &lens.stale {
+        Some(why) => format!("lens {} · not answering: {why}", lens.name),
+        None => {
+            let kept = lens.paths.len().saturating_sub(lens.unmatched);
+            let extra = if lens.unmatched > 0 {
+                format!(", {} with no node", lens.unmatched)
+            } else {
+                String::new()
+            };
+            format!(
+                "lens {} · {kept} {}{extra}",
+                lens.name,
+                shale_core::lens::notes_word(kept)
+            )
+        }
+    }
 }
 
 /// The depth the local view starts at when it is switched on rather than stepped: two
@@ -91,6 +115,12 @@ impl GraphView {
         cx: &mut Context<Self>,
     ) {
         self.panel = true;
+        // The line may have arrived from the session rather than from this strip's own
+        // keystrokes, and the answer to a question belongs to the index as it is now. So
+        // opening the strip asks the line that is already in it: the picture re-narrows if
+        // the index has moved, and a refusal that nobody could have drawn while the strip
+        // was shut appears under the line it is about.
+        self.sync_search(cx);
         cx.notify();
         let focus = self.panel_focus.clone();
         window.defer(cx, move |window, cx| focus.focus(window, cx));
@@ -169,6 +199,16 @@ impl GraphView {
         self.toggle(Chip::Missing, cx);
     }
 
+    /// `alt-s`: keep the filter line's question as a lens. The window owns that door —
+    /// the file, the name, and what wearing it means — so the strip only hands over the
+    /// one thing it holds.
+    fn save_lens(&mut self, _: &GraphFilterSaveLens, window: &mut Window, cx: &mut Context<Self>) {
+        let search = self.filter_field.text().to_string();
+        let _ = self.workspace.update(cx, move |ws, cx| {
+            ws.ask_save_lens(&search, window, cx);
+        });
+    }
+
     /// `alt-t`.
     fn toggle_tags(&mut self, _: &GraphFilterTags, _window: &mut Window, cx: &mut Context<Self>) {
         self.toggle(Chip::Tags, cx);
@@ -198,12 +238,15 @@ impl GraphView {
     /// result back to the caller instead of pushing it in the way a note change's is.
     fn apply_filter(&mut self, filter: GraphFilter, cx: &mut Context<Self>) {
         self.adopt_filter(filter.clone());
-        if let Ok(Some((summary, frame))) = self
+        if let Ok(Some((summary, frame, refusal))) = self
             .workspace
             .update(cx, move |ws, cx| ws.graph_set_filter(filter, cx))
         {
             self.summary = Some(summary);
             self.store_frame(frame);
+            // The strip keeps the sentence for as long as the line reads the same way, so
+            // closing and reopening the strip brings it back with the line it belongs to.
+            self.refusal = refusal;
         }
         cx.notify();
     }
@@ -226,93 +269,158 @@ impl GraphView {
             Some(depth) => format!("local {depth}"),
             None => "local".to_string(),
         };
-        field_key_actions!(
+        let lens_row = self.filter.lens.as_ref().map(lens_said);
+        // The strip is built every frame whether or not it is showing, so the row is
+        // recorded at the one place that decides to draw it — inside the branch that puts
+        // it in the frame, and only while the strip itself is part of the frame. A
+        // recorder that ran at build time would stay green with the row deleted from the
+        // strip, which is the whole thing the `bar_lens` rule exists to prevent.
+        #[cfg(test)]
+        let strip_open = self.panel;
+        // The recorders are per frame: a row that stopped being drawn has to stop being
+        // reported, or a test asserting its absence reads the last frame's sentence.
+        #[cfg(test)]
+        {
+            self.strip_said.borrow_mut().take();
+            self.strip_lens.borrow_mut().take();
+        }
+        // The chips and the line are one row; a refusal is a second row under them, which
+        // is why the strip is a column. It only grows that row when there is something to
+        // say, and the canvas below keeps its camera through the one-line change (`f` is
+        // the only thing that re-frames).
+        let mut row = div().flex_none().flex().items_center().gap_2();
+        row = row
+            .child(
+                chip(&palette, "orphans", orphans)
+                    .id("graph-filter-orphans")
+                    .on_click(cx.listener(|this, _, _window, cx| {
+                        this.toggle(Chip::Orphans, cx);
+                    })),
+            )
+            .child(
+                chip(&palette, "missing", missing)
+                    .id("graph-filter-missing")
+                    .on_click(cx.listener(|this, _, _window, cx| {
+                        this.toggle(Chip::Missing, cx);
+                    })),
+            )
+            .child(
+                chip(&palette, "tags", tags)
+                    .id("graph-filter-tags")
+                    .on_click(cx.listener(|this, _, _window, cx| {
+                        this.toggle(Chip::Tags, cx);
+                    })),
+            )
+            .child(
+                chip(&palette, &local_label, local.is_some())
+                    .id("graph-filter-local")
+                    .on_click(cx.listener(|this, _, _window, cx| {
+                        this.toggle(Chip::Local, cx);
+                    })),
+            );
+        // The lens is not a chip: the strip does not toggle it (`:lens none` takes it off),
+        // so it is drawn as a row rather than as a thing to click.
+        if let Some(worn) = lens_row {
+            // Recorded at the one place that decides to draw it — inside the branch that
+            // puts it in the frame, and only while the strip itself is part of the frame. A
+            // recorder that ran at build time would stay green with the row deleted from
+            // the strip, which is the whole thing the recorder exists to prevent.
+            #[cfg(test)]
+            if strip_open {
+                *self.strip_lens.borrow_mut() = Some(worn.clone());
+            }
+            row = row.child(
+                div()
+                    .flex_none()
+                    .text_color(gpui::rgb(palette.ui_dim))
+                    .child(worn),
+            );
+        }
+        row = row.child(
             div()
-                .key_context(FILTER_CONTEXT)
-                .track_focus(&self.panel_focus)
-                .flex_none()
-                .flex()
-                .items_center()
-                .gap_2()
-                .text_color(gpui::rgb(palette.ui_fg))
-                // A click anywhere in the strip is a click on the strip's keyboard. The
-                // window already aims the keyboard at the field when the frame moves (see
-                // [`GraphView::focus_target`]), but a press that lands on the strip's
-                // background — between the chips, or in the gap beside the field — has to
-                // take the keyboard too, or the field looks ready and hears nothing.
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(|this, _event, window, cx| {
-                        this.panel_focus.focus(window, cx);
-                    }),
-                )
-                .on_action(cx.listener(|this, _: &FieldBackspace, _window, cx| {
-                    this.filter_field.backspace();
-                    this.sync_search(cx);
-                }))
-                .on_action(cx.listener(|this, _: &FieldDelete, _window, cx| {
-                    this.filter_field.delete_forward();
-                    this.sync_search(cx);
-                }))
-                .on_action(cx.listener(|this, _: &FieldDeleteWordBack, _window, cx| {
-                    this.filter_field.delete_word_back();
-                    this.sync_search(cx);
-                }))
-                .on_action(cx.listener(|this, _: &FieldLeft, _window, cx| {
-                    this.filter_field.step_caret(-1);
-                    cx.notify();
-                }))
-                .on_action(cx.listener(|this, _: &FieldRight, _window, cx| {
-                    this.filter_field.step_caret(1);
-                    cx.notify();
-                }))
-                .on_action(cx.listener(Self::close_panel))
-                .on_action(cx.listener(Self::toggle_orphans))
-                .on_action(cx.listener(Self::toggle_missing))
-                .on_action(cx.listener(Self::toggle_tags))
-                .child(
-                    chip(&palette, "orphans", orphans)
-                        .id("graph-filter-orphans")
-                        .on_click(cx.listener(|this, _, _window, cx| {
-                            this.toggle(Chip::Orphans, cx);
-                        })),
-                )
-                .child(
-                    chip(&palette, "missing", missing)
-                        .id("graph-filter-missing")
-                        .on_click(cx.listener(|this, _, _window, cx| {
-                            this.toggle(Chip::Missing, cx);
-                        })),
-                )
-                .child(
-                    chip(&palette, "tags", tags)
-                        .id("graph-filter-tags")
-                        .on_click(cx.listener(|this, _, _window, cx| {
-                            this.toggle(Chip::Tags, cx);
-                        })),
-                )
-                .child(
-                    chip(&palette, &local_label, local.is_some())
-                        .id("graph-filter-local")
-                        .on_click(cx.listener(|this, _, _window, cx| {
-                            this.toggle(Chip::Local, cx);
-                        })),
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .child(FieldElement::new(cx.entity())),
-                ),
-            cx,
-            Self::field_text_changed
-        )
+                .flex_1()
+                .min_w_0()
+                .child(FieldElement::new(cx.entity())),
+        );
+
+        let mut strip = div()
+            .key_context(FILTER_CONTEXT)
+            .track_focus(&self.panel_focus)
+            .flex_none()
+            .flex()
+            .flex_col()
+            .text_color(gpui::rgb(palette.ui_fg))
+            // A click anywhere in the strip is a click on the strip's keyboard. The
+            // window already aims the keyboard at the field when the frame moves (see
+            // [`GraphView::focus_target`]), but a press that lands on the strip's
+            // background — between the chips, or in the gap beside the field — has to
+            // take the keyboard too, or the field looks ready and hears nothing.
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _event, window, cx| {
+                    this.panel_focus.focus(window, cx);
+                }),
+            )
+            .on_action(cx.listener(|this, _: &FieldBackspace, _window, cx| {
+                this.filter_field.backspace();
+                this.sync_search(cx);
+            }))
+            .on_action(cx.listener(|this, _: &FieldDelete, _window, cx| {
+                this.filter_field.delete_forward();
+                this.sync_search(cx);
+            }))
+            .on_action(cx.listener(|this, _: &FieldDeleteWordBack, _window, cx| {
+                this.filter_field.delete_word_back();
+                this.sync_search(cx);
+            }))
+            .on_action(cx.listener(|this, _: &FieldLeft, _window, cx| {
+                this.filter_field.step_caret(-1);
+                cx.notify();
+            }))
+            .on_action(cx.listener(|this, _: &FieldRight, _window, cx| {
+                this.filter_field.step_caret(1);
+                cx.notify();
+            }))
+            .on_action(cx.listener(Self::close_panel))
+            .on_action(cx.listener(Self::toggle_orphans))
+            .on_action(cx.listener(Self::toggle_missing))
+            .on_action(cx.listener(Self::toggle_tags))
+            .on_action(cx.listener(Self::save_lens))
+            .child(row);
+        // A refused line says so where it was typed: the sentence in danger colour, one
+        // row under the line, and the line's own text in the same colour. The status bar
+        // stays quiet while the strip is open, because the bar is a panel away from the
+        // thing being read and the reader's eyes are on the line.
+        if let Some(said) = self.refusal.clone() {
+            #[cfg(test)]
+            if strip_open {
+                *self.strip_said.borrow_mut() = Some(said.clone());
+            }
+            strip = strip.child(
+                div()
+                    .flex_none()
+                    .text_color(gpui::rgb(palette.callout_danger))
+                    .child(said),
+            );
+        }
+        field_key_actions!(strip, cx, Self::field_text_changed)
     }
 
-    /// Whether the filter strip is showing, for the tests that open and close it.
+    /// Whether the filter strip is showing. The tests that open and close the strip ask;
+    /// the *window* never does, because it cannot — the strip calls into the window from
+    /// inside its own update, and gpui refuses a read of a view already being updated, so
+    /// the refusal sentence is handed back to the callers instead of asked about.
     #[cfg(test)]
     pub(crate) fn panel_open(&self) -> bool {
         self.panel
+    }
+
+    /// Whether the line is being drawn in the danger role — read through the same
+    /// [`FieldOwner::refused`] the field shapes its text with, so a test that asks this is
+    /// asking the decision the colour is actually drawn from.
+    #[cfg(test)]
+    pub(crate) fn line_refused(&self) -> bool {
+        FieldOwner::refused(self)
     }
 
     /// What the search line holds, for the tests that type into it.
@@ -347,6 +455,12 @@ impl FieldOwner for GraphView {
 
     fn focus(&self) -> FocusHandle {
         self.panel_focus.clone()
+    }
+
+    /// A refused line is drawn in the palette's danger role: the reader is looking at the
+    /// line, and the sentence explaining it sits one row below it.
+    fn refused(&self) -> bool {
+        self.refusal.is_some()
     }
 }
 

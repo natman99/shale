@@ -10,11 +10,12 @@ refuse to touch anything under one.
 | --- | --- | --- |
 | `config.toml` | the vault's settings ([config.md](config.md)) | yes — a starter is rewritten |
 | `props.toml` | optional: the key types you declare, `cr = "number"` | no — that is your vocabulary, not a cache |
-| `session.json` | one slot per window: panes, tabs, cursors, the jump chain, the graph's camera and filter, the window's frame; plus the vault's recent notes at the top level | yes — you lose the arrangement |
+| `session.json` | one slot per window: panes, tabs, carets, the jump chain, the graph's camera and filter, the window's frame; plus the vault's recent notes at the top level | yes — you lose the arrangement |
 | `themes/<name>.toml` | your palettes | yes |
+| `lenses/<name>.shq` | saved queries the graph can wear ([graph.md](graph.md)); the index never reads them as notes | no — that is your query, not a cache |
 | `shale.db` (+`-wal`, `-shm`) | the index cache: notes, tags, links, properties, word counts, the event log | yes — rebuilt from the notes |
 | `backups/shale-<day>.db` | one copy per day of **the index**, newest 7 kept | yes |
-| `pending-edits/<epoch>-<profile>-<tool>-<hex>.toml` | the agent's proposals waiting for review | only on purpose — that is the queue |
+| `pending-edits/<epoch>-<profile>-<tool>-<hex>.toml` | the agent's edits waiting for review | only on purpose — that is the queue |
 | `lock` | the `flock` claim: which process owns this vault | only while nothing is running |
 | `mcp.lock` | the loopback port a live window answers on, and its token | only while nothing is running |
 
@@ -30,10 +31,16 @@ use.
 
 `$XDG_STATE_HOME/shale/recent.toml` (falling back to `~/.local/state/shale/`) holds
 the vaults the app knows — newest first, capped at 10. It is what `shale` with no
+<<<<<<< HEAD
 argument opens, and what `:vault` lists. An older `recent.json` (the same TOML in a
 lying name) is still read once, and the next save lands on the honest one. Deleting
 these costs you that list and
 nothing else.
+=======
+argument opens, and what `:vault` lists. Deleting it costs you that list and
+nothing else: the next no-argument start opens the vault picker rather than a vault,
+and says that the folder it looked for is not a vault any more.
+>>>>>>> 1080e012156dc683a3a68a64d598e489654e6a25
 
 ## How a file gets written
 

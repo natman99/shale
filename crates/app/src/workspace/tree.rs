@@ -9,8 +9,8 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use gpui::{
-    Context, InteractiveElement, ParentElement, StatefulInteractiveElement, Styled, Window, div,
-    prelude::*, px,
+    Context, ExternalPaths, InteractiveElement, IntoElement, ParentElement, Render,
+    StatefulInteractiveElement, Styled, Window, div, prelude::*, px,
 };
 use shale_core::theme::Palette;
 
@@ -19,6 +19,39 @@ use crate::style::{CHIP_RADIUS, GLYPH_COLLAPSED, GLYPH_EXPANDED};
 use crate::tree;
 
 use super::Workspace;
+
+/// What a tree drag carries: the note being carried. A named type rather than a bare
+/// `PathBuf` so a `on_drop` listener cannot answer a drag some other surface started —
+/// gpui matches a drop to a listener by the payload's type id.
+#[derive(Clone, Debug)]
+pub(crate) struct NoteDrag {
+    /// The note, vault-relative, that the pointer picked up.
+    pub(crate) path: PathBuf,
+}
+
+/// The thing that follows the cursor while a note is being carried: the note's name,
+/// on a chip in the same colours a selected row wears. gpui wants a view to render for
+/// a drag, so this is one, and it holds nothing else.
+struct DragChip {
+    name: String,
+    bg: u32,
+    border: u32,
+}
+
+impl Render for DragChip {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .flex_none()
+            .rounded(CHIP_RADIUS)
+            .border_1()
+            .border_color(gpui::rgb(self.border))
+            .bg(gpui::rgb(self.bg))
+            .px_2()
+            .py_0p5()
+            .text_size(crate::style::TEXT_SM)
+            .child(self.name.clone())
+    }
+}
 
 /// What the sidebar rows are drawn from, bundled so `push_node` does not take
 /// an argument per question it asks.
@@ -63,6 +96,9 @@ pub(super) fn push_node(
         },
         node.name
     );
+    // The palette colours the drag affordances use, copied out of the borrowed state:
+    // gpui wants its style closures `'static`, and `state` lives one frame.
+    let hover_bg = state.palette.ui_hover_bg;
     let my_idx = *idx;
     *idx += 1;
     paths.push(node.path.clone());
@@ -94,7 +130,53 @@ pub(super) fn push_node(
         })
         .when(is_active, |d| d.bg(gpui::rgb(state.palette.ui_active_bg)))
         .hover(|s| s.bg(gpui::rgb(state.palette.ui_hover_bg)))
+        // A row answers a drop whether it is a folder or a note: the folder is the row
+        // itself, and a note's folder is the folder the note sits in — which is the only
+        // way to say "put it next to this one" with the mouse.
+        .on_drop({
+            let path = node.path.clone();
+            cx.listener(move |this, drag: &NoteDrag, _window, cx| {
+                this.drop_note(&drag.path, &path, cx);
+            })
+        })
+        // A drop from outside the vault lands in the same folder this row names: the
+        // pointer decides where a file goes, whether the file came from inside the vault
+        // or from the file manager.
+        .on_drop({
+            let path = node.path.clone();
+            cx.listener(move |this, paths: &ExternalPaths, _window, cx| {
+                this.import_files(paths.paths(), &path, cx);
+            })
+        })
+        // The row under the pointer takes the hover fill, so the drop's target is
+        // visible before the button lets go. Both kinds of drag wear it: the note being
+        // carried, and the files the window has accepted from the platform.
+        .drag_over::<NoteDrag>(move |s, _, _, _| s.bg(gpui::rgb(hover_bg)))
+        .drag_over::<ExternalPaths>(move |s, _, _, _| s.bg(gpui::rgb(hover_bg)))
+        .debug_selector(|| format!("tree-row {}", shale_core::vault::rel_text(&node.path)))
         .child(label)
+        // Only a note lifts. A folder cannot be moved — the notes inside it spell out
+        // the folder's name and nothing rewrites those yet — and a handle that always
+        // fails to land is worse than no handle.
+        .when(!is_dir, |d| {
+            d.on_drag(
+                NoteDrag {
+                    path: node.path.clone(),
+                },
+                {
+                    let name = node.name.clone();
+                    let bg = state.palette.ui_active_bg;
+                    let border = state.palette.ui_active_border;
+                    move |_, _, _window, cx| {
+                        cx.new(|_| DragChip {
+                            name: name.clone(),
+                            bg,
+                            border,
+                        })
+                    }
+                },
+            )
+        })
         .on_click({
             let path = node.path.clone();
             cx.listener(move |this, _: &gpui::ClickEvent, _window, cx| {

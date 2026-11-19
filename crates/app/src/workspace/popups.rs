@@ -52,6 +52,17 @@ const EDGE_MARGIN: Pixels = px(8.);
 /// note: a panel that flipped above its line is walked away from upwards, and
 /// watching its bottom edge would close it the moment the pointer moved down onto
 /// its own word.
+/// What a card hangs off: a link's row in a note, or a node's dot in the graph. The two
+/// surfaces that answer "what is this?" to a pointer that stopped moving, and the reason
+/// one field cannot be a line number for both is that a graph has no lines.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum CardAnchor {
+    Link(crate::editor::LineRef),
+    Node(usize),
+}
+
+/// Where a floating surface ended up: the box it occupies in window coordinates, and
+/// which side of its anchor it is on.
 #[derive(Debug, PartialEq)]
 pub(crate) struct PlacedPopup {
     /// The panel's bounds, in window coordinates.
@@ -225,7 +236,7 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         // Already showing this link: leave it alone.
-        if self.card_anchor == Some(line) {
+        if self.card_anchor == Some(CardAnchor::Link(line)) {
             return;
         }
         let Some(editor) = self.editor() else {
@@ -259,7 +270,7 @@ impl Workspace {
             crate::card::Preview::new(text.title, text.lines, text.hidden, palette, family, size)
         });
         self.card = Some(card);
-        self.card_anchor = Some(line);
+        self.card_anchor = Some(CardAnchor::Link(line));
         self.card_link_start = link_start;
         self.surface_scroll = scroll;
         // One floating thing at a time.
@@ -271,6 +282,10 @@ impl Workspace {
 
     /// Take the card away. It never had the keyboard, so there is nothing to hand back.
     pub(super) fn close_card(&mut self, cx: &mut Context<Self>) {
+        // A countdown parked for a node that is no longer being rested on has to be
+        // invalidated even when there is no card to take: bumping the number is what tells
+        // a countdown that has already woken to write nothing.
+        self.node_card_seq += 1;
         if self.card.take().is_none() {
             return;
         }
@@ -284,7 +299,54 @@ impl Workspace {
     /// is about, flipped above it near the bottom of the window, kept inside the text
     /// column near the right edge — worked out from the card's own height each frame.
     pub(crate) fn card_place(&self, window: &Window, cx: &gpui::App) -> Option<PlacedPopup> {
-        let anchor = self.card_anchor?;
+        match self.card_anchor? {
+            CardAnchor::Link(line) => self.card_place_link(line, window, cx),
+            CardAnchor::Node(slot) => self.card_place_node(slot, window, cx),
+        }
+    }
+
+    /// Where a node card goes: under the dot, flipped above it near the bottom of the
+    /// window, kept inside its edges. Asked again every frame, so the card travels with
+    /// the node when the view pans or zooms instead of staying where the pointer happened
+    /// to stop — the same reason a link's card follows its row as the note scrolls.
+    fn card_place_node(&self, slot: usize, window: &Window, cx: &gpui::App) -> Option<PlacedPopup> {
+        let view = self.graph_view()?;
+        let (at, radius) = view.read_with(cx, |view, _cx| view.node_screen(slot))?;
+        let card = self.card.as_ref()?;
+        let size = card.read_with(cx, |card, _cx| card.panel_size());
+        let edge = window.bounds();
+        let (at_x, at_y) = (gpui::px(at[0]), gpui::px(at[1]));
+        let clear = gpui::px(radius) + GAP;
+        // Centred under the dot, then pulled inside the window: a node at the right edge
+        // gets a card that is inside the window, not one that hangs off it.
+        let mut x = at_x - size.width / 2.;
+        if x + size.width > edge.right() - EDGE_MARGIN {
+            x = (edge.right() - EDGE_MARGIN - size.width).max(edge.left() + EDGE_MARGIN);
+        }
+        if x < edge.left() + EDGE_MARGIN {
+            x = edge.left() + EDGE_MARGIN;
+        }
+        let below = at_y + clear + size.height <= edge.bottom() - EDGE_MARGIN;
+        let y = if below {
+            at_y + clear
+        } else {
+            (at_y - clear - size.height).max(edge.top() + EDGE_MARGIN)
+        };
+        Some(PlacedPopup {
+            bounds: gpui::Bounds {
+                origin: gpui::point(x, y),
+                size,
+            },
+            below,
+        })
+    }
+
+    fn card_place_link(
+        &self,
+        anchor: crate::editor::LineRef,
+        window: &Window,
+        cx: &gpui::App,
+    ) -> Option<PlacedPopup> {
         let editor = self.editor()?;
         let (line, visible) = editor.read_with(cx, |editor, _cx| {
             (
@@ -377,7 +439,7 @@ impl Workspace {
         // speak for a surface anchored inside an entered block.
         let anchored_in_block = matches!(
             (self.card_anchor, self.popup_anchor),
-            (Some(crate::editor::LineRef::Embed(_)), _)
+            (Some(CardAnchor::Link(crate::editor::LineRef::Embed(_))), _)
                 | (_, Some(crate::editor::LineRef::Embed(_)))
         );
         if anchored_in_block {

@@ -479,6 +479,20 @@ impl Vault {
         self.resolve(rel).map(|p| p.is_file()).unwrap_or(false)
     }
 
+    /// The stamp (size + mtime) of a note, without reading it — the cheap
+    /// "has this changed" check. A note that cannot be stated (gone, or a
+    /// path the vault refuses) has no stamp, which callers read as "not
+    /// there" rather than as an error: the stamp is an optimization, and a
+    /// missing one only costs a read attempt.
+    pub fn stamp(&self, rel: impl AsRef<Path>) -> Option<Stamp> {
+        let path = self.resolve(rel).ok()?;
+        let meta = fs::metadata(&path).ok()?;
+        Some(Stamp::File {
+            len: meta.len(),
+            mtime: meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH),
+        })
+    }
+
     pub fn read(&self, rel: impl AsRef<Path>) -> Result<String> {
         let path = self.resolve(rel)?;
         fs::read_to_string(&path).with_context(|| format!("reading note {}", path.display()))
@@ -523,6 +537,53 @@ impl Vault {
         // new note, a plain write would be a note that can be lost at birth.
         crate::atomic::write_file(&path, "")
             .with_context(|| format!("creating note {}", path.display()))?;
+        Ok(rel)
+    }
+
+    /// Copy a file from **outside** the vault into it at `rel`, and return the
+    /// vault-relative path that was written.
+    ///
+    /// The copy is atomic like a note write ([`crate::atomic`]): an import that dies
+    /// part-way leaves nothing behind, because a half-written image is a broken embed
+    /// the author never asked for.
+    ///
+    /// Refuses to overwrite, so a drop can never quietly replace a note. And refuses a
+    /// source that already lives in the vault: a file inside the vault moves with
+    /// [`Self::rename_to`], which takes the links with it, and a *copy* of a vault file
+    /// would leave the original standing with its links pointing at two files.
+    pub fn import(&self, src: &Path, rel: impl AsRef<Path>) -> Result<PathBuf> {
+        let rel = checked_rel(rel.as_ref())?;
+        guard_unprotected(&rel)?;
+        let dest = self.resolve(&rel)?;
+        if dest.exists() {
+            // `rel_text`, not `display`: this lands in the app's status line, and the
+            // same refusal should read the same on both platforms.
+            bail!("{} already exists", rel_text(&rel));
+        }
+        let meta = fs::metadata(src).with_context(|| format!("reading {}", src.display()))?;
+        if !meta.is_file() {
+            bail!("{} is not a file", src.display());
+        }
+        // Both sides canonicalised, because a vault root can be reached by more than
+        // one spelling (`/tmp` and `/private/tmp` on macOS) and the question is whether
+        // the *file* is inside the vault, not whether the strings share a prefix.
+        let inside = match (src.canonicalize(), self.root.canonicalize()) {
+            (Ok(src), Ok(root)) => src.starts_with(root),
+            _ => false,
+        };
+        if inside {
+            bail!(
+                "{} is already in the vault: `:move` takes a vault file somewhere else",
+                src.display()
+            );
+        }
+        let bytes = fs::read(src).with_context(|| format!("reading {}", src.display()))?;
+        if let Some(parent) = dest.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("creating directory {}", parent.display()))?;
+        }
+        crate::atomic::write_bytes(&dest, &bytes)
+            .with_context(|| format!("importing {} into {}", src.display(), rel.display()))?;
         Ok(rel)
     }
 
@@ -672,6 +733,31 @@ impl Vault {
     }
 }
 
+/// The files the app treats as a picture: what an embed can show, and besides a
+/// markdown note, the only thing an import will carry into the vault. One list, so the
+/// import, the tree and the embed cannot disagree about what an image is.
+///
+/// Deliberately short: these are the formats a note app can be expected to *show*, not
+/// every format a decoder exists for. A `.tiff` a scanner produced is refused out loud
+/// rather than imported as an embed that paints nothing.
+pub fn is_image_name(name: &str) -> bool {
+    // A name that *starts* with the extension (`.png`) has no extension: it is a
+    // hidden file called `png`, and the app has no picture by that name to show.
+    let Some((stem, ext)) = name.rsplit_once('.') else {
+        return false;
+    };
+    !stem.is_empty()
+        && matches!(
+            ext.to_ascii_lowercase().as_str(),
+            "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "bmp"
+        )
+}
+
+/// A markdown note, by the same test the vault walks with.
+pub fn is_note_name(name: &str) -> bool {
+    name.ends_with(".md")
+}
+
 /// Validate a vault-relative path that Shale is about to **create**: every
 /// component must be a name a vault can hold, and the path may not traverse.
 /// Returns the same path with any `.` components dropped.
@@ -801,6 +887,115 @@ mod tests {
         fs::write(root.join("notes/ignored.txt"), "not markdown")?;
         fs::write(root.join("assets/Diagram.png"), "not really a png")?;
         Ok((dir, Vault::open(root)?))
+    }
+
+    /// An import copies the bytes, keeps the name, creates the folder it lands in, and
+    /// leaves the file outside the vault where it was.
+    #[test]
+    fn an_import_copies_the_bytes_and_keeps_the_name() -> Result<()> {
+        let (_dir, vault) = fixture()?;
+        let outside = tempfile::tempdir()?;
+        let src = outside.path().join("map.png");
+        fs::write(&src, [0x89, b'P', b'N', b'G'])?;
+
+        assert_eq!(
+            vault.import(&src, "inbox/deep/map.png")?,
+            PathBuf::from("inbox/deep/map.png"),
+            "the folders a drop lands in are created on the way"
+        );
+        assert_eq!(
+            fs::read(vault.resolve("inbox/deep/map.png")?)?,
+            vec![0x89, b'P', b'N', b'G'],
+            "and no text handling touched the bytes"
+        );
+        assert!(src.is_file(), "an import copies; it does not move");
+        Ok(())
+    }
+
+    /// Dropping the same screenshot in twice must not quietly replace the one the
+    /// author has been embedding.
+    #[test]
+    fn an_import_refuses_to_overwrite() -> Result<()> {
+        let (_dir, vault) = fixture()?;
+        let outside = tempfile::tempdir()?;
+        let src = outside.path().join("Deep.md");
+        fs::write(&src, "an impostor")?;
+
+        vault.write("notes/Deep.md", "what the author wrote")?;
+        let err = vault.import(&src, "notes/Deep.md").unwrap_err().to_string();
+        assert!(err.contains("already exists"), "{err}");
+        assert_eq!(
+            fs::read_to_string(vault.resolve("notes/Deep.md")?)?,
+            "what the author wrote",
+            "the note in the vault still holds what it held"
+        );
+        Ok(())
+    }
+
+    /// Inside the vault a file **moves** — `rename_to` takes the links with it. A copy
+    /// would leave the original standing with its links pointing at two files.
+    #[test]
+    fn a_file_already_in_the_vault_is_not_copied() -> Result<()> {
+        let (_dir, vault) = fixture()?;
+        let inside = vault.resolve("Welcome.md")?;
+        let err = vault
+            .import(&inside, "other/Welcome.md")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("already in the vault"), "{err}");
+        assert!(
+            !vault.resolve("other/Welcome.md")?.exists(),
+            "and no second copy appeared"
+        );
+        Ok(())
+    }
+
+    /// The vault's own machinery is not vault content, so a drop cannot write there.
+    #[test]
+    fn an_import_refuses_a_hidden_destination() -> Result<()> {
+        let (_dir, vault) = fixture()?;
+        let outside = tempfile::tempdir()?;
+        let src = outside.path().join("x.png");
+        fs::write(&src, b"png")?;
+        let err = vault
+            .import(&src, ".obsidian/x.png")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("not vault content"), "{err}");
+        Ok(())
+    }
+
+    /// A folder is not a file to import: the filter in the app refuses it by name, and
+    /// the vault refuses it by what it is, so neither depends on the other.
+    #[test]
+    fn a_folder_is_not_a_file_to_import() -> Result<()> {
+        let (_dir, vault) = fixture()?;
+        let outside = tempfile::tempdir()?;
+        let err = vault
+            .import(outside.path(), "assets/box.png")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("is not a file"), "{err}");
+        Ok(())
+    }
+
+    /// The image list is the app's whole answer to "is this a picture", so it is
+    /// checked case-insensitively and refuses the formats a note app cannot show.
+    #[test]
+    fn the_image_filter_takes_what_a_note_app_can_show() {
+        for name in ["a.png", "A.PNG", "photo.JPG", "x.jpeg", "y.webp", "z.svg"] {
+            assert!(is_image_name(name), "{name} is an image");
+        }
+        for name in [
+            "a.md",
+            "notes.txt",
+            "no extension",
+            "x.tiff",
+            "y.pdf",
+            ".png",
+        ] {
+            assert!(!is_image_name(name), "{name} is not");
+        }
     }
 
     /// A relative path's text form is `/`-joined however the components were assembled, so a

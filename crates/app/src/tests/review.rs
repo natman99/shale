@@ -847,9 +847,7 @@ fn one_queue_reaches_every_window_on_the_vault(cx: &mut TestAppContext) {
     .unwrap();
     cx.update(|cx| {
         cx.bind_keys(keybindings());
-        cx.set_global(crate::workspace::vaults::VaultWindows::new(
-            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
-        ));
+        cx.set_global(crate::workspace::vaults::VaultWindows::new());
     });
 
     let a = cx

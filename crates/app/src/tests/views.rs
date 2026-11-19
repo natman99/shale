@@ -307,7 +307,7 @@ fn a_view_change_ends_insert_mode(cx: &mut TestAppContext) {
     );
 
     cx.simulate_keystrokes("ctrl-shift-p");
-    cx.simulate_input("preview");
+    cx.simulate_input("read");
     cx.simulate_keystrokes("enter");
     assert_eq!(
         window
@@ -318,7 +318,7 @@ fn a_view_change_ends_insert_mode(cx: &mut TestAppContext) {
             })
             .unwrap(),
         shale_core::vim::Mode::Normal,
-        "and the palette's preview row left normal mode behind"
+        "and the palette's read-only preview row left normal mode behind",
     );
     assert_eq!(
         note_text(&window, cx),

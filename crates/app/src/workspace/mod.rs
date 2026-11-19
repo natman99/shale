@@ -12,7 +12,7 @@
 mod bar;
 mod checker;
 mod edits;
-mod exit;
+pub(crate) mod exit;
 mod graph;
 pub(crate) mod index;
 mod jumps;
@@ -66,6 +66,12 @@ use crate::prompt;
 pub(crate) struct Workspace {
     focus_handle: gpui::FocusHandle,
     vault: Rc<Vault>,
+    /// The search picker's note-text cache: a keystroke re-reads only the
+    /// notes whose size or mtime changed since the last query (see
+    /// [`shale_core::search::NoteCache`]). Per-window because the picker's
+    /// row source runs without `cx` and holds an `Rc` clone of this, not a
+    /// reach into the vault's services.
+    note_cache: Rc<std::cell::RefCell<shale_core::search::NoteCache>>,
     /// Which session slot this window owns: its own slice of
     /// `.shale/session.json`, so two windows on one vault remember different
     /// rooms and neither overwrites the other. Claimed from the vault's
@@ -155,10 +161,20 @@ pub(crate) struct Workspace {
     /// uses, so a card about a link inside the block being edited hangs off a row of
     /// the other note. Re-placed every frame: it follows the note as it scrolls, and
     /// goes away when the line does.
-    card_anchor: Option<crate::editor::LineRef>,
+    card_anchor: Option<popups::CardAnchor>,
     /// Where in the link's row the card hangs: the byte the link starts at, so the card
     /// sits under the link rather than at the beginning of the line it is written on.
     card_link_start: Option<usize>,
+    /// The dwell countdown for a graph node card, and the number that says which
+    /// countdown is current: a pointer that moves on drops the parked task, and one that
+    /// has already woken writes only if its number is still the current one — the same
+    /// pair of braces `say` puts on the status line's countdown.
+    _node_card: Option<Task<()>>,
+    node_card_seq: usize,
+    /// The node the pointer was resting on as of the last frame. The window compares the
+    /// graph's answer to this each frame, which is how a rest is noticed without the graph
+    /// reaching into the window mid-update.
+    graph_rest: Option<usize>,
     /// How far the note was scrolled when the floating surface last asked the pointer's
     /// question. Scrolling moves text under a pointer that never moved, and gpui reports
     /// no mouse move for it, so the pointer's question has to be asked again against the
@@ -343,6 +359,12 @@ pub(crate) struct Workspace {
     /// What every path in the vault looked like the last time the disk was
     /// checked, which is what the next check explains the difference to.
     signature: BTreeMap<PathBuf, Stamp>,
+    /// What each lens file under `.shale/lenses/` looked like the last time the disk was
+    /// checked. The vault's own signature walk skips `.shale/` on purpose (EDGE-L1), so
+    /// the lens folder is stamped beside it — the only way a lens edited by hand outside
+    /// Shale reaches the graph that is wearing it (EDGE-L7), and the only way a lens
+    /// deleted out from under a graph can say so (EDGE-L11).
+    lens_stamps: BTreeMap<String, Stamp>,
     /// The vault index, when one is configured and opened: the cache of notes,
     /// tags, links and word counts that `:wordcount` reads now and the graph,
     /// vault search and agent read later.
@@ -353,9 +375,6 @@ pub(crate) struct Workspace {
     /// startup pass can hold one handle on a background thread while the window
     /// keeps its own.
     db: Option<Arc<Db>>,
-    /// The task that watches for a termination signal. Only started by `main`, and
-    /// only for as long as the window is (see [`exit`]).
-    _termination: Option<Task<()>>,
     /// The vault's shared services: the index handle, the live MCP channel, and
     /// the loops that must run once per vault rather than once per window (see
     /// [`services`]). Kept so the entity lives exactly as long as some window is
@@ -410,6 +429,21 @@ pub(crate) struct Workspace {
     /// answer at exactly one place: its card while it is open, the bar while it is not.
     #[cfg(test)]
     chrome_drawn: std::cell::RefCell<Vec<&'static str>>,
+    /// What the status bar drew for the lens this frame: the segment's text, or nothing
+    /// when the bar drew no lens segment. `#[cfg(test)]` because the frame is the only
+    /// thing that decides whether a segment is drawn at all.
+    #[cfg(test)]
+    bar_lens: std::cell::RefCell<Option<String>>,
+    /// The labels the tab bar **drew** for graph tabs last frame. The tab title is the
+    /// only place a lens is named without opening the strip, so a test has to read what
+    /// the frame painted rather than re-derive the words (the `bar_lens` rule).
+    #[cfg(test)]
+    tab_labels: std::cell::RefCell<Vec<String>>,
+    /// How many times a re-run **replaced** a worn lens's scope. EDGE-L7's layout half:
+    /// re-asking is cheap, and the picture is only re-made when the answer's node set
+    /// moved — so a move that changed nothing must leave this counter where it was.
+    #[cfg(test)]
+    lens_replaced: std::cell::Cell<usize>,
     /// Whether the keyboard has to follow the frame. A tab owns its editor, so the
     /// node with the keyboard is the drawn tab's editor; after a tab change the
     /// keyboard is still on the entity that is no longer drawn, and the next keystroke
@@ -484,6 +518,8 @@ impl Workspace {
         let entries = vault.list_markdown().unwrap_or_default();
         let dirs = vault.list_dirs().unwrap_or_default();
         let signature = vault.signature().unwrap_or_default();
+        // The lens folder is not in that walk (EDGE-L1), so it is stamped beside it.
+        let lens_stamps = shale_core::lens::stamps(vault.root());
         // Folders start **closed**. The tree is the vault, but a vault with a few
         // thousand notes and every folder open is a few thousand rows laid out on every
         // frame, and a sidebar nobody can scan is not a tree. What the user opens is
@@ -589,6 +625,7 @@ impl Workspace {
         let mut workspace = Self {
             focus_handle: cx.focus_handle(),
             vault,
+            note_cache: Rc::default(),
             session_slot,
             last_bounds: None,
             self_window: None,
@@ -610,6 +647,9 @@ impl Workspace {
             card: None,
             card_anchor: None,
             card_link_start: None,
+            _node_card: None,
+            node_card_seq: 0,
+            graph_rest: None,
             surface_scroll: 0.0,
             surface_reask: false,
             #[cfg(test)]
@@ -638,6 +678,7 @@ impl Workspace {
             graph_pending: Vec::new(),
             // Everything on, which is Obsidian's default graph and core's.
             graph_filter: shale_core::graph::filter::GraphFilter::default(),
+            lens_stamps,
             graph_dim: crate::graph::Dim::Two,
             expanded,
             // The window starts with no tabs and gets its first one below, which is
@@ -678,7 +719,6 @@ impl Workspace {
             signature,
             db,
             _services: services,
-            _termination: None,
             live_snapshot,
             review,
             pending_unreadable: Vec::new(),
@@ -693,6 +733,12 @@ impl Workspace {
             chrome_marks: std::cell::Cell::new(("", "")),
             #[cfg(test)]
             chrome_drawn: std::cell::RefCell::new(Vec::new()),
+            #[cfg(test)]
+            bar_lens: std::cell::RefCell::new(None),
+            #[cfg(test)]
+            tab_labels: std::cell::RefCell::new(Vec::new()),
+            #[cfg(test)]
+            lens_replaced: std::cell::Cell::new(0),
             focus_stale: false,
             _keystroke_observer: keystroke_observer,
         };
@@ -956,6 +1002,9 @@ impl Workspace {
         after: BTreeMap<PathBuf, Stamp>,
         cx: &mut Context<Self>,
     ) {
+        // The lens files ride the same tick, ahead of the empty check: they are not vault
+        // files (EDGE-L1), so a hand edit to a lens arrives as no vault change at all.
+        self.check_lenses(cx);
         let changes = VaultChanges::between(&self.signature, &after);
         if changes.is_empty() {
             return;
@@ -1079,6 +1128,9 @@ impl Workspace {
     /// back as somebody else's edit.
     pub(super) fn resign(&mut self) {
         self.signature = self.vault.signature().unwrap_or_default();
+        // The lens folder is not in that walk, so it is re-taken here: a lens Shale
+        // itself wrote (M5's `alt-s`) must not come back as somebody else's edit.
+        self.lens_stamps = shale_core::lens::stamps(self.vault.root());
     }
 }
 

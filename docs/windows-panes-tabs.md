@@ -88,7 +88,7 @@ A tab bar row is a rounded chip framed by the bar's own colour, and a dirty dot
 sits on the tab it belongs to.
 
 **Opening a note that another pane already shows steals the tab** into the pane with the
-keyboard, whole: the tab owns its editor, so the cursor, folds, view and undo history
+keyboard, whole: the tab owns its editor, so the caret, folds, view and undo history
 travel with it. The pane it left gets a blank tab rather than closing. (Ruled 2026-11-05:
 "found, and brought here" replaces "found, and the keyboard goes there".) The graph tab
 is exempt, because there is one per window and it stays where it is.
@@ -137,7 +137,7 @@ the note, and `:w <name>` names it by hand.
 
 `.shale/session.json` holds one slot per window: its panes and the tiling tree
 over them (direction, fraction, which pane had the keyboard), each pane's tabs in
-order with the view each was in, the open note's cursor and scroll, the tree's
+order with the view each was in, the open note's caret and scroll, the tree's
 expanded folders, the jump chain, focus mode and typewriter state, the graph's camera and
 filter, and the window's frame. The vault's **recent notes** sit at the top level of the
 same file, one list for every window on the vault.

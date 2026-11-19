@@ -15,6 +15,13 @@ Nodes are notes, attachments, saved queries (`.shq`, drawn with an `ƒ` and the 
 link. A→b and b→a is one edge, flagged bidirectional. Tag hues are derived from the palette
 in OKLCH, so a tag's colour follows the theme rather than being fixed.
 
+A link written by an **alias** is an edge to the note that declares the alias, not a ghost:
+the graph resolves through the same table the link colour, the hover card and `ctrl-]` use,
+so a note reached only by the names it declares is still a note people write about. An
+alias never takes a link away from a note that already answers it, and because an alias is
+declared in one note and written in another, declaring one re-scans the vault rather than
+only the note that changed.
+
 A query is a node whether or not anything embeds it — an unasked question is still a
 question, and the `orphans` chip hides it the way it hides a note nobody links to. The
 embed is what draws the edge: a query's own program is SQL, so a `[[` inside it is not a
@@ -46,7 +53,7 @@ has; 3D→flat carries the arrangement back. There is no camera glide on the swi
 turn is the movement.
 
 In the projected view the pointer's gestures are the ones the flat view has: the
-wheel **magnifies at the cursor**, `ctrl`+wheel travels, dragging the background
+wheel **magnifies at the pointer**, `ctrl`+wheel travels, dragging the background
 turns or pans the view, and the eye sits outside the cloud rather than inside it.
 
 ## The local neighbourhood
@@ -60,6 +67,58 @@ The centre is the most recently shown note in the pane with the keyboard, the no
 were reading when the vault became a neighbourhood, and it is marked. The centre is never
 stored in the session: a remembered centre could be a note you deleted on the way out.
 The **depth** is stored.
+
+## A lens
+
+A **lens** is a saved query the graph wears: a `.shq` file under `.shale/lenses/` whose
+note column names the notes the picture is allowed to show ([notes.md](notes.md) covers
+what a saved query is). `:lens <name>` puts one on, `:lens none` takes it off, and
+`:lens` with nothing typed opens a picker that lists each lens with how many notes it
+answers **now** — a lens whose query will not run shows `—` and can still be chosen,
+because the picture is not the place to find out. The palette's "Choose a lens for the
+graph" row opens the same picker.
+
+Like local scope, a lens is a **filter dimension**: what it did not answer leaves the
+simulation as well as the paint, and the layout closes up around what is left. A lens and
+a local scope **and** each other — a lens worn on a neighbourhood is the notes in both —
+and the filter strip's chips and search still cut inside the answer.
+
+While a lens is on, the **status bar says so**: a segment beside the view badge reads
+`lens <name>`, in the colour the bar reserves for states that are not the default. It is
+there because a lens that narrows the picture quietly is a lens the reader forgets is on,
+and the filter strip's line only answers when it is focused. It appears on the graph
+tab and not on a note tab, because there it would read as a property of the note.
+
+A lens is also a file Shale will write for you. With the filter strip open, `alt-s` keeps
+the question in the line as a lens: the operators compile to the SQL a hand-written `.shq`
+would hold — the same translation keep-a-search makes — and the prompt asks for a name,
+starting from one made from the question. `:lens save <name>` is the same door with the
+name already given. A saved lens goes on right away, and a lens that already exists is
+never written over: the file a reader wrote outranks the picture just saved. The filter strip's
+chips are **not** encoded into the file — they stay dimensions, so a lens never freezes an
+`orphans` choice into a query its author will later read. Neither are the line's **words**:
+a lens is a question for the index, and a fuzzy label match has no SQL to compile to, so
+saving from a line like `tag:boss bos` says the words stay outside. What the file holds is
+what the picture was narrowed by, which is the point of saving it.
+
+While a lens is on it keeps up with the vault: the query re-runs when the index moves or
+when the file changes under an editor's hands, and the layout is only disturbed when the
+answer names a different set of notes. A lens that cannot be answered — SQL that fails, or
+a query with no note column — says so and leaves the last good picture standing; an answer
+that names notes the graph has no node for counts them out loud rather than dropping them.
+
+The filter strip carries a row for it — `lens <name> · 3 notes`, or `lens <name> · not answering:
+<why>` — because the status line's sentence scrolls away and the picture's silence does
+not. The tab's title carries it too: a graph tab reads `graph · <name>`.
+
+A lens comes back with the session. The seat remembers its **name**, never the paths it
+answered — the file is the authority and the vault moves — so the next window asks it again
+and wears whatever it answers now. A lens that no longer answers leaves the window
+unfiltered and says so, rather than opening on an empty picture.
+
+The demo vault ships one to read — `:lens Tagged notes` narrows the picture to the three
+notes that write a tag — at
+`examples/demo-vault/.shale/lenses/Tagged notes.shq`.
 
 ## The camera moves, and then it stops
 
@@ -93,16 +152,65 @@ that, a press is a click, and a click opens the node. Dragging a node begins by 
 **at its own position**, so a shaky hand cannot throw the layout across the screen.
 `shift` leaves a node pinned where you put it, for as long as the window lives.
 
+A pointer that **stops** on a node for half a second raises a card: the note's name, the
+first lines of it with the markers hidden, and how many lines the card left out. The wait
+is the whole difference from the card a wikilink raises in a note. Prose holds few links,
+so the editor answers the moment the pointer finds one; a graph is dots packed together,
+and sweeping across one is ordinary, so without the wait a card would flash at every dot
+on the way past. Pressing ends the wait, and so does moving off the dot: the card belongs
+to the pointer and never takes the keyboard. It is placed against the dot each frame, so a
+view that zooms or pans under a still pointer takes the card with it.
+
+A note reached only by the names it declares is otherwise indistinguishable — same dot,
+same label — so the card puts `also known as: …` above the lines when the note declares
+aliases. That row is the graph's half of the alias rule: the edge already lands on the
+right note, and now the dot can say what it was reached by.
+
+Ghosts and tags get no card. Neither is a note, so neither has lines to preview.
+
 ## The filter strip
 
-`/` opens it; `escape` closes it and leaves the keyboard where it was — on the strip a
+`/` opens it; `escape` closes it and leaves the keyboard where it was — on the filter strip a
 moment ago, on the graph after that. Leaving the *tab* is tab paging — `g t`/`g T`,
 `:tabnext` — exactly as for any other tab. Three chips
-(`orphans`, `missing`, `tags`, on `alt-o`, `alt-x` and `alt-t`) and a search line that
-narrows the picture as it is typed. A filtered node leaves the simulation as well as the
-paint, so the layout closes up around what is left.
+(`orphans`, `missing`, `tags`, on `alt-o`, `alt-x` and `alt-t`) and a line that narrows
+the picture as it is typed. A filtered node leaves the simulation as well as the paint, so
+the layout closes up around what is left.
 
-The strip has its own keyboard context, which is why the graph's `hjkl`, `f`, `+`
+**The line speaks the vault search's grammar** — the operators are
+[the same ones](notes.md#asking-with-operators), answered by the same door. `tag:` `path:`
+`link:` `prop:` and `modified:` ask the index which **notes** the picture holds, and the
+words left over are matched fuzzily against node labels and paths. So `tag:boss` shows the
+notes carrying `#boss` and the tags and holes those notes name — not the nodes whose names
+happen to contain the letters `b`, `o`, `s`, `s`. Words and operators **and** together:
+`tag:boss boss` narrows the answer by label.
+
+**A word that lands on a tag or a hole brings the notes it is about.** A bare `monster`
+matches the `#monster` dot, and the notes wearing it come along — one hop, no further. The
+shape before was the dot alone with every note that carries it hidden: a dot with nothing to
+explain it, which read as a filter working. A hole works the same way, since it is a fact
+about the note that wrote the link — typing `gone` shows the missing note *and* the note that
+linked to it, joined by the link that reaches nowhere. The rescue runs one way: a matched note
+does not light the tags and holes it happens to mention, because typing `goblin` is a search
+for a note, not a request for everything the note talks about. And it reaches only what the
+chips and scopes left on screen — a tag match cannot smuggle back a note a folder, a lens or
+`existing only` has taken away.
+
+Two refusals, neither of them answered with an empty picture. A token shaped like an
+operator and not one (`tags:boss`) is named as a typo, and the picture stands where it was;
+with the index off, the operators say they need it, and the words still work. An empty graph
+should only ever mean an empty answer.
+
+**A refused line says so where it was typed.** The filter strip grows a second row under the line,
+in the colour it reserves for a broken thing, holding the sentence; the line's own text is
+drawn in that colour too, so a glance at the filter strip answers "is this filter doing anything"
+without looking anywhere else. The status bar stays quiet while the filter strip is open — the bar
+sits a panel away from the line being read, and a sentence said there is a sentence that
+never arrived. It is the bar's to say when there is no filter strip on screen to say it on: a line
+that came back with the session, for instance. Opening the filter strip asks the line already in it,
+which is also how a filter that has fallen behind the index catches up.
+
+The filter strip has its own keyboard context, which is why the graph's `hjkl`, `f`, `+`
 and `-` are not in the stack while you are typing a query.
 
 ## Keyboard, in the graph

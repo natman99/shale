@@ -517,7 +517,7 @@ fn wq_writes_the_note_then_exits(cx: &mut TestAppContext) {
 // --- the palette's add-properties ------------------------------------------
 
 /// Open the command palette, type, and choose the row it points at.
-fn run_palette(query: &str, cx: &mut VisualTestContext) {
+pub(super) fn run_palette(query: &str, cx: &mut VisualTestContext) {
     cx.simulate_keystrokes("ctrl-shift-p");
     cx.simulate_input(query);
     cx.simulate_keystrokes("enter");
@@ -637,7 +637,7 @@ fn the_palette_offers_the_command_from_several_words(cx: &mut TestAppContext) {
         assert!(
             offered
                 .iter()
-                .any(|row| row == "Add frontmatter properties to the top of the note"),
+                .any(|row| row == "Add frontmatter properties to the note"),
             "{query} offers: {offered:?}"
         );
         cx.simulate_keystrokes("escape");

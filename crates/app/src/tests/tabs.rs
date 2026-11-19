@@ -1238,3 +1238,39 @@ fn every_pane_s_marks_answer(cx: &mut TestAppContext) {
         );
     }
 }
+
+/// The mark lives in its panel's card corner, and the card's header text used to start at
+/// the card's own padding — so the sidebar's view name was drawn under the mark
+/// (todo.md, 2026-11-17). The header now makes room. Measured rather than eyeballed: the
+/// text box and the mark box must not overlap.
+///
+/// The tree card gets the same room on its other side (its mark is in the top-right
+/// corner), unpinned: its header is the vault folder's name, and a fixture's temporary
+/// folder is nowhere near long enough to reach the mark, so an assert there would stay
+/// green with the padding removed.
+#[gpui::test]
+fn the_card_headers_start_clear_of_the_mark_in_their_corner(cx: &mut TestAppContext) {
+    type PixelBox = gpui::Bounds<gpui::Pixels>;
+    // `Pixels` has no `Add`; dividing by one pixel reads a coordinate as an `f32`.
+    let left = |b: PixelBox| b.origin.x / gpui::px(1.);
+    let right = |b: PixelBox| b.origin.x / gpui::px(1.) + b.size.width / gpui::px(1.);
+
+    let (_dir, window, mut cx) = two_notes(cx);
+    draw(&mut cx);
+    click(&mut cx, STRIP_IN_BAR);
+    assert_eq!(panels(&window, &mut cx), (true, true), "both panels open");
+    draw(&mut cx);
+
+    let strip_mark = cx
+        .debug_bounds(STRIP_IN_CARD)
+        .expect("the sidebar card's mark is on screen");
+    let strip_header = cx
+        .debug_bounds("sidebar-header")
+        .expect("the sidebar card's header is on screen");
+    assert!(
+        left(strip_header) >= right(strip_mark),
+        "the sidebar's name starts at x={}, inside its own mark which ends at x={}",
+        left(strip_header),
+        right(strip_mark)
+    );
+}

@@ -147,6 +147,44 @@ impl Workspace {
                 .unwrap_or(0),
         )
     }
+    /// The lens segment the status bar **drew** last frame, or `None` when it drew no
+    /// lens segment. The badge's text alone would stay green with the segment deleted
+    /// from the bar, so this is what the tests assert.
+    #[cfg(test)]
+    pub(crate) fn bar_lens(&self) -> Option<String> {
+        self.bar_lens.borrow().clone()
+    }
+
+    /// The labels the tab bar **drew** for graph tabs last frame — `graph`, or
+    /// `graph · <lens>` while a lens is on.
+    pub(crate) fn tab_labels(&self) -> Vec<String> {
+        self.tab_labels.borrow().clone()
+    }
+
+    /// How many times a lens re-run replaced the worn scope (EDGE-L7's layout half).
+    pub(crate) fn lens_replaced(&self) -> usize {
+        self.lens_replaced.get()
+    }
+
+    /// What the graph view's filter strip **drew** as its lens row last frame, or `None`
+    /// when it drew no such row (no lens on, or the strip closed).
+    /// What the graph's filter strip drew as its refusal row last frame, and whether its
+    /// line is drawn in the danger role.
+    #[cfg(test)]
+    pub(crate) fn strip_said(&self, cx: &mut Context<Self>) -> Option<String> {
+        self.graph_view()
+            .and_then(|view| view.read_with(cx, |view, _cx| view.strip_said()))
+    }
+    #[cfg(test)]
+    pub(crate) fn line_refused(&self, cx: &mut Context<Self>) -> bool {
+        self.graph_view()
+            .map(|view| view.read_with(cx, |view, _cx| view.line_refused()))
+            .unwrap_or(false)
+    }
+    pub(crate) fn strip_lens(&self, cx: &mut Context<Self>) -> Option<String> {
+        self.graph_view()
+            .and_then(|view| view.read_with(cx, |view, _cx| view.strip_lens()))
+    }
     /// The cursor's buffer position (row, column), 0-based: how a test checks
     /// that choosing a search hit lands on the line that row was showing.
     #[cfg(test)]
@@ -984,6 +1022,17 @@ fn render_target(target: &PickerTarget) -> String {
         // (the buffer is the authority for where an id sits).
         PickerTarget::Block { path, id } => format!("{}#^{}", rel_text(path), id),
         PickerTarget::RunQuery(path) => format!("query {}", rel_text(path)),
+        // A move: which note, and the folder it would go into. The top level is
+        // spelled out rather than left blank, so a test can tell "no folder" from a
+        // row that named nothing at all.
+        PickerTarget::MoveTo { from, to } => format!(
+            "move {} -> {}",
+            rel_text(from),
+            to.as_deref()
+                .map(rel_text)
+                .unwrap_or_else(|| "top level".into())
+        ),
+        PickerTarget::Lens(name) => format!("lens {name}"),
         PickerTarget::SaveQuery(search) => format!("save {search}"),
         PickerTarget::Notice(reason) => reason.to_string(),
     }

@@ -59,18 +59,23 @@ use std::rc::Rc;
 use std::time::Duration;
 
 mod autosave;
+mod beats;
 mod blocks;
 mod commands;
 mod dice;
+mod editor_bench;
 mod embeds;
 mod exit;
 mod focus;
 mod graph;
+mod r#import;
 mod index;
 mod jumps;
 mod keys;
+mod lens;
 mod live;
 mod motions;
+mod r#move;
 mod overlay;
 mod paint;
 mod panes;
@@ -84,11 +89,13 @@ mod session;
 mod sidebar;
 mod spell;
 mod start;
+mod startup;
 mod status;
 mod tabs;
 mod tree;
 mod vaults;
 mod views;
+mod words;
 mod writing;
 
 /// The simulated clock, taken from the `TestAppContext` before a window context

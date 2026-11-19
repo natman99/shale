@@ -198,15 +198,18 @@ fn the_query_narrows_the_picture(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("/");
     cx.simulate_input("gone");
     paint(&mut cx, &window);
+    // A ghost is a fact about the note that wrote the link, so the writer comes with it. The
+    // old shape here was one lonely dot and no edges — a picture that could not be read,
+    // pinned as if it were the rule.
     assert_eq!(
         circles(&mut cx, &window).len(),
-        1,
-        "only the missing note the query names"
+        2,
+        "the missing note the query names, and the note that named it"
     );
     assert_eq!(
         counts(&mut cx, &window).map(|counts| (counts.notes, counts.ghosts, counts.links)),
-        Some((0, 1, 0)),
-        "and no links, because both ends have to be on screen"
+        Some((1, 1, 1)),
+        "joined by the link that reaches nowhere, which is the point of the ghost"
     );
 
     cx.simulate_keystrokes("ctrl-backspace");
@@ -253,6 +256,7 @@ fn a_filter_change_is_remembered_by_the_session(cx: &mut TestAppContext) {
             tags: true,
             search: Some("idea".into()),
             local: None,
+            lens: None,
         }),
         "and a filter the user chose is"
     );
@@ -279,6 +283,7 @@ fn the_filter_comes_back_with_the_session(cx: &mut TestAppContext) {
             tags: false,
             search: None,
             local: None,
+            lens: None,
         }),
         ..Session::default()
     };
@@ -472,6 +477,7 @@ fn the_local_depth_comes_back_with_the_session(cx: &mut TestAppContext) {
             tags: true,
             search: None,
             local: Some(2),
+            lens: None,
         }),
         ..Session::default()
     };
@@ -905,5 +911,380 @@ fn a_nodes_dot_never_fights_its_picture(cx: &mut TestAppContext) {
         "the dot changed by {:.1}% while the whole picture changed by {:.1}%",
         dot_move * 100.0,
         picture_move * 100.0
+    );
+}
+
+// ------------------------------------------------ the line's grammar (P4.16 follow-up)
+//
+// The strip's line speaks the vault search's grammar: `tag:`/`path:`/`link:`/`prop:`/
+// `modified:` tokens are questions for the index, and only the words left over are held to
+// the node labels. Before this, `tag:tag` matched its characters against every label and
+// emptied the picture, while the same line in the search answered one note — and `alt-s`
+// saved a lens that disagreed with the graph in front of the reader.
+//
+// These need an indexed vault, which [`linked_vault`] is not: an operator has nothing to
+// ask without one.
+
+/// The same three notes as [`linked_vault`], with the index switched on.
+fn indexed_linked_vault(
+    cx: &mut TestAppContext,
+) -> (
+    tempfile::TempDir,
+    WindowHandle<Workspace>,
+    VisualTestContext,
+) {
+    let (dir, window) = indexed_vault_with(
+        cx,
+        &[
+            ("a.md", "see [[b]] and [[gone]] and #tag\n"),
+            ("b.md", "back to [[a]]\n"),
+            ("c.md", "alone\n"),
+        ],
+        test_config(),
+    );
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    scan_landed(&mut cx);
+    (dir, window, cx)
+}
+
+/// Open the graph, open the strip, and type a line into it.
+fn type_line(cx: &mut VisualTestContext, window: &WindowHandle<Workspace>, line: &str) {
+    cx.simulate_keystrokes("space g");
+    cx.simulate_keystrokes("/");
+    cx.simulate_input(line);
+    paint(cx, window);
+}
+
+/// The sentence the window is standing on.
+fn said(cx: &mut VisualTestContext, window: &WindowHandle<Workspace>) -> String {
+    window.update(cx, |ws, _window, _cx| ws.status()).unwrap()
+}
+
+/// What the strip drew as its refusal row last frame, and whether its line is drawn in
+/// the danger role. The row is read off the frame rather than re-derived, so a strip that
+/// stopped drawing it fails the test instead of quietly agreeing with it.
+fn strip(cx: &mut VisualTestContext, window: &WindowHandle<Workspace>) -> Option<String> {
+    window
+        .update(cx, |ws, _window, cx| ws.strip_said(cx))
+        .unwrap()
+}
+
+fn refused(cx: &mut VisualTestContext, window: &WindowHandle<Workspace>) -> bool {
+    window
+        .update(cx, |ws, _window, cx| ws.line_refused(cx))
+        .unwrap()
+}
+
+/// An operator is a question for the index, not a string of letters to hold the labels to.
+/// This is the case that used to read as an empty vault.
+#[gpui::test]
+fn an_operator_in_the_line_asks_the_index_and_not_the_labels(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = indexed_linked_vault(cx);
+    type_line(&mut cx, &window, "tag:tag");
+    let counts = counts(&mut cx, &window).unwrap();
+    assert_eq!(
+        counts.notes, 1,
+        "one note carries #tag, and it is the picture: {counts:?}"
+    );
+    assert_eq!(
+        counts.tags, 1,
+        "and the tag it carries is there with it, because a tag is a fact about its notes"
+    );
+}
+
+/// A bare word that lands on a tag is a match on a fact about notes, so the notes wearing it
+/// come along. This used to light the tag dot and hide every note that carries it: a dot with
+/// nothing to explain it, which is what made a bare tag name look like a filter working.
+#[gpui::test]
+fn a_bare_tag_name_lights_the_tag_and_its_notes(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = indexed_linked_vault(cx);
+    type_line(&mut cx, &window, "tag");
+    let counts = counts(&mut cx, &window).unwrap();
+    assert_eq!(counts.tags, 1, "the tag itself: {counts:?}");
+    assert_eq!(
+        counts.notes, 1,
+        "and the one note wearing it, not a dot on its own"
+    );
+    assert_eq!(
+        counts.ghosts, 0,
+        "and nothing the hidden notes happen to name"
+    );
+    assert_eq!(
+        counts.links, 1,
+        "the tag-to-note edge is on screen, which is the half that makes it readable"
+    );
+}
+
+/// A token shaped like an operator and not one is said, not searched — and the picture
+/// stands where it was. Narrowing the graph to the letters of a typo is how an empty
+/// picture ends up passing for an empty vault.
+#[gpui::test]
+fn a_token_that_is_not_an_operator_is_said_and_the_picture_stands(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = indexed_linked_vault(cx);
+    // A word rides along, because that is where the danger is: the window says the token,
+    // and the mask must not quietly narrow the picture to the letters of the word while
+    // it is at it.
+    type_line(&mut cx, &window, "tagg:tag a");
+    assert!(
+        strip(&mut cx, &window)
+            .unwrap_or_default()
+            .contains("not an operator: tagg:tag"),
+        "the typo is named under the line that was typed: {:?}",
+        strip(&mut cx, &window)
+    );
+    assert!(
+        refused(&mut cx, &window),
+        "and the line itself is drawn as refused"
+    );
+    assert_eq!(
+        counts(&mut cx, &window).map(|counts| counts.notes),
+        Some(3),
+        "and the picture is the one that was already there, word included"
+    );
+}
+
+/// The answer chooses notes, and what those notes *are* — their tags, the holes they
+/// name — goes with them. `link:a` answers `b.md` alone, so the tag `a.md` carries and
+/// the ghost `a.md` names leave with it.
+#[gpui::test]
+fn an_answer_takes_what_the_hidden_notes_carried(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = indexed_linked_vault(cx);
+    type_line(&mut cx, &window, "link:a");
+    let counts = counts(&mut cx, &window).unwrap();
+    assert_eq!(counts.notes, 1, "one note links a: {counts:?}");
+    assert_eq!(
+        counts.tags, 0,
+        "and the tag belongs to a note that is not there"
+    );
+    assert_eq!(counts.ghosts, 0, "and so does the hole one of them names");
+}
+
+/// Two halves of one line, anding: the operators choose which notes, and the words left
+/// over narrow inside that answer rather than fighting it.
+#[gpui::test]
+fn the_words_and_the_operators_narrow_together(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = indexed_linked_vault(cx);
+    type_line(&mut cx, &window, "tag:tag a");
+    assert_eq!(
+        counts(&mut cx, &window).map(|counts| counts.notes),
+        Some(1),
+        "the note the answer chose, because its label also answers the word"
+    );
+
+    // The word goes on a letter at a time, which is how it is typed.
+    cx.simulate_input(" zzz");
+    paint(&mut cx, &window);
+    assert_eq!(
+        counts(&mut cx, &window).map(|counts| counts.notes),
+        Some(0),
+        "and a word no chosen note answers empties the picture without emptying the answer"
+    );
+}
+
+/// An operator with no index to answer it is said in the search's own words, and the
+/// picture is left alone rather than narrowed to nothing.
+#[gpui::test]
+fn an_operator_with_no_index_is_said(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = linked_vault(cx);
+    type_line(&mut cx, &window, "tag:tag");
+    assert!(
+        strip(&mut cx, &window)
+            .unwrap_or_default()
+            .contains("ask the vault index"),
+        "the sentence says which half is missing: {:?}",
+        strip(&mut cx, &window)
+    );
+    assert_eq!(
+        counts(&mut cx, &window).map(|counts| counts.notes),
+        Some(3),
+        "and the graph keeps showing the vault rather than an empty answer"
+    );
+}
+
+/// The session keeps the line as typed and the next window asks it again: the answer
+/// belongs to the index as it is now, not to the paths this window happened to see — the
+/// same posture a lens seat takes (EDGE-L1).
+#[gpui::test]
+fn an_operated_line_comes_back_as_a_question(cx: &mut TestAppContext) {
+    let session = Session {
+        tabs: vec![Tab {
+            path: None,
+            view: String::new(),
+            pinned: false,
+            graph: true,
+            camera: None,
+            mode: None,
+            orientation: None,
+        }],
+        active_tab: Some(0),
+        graph_filter: Some(GraphFilterSeat {
+            search: Some("tag:tag".into()),
+            ..Default::default()
+        }),
+        ..Session::default()
+    };
+    let (_dir, window) = indexed_vault_with_session(
+        cx,
+        &[
+            ("a.md", "see [[b]] and [[gone]] and #tag\n"),
+            ("b.md", "back to [[a]]\n"),
+            ("c.md", "alone\n"),
+        ],
+        &session,
+    );
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    paint(&mut cx, &window);
+    assert_eq!(
+        panel(&mut cx, &window).1,
+        "tag:tag",
+        "the field comes back holding the question"
+    );
+    assert_eq!(
+        counts(&mut cx, &window).map(|counts| counts.notes),
+        Some(1),
+        "and it was asked again, rather than restored as a set of paths"
+    );
+}
+
+/// The session fixture with the index left on: a line holding an operator has to be
+/// *asked* by the next window, and asking needs an index to ask.
+fn indexed_vault_with_session(
+    cx: &mut TestAppContext,
+    notes: &[(&str, &str)],
+    session: &Session,
+) -> (tempfile::TempDir, WindowHandle<Workspace>) {
+    let dir = tempfile::tempdir().unwrap();
+    for (name, text) in notes {
+        let path = dir.path().join(name);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(&path, text).unwrap();
+    }
+    session.save(dir.path()).unwrap();
+    let window = open_window(cx, dir.path(), test_config());
+    (dir, window)
+}
+
+/// The sentence is said once, in the place the reader is looking. With the strip open the
+/// row under the line carries it and the status bar stays quiet; a bar a panel away is
+/// where the sentence used to go, and where it was not seen.
+#[gpui::test]
+fn the_bar_stays_quiet_while_the_strip_is_speaking(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = indexed_linked_vault(cx);
+    type_line(&mut cx, &window, "tagg:tag");
+    assert!(
+        strip(&mut cx, &window).is_some(),
+        "the row is drawn under the line"
+    );
+    assert!(
+        !said(&mut cx, &window).contains("not an operator"),
+        "and the bar does not say the same thing twice: {}",
+        said(&mut cx, &window)
+    );
+}
+
+/// The row belongs to the strip: closing the strip takes the row with it, and the picture
+/// keeps whatever the line decided. What stays is the *filter*, not the sentence.
+#[gpui::test]
+fn a_closed_strip_reports_no_row(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = indexed_linked_vault(cx);
+    type_line(&mut cx, &window, "tagg:tag");
+    assert!(
+        strip(&mut cx, &window).is_some(),
+        "drawn while the strip is open"
+    );
+    cx.simulate_keystrokes("escape");
+    paint(&mut cx, &window);
+    assert_eq!(
+        strip(&mut cx, &window),
+        None,
+        "and not reported once the strip is shut"
+    );
+}
+
+/// A line made good loses the row and the danger colour, and the picture follows the
+/// question rather than the typo it used to be.
+#[gpui::test]
+fn a_line_made_good_loses_its_row(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = indexed_linked_vault(cx);
+    type_line(&mut cx, &window, "tagg:tag");
+    assert!(refused(&mut cx, &window), "refused to begin with");
+
+    // More backspaces than the line holds: an empty field ignores the rest.
+    for _ in 0..12 {
+        cx.simulate_keystrokes("backspace");
+    }
+    cx.simulate_input("tag:tag");
+    paint(&mut cx, &window);
+    assert_eq!(
+        strip(&mut cx, &window),
+        None,
+        "the row is gone once the line answers"
+    );
+    assert!(
+        !refused(&mut cx, &window),
+        "and the line is drawn normally again"
+    );
+    assert_eq!(
+        counts(&mut cx, &window).map(|counts| counts.notes),
+        Some(1),
+        "and the picture is the answer"
+    );
+}
+
+/// A line that arrived with the session was never typed in this window, so nothing has
+/// asked it yet. Opening the strip asks it: the row appears under the line the reader
+/// finds waiting there.
+#[gpui::test]
+fn a_line_that_arrived_with_the_session_is_asked_when_the_strip_opens(cx: &mut TestAppContext) {
+    let session = Session {
+        tabs: vec![Tab {
+            path: None,
+            view: String::new(),
+            pinned: false,
+            graph: true,
+            camera: None,
+            mode: None,
+            orientation: None,
+        }],
+        active_tab: Some(0),
+        graph_filter: Some(GraphFilterSeat {
+            search: Some("tagg:tag".into()),
+            ..Default::default()
+        }),
+        ..Session::default()
+    };
+    let (_dir, window) = indexed_vault_with_session(
+        cx,
+        &[
+            ("a.md", "see [[b]] and [[gone]] and #tag\n"),
+            ("b.md", "back to [[a]]\n"),
+            ("c.md", "alone\n"),
+        ],
+        &session,
+    );
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    paint(&mut cx, &window);
+    assert_eq!(
+        panel(&mut cx, &window).1,
+        "tagg:tag",
+        "the line came back as it was typed"
+    );
+    assert_eq!(
+        strip(&mut cx, &window),
+        None,
+        "and nothing is drawn under a strip that is not on screen"
+    );
+
+    repaint(&mut cx);
+    cx.simulate_keystrokes("/");
+    paint(&mut cx, &window);
+    assert!(
+        strip(&mut cx, &window)
+            .unwrap_or_default()
+            .contains("not an operator: tagg:tag"),
+        "opening the strip asks the line already in it: {:?}",
+        strip(&mut cx, &window)
     );
 }

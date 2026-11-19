@@ -53,12 +53,41 @@ A name you type is treated differently from a name that was inferred, in two way
 And `:w <name>` on a note that **already has a file** refuses out loud:
 
 ```
-a.md already has a name: :w writes it, :rename moves it
+a.md already has a name: :w writes it, :move takes it to another folder
 ```
 
-The command line will not clone or move a note by accident. Moving is `:rename`
-(`r` in the tree, `ctrl-shift-r`), which also rewrites the links that point at the old
-name. That difference is the whole reason the two are separate commands.
+The command line will not clone or move a note by accident. Two other verbs do the
+moving, and they answer different questions:
+
+- **Rename** (`r` in the tree, `ctrl-shift-r`) takes a **name**, and the name lands
+  **beside** the note it renames. `inbox/Deep` from `notes/a.md` is
+  `notes/inbox/a.md`.
+- **Move** (`:move [folder]`, `m` in the tree, `ctrl-shift-m`) takes a **folder**,
+  named from the vault root, and keeps the note's name. `:move inbox/` from
+  `notes/a.md` is `inbox/a.md`, and `:move /` is the vault's top level — the note
+  leaves its folder and keeps its name. Typing a folder that is not there offers to
+  create it, and `:move` with nothing typed opens a picker of the folders the vault
+  holds, with **top level** as its first row.
+- **With the mouse**, drag a note out of the tree and drop it: on a **folder row** to
+  put it in that folder, on **another note's row** to put it beside that note, or on
+  the **empty space below the rows** to bring it to the top level. The note keeps its
+  name and the links follow, exactly as with `:move`. A folder row does not lift: a
+  folder cannot be moved yet, because the notes inside it spell out the folder's name
+  and nothing rewrites those.
+
+A third way a file arrives is the drag from **outside** the vault: drop it on the tree
+and it is copied in, into whichever folder the pointer let go over (see
+[keys.md](keys.md)). Only a markdown note or an image is taken — `png`, `jpg`, `jpeg`,
+`gif`, `webp`, `svg`, `bmp` — and nothing that is already there is overwritten: a taken
+name is refused by name, because dropping the same screenshot in twice is ordinary and
+quietly replacing the note the author has been embedding is not. A file that already
+lives in the vault is refused as well; inside the vault, files **move**, and a move takes
+the links with it.
+
+Both rewrite the links that point at the old path: a link that spells the folder the
+note left follows it, and a link that spells no folder stays exactly as written,
+because a bare name resolves wherever the note went. That difference is the whole
+reason the two are separate verbs.
 
 ### Other names the same note answers to
 
@@ -121,7 +150,7 @@ before that happens, so both resolve to the note.
 
 Resolved links are tinted, unresolved ones are dimmed — and a note's `aliases:` count
 as its name, so a link to one is resolved (see *Naming a note*). `gd` follows the link under
-the cursor (`gx` is the older spelling of the same thing), `ctrl`+click is the
+the caret (`gx` is the older spelling of the same thing), `ctrl`+click is the
 mouse door, and `gD` makes the note first when the link resolves to nothing. A
 note `gD` creates lands **beside the note you are in**, on the assumption that a link
 written from a folder is meant to live in that folder, unless the link spells a path,
@@ -134,7 +163,7 @@ different kind of question and is matched case-sensitively against a block id, b
 the spelling decides which kind it is — Shale never guesses from the text. A block that
 has gone missing leaves the note open and says which block it could not find.
 
-**A block can be named.** `:block-id [id]` writes an id on the block the cursor is in:
+**A block can be named.** `:block-id [id]` writes an id on the block the caret is in:
 six characters if you give no name, your name if you do. It lands at the end of the
 block's last line, or — for a table, quote, callout or code fence, which have no last
 line an id could sit on — on its own line below a blank. It is **one edit**, so one `u`
@@ -195,9 +224,9 @@ keep theirs. A note written mostly in aliases stops answering on every line unde
 pointer. Following any link, aliased or not, is the same either way.
 
 **The block is editable, one level at a time.** Click inside the body, or put the
-cursor on the `![[…]]` line and press `ctrl-]`. `ctrl-o` comes back out, and so does
+caret on the `![[…]]` line and press `ctrl-]`. `ctrl-o` comes back out, and so does
 clicking the host's own text; `escape` never does, because `escape` belongs to
-whatever command you were halfway through typing. Only the block the cursor is in
+whatever command you were halfway through typing. Only the block the caret is in
 takes edits; the same note embedded twice shows the second copy as a view. `gd` on
 the `![[…]]` line is a different door: it opens the embedded note in the tab you are
 in, the way it does for any other link, and `ctrl-o` walks back.
@@ -208,11 +237,11 @@ are in rather than what is embedded in it. There is one scroll bar, the host's: 
 has no viewport of its own.
 
 Editing an embedded note is editing that note. Its tab's dirty dot lights even when
-the cursor is three rows inside the host, `:w` writes host and embed together, and a
+the caret is three rows inside the host, `:w` writes host and embed together, and a
 note you have typed into that has no tab of its own gets one. `:rename` follows the
-cursor, so it renames the note you are actually standing in, and `:w newname` refuses
+caret, so it renames the note you are actually standing in, and `:w newname` refuses
 inside an embed because it would clone one. Raw mode draws the `![[…]]` line and no
-body, so `:raw` steps you out of the block instead of leaving the cursor on text that
+body, so `:raw` steps you out of the block instead of leaving the caret on text that
 has stopped being drawn.
 
 ## Finding things
@@ -225,11 +254,11 @@ has stopped being drawn.
 | `:wordcount [folder]` | words in the vault, or in one subtree (needs the index) |
 | `:sections [pattern]` | jump to a section: the open note's outline with no pattern, every section in the vault that holds the pattern with one (the vault-wide half needs the index) |
 | `:blocks [pattern]` | jump to a block by its id: the open note's ids with no pattern, every id in the vault that holds the pattern with one (the vault-wide half needs the index) |
-| `:block-id [id]` | give the block under the cursor an id; one `u` takes it back |
-| `space g` | the graph, whose filter strip narrows by `orphans` / `missing` / `tags` and by a search line |
+| `:block-id [id]` | give the block under the caret an id; one `u` takes it back |
+| `space g` | the graph, whose filter strip narrows by `orphans` / `missing` / `tags` and by a line holding the same operators as the vault search |
 
 `:sections` answers about headings. With no pattern it lists the sections of the note
-on screen, in reading order and indented by depth, and choosing one puts the cursor on
+on screen, in reading order and indented by depth, and choosing one puts the caret on
 that heading — the outline pane's information without the pane. With a pattern it lists
 the vault instead: every section whose text holds what you typed, each row naming the
 note it lives in, and choosing one opens that note on the heading. The two halves read
@@ -241,7 +270,7 @@ thing that knows about the notes you have not opened.
 `:blocks` answers about block ids and splits the same way, for the same reason. With no
 pattern it lists the ids in the note on screen, in reading order, each row labelled by
 the block's first line and detailed with the id, what kind of block it is, and the line
-it starts on; choosing one puts the cursor on the block's first line. With a pattern it
+it starts on; choosing one puts the caret on the block's first line. With a pattern it
 lists the vault: every id that holds what you typed, in any note, including the notes you
 have never opened. A note with no ids says so and points at `:block-id`; a vault with no
 index says it cannot look, which is a different answer from having nothing to find.
@@ -307,7 +336,7 @@ they say so rather than answering zero; plain text search does not need it.
   box to check it is not built yet.
 - **Tables** are a model, not text: cells, lookup, row and column editing and
   moving. `DD` deletes a column, `|` and `\` insert one, `alt+hjkl` moves the row
-  or column under the cursor, and the ordinary motions snap to cell boundaries.
+  or column under the caret, and the ordinary motions snap to cell boundaries.
 - **Callouts** (`> [!note]`) get their marker and an accent colour drawn from the
   palette, and `> [!note]-` starts folded. The marker is markup, not prose (ruled
   2026-10-28), and that is what keeps the callout's own words from reading as part of the
@@ -373,7 +402,7 @@ refused rather than invented; there are websites for that.
 A note that opens with a `---` block has properties, and Shale reads them into the
 vault index: one row per value, with the kind worked out from the value itself. `hp: 7` is
 a number, `died: 2024-01-31` a date, `ally: "[[Zhentarim]]"` a link.
-`:props` prints what the index holds for the note your cursor is in.
+`:props` prints what the index holds for the note your caret is in.
 
 You can see which case you are in. The block sits on a band of its own, with a hairline
 along its top and bottom edges, in the palette's `frontmatter_block_bg`: the same claim
@@ -387,7 +416,7 @@ the note has **no** properties at all. A `---` at the top followed by prose is s
 thematic break: the line after the fence decides whether someone meant a block.
 
 The block is also a region you can fold. Either `---` is a handle — click it, or put the
-cursor on it and `zc`/`zo`; `zM` folds it along with the sections — and a closed block is
+caret on it and `zc`/`zo`; `zM` folds it along with the sections — and a closed block is
 one row with a count of the rows it hides. A block the parser refused keeps its error
 colour and refuses to fold: the thing wrong with the note is the thing the reader has to
 be able to see.
@@ -491,9 +520,12 @@ after a `;`) is refused before it runs: not because it could do damage, but beca
 that quietly runs two statements answers a different question than the one you wrote.
 
 Query notes are files the author owns: they appear in the file tree and open in the editor
-like any other file. They are not in quick-open, which stays a list of notes, and they are
-not attachments — `![[my-query]]` does not resolve to one yet, and will mean the query
-when query embedding lands.
+like any other file. They are not in quick-open, which stays a list of notes.
+`![[my-query]]` embeds one in a note: the row that asked for it grows a badge and the
+answer's rows hang under it, a row naming a note is that note, and the embed asserts a
+link to the `.shq`, so the index and the graph know the note asked for it. If the `.shq` is
+open in a tab with unsaved edits, the embed answers with the program in that tab, and the
+answer is re-run when the program or the index moves rather than on every keystroke.
 
 ## Spelling and grammar
 

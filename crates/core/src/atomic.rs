@@ -62,6 +62,13 @@ pub(crate) fn staging_path(path: &Path) -> std::path::PathBuf {
 /// A temp file left behind by a failed step is removed; one left behind by a hard
 /// kill is invisible to the vault either way.
 pub(crate) fn write_file(path: &Path, text: &str) -> Result<()> {
+    write_bytes(path, text.as_bytes())
+}
+
+/// The same discipline for bytes: an imported image that dies part-way through leaves
+/// nothing behind, because a half-written picture is a broken embed the author never
+/// asked for. One implementation, so an import cannot drift from a note write.
+pub(crate) fn write_bytes(path: &Path, bytes: &[u8]) -> Result<()> {
     let dir = path.parent().unwrap_or_else(|| Path::new("."));
     fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
 
@@ -89,7 +96,7 @@ pub(crate) fn write_file(path: &Path, text: &str) -> Result<()> {
             )
             .with_context(|| format!("keeping the permissions of {}", path.display()))?;
         }
-        file.write_all(text.as_bytes())
+        file.write_all(bytes)
             .with_context(|| format!("writing {}", staged.display()))?;
         file.sync_all()
             .with_context(|| format!("syncing {}", staged.display()))?;

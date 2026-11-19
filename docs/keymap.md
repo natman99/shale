@@ -24,6 +24,7 @@ in hand. `docs/keys.md` is the human map of both halves.
 | `ctrl-n` | New note | `NewNote` | `note.new` |
 | `ctrl-shift-n` | New folder | `NewFolder` | `folder.new` |
 | `ctrl-shift-r` | Rename the selected note | `RenameNote` | `note.rename` |
+| `ctrl-shift-m` | Move the selected note to another folder | `MoveNote` | `note.move` |
 | `ctrl-shift-d` | Delete the selected note | `DeleteNote` | `note.delete` |
 | `ctrl-o` | Jump back to the previous note | `JumpBack` | `jump.back` |
 | `ctrl-i` | Jump forward to the next note | `JumpForward` | `jump.forward` |
@@ -115,8 +116,8 @@ in hand. `docs/keys.md` is the human map of both halves.
 | `ctrl-r` | Redo | `Redo` | `note.redo` |
 | `ctrl-shift-z` | Redo | `Redo` | `note.redo` |
 | `ctrl-y` | Redo | `Redo` | `note.redo` |
-| `ctrl-shift-c` | Copy the selection, or the last yank, to the clipboard | `CopyText` | `clipboard.copy` |
-| `ctrl-shift-v` | Paste from the clipboard | `PasteText` | `clipboard.paste` |
+| `ctrl-shift-c` | Copy to clipboard | `CopyText` | `clipboard.copy` |
+| `ctrl-shift-v` | Paste from clipboard | `PasteText` | `clipboard.paste` |
 | `u` | the vim engine takes this key | `VimU` | — |
 | `/` | search this note | `SearchBuffer` | — |
 | `n` | next match in this note | `SearchNext` | — |
@@ -146,10 +147,10 @@ in hand. `docs/keys.md` is the human map of both halves.
 | `:` | the vim engine takes this key | `VimColon` | — |
 | `[` | the vim engine takes this key | `VimOpenBracket` | — |
 | `]` | the vim engine takes this key | `VimCloseBracket` | — |
-| `left` | move the cursor left | `MoveLeft` | — |
-| `right` | move the cursor right | `MoveRight` | — |
-| `up` | move the cursor up | `MoveUp` | — |
-| `down` | move the cursor down | `MoveDown` | — |
+| `left` | move the caret left | `MoveLeft` | — |
+| `right` | move the caret right | `MoveRight` | — |
+| `up` | move the caret up | `MoveUp` | — |
+| `down` | move the caret down | `MoveDown` | — |
 
 ### while `vim-visual` has the keyboard
 
@@ -218,8 +219,8 @@ in hand. `docs/keys.md` is the human map of both halves.
 | `ctrl-r` | Redo | `Redo` | `note.redo` |
 | `ctrl-shift-z` | Redo | `Redo` | `note.redo` |
 | `ctrl-y` | Redo | `Redo` | `note.redo` |
-| `ctrl-shift-c` | Copy the selection, or the last yank, to the clipboard | `CopyText` | `clipboard.copy` |
-| `ctrl-shift-v` | Paste from the clipboard | `PasteText` | `clipboard.paste` |
+| `ctrl-shift-c` | Copy to clipboard | `CopyText` | `clipboard.copy` |
+| `ctrl-shift-v` | Paste from clipboard | `PasteText` | `clipboard.paste` |
 | `left` | the vim engine takes this key | `VimLeft` | — |
 | `right` | the vim engine takes this key | `VimRight` | — |
 | `up` | the vim engine takes this key | `VimUp` | — |
@@ -231,21 +232,21 @@ in hand. `docs/keys.md` is the human map of both halves.
 | --- | --- | --- | --- |
 | `escape` | the vim engine takes this key | `VimEscape` | — |
 | `enter` | break the line here | `Newline` | — |
-| `backspace` | delete the character before the cursor | `Backspace` | — |
-| `ctrl-backspace` | delete the word before the cursor | `DeleteWordBack` | — |
-| `delete` | delete the character under the cursor | `DeleteForward` | — |
+| `backspace` | delete the character before the caret | `Backspace` | — |
+| `ctrl-backspace` | delete the word before the caret | `DeleteWordBack` | — |
+| `delete` | delete the character under the caret | `DeleteForward` | — |
 | `tab` | insert a tab character | `InsertTab` | — |
 | `shift-tab` | remove one indent level from the line | `OutdentLine` | — |
-| `left` | move the cursor left | `MoveLeft` | — |
-| `right` | move the cursor right | `MoveRight` | — |
-| `up` | move the cursor up | `MoveUp` | — |
-| `down` | move the cursor down | `MoveDown` | — |
+| `left` | move the caret left | `MoveLeft` | — |
+| `right` | move the caret right | `MoveRight` | — |
+| `up` | move the caret up | `MoveUp` | — |
+| `down` | move the caret down | `MoveDown` | — |
 | `ctrl-z` | Undo | `Undo` | `note.undo` |
 | `ctrl-r` | Redo | `Redo` | `note.redo` |
 | `ctrl-shift-z` | Redo | `Redo` | `note.redo` |
 | `ctrl-y` | Redo | `Redo` | `note.redo` |
-| `ctrl-shift-c` | Copy the selection, or the last yank, to the clipboard | `CopyText` | `clipboard.copy` |
-| `ctrl-shift-v` | Paste from the clipboard | `PasteText` | `clipboard.paste` |
+| `ctrl-shift-c` | Copy to clipboard | `CopyText` | `clipboard.copy` |
+| `ctrl-shift-v` | Paste from clipboard | `PasteText` | `clipboard.paste` |
 
 ### while `tree` has the keyboard
 
@@ -265,6 +266,7 @@ in hand. `docs/keys.md` is the human map of both halves.
 | `n` | New note | `NewNote` | `note.new` |
 | `shift-n` | New folder | `NewFolder` | `folder.new` |
 | `r` | Rename the selected note | `RenameNote` | `note.rename` |
+| `m` | Move the selected note to another folder | `MoveNote` | `note.move` |
 | `shift-d` | Delete the selected note | `DeleteNote` | `note.delete` |
 
 ### while `sidebar` has the keyboard
@@ -284,10 +286,10 @@ in hand. `docs/keys.md` is the human map of both halves.
 | `shift-k` | move this section up among its siblings | `SidebarSectionUp` | — |
 | `tab` | one level up for this heading and its subtree | `SidebarPromote` | — |
 | `shift-tab` | one level down for this heading and its subtree | `SidebarDemote` | — |
-| `[` | show the previous view in the strip | `SidebarPrevView` | — |
-| `]` | show the next view in the strip | `SidebarNextView` | — |
-| `p` | stick the strip to the note it is describing, or let it follow again | `PinSidebar` | — |
-| `space b` | Show or hide the right-hand strip | `SidebarToggle` | `sidebar.toggle` |
+| `[` | show the previous view in the sidebar | `SidebarPrevView` | — |
+| `]` | show the next view in the sidebar | `SidebarNextView` | — |
+| `p` | stick the sidebar to the note it describes, or let it follow again | `PinSidebar` | — |
+| `space b` | Show or hide the sidebar | `SidebarToggle` | `sidebar.toggle` |
 | `escape` | hand the keyboard to the tab on screen | `FocusEditor` | — |
 
 ### while `prompt` has the keyboard
@@ -377,7 +379,7 @@ in hand. `docs/keys.md` is the human map of both halves.
 | `y` | Accept the pending hunk under the marker | `ReviewAccept` | `review.accept` |
 | `x` | Reject the pending hunk under the marker | `ReviewReject` | `review.reject` |
 | `o` | Open the note the pending hunk is about | `ReviewOpenNote` | `review.open-note` |
-| `z a` | Collapse or expand the pending proposal under the marker | `ReviewCollapse` | `review.collapse` |
+| `z a` | Collapse or expand the pending hunk under the marker | `ReviewCollapse` | `review.collapse` |
 | `escape` | hand the keyboard to the tab on screen | `FocusEditor` | — |
 
 ### while `graph` has the keyboard
@@ -388,21 +390,21 @@ in hand. `docs/keys.md` is the human map of both halves.
 | `space f` | Open a note | `QuickOpen` | `note.open` |
 | `space s` | Search the vault | `SearchVault` | `vault.search` |
 | `space e` | Show or hide the file tree | `TreeToggle` | `tree.toggle` |
-| `space d` | Dim everything but the block the cursor is in | `ToggleFocus` | `focus.toggle` |
+| `space d` | Dim everything but this block | `ToggleFocus` | `focus.toggle` |
 | `space g` | Show the vault's link graph | `OpenGraph` | `graph.open` |
-| `g t` | Go to the next tab | `TabNext` | `tab.next` |
-| `g T` | Go to the previous tab | `TabPrev` | `tab.prev` |
+| `g t` | Next tab | `TabNext` | `tab.next` |
+| `g T` | Previous tab | `TabPrev` | `tab.prev` |
 | `escape` | put down the chosen node | `GraphClearSelection` | — |
 | `enter` | open the chosen node's note | `GraphOpen` | — |
 | `f` | frame the whole graph | `GraphFit` | — |
 | `/` | open the filter strip | `GraphFilterOpen` | — |
 | `2` | switch the graph between its two spaces | `GraphMode` | `graph.projected` |
 | `3` | switch the graph between its two spaces | `GraphMode` | `graph.projected` |
-| `+` | magnify at the cursor | `GraphZoom` | — |
-| `-` | magnify at the cursor | `GraphZoom` | — |
+| `+` | magnify at the middle of the canvas | `GraphZoom` | — |
+| `-` | magnify at the middle of the canvas | `GraphZoom` | — |
 | `[` | narrow or widen the local graph | `GraphLocalStep` | — |
 | `]` | narrow or widen the local graph | `GraphLocalStep` | — |
-| `\` | show the whole vault again | `GraphLocal` | `graph.global` |
+| `\` | show the whole vault | `GraphLocal` | `graph.global` |
 | `left` | move the view | `GraphPan` | — |
 | `shift-left` | move the view, three times as far | `GraphPan` | — |
 | `ctrl-shift-left` | move the chosen node | `GraphSelect` | — |
@@ -429,6 +431,7 @@ in hand. `docs/keys.md` is the human map of both halves.
 | `alt-o` | show or hide unlinked notes | `GraphFilterOrphans` | — |
 | `alt-x` | show or hide links to notes that do not exist | `GraphFilterMissing` | — |
 | `alt-t` | show or hide tags | `GraphFilterTags` | — |
+| `alt-s` | keep the filter line's question as a lens | `GraphFilterSaveLens` | — |
 | `backspace` | delete the character before the caret | `FieldBackspace` | — |
 | `delete` | delete the character at the caret | `FieldDelete` | — |
 | `ctrl-backspace` | delete the word before the caret | `FieldDeleteWordBack` | — |

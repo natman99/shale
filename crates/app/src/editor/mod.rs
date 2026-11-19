@@ -308,9 +308,11 @@ pub struct MarkdownEditor {
     /// paint instead of a second calculation that could disagree with it.
     #[cfg(test)]
     pub(crate) run_colours: Vec<(usize, usize, usize, gpui::Hsla)>,
-    /// Cached wrap boundaries: (buffer change id, wrap width, per-row starts and
-    /// the live-preview state they were measured in).
-    wrap_cache: Option<(u64, Pixels, Vec<CachedRow>)>,
+    /// Cached wrap boundaries: (wrap width, per-row starts with the exact row
+    /// text and live-preview state they were measured in). A row is reused only
+    /// while its bytes are unchanged, so a keystroke re-measures its row and
+    /// nothing else.
+    wrap_cache: Option<(Pixels, Vec<CachedRow>)>,
     /// Markdown style spans for the current text (buffer byte offsets), cached
     /// until the buffer changes.
     style_cache: Option<(u64, Vec<StyleSpan>)>,
@@ -631,8 +633,8 @@ impl MarkdownEditor {
     /// the disk remembers would throw them away. Everything *view-shaped* goes
     /// instead — the wrap points and folds measured against the note this view was
     /// showing, the checker's underlines, the search's matches — and the wrap
-    /// cache with them, because `change_id` is per buffer and two notes can share
-    /// one id by coincidence.
+    /// cache with them, which is view state measured against the note this view
+    /// was showing, even though its per-row keys make a stale reuse impossible.
     /// The file stem when this view's note is a query note (`.shq`) and the view
     /// is not raw; `None` otherwise.
     ///

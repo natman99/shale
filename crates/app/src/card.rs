@@ -13,6 +13,7 @@
 //! [`crate::popup::panel_size`] follows for the same reason.
 
 use std::rc::Rc;
+use std::time::Duration;
 
 use gpui::{
     Context, IntoElement, ParentElement, Pixels, Render, SharedString, Size, Styled, Window, div,
@@ -31,6 +32,14 @@ pub(crate) const WIDTH: Pixels = px(380.);
 const PAD: Pixels = crate::style::SPACE_2;
 /// The border, counted twice in the height.
 const BORDER: Pixels = px(1.);
+
+/// How long the pointer has to rest on a graph node before a card appears for it.
+///
+/// The editor's card answers a link the moment the pointer finds one, because a line of
+/// prose holds few links and a pointer that found one is asking. A graph is the opposite
+/// shape: dots packed together, and sweeping the pointer across one to reach another is
+/// ordinary. The dwell is what stops a card flashing at every dot on the way past.
+pub(crate) const NODE_DWELL: Duration = Duration::from_millis(500);
 
 /// How many of the target's lines a card shows before saying how many it left out.
 ///

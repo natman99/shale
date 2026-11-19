@@ -14,16 +14,18 @@ as you would type it.
 | --- | --- | --- | --- | --- |
 | `note.save` | Save the note | `ctrl-s` | `:w [name]`, `:write [name]` | `[name]` |
 | `tab.close` | Close this tab | — | `:q`, `:quit` | — |
-| `tab.close-force` | Close this tab, discarding its unsaved edits | — | `:q!`, `:quit!` | — |
-| `tab.write-close` | Write the note, then close this tab | — | `:wq`, `:x`, `:xit`, `:exit` | — |
+| `tab.close-force` | Close this tab, discarding unsaved edits | — | `:q!`, `:quit!` | — |
+| `tab.write-close` | Save, then close this tab | — | `:wq`, `:x`, `:xit`, `:exit` | — |
 | `app.quit` | Quit Shale | `ctrl-q` | `:qall`, `:qa` | — |
 | `app.quit-force` | Quit Shale, discarding unsaved edits | — | `:qall!`, `:qa!` | — |
-| `note.write-all` | Write every dirty note | — | `:wall`, `:wa` | — |
-| `app.write-quit` | Write every note, then quit Shale | — | `:wqall`, `:wqa` | — |
+| `note.write-all` | Save every dirty note | — | `:wall`, `:wa` | — |
+| `app.write-quit` | Save every note, then quit Shale | — | `:wqall`, `:wqa` | — |
 | `note.new` | New note | `ctrl-n, n in the tree` | — | — |
 | `folder.new` | New folder | `ctrl-shift-n, shift-n in the tree` | — | — |
-| `note.add-properties` | Add frontmatter properties to the top of the note | — | — | — |
+| `note.add-properties` | Add frontmatter properties to the note | — | — | — |
 | `note.rename` | Rename the selected note | `ctrl-shift-r, r in the tree` | — | — |
+| `graph.lens` | Choose a lens for the graph | — | `:lens [name]`, `:lens save [name]` | `[name]` |
+| `note.move` | Move the selected note to another folder | `ctrl-shift-m, m in the tree` | `:move [folder]` | `[folder]` |
 | `note.delete` | Delete the selected note | `ctrl-shift-d, shift-d in the tree` | — | — |
 | `note.open` | Open a note | `space f, g f` | `:e`, `:edit`, `:open` | — |
 | `jump.back` | Jump back to the previous note | `ctrl-o` | — | — |
@@ -32,25 +34,25 @@ as you would type it.
 | `theme.change` | Change the theme | — | `:theme [name]` | `[name]` |
 | `vault.switch` | Switch vault | — | `:vault` | — |
 | `window.new` | New window on this vault | — | `:new-window` | — |
-| `theme.export` | Write the palette on screen to a theme file | — | `:theme export <name>` | `<name>` |
+| `theme.export` | Save the palette to a theme file | — | `:theme export <name>` | `<name>` |
 | `checker.on` | Turn the spellchecker on | — | `:harper on`, `:harper 1`, `:spellcheck on`, `:spell on` | — |
 | `checker.off` | Turn the spellchecker off | — | `:harper off`, `:harper 0`, `:spellcheck off`, `:spell off` | — |
-| `checker.show` | Show the checker's note for the word here, or its card | `K` | — | — |
-| `view.raw` | Show the note as markdown source | `space r` | `:raw`, `:source`, `:src` | — |
-| `view.live` | Show the note with live preview | `space l` | `:live` | — |
-| `view.preview` | Preview the note, without editing it | `space p` | `:preview`, `:view` | — |
-| `focus.toggle` | Dim everything but the block the cursor is in | `space d` | `:focus [on|off|block|section]`, `:dim [on|off|block|section]` | `[on|off|block|section]` |
-| `typewriter.toggle` | Keep the cursor's line near the middle of the window | — | `:typewriter [on|off]` | `[on|off]` |
+| `checker.show` | Show the checker's note for this word | `K` | — | — |
+| `view.raw` | Show the note as source | `space r` | `:raw`, `:source`, `:src` | — |
+| `view.live` | Show the note as live preview | `space l` | `:live` | — |
+| `view.preview` | Show the note as read-only preview | `space p` | `:preview`, `:view` | — |
+| `focus.toggle` | Dim everything but this block | `space d` | `:focus [on|off|block|section]`, `:dim [on|off|block|section]` | `[on|off|block|section]` |
+| `typewriter.toggle` | Centre the view on the caret | — | `:typewriter [on|off]` | `[on|off]` |
 | `tree.toggle` | Show or hide the file tree | `space e` | `:tree [on|off]` | `[on|off]` |
-| `sidebar.toggle` | Show or hide the right-hand strip | `space b` | `:sidebar [on|off|<view>]` | `[on|off|<view>]` |
-| `sidebar.focus` | Focus the right-hand strip | `ctrl-w l` | — | — |
+| `sidebar.toggle` | Show or hide the sidebar | `space b` | `:sidebar [on|off|<view>]` | `[on|off|<view>]` |
+| `sidebar.focus` | Focus the sidebar | `ctrl-w l` | — | — |
 | `window.left` | Focus the file tree | `ctrl-w h` | — | — |
 | `window.right` | Focus the pane to the right | `ctrl-w l` | — | — |
 | `note.undo` | Undo | `u, ctrl-z` | — | — |
 | `note.redo` | Redo | `ctrl-r, ctrl-y, ctrl-shift-z` | — | — |
-| `clipboard.copy` | Copy the selection, or the last yank, to the clipboard | `ctrl-shift-c, space y` | `:y`, `:yank`, `:clip`, `:copy` | — |
-| `clipboard.paste` | Paste from the clipboard | `ctrl-shift-v` | `:paste`, `:p` | — |
-| `vault.props` | Show the open note's properties | — | `:props`, `:properties` | — |
+| `clipboard.copy` | Copy to clipboard | `ctrl-shift-c, space y` | `:y`, `:yank`, `:clip`, `:copy` | — |
+| `clipboard.paste` | Paste from clipboard | `ctrl-shift-v` | `:paste`, `:p` | — |
+| `vault.props` | Show this note's properties | — | `:props`, `:properties` | — |
 | `vault.keys` | List the vault's property keys | — | `:keys` | — |
 | `vault.sections` | Jump to a section | — | `:sections [pattern]` | `[pattern]` |
 | `vault.blocks` | Jump to a block by its id | — | `:blocks [pattern]` | `[pattern]` |
@@ -59,34 +61,34 @@ as you would type it.
 | `vault.save-query` | Save a search as a query | — | `:save-query [search]` | `[search]` |
 | `vault.rename-key` | Rename a property key across the vault | — | `:rename-key [old] [new]` | `[old] [new]` |
 | `vault.wordcount` | Count the vault's words | — | `:wordcount [folder]`, `:wc [folder]` | `[folder]` |
-| `review.focus` | Review the agent edits that are waiting | — | `:review`, `:pending` | — |
-| `review.next` | Next pending hunk | `j in the strip, ]a in the note` | — | — |
-| `review.prev` | Previous pending hunk | `k in the strip, [a in the note` | — | — |
-| `review.accept` | Accept the pending hunk under the marker | `y in the strip` | — | — |
-| `review.reject` | Reject the pending hunk under the marker | `x in the strip` | — | — |
-| `review.open-note` | Open the note the pending hunk is about | `o in the strip` | — | — |
-| `review.collapse` | Collapse or expand the pending proposal under the marker | `za in the strip` | — | — |
+| `review.focus` | Review the pending hunks | — | `:review`, `:pending` | — |
+| `review.next` | Next pending hunk | `j in the sidebar, ]a in the note` | — | — |
+| `review.prev` | Previous pending hunk | `k in the sidebar, [a in the note` | — | — |
+| `review.accept` | Accept the pending hunk under the marker | `y in the sidebar` | — | — |
+| `review.reject` | Reject the pending hunk under the marker | `x in the sidebar` | — | — |
+| `review.open-note` | Open the note the pending hunk is about | `o in the sidebar` | — | — |
+| `review.collapse` | Collapse or expand the pending hunk under the marker | `za in the sidebar` | — | — |
 | `tab.new` | Open this note in a new tab | `ctrl-t` | `:tabnew`, `:tabedit` | — |
-| `tab.next` | Go to the next tab | `gt` | `:tabnext`, `:tabn` | — |
-| `tab.prev` | Go to the previous tab | `gT` | `:tabprev`, `:tabp` | — |
-| `tab.close-write` | Close this tab, writing its note first | `the tab's ×` | `:tabclose`, `:tabc` | — |
+| `tab.next` | Next tab | `gt` | `:tabnext`, `:tabn` | — |
+| `tab.prev` | Previous tab | `gT` | `:tabprev`, `:tabp` | — |
+| `tab.close-write` | Close this tab, saving first | `the tab's ×` | `:tabclose`, `:tabc` | — |
 | `tab.only` | Close every tab but this one | — | `:tabonly`, `:tabo` | — |
-| `tab.pin` | Pin this tab: a jump opens a new tab instead | — | `:pin` | — |
+| `tab.pin` | Pin or unpin this tab | — | `:pin` | — |
 | `window.split` | Split this pane, stacked | `ctrl-w s` | `:split`, `:sp` | — |
 | `window.vsplit` | Split this pane, side by side | `ctrl-w v` | `:vsplit`, `:vs` | — |
-| `window.close` | Close this pane, saving its notes first | `ctrl-w q` | `:close`, `:clo` | — |
+| `window.close` | Close this pane, saving first | `ctrl-w q` | `:close`, `:clo` | — |
 | `window.only` | Close every pane but this one | `ctrl-w o` | `:only`, `:on` | — |
-| `tab.move` | Move this tab to a position | — | `:tabmove <n>` | `<n>` |
+| `tab.move` | Move this tab | — | `:tabmove <n>` | `<n>` |
 | `graph.open` | Show the vault's link graph | `space g` | `:graph`, `:g` | — |
-| `graph.flat` | Graph: flat view | `2 (graph)` | `:graph2d` | — |
+| `graph.flat` | Graph: flat | `2 (graph)` | `:graph2d` | — |
 | `graph.local` | Graph: this note's neighbourhood | `[ ] (graph)` | `:graph-local [n]`, `:loc [n]` | `[n]` |
-| `graph.global` | Graph: the whole vault again | `\ (graph)` | `:graph-global` | — |
-| `graph.projected` | Graph: projected 3D view | `3 (graph)` | `:graph3d` | — |
+| `graph.global` | Graph: the whole vault | `\ (graph)` | `:graph-global` | — |
+| `graph.projected` | Graph: 3D | `3 (graph)` | `:graph3d` | — |
 
 The palette does not list `tab.close-force`, `tab.write-close`, `app.quit-force`, `app.write-quit`, `theme.export`, `review.next`, `review.prev`, `review.accept`, `review.reject`, `review.open-note`, `review.collapse`, `tab.next`, `tab.prev`, `tab.only`, `window.only`, `tab.move`: `tab.close-force` and `tab.write-close` are the
 two halves of a promise (`:q!`, `:wq`) rather than rows to browse,
 `app.quit-force` and `app.write-quit` are the exit that throws unsaved edits
 away and the one that keeps them (not a row to offer next to *Quit Shale* in
 a list you pick from), and the `review.*` keys other than `review.focus` mean
-nothing while the review strip is off screen — which is only when nothing is
+nothing while the review view is off screen — which is only when nothing is
 waiting.

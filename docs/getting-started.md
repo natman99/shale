@@ -11,8 +11,17 @@ is a directory of markdown files, and Shale edits those files:
 
 Any folder works, including one an Obsidian vault already points at: `.obsidian/` is
 on the ignore list along with `.git`, `.trash` and `.shale`. With no folder named, Shale
-opens the vault it opened last; `:vault` opens the list of vaults the app remembers, and
-picking a row opens that vault in a new window.
+opens the vault it opened last — so a desktop shortcut needs no path baked into it. If
+there is nothing to remember, or the folder it remembers is gone, a small window asks
+instead: the vaults it remembers newest first, `Open a folder…` for one it has never
+seen, and `New vault…`, which makes the folder and opens it. It says why it is asking
+when it was asked by a folder that is no longer there. `escape` closes it, and with no
+window left the run ends. Inside a vault, `:vault` opens the same list as a switcher.
+
+So a launcher needs no path baked into it: the shipped `assets/shale.desktop` runs plain
+`shale`, and a Windows shortcut with `shale.exe` and no arguments does the same. Name a
+folder on the command line when you want that vault specifically — `shale ~/vaults/notes`
+still means exactly that vault, and still answers in the terminal when the path is no good.
 
 The first time Shale opens a folder it writes a `.shale/` directory inside it. Config,
 session, themes, the index cache, backups and the agent's pending edits all live there,
@@ -29,7 +38,7 @@ and all of it is safe to delete. See [state-files.md](state-files.md).
 │  h/l fold │   (or the graph, in a       │  enter   │
 │  enter    │    graph tab)               │  [/]     │
 │           ├─────────────────────────────┤          │
-│           │ review strip — edits wait   │          │
+│           │ review view — edits wait     │          │
 ├───────────┴─────────────────────────────┴──────────┤
 │ mode · checker count · dirty · path · row:col      │
 └────────────────────────────────────────────────────┘
@@ -39,10 +48,10 @@ The file tree is the vault's folders and notes. The tab bar belongs to a pane,
 and a window can hold more than one pane
 ([windows-panes-tabs.md](windows-panes-tabs.md)). The status bar's segments come
 and go: the mode, the checker's count, a dirty dot, the note's path, and the
-cursor's display row and column.
+caret's display row and column.
 
 `ctrl-w h` puts the keyboard in the tree, `ctrl-w l` puts it back on the note.
-`space e` hides the tree and shows it again. The strip on the right is the tree's
+`space e` hides the tree and shows it again. The sidebar on the right is the tree's
 mirror — it answers about the note you are looking at rather than about the vault —
 and `ctrl-w l` walks into it when it is open
 ([sidebar.md](sidebar.md)); `space b` hides it and shows it again.
@@ -90,7 +99,7 @@ Write a wiki-link and it resolves against the vault:
 ```
 
 Resolved links are tinted, unresolved ones are dimmed, and `gd` follows the link under
-the cursor. If the target does not exist, `gD` creates the note and follows it. It lands
+the caret. If the target does not exist, `gD` creates the note and follows it. It lands
 beside the note you are standing in rather than at the vault root, and a target that
 spells a path out, `[[areas/x/y]]`, is created where it says. Renaming a note rewrites
 every link that pointed at it.

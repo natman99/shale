@@ -2,9 +2,6 @@
 //! the claim that keeps other processes out, and the recent list the switcher
 //! reads.
 
-use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
-
 use shale_core::RecentVaults;
 
 use super::*;
@@ -15,7 +12,7 @@ use crate::workspace::vaults::{self, OpenOptions};
 /// switcher's rows are named for the directory, so a test that types a vault's
 /// name has to have a vault whose name is in the path. Returns the temp dir
 /// that owns the tree and the vault path inside it.
-fn vault_dir(name: &str) -> (tempfile::TempDir, std::path::PathBuf) {
+pub(crate) fn vault_dir(name: &str) -> (tempfile::TempDir, std::path::PathBuf) {
     let base = tempfile::tempdir().unwrap();
     let dir = base.path().join(name);
     std::fs::create_dir_all(&dir).unwrap();
@@ -37,7 +34,7 @@ fn vault_dir(name: &str) -> (tempfile::TempDir, std::path::PathBuf) {
 fn setup(cx: &mut TestAppContext, store: &std::path::Path) {
     cx.update(|cx| {
         cx.bind_keys(keybindings());
-        cx.set_global(vaults::VaultWindows::new(Arc::new(AtomicBool::new(false))));
+        cx.set_global(vaults::VaultWindows::new());
         cx.set_global(vaults::RecentStore(store.to_path_buf()));
     });
 }

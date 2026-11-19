@@ -8,7 +8,7 @@
 use std::rc::Rc;
 
 use gpui::{Context, Focusable, SharedString, Window, prelude::*};
-use shale_core::search::{SearchOptions, search};
+use shale_core::search::SearchOptions;
 use shale_core::vault::{VaultEntry, rel_text};
 
 use crate::acts::{CommandPalette, QuickOpen, SearchVault};
@@ -38,6 +38,17 @@ pub(crate) enum PickerTarget {
     Vault(std::path::PathBuf),
     /// The file dialog that adds a vault the app has never seen.
     VaultPrompt,
+    /// A folder to move a note into (the tree's `m`, `:move`). The note rides along:
+    /// the picker outlives the moment it opened, and a destination with no note it is
+    /// for is nothing to act on. `to` is the folder, or `None` for the vault's top
+    /// level.
+    MoveTo {
+        from: std::path::PathBuf,
+        to: Option<std::path::PathBuf>,
+    },
+    /// A lens for the graph to wear (`:lens`, the lens picker; P4.16 M3). The name is the
+    /// lens file's stem, and `none` is a name that means no lens (EDGE-L9).
+    Lens(String),
     /// A property key from the vault-wide census (`:keys`, P4.3a M5). Choosing it
     /// does not open a new surface: it puts `prop:key` in the search field, which is
     /// the same question the pane is asking and can be refined from there.
@@ -165,8 +176,10 @@ impl Workspace {
     ///
     /// Unlike the other two, the rows cannot be listed up front — finding them
     /// means reading every note — so the picker is given a [`RowSource`] and asks
-    /// it on each keystroke. That is cheap for a vault of this size and will want
-    /// the planned database (or at least a cached index) for a big one.
+    /// it on each keystroke. The workspace's note cache keeps that from costing
+    /// a whole-vault read per keystroke: a note whose size and mtime are
+    /// unchanged since the last query is scanned from cached text, and only
+    /// changed notes are read again.
     pub(super) fn search_vault(
         &mut self,
         _: &SearchVault,
@@ -188,6 +201,7 @@ impl Workspace {
         let vault = Rc::clone(&self.vault);
         let entries = self.entries.clone();
         let db = self.db.clone();
+        let cache = Rc::clone(&self.note_cache);
         let source: RowSource<PickerTarget> = Rc::new(move |query: &str| {
             let query = query.trim();
             if query.is_empty() {
@@ -296,7 +310,7 @@ impl Workspace {
                 max_hits: Some(MAX_SEARCH_HITS),
                 ..Default::default()
             };
-            let Ok(hits) = search(&vault, &scoped, text, &opts) else {
+            let Ok(hits) = cache.borrow_mut().search(&vault, &scoped, text, &opts) else {
                 return Vec::new();
             };
             hits.into_iter()
@@ -435,6 +449,8 @@ impl Workspace {
                 self.search_vault_with(&seed, window, cx);
             }
             PickerTarget::RunQuery(path) => self.run_query(&path, window, cx),
+            PickerTarget::MoveTo { from, to } => self.move_chosen(&from, to.as_deref(), cx),
+            PickerTarget::Lens(name) => self.graph_lens_chosen(&name, cx),
             PickerTarget::SaveQuery(search) => self.ask_save_query(&search, window, cx),
             PickerTarget::RenameKey(key) => {
                 // The pane has said *which* key; the prompt asks for the new

@@ -1,5 +1,7 @@
 ---
-aliases: anon
+aliases: 
+	- anon
+	- TEST
 cr: 3
 groups: 
  - [[Test]]

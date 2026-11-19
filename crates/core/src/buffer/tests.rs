@@ -881,3 +881,70 @@ fn word_forward_steps_run_by_run() {
     );
     assert_eq!(word_forward(accented, 7), 13, "and `wörld` likewise");
 }
+
+/// The cached line table must answer exactly what a fresh scan answers,
+/// after every kind of mutation — the cache is an optimization, never a
+/// different geometry. Edits that add lines, remove them, or rewrite the
+/// text wholesale each get checked against the naive scan.
+#[test]
+fn the_line_index_agrees_with_a_fresh_scan_after_every_edit() {
+    fn naive(b: &Buffer) -> (usize, Vec<usize>, Vec<usize>) {
+        let text = b.text();
+        let count = text.matches('\n').count() + 1;
+        let starts: Vec<usize> = (0..count)
+            .map(|r| {
+                if r == 0 {
+                    0
+                } else {
+                    text.char_indices()
+                        .filter(|(_, c)| *c == '\n')
+                        .nth(r - 1)
+                        .map_or(text.len(), |(i, _)| i + 1)
+                }
+            })
+            .collect();
+        let ends: Vec<usize> = (0..count)
+            .map(|r| {
+                let s = starts[r];
+                text[s..].find('\n').map_or(text.len(), |l| s + l)
+            })
+            .collect();
+        (count, starts, ends)
+    }
+    fn agree(b: &Buffer, what: &str) {
+        let (count, starts, ends) = naive(b);
+        assert_eq!(b.line_count(), count, "{what}: count");
+        for r in 0..count + 2 {
+            assert_eq!(
+                b.line_start(r),
+                *starts.get(r).unwrap_or(&b.text().len()),
+                "{what}: start {r}"
+            );
+            assert_eq!(
+                b.line_end(r),
+                *ends.get(r).unwrap_or(&b.text().len()),
+                "{what}: end {r}"
+            );
+        }
+    }
+
+    let v = ViewSlot::new();
+    let mut b = Buffer::new("one\ntwo\nthree".into());
+    agree(&b, "fresh");
+    b.set_cursor(3);
+    b.insert(&v, "!\nzero"); // a line added mid-buffer
+    agree(&b, "insert");
+    b.delete_selected(&v);
+    agree(&b, "delete_selected");
+    b.set_cursor(b.line_start(1));
+    b.delete_line(&v, 1); // a line removed
+    agree(&b, "delete_line");
+    b.undo(&v);
+    agree(&b, "undo");
+    b.redo(&v);
+    agree(&b, "redo");
+    b.set_text("x\ny".into());
+    agree(&b, "set_text");
+    let empty = Buffer::new(String::new());
+    agree(&empty, "empty");
+}

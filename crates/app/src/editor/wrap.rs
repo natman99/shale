@@ -52,23 +52,32 @@ fn wrapper_index(row: RowStyle) -> usize {
     row.heading as usize * 2 + usize::from(row.wide)
 }
 
-/// Cached soft-wrap boundaries for one buffer row, together with the live-preview
-/// state they were measured in. Hiding a row's markers changes what has to fit,
-/// so a row is only re-wrapped when that flag changes rather than every time the
-/// cursor moves.
+/// Cached soft-wrap boundaries for one buffer row, together with everything
+/// the measurement was a function of: the painted text, the wrapper's face
+/// and size, and (one level up) the wrap width. A row is re-measured when any
+/// of those move — style changes under unchanged bytes as often as bytes move
+/// under the cursor.
 pub(super) struct CachedRow {
-    /// Whether the row was painted differently from the note when it was measured:
-    /// markers hidden, or a quote drawn as another glyph. Either way the text the
-    /// wrapper measured is not the text in the file.
-    preview: bool,
     /// The row was collapsed (drawn as no line at all) when this was measured,
     /// so its empty list of starts must not be reused once it is visible again.
     collapsed: bool,
     /// The row was drawn as one line whatever its width (a table row, or a row
     /// painted as an embedded image), so it was never measured for breaks.
     no_wrap: bool,
-    /// Absolute byte offsets where the row's display lines start, beginning with
-    /// the row itself.
+    /// Which wrapper (face and size) measured this row. Style can move under
+    /// unchanged bytes — an eaten `**` cascades bold across the rest of the
+    /// note — and a different wrapper means different break points.
+    widx: usize,
+    /// The painted text exactly as measured: markers hidden, quotes redrawn.
+    /// Same painted text, same wrapper, same width, same break points; the
+    /// buffer's change id cannot be the key — it moves on every keystroke,
+    /// and re-measuring the whole note for one character made typing cost
+    /// every row in it.
+    visible: Box<str>,
+    /// Where the row's display lines start, as byte offsets from the row's own
+    /// start (beginning with 0 for the row itself). Relative, not absolute:
+    /// an edit above the row shifts it left, and absolute offsets would carry
+    /// the stale shift through the text comparison.
     starts: Vec<usize>,
 }
 /// What a buffer row is painted from: the note ranges live preview leaves
@@ -350,8 +359,8 @@ impl MarkdownEditor {
     /// is what keeps break points matching the paint — and against the text live
     /// preview actually leaves visible (`paint[row].pieces`, with `paint[row].subs`
     /// drawn over the characters they name), so hidden markers do not take up
-    /// room. Boundaries are cached until the text, the width, or a row's
-    /// live-preview state changes.
+    /// room. Boundaries are cached until the painted text, the row's wrapper,
+    /// or the width changes.
     pub(super) fn display_lines(
         &mut self,
         width: Pixels,
@@ -362,12 +371,11 @@ impl MarkdownEditor {
         collapsed: &[bool],
     ) -> Vec<DisplayLine> {
         let line_count = self.note.buffer.borrow().line_count();
-        let change_id = self.note.buffer.borrow().change_id();
         let cached = self
             .wrap_cache
             .as_ref()
-            .filter(|(id, w, _)| *id == change_id && *w == width)
-            .map(|(_, _, rows)| rows);
+            .filter(|(w, _)| *w == width)
+            .map(|(_, rows)| rows);
 
         let mut segments: Vec<Vec<usize>> = Vec::with_capacity(line_count);
         let mut measured: Vec<CachedRow> = Vec::with_capacity(line_count);
@@ -376,20 +384,17 @@ impl MarkdownEditor {
             let row_end = self.note.buffer.borrow().line_end(row);
             let mut starts = vec![row_start];
             let row_paint = paint.get(row).cloned().unwrap_or_default();
-            // Whether this row is painted with its markers hidden or its quotes
-            // redrawn, which is what the wrap cache is keyed on.
-            let preview =
-                row_paint.pieces.as_slice() != [(row_start, row_end)] || !row_paint.subs.is_empty();
             // A collapsed row is not drawn, so it contributes no display line and
-            // the buffer's index space steps over it. It is never cached: whether
+            // the buffer's index space steps over it. It is never reused: whether
             // a row is collapsed follows the cursor, which the cache key does not
             // include.
             if collapsed.get(row).copied().unwrap_or(false) {
                 segments.push(Vec::new());
                 measured.push(CachedRow {
-                    preview,
                     collapsed: true,
                     no_wrap: false,
+                    widx: 0,
+                    visible: "".into(),
                     starts: Vec::new(),
                 });
                 continue;
@@ -400,21 +405,37 @@ impl MarkdownEditor {
             if no_wrap.get(row).copied().unwrap_or(false) {
                 segments.push(starts);
                 measured.push(CachedRow {
-                    preview,
                     collapsed: false,
                     no_wrap: true,
-                    starts: vec![row_start],
+                    widx: 0,
+                    visible: "".into(),
+                    starts: vec![0],
                 });
                 continue;
             }
+            // The break points are a pure function of the painted text, the
+            // wrapper (face and size), and the width — so those, not the
+            // buffer's change id, are what the cache is keyed on. Style moves
+            // under unchanged bytes all the time: an eaten `**` cascades bold
+            // across the rest of the note, and the painted text — not the raw
+            // bytes — is what changed.
+            let row_style = rows.get(row).copied().unwrap_or_default();
+            let widx = wrapper_index(row_style);
+            let map = PieceMap::with_substitutions(&row_paint.pieces, &row_paint.subs);
+            let visible = map.painted_text(self.note.buffer.borrow().text());
             let cached_row = cached.as_ref().and_then(|rows| rows.get(row));
-            if cached_row.is_some_and(|cached| {
-                !cached.collapsed && !cached.no_wrap && cached.preview == preview
-            }) {
+            let reused = cached_row.is_some_and(|cached| {
+                !cached.collapsed
+                    && !cached.no_wrap
+                    && cached.widx == widx
+                    && cached.visible.as_ref() == &*visible
+            });
+            if reused {
                 // Re-validate even a cached boundary against the current row, so
                 // a cache key that ever fails to notice an edit cannot push a
                 // segment past the end of the row.
-                for &s in &cached_row.expect("checked above").starts {
+                for rel in &cached_row.expect("checked above").starts {
+                    let s = row_start + rel;
                     if s > row_start && s < row_end && s > *starts.last().unwrap() {
                         starts.push(s);
                     }
@@ -422,10 +443,7 @@ impl MarkdownEditor {
             } else if width > px(0.) {
                 // The wrapper sees the painted text, and its break points are
                 // mapped back onto buffer offsets through the same map.
-                let map = PieceMap::with_substitutions(&row_paint.pieces, &row_paint.subs);
-                let visible = map.painted_text(self.note.buffer.borrow().text());
-                let row_style = rows.get(row).copied().unwrap_or_default();
-                let wrapper = &mut wrappers[wrapper_index(row_style)];
+                let wrapper = &mut wrappers[widx];
                 for boundary in wrapper.wrap_line(
                     &[LineFragment::text(&visible)],
                     width,
@@ -440,16 +458,15 @@ impl MarkdownEditor {
             // width == 0 means no measured width yet (the first frame): one
             // display line per row.
             measured.push(CachedRow {
-                preview,
                 collapsed: false,
                 no_wrap: false,
-                starts: starts.clone(),
+                widx,
+                visible: visible.into(),
+                starts: starts.iter().map(|s| s - row_start).collect(),
             });
             segments.push(starts);
         }
-        if cached.is_none() {
-            self.wrap_cache = Some((change_id, width, measured));
-        }
+        self.wrap_cache = Some((width, measured));
 
         self.host_slot().set_segments(segments.clone());
         let mut out = Vec::new();

@@ -67,6 +67,9 @@ fn filter_seat(filter: &GraphFilter) -> Option<GraphFilterSeat> {
             .clone()
             .filter(|query| !query.trim().is_empty()),
         local: filter.local.as_ref().map(|scope| scope.depth),
+        // The name, not the answer: the file is the authority, and the next window asks
+        // it again rather than inheriting a set of paths that may have gone stale.
+        lens: filter.lens.as_ref().map(|scope| scope.name.clone()),
     };
     (seat != GraphFilterSeat::default()).then_some(seat)
 }
@@ -309,8 +312,31 @@ impl Workspace {
                 existing_only: seat.existing_only,
                 tags: seat.tags,
                 search: seat.search.clone(),
+                // Not in the seat: the answer belongs to the index as it is now, so the
+                // line is asked again below rather than a set of paths inherited.
+                query: None,
                 folder: None,
+                lens: None,
             };
+            // The lens is the one part of the seat that has to be *asked* rather than
+            // copied: the seat holds a name, and the answer belongs to the file and the
+            // index as they are now (EDGE-L1). This still happens before any tab opens,
+            // so the graph tab's first frame is laid out under the lens.
+            if let Some(name) = seat.lens.as_deref() {
+                self.restore_lens(name, cx);
+            }
+            // The line is asked too, in the same spirit: the seat holds what was typed and
+            // the answer belongs to the index. Only when the graph is already built —
+            // before the first pass lands, an answer of "nothing" would paint an empty
+            // picture for a moment, and [`Workspace::query_follow`] answers it properly
+            // when the pass does land.
+            if self.graph.is_some()
+                && let Some(sentence) = self.ask_filter_line()
+            {
+                // No strip is on screen to draw a refusal, so the bar is the only
+                // place left for one.
+                self.say(sentence, cx);
+            }
         }
 
         // The panes before the tabs: every tab goes to the pane that held it, so the

@@ -1,4 +1,6 @@
 mod atomic;
+#[cfg(test)]
+mod bench_paths;
 pub mod buffer;
 pub mod config;
 pub mod continuation;
@@ -11,6 +13,7 @@ pub mod frontmatter;
 pub mod fuzzy;
 pub mod glob;
 pub mod graph;
+pub mod lens;
 pub mod live;
 pub mod markdown;
 pub mod mdlayout;

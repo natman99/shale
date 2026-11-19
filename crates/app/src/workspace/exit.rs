@@ -5,9 +5,14 @@
 //! (`:wq`) act inside the window. The window manager's close button acts on the
 //! window from outside, so `attach_window` keeps the same promise there. A
 //! **termination signal** arrives on a thread of the kernel's choosing, which is why
-//! it is handled here rather than in a signal handler: the handler does the only
-//! thing a signal context allows — an atomic store — and the window polls that flag.
-//! gpui's event loop is not ours to wake, so polling is where the two meet.
+//! it is handled here rather than in a signal handler: the handler does only what a
+//! signal context allows — an atomic store and a one-byte write to a self-pipe — and a
+//! blocking reader thread turns that byte into a send on a channel. One watcher task
+//! per process waits on that channel and runs the exit for every window in the
+//! registry, the same walk `:qall` takes. gpui's event loop is not ours to wake from
+//! signal context, but a channel send from an ordinary thread is exactly what wakes a
+//! gpui task, so no window ever asks "yet?" on a timer and an idle run — however many
+//! windows it holds — pays nothing for being killable.
 //!
 //! What the promise is: the note the user can see reaches the disk, the session
 //! file says where they were in it, the index is drained and checkpointed, and
@@ -21,19 +26,120 @@
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
 
-use gpui::{Context, Window};
+use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
+use gpui::{App, BorrowAppContext, Context, Window};
 
 use crate::acts::{CloseTab, CloseTabForce, Quit, QuitForce, WriteAll};
 
 use super::Workspace;
-use super::vaults::VaultWindows;
+use super::vaults::{self, VaultWindows};
 
-/// How often the window looks to see whether the process was asked to stop. Long
-/// enough to be invisible in a profile — one atomic load per poll — short enough
-/// that a `kill` is answered before a person notices they asked.
-const TERMINATION_POLL: Duration = Duration::from_millis(200);
+/// The meeting point between the signal handlers and the process's one
+/// termination watcher (see [`spawn_watcher`]).
+///
+/// Cloned freely — the flag and the channel sender are shared, and every clone
+/// wakes the same watcher. `main` builds one, hands clones to the signal
+/// handlers and the self-pipe reader, and gives the watcher half to
+/// [`spawn_watcher`] once per run.
+#[derive(Clone)]
+pub(crate) struct Termination {
+    /// The fact of the signal. Raised from signal context (where only an atomic
+    /// store is allowed) and again by the pipe reader; the watcher reads this,
+    /// never the channel's payload.
+    flag: Arc<AtomicBool>,
+    /// The one wake-up message. A channel, not a timer: an idle run pays
+    /// nothing for being killable.
+    tx: UnboundedSender<()>,
+}
+
+/// The watcher half of a [`Termination`]: the channel's only receiver, and the
+/// flag. Handed to [`spawn_watcher`] once per run.
+pub(crate) struct TerminationWatcher {
+    flag: Arc<AtomicBool>,
+    rx: UnboundedReceiver<()>,
+}
+
+impl Termination {
+    /// The pair: the clonable wake-up half and the single watcher half.
+    pub(crate) fn new() -> (Termination, TerminationWatcher) {
+        let (tx, rx) = unbounded();
+        let flag = Arc::new(AtomicBool::new(false));
+        (
+            Termination {
+                flag: Arc::clone(&flag),
+                tx,
+            },
+            TerminationWatcher { flag, rx },
+        )
+    }
+
+    /// The flag, for the signal handler to raise. A signal handler may not send
+    /// on a channel — it runs in signal context — so it stores this and writes
+    /// one byte to the self-pipe; [`Termination::wake`] is what the pipe's
+    /// reader thread calls when that byte lands.
+    ///
+    /// Only the unix handlers ask for it, so that is where it is built; a Windows
+    /// raiser is a console handler that has not been written yet, and a method
+    /// nothing on that side calls is a warning, not a feature.
+    #[cfg(unix)]
+    pub(crate) fn flag(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.flag)
+    }
+
+    /// Raise the flag and wake the watcher. Also what a test calls in place of
+    /// the signal plumbing.
+    pub(crate) fn wake(&self) {
+        self.flag.store(true, Ordering::SeqCst);
+        // If the watcher is not up yet, the flag still stands: the watcher
+        // reads it before it ever sleeps.
+        let _ = self.tx.unbounded_send(());
+    }
+}
+
+/// Wait once for the termination signal, then exit every window this process
+/// holds — the same registry walk `:qall` takes, so a `kill` answers for every
+/// window, not just the one that started the run.
+///
+/// Spawned once per run by `main`, after the registry is a global. A test
+/// drives the same wait by calling [`Termination::wake`] itself
+/// (`tests::exit`), which is how the waiting and the exit promise get tested
+/// without anyone sending the test process a signal.
+pub(crate) fn spawn_watcher(watch: TerminationWatcher, cx: &mut App) {
+    let task = cx.spawn(async move |cx| {
+        let mut watch = watch;
+        loop {
+            // The flag is the fact, and it is read before every wait: a signal
+            // that landed before the watcher started still answers.
+            if watch.flag.load(Ordering::SeqCst) {
+                break;
+            }
+            // The sender lives as long as the run, so `Err` here means the
+            // wake-up is gone with nobody having asked to stop.
+            if watch.rx.recv().await.is_err() {
+                return;
+            }
+        }
+        cx.update(|cx| {
+            for handle in VaultWindows::all_windows(cx) {
+                // A window already gone answers nothing; its own teardown is
+                // under way.
+                let _ = handle.update(cx, |ws, _window, cx| ws.finish_termination(cx));
+            }
+            // The startup screen is not a window on a vault, so it is not in the
+            // per-vault list — but a signal asked to stop the program, and a window
+            // left open on a question is the program still running (P4.20 EDGE-V16).
+            if let Some(handle) = vaults::take_startup_window(cx) {
+                let _ = handle.update(cx, |_this, window, _cx| window.remove_window());
+            }
+        });
+    });
+    // A gpui task is cancelled when its handle drops, so the registry — which
+    // lives as long as the run — keeps the handle for the wait.
+    cx.update_global::<VaultWindows, _>(|registry, _cx| {
+        registry.set_termination_watcher(task);
+    });
+}
 
 /// The first note ahead of its file in any of these windows, named for the status
 /// line. A window the handle cannot reach (already closed) answers nothing.
@@ -50,26 +156,6 @@ fn first_dirty_note_in(
 }
 
 impl Workspace {
-    /// Start watching the flag a signal handler raises.
-    ///
-    /// `main` installs the handlers; a test drives the same watch with a flag of its
-    /// own (`tests::exit`), which is how the polling and the exit promise get tested
-    /// without anyone sending the test process a signal.
-    pub(crate) fn watch_for_termination(&mut self, flag: Arc<AtomicBool>, cx: &mut Context<Self>) {
-        self._termination = Some(cx.spawn(async move |ws, cx| {
-            loop {
-                cx.background_executor().timer(TERMINATION_POLL).await;
-                if !flag.load(Ordering::SeqCst) {
-                    continue;
-                }
-                // The weak handle: if the window is already gone, its own teardown
-                // is under way and there is nothing to add.
-                let _ = ws.update(cx, |ws, cx| ws.finish_termination(cx));
-                break;
-            }
-        }));
-    }
-
     /// The exit a signal asked for: the note on screen to the disk, the session
     /// written, the index checkpointed, then the window closed.
     ///

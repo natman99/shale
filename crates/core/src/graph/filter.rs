@@ -4,6 +4,8 @@
 //! Task 4). Re-running the filter is cheap; re-heating the sim on a filter
 //! change is the caller's job.
 
+use std::collections::HashSet;
+
 use petgraph::graph::NodeIndex;
 
 use crate::fuzzy::fuzzy_match;
@@ -19,10 +21,24 @@ pub struct GraphFilter {
     pub existing_only: bool,
     /// Show `#tag` nodes.
     pub tags: bool,
-    /// Fuzzy match against the node label and path; a node that does not
-    /// match is hidden (illumination mode, M5f, is a render-side variant of
-    /// the same match, not a different filter).
+    /// The strip's line, kept as typed. Its **words** are a fuzzy match against the
+    /// node label and path; a node that does not match is hidden (illumination mode,
+    /// M5f, is a render-side variant of the same match, not a different filter).
+    ///
+    /// The line speaks the same grammar the vault search speaks (P4.16 follow-up):
+    /// `tag:`/`path:`/`link:`/`prop:`/`modified:` tokens are questions for the index,
+    /// and only the words left over reach the labels. So `tag:boss` does not hide every
+    /// node whose label lacks a `b` — the token chooses the notes through [`Self::query`]
+    /// instead, exactly as it does in the search picker.
     pub search: Option<String>,
+    /// The notes the strip's operator tokens answered, as vault-relative paths, in the
+    /// answer's own order. `None` is a line with no operators in it.
+    ///
+    /// Answering needs the database, which this module does not have, so the app answers
+    /// once and hands the paths here — the same shape a [`LensScope`] carries, and it
+    /// **ands** with the other dimensions the same way. A typed line and a worn lens can
+    /// both be on at once: the lens is the saved question, the line is a typed one.
+    pub query: Option<Vec<String>>,
     /// Constellation scope (M3): only notes under this vault-relative folder,
     /// plus the tags and ghosts attached to them. `None` is the whole vault.
     pub folder: Option<String>,
@@ -31,6 +47,37 @@ pub struct GraphFilter {
     /// the picture that answers "what is this note connected to". `None` is the
     /// whole vault.
     pub local: Option<LocalScope>,
+    /// A lens (roadmap P4.16): only the notes one saved query answered, plus the
+    /// tags and ghosts those notes carry. `None` is no lens — EDGE-L9, there is
+    /// no "lens off" state apart from "no lens". It **combines** with the other
+    /// dimensions rather than replacing them (EDGE-L3): the strip's chips still
+    /// cut inside a lens, so the strip never lies about the picture.
+    pub lens: Option<LensScope>,
+}
+
+/// A lens: the notes one saved query answered, worn as a scope (roadmap P4.16).
+///
+/// The filter's job is only the mask — who carries one of these paths. Counting an
+/// answer that named no node is the app's, not this module's (EDGE-L5), because
+/// [`apply`] answers with a bitmask and nothing else. The app does the counting once and
+/// carries the result here, so the tab title, the strip and the status line all read one
+/// answer rather than each re-deriving a number that could disagree (EDGE-L14).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct LensScope {
+    /// The lens's name, as its file under `.shale/lenses/` is named. Carried for the
+    /// tab title and the filter strip, which both say what the picture is wearing.
+    pub name: String,
+    /// The answer, as vault-relative paths, in the answer's own order. A path the graph
+    /// has no node for simply keeps nothing here; the app counts it (EDGE-L5).
+    pub paths: Vec<String>,
+    /// How many of `paths` this graph has no node for (EDGE-L5). Counted out loud in the
+    /// strip rather than dropped in silence: a picture that quietly disagrees with the
+    /// answer is the failure the lens exists to avoid.
+    pub unmatched: usize,
+    /// Set when the lens stopped answering: the picture is the **last good one** (EDGE-L6)
+    /// and this is the sentence for why it is not current — the database's own words, or
+    /// the file being gone (EDGE-L11). `apply` ignores it; the strip does not.
+    pub stale: Option<String>,
 }
 
 /// How far the local view reaches from its centre (M2b). Five is Obsidian's
@@ -54,8 +101,10 @@ impl Default for GraphFilter {
             existing_only: false,
             tags: true,
             search: None,
+            query: None,
             folder: None,
             local: None,
+            lens: None,
         }
     }
 }
@@ -87,9 +136,60 @@ pub fn apply(index: &GraphIndex, filter: &GraphFilter) -> Vec<bool> {
                 }
             }
         }
-        // ...then tags and ghosts survive only if a visible note links them.
-        // (Two passes: the neighbor check reads `visible` while deciding, so
-        // the writes wait until every decision is made.)
+    }
+
+    // A lens is the same shape with a different way of deciding who is in: the paths one
+    // saved query answered, rather than everything under one folder (EDGE-L2). It **ands**
+    // with folder scope instead of taking over — a lens worn on a folder-scoped graph is
+    // the intersection, which is what "combine" means (EDGE-L3).
+    if let Some(lens) = &filter.lens {
+        let answered: HashSet<&str> = lens.paths.iter().map(String::as_str).collect();
+        for (i, v) in visible.iter_mut().enumerate() {
+            let meta = index.meta(NodeIndex::new(i));
+            match meta.kind {
+                NodeKind::Note | NodeKind::Attachment | NodeKind::Query => {
+                    *v &= match meta.path.as_ref().map(rel_text) {
+                        Some(p) => answered.contains(p.as_str()),
+                        None => false,
+                    };
+                }
+                NodeKind::Tag | NodeKind::Ghost => {
+                    // Decided by their neighbours, below (EDGE-L4).
+                    *v = true;
+                }
+            }
+        }
+    }
+
+    // The operators in the strip's line, answered by the app's index and handed over as
+    // paths: one more of the same shape, anding the same way. A worn lens and a typed
+    // line can both be on — the lens is the saved question, the line a typed one, and
+    // the picture is where the two agree.
+    if let Some(paths) = &filter.query {
+        let answered: HashSet<&str> = paths.iter().map(String::as_str).collect();
+        for (i, v) in visible.iter_mut().enumerate() {
+            let meta = index.meta(NodeIndex::new(i));
+            match meta.kind {
+                NodeKind::Note | NodeKind::Attachment | NodeKind::Query => {
+                    *v &= match meta.path.as_ref().map(rel_text) {
+                        Some(p) => answered.contains(p.as_str()),
+                        None => false,
+                    };
+                }
+                NodeKind::Tag | NodeKind::Ghost => {
+                    // Decided by their neighbours, below.
+                    *v = true;
+                }
+            }
+        }
+    }
+
+    // ...then, for either path-shaped scope, tags and ghosts survive only if a visible
+    // note links them: a tag is a fact about the notes that carry it, and a ghost is a
+    // fact about the note that names it (EDGE-L4).
+    // (Two passes: the neighbor check reads `visible` while deciding, so
+    // the writes wait until every decision is made.)
+    if filter.folder.is_some() || filter.lens.is_some() || filter.query.is_some() {
         let mut hide = Vec::new();
         for i in 0..n {
             let node = NodeIndex::new(i);
@@ -155,22 +255,64 @@ pub fn apply(index: &GraphIndex, filter: &GraphFilter) -> Vec<bool> {
         }
     }
 
-    if let Some(query) = &filter.search
-        && !query.trim().is_empty()
-    {
-        for (i, v) in visible.iter_mut().enumerate() {
-            if !*v {
+    // The line's **words**, last so they narrow whatever the chips, the scopes and the
+    // question left rather than fighting them. Only the words: the operator tokens in the
+    // same line have already had their say through the index above, and matching their
+    // characters against labels as well would empty the picture on a line the vault
+    // search answers fine — which is the whole reason the strip and the search now read
+    // one grammar (P4.16 follow-up).
+    // A line holding a token that *looks* like an operator but is not one filters nothing
+    // here at all: the window says the token instead, the way the search shows a notice
+    // rather than searching the string. Narrowing the picture by the letters of a typo is
+    // how an empty graph ends up looking like an empty vault.
+    let words = filter
+        .search
+        .as_deref()
+        .map(crate::query::parse)
+        .filter(|q| q.unknown.is_empty())
+        .and_then(|q| q.text)
+        .filter(|text| !text.trim().is_empty());
+    if let Some(words) = &words {
+        // A word that lands on a tag or a ghost has landed on a *fact about notes*, not on a
+        // node standing on its own: a tag dot with every note that carries it hidden is a dot
+        // that cannot be read, which is what a bare `monster` used to paint. So the notes a
+        // matched tag carries, and the notes a matched ghost names, come along — one hop, no
+        // further, or a popular tag would light the vault again.
+        //
+        // The other direction is deliberately not rescued: a matched note keeps its own tags
+        // and ghosts hidden, because typing `goblin` is a search for a note, not a request
+        // for everything the note mentions.
+        //
+        // Only notes the scopes and chips left visible are rescued — a tag match cannot
+        // resurrect a note a folder, a lens or an answered token already excluded.
+        let scope = visible.clone();
+        let mut matched = vec![false; n];
+        for i in 0..n {
+            if !scope[i] {
                 continue;
             }
             let node = NodeIndex::new(i);
             let meta = index.meta(node);
             let label = &meta.label;
             let path = meta.path.as_ref().map(rel_text).unwrap_or_default();
-            let matched = fuzzy_match(query, label).is_some()
-                || (!path.is_empty() && fuzzy_match(query, &path).is_some());
-            if !matched {
-                *v = false;
+            matched[i] = fuzzy_match(words, label).is_some()
+                || (!path.is_empty() && fuzzy_match(words, &path).is_some());
+        }
+        for i in 0..n {
+            if !matched[i] {
+                continue;
             }
+            let node = NodeIndex::new(i);
+            if matches!(index.meta(node).kind, NodeKind::Tag | NodeKind::Ghost) {
+                for nb in index.neighbors(node) {
+                    if scope[nb.index()] {
+                        matched[nb.index()] = true;
+                    }
+                }
+            }
+        }
+        for (i, v) in visible.iter_mut().enumerate() {
+            *v &= matched[i];
         }
     }
 
@@ -200,6 +342,7 @@ mod tests {
             &vault.list_markdown()?,
             &vault.list_attachments()?,
             &vault.list_queries()?,
+            &[],
         )?;
         Ok((dir, vault, index))
     }
@@ -390,6 +533,214 @@ mod tests {
         Ok(())
     }
 
+    /// A bare word that lands on a tag has landed on a *fact about notes*, so the notes come
+    /// with it. The old shape painted a tag dot with every note that carries it hidden: a dot
+    /// that cannot be read, and the reason `monster` in the strip looked like a filter working.
+    #[test]
+    fn a_bare_word_on_a_tag_bring_the_notes_that_carry_it() -> anyhow::Result<()> {
+        let (_dir, _vault, index) = fixture()?;
+        let f = GraphFilter {
+            search: Some("top".into()),
+            ..Default::default()
+        };
+        let visible = apply(&index, &f);
+        assert!(visible[index.node_for_tag("top").unwrap().index()]);
+        assert!(
+            visible[index.node_for_path("root.md").unwrap().index()],
+            "the note carrying #top came along"
+        );
+        assert!(
+            !visible[index.node_for_path("lonely.md").unwrap().index()],
+            "and one hop only: the rescue does not walk on to the vault"
+        );
+        assert!(
+            !visible[index.ghost_for_target("gone").unwrap().index()],
+            "a ghost root happens to name is not part of this match"
+        );
+        Ok(())
+    }
+
+    /// The same rule the other way round in kind: a ghost is a fact about the note that wrote
+    /// the link, so matching the ghost brings the writer.
+    #[test]
+    fn a_bare_word_on_a_ghost_names_the_note_that_wrote_it() -> anyhow::Result<()> {
+        let (_dir, _vault, index) = fixture()?;
+        let f = GraphFilter {
+            search: Some("gone".into()),
+            ..Default::default()
+        };
+        let visible = apply(&index, &f);
+        assert!(visible[index.ghost_for_target("gone").unwrap().index()]);
+        assert!(
+            visible[index.node_for_path("root.md").unwrap().index()],
+            "the note that linked to it"
+        );
+        assert!(!visible[index.node_for_tag("top").unwrap().index()]);
+        Ok(())
+    }
+
+    /// A tag carried on both sides of a scope boundary: the tag is in because one of its
+    /// notes is, and the rescue may reach that note and no other. Without the scope guard the
+    /// word would smuggle an excluded note back in through a fact it happens to share.
+    #[test]
+    fn a_tag_rescue_reaches_only_the_notes_the_scope_left() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let root = dir.path();
+        fs::create_dir_all(root.join("in"))?;
+        fs::create_dir_all(root.join("out"))?;
+        fs::write(root.join("in/one.md"), "wears #shared")?;
+        fs::write(root.join("out/two.md"), "wears #shared too")?;
+        let vault = Vault::open(root)?;
+        let index = GraphIndex::build(
+            &vault,
+            &vault.list_markdown()?,
+            &vault.list_attachments()?,
+            &vault.list_queries()?,
+            &[],
+        )?;
+        let f = GraphFilter {
+            folder: Some("in".into()),
+            search: Some("shared".into()),
+            ..Default::default()
+        };
+        let visible = apply(&index, &f);
+        assert!(visible[index.node_for_tag("shared").unwrap().index()]);
+        assert!(visible[index.node_for_path("in/one.md").unwrap().index()]);
+        assert!(
+            !visible[index.node_for_path("out/two.md").unwrap().index()],
+            "the folder took it out and the tag match cannot put it back"
+        );
+        Ok(())
+    }
+
+    /// The word pass narrows the mask; it never overwrites it. A note the folder excluded
+    /// stays out even when its label is the word, exactly typed.
+    #[test]
+    fn a_word_cannot_bring_back_a_note_the_folder_excluded() -> anyhow::Result<()> {
+        let (_dir, _vault, index) = fixture()?;
+        let f = GraphFilter {
+            folder: Some("child 1".into()),
+            search: Some("root".into()),
+            ..Default::default()
+        };
+        let visible = apply(&index, &f);
+        assert!(
+            !visible[index.node_for_path("root.md").unwrap().index()],
+            "the label matches perfectly and the scope still wins"
+        );
+        Ok(())
+    }
+
+    /// Same for a chip: `existing only` took the ghosts out, and a word that lands on a
+    /// ghost cannot put one back on the canvas.
+    #[test]
+    fn a_word_cannot_bring_back_what_a_chip_took_out() -> anyhow::Result<()> {
+        let (_dir, _vault, index) = fixture()?;
+        let f = GraphFilter {
+            existing_only: true,
+            search: Some("gone".into()),
+            ..Default::default()
+        };
+        let visible = apply(&index, &f);
+        assert!(
+            !visible[index.ghost_for_target("gone").unwrap().index()],
+            "the chip's decision outlasts the match"
+        );
+        Ok(())
+    }
+
+    /// The rescue runs one way. A matched note does not light the tags and ghosts it
+    /// mentions: typing `cake` is a search for a note, not a request for everything the note
+    /// talks about, and a picture that grows sideways from every note match stops being a
+    /// search.
+    #[test]
+    fn a_matched_note_does_not_light_what_it_mentions() -> anyhow::Result<()> {
+        let (_dir, _vault, index) = fixture()?;
+        let f = GraphFilter {
+            search: Some("cake".into()),
+            ..Default::default()
+        };
+        let visible = apply(&index, &f);
+        assert!(visible[index.node_for_path("child 1/cake/c.md").unwrap().index()]);
+        assert!(
+            !visible[index.node_for_tag("sweet").unwrap().index()],
+            "#sweet is on that note and stays hidden"
+        );
+        Ok(())
+    }
+
+    /// The rescue reaches notes the scopes left visible, never ones they excluded: a tag match
+    /// cannot resurrect a note a folder, a lens or an answered token has already taken away.
+    #[test]
+    fn a_tag_match_cannot_resurrect_what_a_scope_excluded() -> anyhow::Result<()> {
+        let (_dir, _vault, index) = fixture()?;
+        let f = GraphFilter {
+            folder: Some("child 1".into()),
+            search: Some("top".into()),
+            ..Default::default()
+        };
+        let visible = apply(&index, &f);
+        assert_eq!(
+            count(&visible),
+            0,
+            "#top's only note is out of scope, so the tag has nothing to bring and nothing to show"
+        );
+        Ok(())
+    }
+
+    /// The strip's line is read with the vault search's grammar: its operator tokens are
+    /// answered by the app's index and handed over as paths, and the mask's job is only
+    /// who carries one of them — the same shape a lens and a folder are.
+    #[test]
+    fn answered_paths_narrow_by_path_and_keep_what_they_carry() -> anyhow::Result<()> {
+        let (_dir, _vault, index) = fixture()?;
+        let f = GraphFilter {
+            query: Some(vec!["root.md".into()]),
+            ..Default::default()
+        };
+        let visible = apply(&index, &f);
+        assert!(visible[index.node_for_path("root.md").unwrap().index()]);
+        assert!(!visible[index.node_for_path("child 1/cake/c.md").unwrap().index()]);
+        // A tag is a fact about the notes that carry it and a ghost about the note that
+        // names it, so they follow the answer rather than the label match.
+        assert!(visible[index.node_for_tag("top").unwrap().index()]);
+        assert!(visible[index.ghost_for_target("gone").unwrap().index()]);
+        assert!(!visible[index.node_for_tag("sweet").unwrap().index()]);
+        Ok(())
+    }
+
+    /// A line holding a token that only *looks* like an operator narrows nothing here.
+    /// The window says the token instead — the way the search shows a notice rather than
+    /// searching the string — because narrowing the picture by a typo's letters is how an
+    /// empty graph ends up passing for an empty vault.
+    #[test]
+    fn a_line_holding_a_bad_token_narrows_nothing() -> anyhow::Result<()> {
+        let (_dir, _vault, index) = fixture()?;
+        let f = GraphFilter {
+            search: Some("tagg:sweet".into()),
+            ..Default::default()
+        };
+        let visible = apply(&index, &f);
+        assert_eq!(count(&visible), index.node_count());
+        Ok(())
+    }
+
+    /// Two halves of one line, anding: the operators choose which notes, and the words
+    /// left over narrow inside that answer rather than fighting it.
+    #[test]
+    fn the_words_narrow_inside_an_answered_line() -> anyhow::Result<()> {
+        let (_dir, _vault, index) = fixture()?;
+        let f = GraphFilter {
+            search: Some("tag:top cake".into()),
+            query: Some(vec!["root.md".into(), "child 1/cake/c.md".into()]),
+            ..Default::default()
+        };
+        let visible = apply(&index, &f);
+        assert!(visible[index.node_for_path("child 1/cake/c.md").unwrap().index()]);
+        assert!(!visible[index.node_for_path("root.md").unwrap().index()]);
+        Ok(())
+    }
+
     #[test]
     fn folder_scope_keeps_children_and_their_tags_not_the_rest() -> anyhow::Result<()> {
         let (_dir, _vault, index) = fixture()?;
@@ -405,6 +756,194 @@ mod tests {
         // #sweet is on a child-1 note: kept. #top is on root: dropped.
         assert!(visible[index.node_for_tag("sweet").unwrap().index()]);
         assert!(!visible[index.node_for_tag("top").unwrap().index()]);
+        Ok(())
+    }
+
+    /// A lens is a set of paths, and the mask is exactly that set: the notes it answered
+    /// are on screen and every other note is not, whatever their degree or folder.
+    #[test]
+    fn a_lens_keeps_exactly_the_notes_it_answered() -> anyhow::Result<()> {
+        let (_dir, _vault, index) = fixture()?;
+        let f = GraphFilter {
+            lens: Some(LensScope {
+                name: "goblins".into(),
+                paths: vec!["root.md".into(), "child 2/x.md".into()],
+                ..LensScope::default()
+            }),
+            ..Default::default()
+        };
+        let visible = apply(&index, &f);
+        for path in ["root.md", "child 2/x.md"] {
+            assert!(
+                visible[index.node_for_path(path).unwrap().index()],
+                "{path} was answered"
+            );
+        }
+        for path in ["child 1/pie/p.md", "child 1/cake/c.md", "lonely.md"] {
+            assert!(
+                !visible[index.node_for_path(path).unwrap().index()],
+                "{path} was not answered"
+            );
+        }
+        Ok(())
+    }
+
+    /// EDGE-L4: a tag is a fact about the notes that carry it and a ghost is a fact about
+    /// the note that names it, so both follow the lens rather than the vault.
+    #[test]
+    fn a_lens_keeps_the_tags_and_ghosts_its_notes_carry() -> anyhow::Result<()> {
+        let (_dir, _vault, index) = fixture()?;
+        let f = GraphFilter {
+            lens: Some(LensScope {
+                name: "goblins".into(),
+                paths: vec!["root.md".into()],
+                ..LensScope::default()
+            }),
+            ..Default::default()
+        };
+        let visible = apply(&index, &f);
+        // #top is on root: kept. #sweet is on p, which the lens did not answer: dropped.
+        assert!(visible[index.node_for_tag("top").unwrap().index()]);
+        assert!(!visible[index.node_for_tag("sweet").unwrap().index()]);
+        // root names both ghosts, so both are drawn (ruled 2026-11-08).
+        assert!(index.node_for_path("child 1/pie/p.md").is_some());
+        assert!(visible[index.ghost_for_target("gone").unwrap().index()]);
+        assert!(visible[index.ghost_for_target("pie/p").unwrap().index()]);
+        Ok(())
+    }
+
+    /// The renderer draws an edge only when both ends are visible, so a lens takes the
+    /// edges with it for free — but only the ones whose far end is off screen. Asserting
+    /// the graph still holds both edges is what makes this a fact rather than a hope.
+    #[test]
+    fn a_lens_leaves_an_edge_only_where_both_ends_survive() -> anyhow::Result<()> {
+        let (_dir, _vault, index) = fixture()?;
+        let f = GraphFilter {
+            lens: Some(LensScope {
+                name: "goblins".into(),
+                paths: vec!["root.md".into()],
+                ..LensScope::default()
+            }),
+            ..Default::default()
+        };
+        let visible = apply(&index, &f);
+        let root = index.node_for_path("root.md").unwrap();
+        let gone = index.ghost_for_target("gone").unwrap();
+        let p = index.node_for_path("child 1/pie/p.md").unwrap();
+        assert!(index.graph().find_edge(root, gone).is_some());
+        assert!(
+            visible[root.index()] && visible[gone.index()],
+            "root->gone stands"
+        );
+        // p links root, and that edge is still in the graph; p is off the answer, so the
+        // renderer will not draw it.
+        assert!(index.graph().find_edge(p, root).is_some());
+        assert!(!visible[p.index()], "p is not in the answer");
+        Ok(())
+    }
+
+    /// EDGE-L3: a lens combines with the strip's dimensions rather than switching them
+    /// off. The chips still cut inside the answer, and a second scope still intersects it.
+    #[test]
+    fn a_lens_combines_with_the_chips_and_the_other_scopes() -> anyhow::Result<()> {
+        let (_dir, _vault, index) = fixture()?;
+        let answered = |paths: &[&str]| LensScope {
+            name: "goblins".into(),
+            paths: paths.iter().map(|p| (*p).to_string()).collect(),
+            ..LensScope::default()
+        };
+
+        // A chip still cuts inside a lens: root is answered and names `[[gone]]`, but
+        // "existing only" still drops the ghost. And the chip does not let the lens grow:
+        // x.md is untouched by the chip, and the lens is what keeps it off screen.
+        let f = GraphFilter {
+            lens: Some(answered(&["root.md"])),
+            existing_only: true,
+            ..Default::default()
+        };
+        let visible = apply(&index, &f);
+        assert!(visible[index.node_for_path("root.md").unwrap().index()]);
+        assert!(!visible[index.ghost_for_target("gone").unwrap().index()]);
+        assert!(
+            !visible[index.node_for_path("child 2/x.md").unwrap().index()],
+            "the chip is not what hides this note; the lens is"
+        );
+
+        // A lens worn on a folder scope is the intersection, not a takeover: the folder
+        // hides root, the lens hides the child-1 note the answer did not name.
+        let f = GraphFilter {
+            lens: Some(answered(&["root.md", "child 1/pie/p.md"])),
+            folder: Some("child 1".into()),
+            ..Default::default()
+        };
+        let visible = apply(&index, &f);
+        assert!(visible[index.node_for_path("child 1/pie/p.md").unwrap().index()]);
+        assert!(
+            !visible[index.node_for_path("root.md").unwrap().index()],
+            "answered, but outside the folder"
+        );
+        assert!(
+            !visible[index.node_for_path("child 1/cake/c.md").unwrap().index()],
+            "inside the folder, but not answered"
+        );
+
+        // And a search narrows inside a lens the same way it narrows anywhere else.
+        let f = GraphFilter {
+            lens: Some(answered(&["root.md", "child 2/x.md"])),
+            search: Some("x".into()),
+            ..Default::default()
+        };
+        let visible = apply(&index, &f);
+        assert!(visible[index.node_for_path("child 2/x.md").unwrap().index()]);
+        assert!(
+            !visible[index.node_for_path("root.md").unwrap().index()],
+            "answered, but not matching the search"
+        );
+        Ok(())
+    }
+
+    /// An empty answer is an answer. Unlike a local scope whose centre the index does not
+    /// know — which leaves the graph alone, because the window owns that centre — a lens
+    /// that came back with nothing has nothing to draw, and the strip says so.
+    #[test]
+    fn an_empty_lens_keeps_nothing_rather_than_everything() -> anyhow::Result<()> {
+        let (_dir, _vault, index) = fixture()?;
+        let f = GraphFilter {
+            lens: Some(LensScope {
+                name: "nothing".into(),
+                paths: Vec::new(),
+                ..LensScope::default()
+            }),
+            ..Default::default()
+        };
+        let visible = apply(&index, &f);
+        assert_eq!(count(&visible), 0, "no answer, no picture");
+        assert_ne!(index.node_count(), 0, "the fixture is not itself empty");
+        Ok(())
+    }
+
+    /// EDGE-L5: an answer can name a path the graph has no node for. The mask keeps
+    /// nothing for it and does not treat it as an error; counting it is the app's job,
+    /// because `apply` answers with a bitmask and nothing else.
+    #[test]
+    fn a_lens_path_with_no_node_keeps_the_rest() -> anyhow::Result<()> {
+        let (_dir, _vault, index) = fixture()?;
+        let f = GraphFilter {
+            lens: Some(LensScope {
+                name: "half-gone".into(),
+                paths: vec!["root.md".into(), "deleted.md".into()],
+                ..LensScope::default()
+            }),
+            ..Default::default()
+        };
+        let visible = apply(&index, &f);
+        assert!(visible[index.node_for_path("root.md").unwrap().index()]);
+        assert_eq!(
+            count(&visible),
+            // root, #top, and the two ghosts root names.
+            4,
+            "the path with no node contributes nothing"
+        );
         Ok(())
     }
 }

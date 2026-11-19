@@ -27,7 +27,9 @@ use gpui::{Context, Entity, Window, prelude::*};
 use shale_core::vault::{VaultEntry, rel_text};
 use shale_core::watch::VaultChanges;
 
-use crate::acts::OpenGraph;
+use crate::acts::{GraphLens, OpenGraph};
+use crate::picker::PickerItem;
+use crate::workspace::open::{PickerTarget, notice};
 
 use super::Workspace;
 use super::tabs::{Tab, TabContent};
@@ -65,10 +67,11 @@ fn apply_graph_change(
     entries: &[VaultEntry],
     attachments: &[VaultEntry],
     queries: &[VaultEntry],
+    aliases: &[(String, String)],
 ) {
     match change {
         GraphChange::Saved(path, text) => {
-            index.set_note(&path, &text, entries, attachments, queries);
+            index.set_note(&path, &text, entries, attachments, queries, aliases);
         }
         GraphChange::Removed(path) => index.remove_note(&path),
     }
@@ -235,6 +238,15 @@ impl Workspace {
         let Some(view) = self.graph_view().cloned() else {
             return;
         };
+        // EDGE-L7: every index move ends at this door, so this is where a worn lens is
+        // asked again. It happens before the picture is re-made, so an answer that moved
+        // rides the same rebuild the mask change would need anyway — and one that did not
+        // move disturbs the layout not at all, which is the half the measurement was for.
+        self.lens_follow();
+        // The strip's line is a question too, and an index that has not read the vault
+        // yet answers nothing: a line restored from a session, or typed before the first
+        // pass lands, gets its answer here (the same door EDGE-L7 opens for a lens).
+        self.query_follow();
         let Some((summary, frame)) = self.rebuild_graph() else {
             return;
         };
@@ -372,11 +384,610 @@ impl Workspace {
         &mut self,
         filter: shale_core::graph::filter::GraphFilter,
         cx: &mut Context<Self>,
-    ) -> Option<(crate::graph::GraphSummary, Rc<crate::graph::GraphFrame>)> {
+    ) -> Option<(
+        crate::graph::GraphSummary,
+        Rc<crate::graph::GraphFrame>,
+        Option<String>,
+    )> {
         self.graph_filter = filter;
+        let said = self.ask_filter_line();
         let built = self.rebuild_graph();
         self.pump_graph(cx);
-        built
+        built.map(|(summary, frame)| (summary, frame, said))
+    }
+
+    /// Read the strip's line the way the vault search reads it (P4.16 follow-up).
+    ///
+    /// One line, one grammar in both places: the operator tokens are questions for the
+    /// index, and the words left over are the label filter core's mask applies by itself.
+    /// Answering needs the database, which the mask does not have, so the answer lands on
+    /// the filter as paths and `apply` ands them exactly as it ands a lens. That is also
+    /// what makes `alt-s` honest: the line it compiles into a saved lens is the line the
+    /// picture in front of the reader was narrowed by.
+    ///
+    /// The refusals are the search's, in the search's words. A token shaped like an
+    /// operator and not one is *said*, not searched; an operator with no index to answer
+    /// it is said too. Otherwise a typo narrows the graph to nothing and the reader is
+    /// left to wonder whether the vault really is that empty.
+    /// ...and hands the sentence back rather than saying it, which is who the sentence is
+    /// for: the strip draws it under the line that was refused, and the window's session
+    /// door puts it on the status bar when there is no strip to draw it on. The graph's
+    /// strip sits a panel away from the bar, so a sentence said there is a sentence that
+    /// never arrived — and the window cannot ask which the case is without reading the
+    /// view it is being called *from*, which gpui will not allow.
+    pub(crate) fn ask_filter_line(&mut self) -> Option<String> {
+        let sentence = match self.answer_filter_line() {
+            Ok(paths) => {
+                self.graph_filter.query = paths;
+                return None;
+            }
+            Err(None) => {
+                self.graph_filter.query = None;
+                return None;
+            }
+            Err(Some(sentence)) => {
+                self.graph_filter.query = None;
+                sentence
+            }
+        };
+        Some(sentence)
+    }
+
+    /// Answer the strip's line against the index, without touching the filter or the
+    /// status line: `Ok(Some(paths))` is what the mask should hold, `Ok(None)` is a line
+    /// with nothing in it for the index to answer, and `Err` carries the sentence the
+    /// window should say — or `Err(None)` for the line that should simply be inert.
+    fn answer_filter_line(&self) -> Result<Option<Vec<String>>, Option<String>> {
+        let line = self
+            .graph_filter
+            .search
+            .clone()
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        if line.is_empty() {
+            return Ok(None);
+        }
+        let q = shale_core::query::parse(&line);
+        if q.unknown.is_empty() && !q.needs_index() {
+            return Ok(None);
+        }
+        if !q.unknown.is_empty() {
+            let tokens = q.unknown.join("   ");
+            return Err(Some(format!(
+                "not an operator: {tokens}  (tag: path: link: prop: modified:)"
+            )));
+        }
+        // The search's sentence, word for word: an operator with no index is a fact about
+        // the setting, not an empty vault.
+        let Some(db) = self.db.as_ref() else {
+            return Err(Some(
+                "tag:, path:, link:, prop: and modified: ask the vault index, \
+                 and this vault has none (index.enabled in .shale/config.toml)"
+                    .to_string(),
+            ));
+        };
+        match db.notes_matching(&q) {
+            Ok(paths) => Ok(Some(
+                paths
+                    .iter()
+                    .map(shale_core::vault::rel_text)
+                    .collect::<Vec<_>>(),
+            )),
+            Err(err) => Err(Some(format!("the vault index could not answer: {err:#}"))),
+        }
+    }
+
+    /// Re-ask the strip's line after an index move, quietly. A typed question that fails
+    /// would re-fail on every index move, and a shout each time is noise rather than
+    /// news — the counts in the strip already say what the picture holds. An answer that
+    /// has not moved leaves the mask alone, so the layout is not disturbed for nothing
+    /// (the same care EDGE-L7 pays to a lens).
+    fn query_follow(&mut self) {
+        let Ok(Some(paths)) = self.answer_filter_line() else {
+            return;
+        };
+        if self.graph_filter.query.as_ref() == Some(&paths) {
+            return;
+        }
+        self.graph_filter.query = Some(paths);
+    }
+
+    // The lens (roadmap P4.16): a saved query the graph wears. The dimension itself is
+    // core's (`graph::filter::LensScope`); what lives here is the door — the verb, the
+    // picker, and the moment the answer becomes a mask and the picture is re-made.
+
+    /// `:lens [name]`. An empty name opens the picker (ruling 5: `:lens` alone mirrors
+    /// `:query`); a name puts that lens on the graph.
+    pub(crate) fn graph_lens_command(
+        &mut self,
+        name: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let name = name.trim();
+        if name.is_empty() {
+            self.open_lens_picker(window, cx);
+            return;
+        }
+        // `save` is the verb's other reserved word, like `none`: `:lens save goblins`
+        // keeps the filter line's question under that name and puts it on. A lens actually
+        // named `save` is unreachable through this verb — the picker still lists it, and
+        // the picker is where it stays reachable.
+        if let Some(rest) = name.strip_prefix("save") {
+            let rest = rest.trim();
+            if rest.is_empty() {
+                self.say("name it: `:lens save <name>`", cx);
+                return;
+            }
+            let Some(search) = self.graph_filter.search.clone() else {
+                self.say(
+                    "there is no question in the graph's filter line to keep",
+                    cx,
+                );
+                return;
+            };
+            if let Err(err) = self.write_lens(&search, rest, cx) {
+                self.say(format!("{err:#}"), cx);
+            }
+            return;
+        }
+        self.wear_lens(name, "", cx);
+    }
+
+    /// `alt-s` in the filter strip: ask for a name for the question the line holds
+    /// (M5). The name is asked rather than invented, because a picture nobody named is a
+    /// picture that cannot be found again.
+    pub(crate) fn ask_save_lens(
+        &mut self,
+        search: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let search = search.trim();
+        if search.is_empty() {
+            self.say(
+                "the filter line is empty: type the question first, or name one you have with `:lens save <name>`",
+                cx,
+            );
+            return;
+        }
+        // Asked before the name is typed, exactly as `:save-query` does it: a question
+        // that cannot be kept should say which part of it cannot before the reader has
+        // spent a name on it.
+        if let Err(reason) = shale_core::db::compile_sql(&shale_core::query::parse(search)) {
+            self.say(reason, cx);
+            return;
+        }
+        self.open_prompt(
+            crate::prompt::PromptKind::SaveLens(search.to_string()),
+            "name this lens",
+            &Self::query_name(search),
+            window,
+            cx,
+        );
+    }
+
+    /// Write the lens and put it on (ruled 2026-11-18: a saved lens goes on right away).
+    ///
+    /// The file holds the SQL the filter line's operators mean — the same translation
+    /// keep-a-search uses, so the lens answers what the line answered. The strip's chips
+    /// are **not** encoded (ruling 1): they stay filter dimensions, so a lens never
+    /// freezes a chip choice into a file its author will later edit by hand.
+    pub(crate) fn write_lens(
+        &mut self,
+        search: &str,
+        name: &str,
+        cx: &mut Context<Self>,
+    ) -> anyhow::Result<()> {
+        let sql = shale_core::db::compile_sql(&shale_core::query::parse(search))
+            .map_err(anyhow::Error::msg)?;
+        // The question is kept above the statement as a comment, so the file says what it
+        // was asked in the words that were typed. A lens is not a vault note, so it is
+        // written through `lens::write` rather than the vault's doors (EDGE-L1).
+        let text = format!(
+            "+++\nname = \"{}\"\n+++\n-- Saved from the graph's filter line: {search}\n{sql}\n",
+            name.trim().replace('"', "\\\"")
+        );
+        shale_core::lens::write(self.vault.root(), name, &text)?;
+        // The lens folder is not in the vault's signature, so the stamps beside it are
+        // re-taken: a lens Shale wrote itself must not come back as somebody else's edit.
+        self.resign();
+        // The file holds the operators, not the words: a line's words are a label filter
+        // the picture applies and a saved question has no way to carry. Saying so keeps
+        // the lens honest about the picture it was saved from, now that the line and the
+        // search speak one grammar (P4.16 follow-up).
+        let said = if shale_core::query::parse(search).text.is_some() {
+            "saved (the line's words stay outside) "
+        } else {
+            "saved "
+        };
+        self.wear_lens(name, said, cx);
+        Ok(())
+    }
+
+    /// The palette row: `:lens` with nothing typed, which asks rather than acts.
+    pub(crate) fn graph_lens_action(
+        &mut self,
+        _: &GraphLens,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_lens_picker(window, cx);
+    }
+
+    /// A lens chosen in the picker.
+    pub(crate) fn graph_lens_chosen(&mut self, name: &str, cx: &mut Context<Self>) {
+        self.wear_lens(name, "", cx);
+    }
+
+    /// Put a lens on the graph, or take it off.
+    ///
+    /// The file is the authority: it is read here, on use, so an edit made in an editor
+    /// outside Shale takes effect the next time the lens is put on rather than needing an
+    /// import. A lens that will not answer leaves the picture standing (EDGE-L6) and says
+    /// why on the status line, because the command line has already closed and the status
+    /// line is where a reader looks for why nothing changed.
+    /// A lens coming back with the session (P4.16 M6). The seat remembers a **name**;
+    /// the answer belongs to the file and the index as they are now, so this re-asks it
+    /// (EDGE-L1). Nothing is re-laid-out here: the seat is restored before any tab opens,
+    /// and the graph tab's first frame is built from the filter this fills.
+    ///
+    /// The index has usually not read the vault yet at that moment, so a restored lens
+    /// starts empty and answers when the first pass lands — [`Workspace::lens_follow`] is
+    /// the same door EDGE-L7 walks through in a live window. The alternative is replaying
+    /// the paths the last window saw, which is the lie the seat refuses to tell.
+    ///
+    /// A lens that will not answer leaves the window without one and says so — the same
+    /// posture the door takes (EDGE-L6), where "the picture stands" at startup can only
+    /// mean "the picture starts unfiltered".
+    pub(super) fn restore_lens(&mut self, name: &str, cx: &mut Context<Self>) {
+        let text = match shale_core::lens::read(self.vault.root(), name) {
+            Ok(text) => text,
+            Err(err) => {
+                self.say(
+                    format!("the lens `{name}` this window left on cannot be read: {err:#}"),
+                    cx,
+                );
+                return;
+            }
+        };
+        let Some(db) = self.db.as_ref() else {
+            self.say(
+                format!(
+                    "the lens `{name}` this window left on cannot be answered: there is no \
+                     vault index to read (index.enabled = false)"
+                ),
+                cx,
+            );
+            return;
+        };
+        let Ok(conn) = db.read() else {
+            self.say(
+                format!("the lens `{name}` this window left on cannot be answered: the vault index could not be read"),
+                cx,
+            );
+            return;
+        };
+        let stem = name
+            .strip_suffix(&format!(".{}", shale_core::query_note::EXTENSION))
+            .unwrap_or(name);
+        let scope = |name: String, paths: Vec<String>| shale_core::graph::filter::LensScope {
+            name,
+            paths,
+            // Measured against the graph index, which a restored window does not have
+            // yet; [`Workspace::lens_index_arrived`] fills it in when the first one does.
+            unmatched: 0,
+            stale: None,
+        };
+        match shale_core::lens::answer(&text, stem, &conn) {
+            shale_core::lens::LensOutcome::Refused { why } => self.say(
+                format!("the lens `{name}` this window left on is not answering: {why}"),
+                cx,
+            ),
+            shale_core::lens::LensOutcome::Empty { name } => {
+                self.graph_filter.lens = Some(scope(name, Vec::new()));
+            }
+            shale_core::lens::LensOutcome::Answered { name, paths } => {
+                self.graph_filter.lens = Some(scope(name, paths));
+            }
+        }
+    }
+
+    /// The lens's "with no node" count is measured against the graph index, so it is
+    /// filled in whenever an index arrives. A lens worn in a live window already has it
+    /// (the door measures it); a lens restored from the seat meets its first index here.
+    fn lens_index_arrived(&mut self) {
+        let Some(scope) = self.graph_filter.lens.as_ref() else {
+            return;
+        };
+        let Some(index) = self.graph.as_ref() else {
+            return;
+        };
+        let unmatched = shale_core::lens::unmatched(index, &scope.paths).len();
+        if let Some(scope) = self.graph_filter.lens.as_mut() {
+            scope.unmatched = unmatched;
+        }
+    }
+
+    fn wear_lens(&mut self, name: &str, said: &str, cx: &mut Context<Self>) {
+        // EDGE-L9: `none` is a name, not a mode — the same dimension set back to None.
+        if name == "none" {
+            if self.graph_filter.lens.is_none() {
+                self.say("no lens is on the graph", cx);
+                return;
+            }
+            self.graph_filter.lens = None;
+            self.remake_graph(cx);
+            self.say("lens off", cx);
+            return;
+        }
+        let text = match shale_core::lens::read(self.vault.root(), name) {
+            Ok(text) => text,
+            Err(err) => {
+                self.say(format!("{err:#}"), cx);
+                return;
+            }
+        };
+        // EDGE-L12: with the index off there is nothing to answer from, and "no note
+        // answers this" would be a lie about the vault rather than about the setting.
+        let Some(db) = self.db.as_ref() else {
+            self.say(
+                "there is no vault index to read (index.enabled = false)",
+                cx,
+            );
+            return;
+        };
+        let conn = match db.read() {
+            Ok(conn) => conn,
+            Err(err) => {
+                self.say(format!("the vault index could not be read: {err}"), cx);
+                return;
+            }
+        };
+        let stem = name
+            .strip_suffix(&format!(".{}", shale_core::query_note::EXTENSION))
+            .unwrap_or(name);
+        match shale_core::lens::answer(&text, stem, &conn) {
+            shale_core::lens::LensOutcome::Refused { why } => {
+                // The picture stands; the sentence is core's, the same one the picker and
+                // an embedded table give for the same file.
+                self.say(format!("{said}lens `{name}`: {why}"), cx);
+            }
+            shale_core::lens::LensOutcome::Empty { name } => {
+                self.graph_filter.lens = Some(shale_core::graph::filter::LensScope {
+                    name: name.clone(),
+                    paths: Vec::new(),
+                    unmatched: 0,
+                    stale: None,
+                });
+                self.remake_graph(cx);
+                self.say(format!("{said}lens `{name}`: no note answers this"), cx);
+            }
+            shale_core::lens::LensOutcome::Answered { name, paths } => {
+                // EDGE-L5: an answer can name paths the graph has no node for. They are
+                // counted out loud rather than dropped.
+                let missing = self
+                    .graph
+                    .as_ref()
+                    .map(|index| shale_core::lens::unmatched(index, &paths).len())
+                    .unwrap_or(0);
+                let kept = paths.len() - missing;
+                self.graph_filter.lens = Some(shale_core::graph::filter::LensScope {
+                    name: name.clone(),
+                    paths,
+                    unmatched: missing,
+                    stale: None,
+                });
+                self.remake_graph(cx);
+                let extra = if missing > 0 {
+                    format!(", {missing} with no node")
+                } else {
+                    String::new()
+                };
+                self.say(
+                    format!(
+                        "{said}lens `{name}`: {kept} {}{extra}",
+                        shale_core::lens::notes_word(kept)
+                    ),
+                    cx,
+                );
+            }
+        }
+    }
+
+    /// Re-make the picture for a filter the view did not ask for, and tell the view what
+    /// the filter now says.
+    ///
+    /// [`Workspace::refresh_graph`] rather than `rebuild_graph` + `pump_graph`: a lens can
+    /// shrink a picture without heating the layout at all, and a settled sim means
+    /// `pump_graph` has nothing to tick — the view would keep the old frame and the old
+    /// counts. `refresh_graph` ships both, settled or not.
+    fn remake_graph(&mut self, cx: &mut Context<Self>) {
+        self.refresh_graph(cx);
+    }
+
+    /// EDGE-L7: a worn lens **re-runs when the index moves**.
+    ///
+    /// Re-asking is one SQL call, which is cheap. The layout is the expensive half —
+    /// ~0.9 s of sim work for a 2000-node answer while the reader is typing
+    /// (`PROGRESS.md`, 2026-11-17) — so the scope is replaced, and the picture re-made,
+    /// only when the answer's **node set** actually changed. An answer that came back in
+    /// a different order is the same picture.
+    ///
+    /// A lens that stops answering keeps its last good picture (EDGE-L6) and carries the
+    /// sentence for why, which the strip says out loud. The status line stays quiet: a
+    /// broken lens re-fails on every index move, and a shout each time is noise, not news.
+    fn lens_follow(&mut self) {
+        let Some(worn) = self.graph_filter.lens.clone() else {
+            return;
+        };
+        // EDGE-L12: with the index off there is nothing to answer from, and that is a fact
+        // about the setting rather than a failure of the lens. The picture keeps what it
+        // last answered.
+        let Some(db) = self.db.as_ref() else {
+            return;
+        };
+        let Ok(conn) = db.read() else {
+            return;
+        };
+        // The file is the authority, so it is read again here. A lens whose file is gone
+        // is not a lens that failed: [`Workspace::check_lenses`] is the door that says so,
+        // and it says it once.
+        let Ok(text) = shale_core::lens::read(self.vault.root(), &worn.name) else {
+            return;
+        };
+        let stem = worn
+            .name
+            .strip_suffix(&format!(".{}", shale_core::query_note::EXTENSION))
+            .unwrap_or(&worn.name);
+        let paths = match shale_core::lens::answer(&text, stem, &conn) {
+            shale_core::lens::LensOutcome::Answered { paths, .. } => paths,
+            shale_core::lens::LensOutcome::Empty { .. } => Vec::new(),
+            shale_core::lens::LensOutcome::Refused { why } => {
+                if worn.stale.as_deref() != Some(why.as_str())
+                    && let Some(scope) = self.graph_filter.lens.as_mut()
+                {
+                    scope.stale = Some(why);
+                }
+                return;
+            }
+        };
+        // The set, not the order: a query without an `ORDER BY` may answer in any order,
+        // and the mask is the same mask either way.
+        let mut before: Vec<&str> = worn.paths.iter().map(String::as_str).collect();
+        let mut after: Vec<&str> = paths.iter().map(String::as_str).collect();
+        before.sort_unstable();
+        after.sort_unstable();
+        if before == after && worn.stale.is_none() {
+            return;
+        }
+        let unmatched = self
+            .graph
+            .as_ref()
+            .map(|index| shale_core::lens::unmatched(index, &paths).len())
+            .unwrap_or(0);
+        self.graph_filter.lens = Some(shale_core::graph::filter::LensScope {
+            name: worn.name,
+            paths,
+            unmatched,
+            stale: None,
+        });
+        #[cfg(test)]
+        self.lens_replaced.set(self.lens_replaced.get() + 1);
+    }
+
+    /// EDGE-L7's other half, and EDGE-L11: the lens **files**. The vault's signature walk
+    /// skips `.shale/` on purpose (EDGE-L1), so the lens folder is stamped beside it on
+    /// the same tick — one small directory, no recursive walk.
+    pub(super) fn check_lenses(&mut self, cx: &mut Context<Self>) {
+        let now = shale_core::lens::stamps(self.vault.root());
+        let before = std::mem::replace(&mut self.lens_stamps, now.clone());
+        let Some(worn) = self
+            .graph_filter
+            .lens
+            .as_ref()
+            .map(|scope| scope.name.clone())
+        else {
+            return;
+        };
+        if !now.contains_key(&worn) {
+            // EDGE-L11: the file went away under a graph that is wearing it. The picture
+            // stands — the mask still holds the paths it last answered — and says the lens
+            // is gone. The next `:lens`, or a restart, is what clears it.
+            if let Some(scope) = self.graph_filter.lens.as_mut() {
+                scope.stale = Some(format!("`{worn}` is gone"));
+            }
+            self.say(
+                format!("lens `{worn}` is gone; the picture stays as it was"),
+                cx,
+            );
+            // The strip draws its row from the copy the window pushes in, so the sentence
+            // has to be shipped — `refresh_graph` re-asks the lens, finds no file, and
+            // leaves the standing picture and the new sentence exactly as they are.
+            self.refresh_graph(cx);
+            return;
+        }
+        if before.get(&worn) != now.get(&worn) {
+            // The program changed under the picture. `refresh_graph` re-asks it, and the
+            // layout moves only if the answer's set moved with it.
+            self.refresh_graph(cx);
+        }
+    }
+
+    /// The lens picker: one row per lens the vault holds, each carrying how many nodes it
+    /// answers **now** (EDGE-L10: measured when the picker opens, one query per lens, on
+    /// one read-only connection so two lenses cannot answer against two different
+    /// snapshots). A lens that will not answer shows `—` and still opens, because
+    /// EDGE-L6 keeps the picture standing.
+    fn open_lens_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let lenses = shale_core::lens::list(self.vault.root());
+        let current = self
+            .graph_filter
+            .lens
+            .as_ref()
+            .map(|lens| lens.name.clone())
+            .unwrap_or_default();
+        let conn = self.db.as_ref().and_then(|db| db.read().ok());
+        let mut rows: Vec<(PickerItem, PickerTarget)> = Vec::new();
+        if conn.is_none() {
+            rows.push(notice(
+                "there is no vault index to read (index.enabled = false), so no lens can answer",
+            ));
+        }
+        if !current.is_empty() {
+            rows.push((
+                PickerItem {
+                    label: "no lens".to_string().into(),
+                    detail: format!("currently wearing `{current}`").into(),
+                    detail_ranges: Vec::new(),
+                    search: "no lens none".to_string().into(),
+                },
+                PickerTarget::Lens("none".to_string()),
+            ));
+        }
+        for name in &lenses {
+            let detail = match (
+                conn.as_ref(),
+                shale_core::lens::read(self.vault.root(), name),
+            ) {
+                (Some(conn), Ok(text)) => match shale_core::lens::answer(&text, name, conn) {
+                    shale_core::lens::LensOutcome::Answered { paths, .. } => {
+                        let missing = self
+                            .graph
+                            .as_ref()
+                            .map(|index| shale_core::lens::unmatched(index, &paths).len())
+                            .unwrap_or(0);
+                        let kept = paths.len() - missing;
+                        format!("{} {}", kept, shale_core::lens::notes_word(kept))
+                    }
+                    shale_core::lens::LensOutcome::Empty { .. } => {
+                        format!("0 {}", shale_core::lens::notes_word(0))
+                    }
+                    shale_core::lens::LensOutcome::Refused { .. } => {
+                        "\u{2014} not answering".to_string()
+                    }
+                },
+                // A lens whose file cannot be read still gets a row: the row is how the
+                // reader finds out, and a picker that hides it hides the problem too.
+                _ => "\u{2014}".to_string(),
+            };
+            rows.push((
+                PickerItem {
+                    label: name.clone().into(),
+                    detail: detail.into(),
+                    detail_ranges: Vec::new(),
+                    search: name.clone().into(),
+                },
+                PickerTarget::Lens(name.clone()),
+            ));
+        }
+        if lenses.is_empty() {
+            rows.push(notice(
+                "no lenses yet: a lens is a .shq file under .shale/lenses",
+            ));
+        }
+        self.open_picker("Lens", rows, window, cx);
     }
 
     /// A new mode, from the graph tab: run the window's physics in the other space.
@@ -547,6 +1158,150 @@ impl Workspace {
         self.open_note(&PathBuf::from(path), cx);
     }
 
+    /// The pointer moved over the graph: which node it is resting on, or `None` when it is
+    /// resting on nothing — including the moment it presses, which is the end of resting.
+    ///
+    /// The graph reports every move; the window decides, and the decision is a **wait**.
+    /// A graph is dots packed together, and sweeping the pointer across one to reach
+    /// another is ordinary, so a card that answered the moment the pointer arrived would
+    /// flash at every dot on the way past. The dwell is the whole answer, and it is why
+    /// the card is not simply drawn from the graph's own hover state.
+    pub(crate) fn graph_pointer_rest(&mut self, slot: Option<usize>, cx: &mut Context<Self>) {
+        // Only a node that is a picture of a note has anything to preview: a ghost names a
+        // link nobody resolved, and a tag names a word.
+        let resting = slot.filter(|slot| {
+            self.graph_view().is_some_and(|view| {
+                view.read_with(cx, |view, _cx| view.node_path(*slot))
+                    .is_some()
+            })
+        });
+        let Some(slot) = resting else {
+            self.close_card(cx);
+            return;
+        };
+        // Already showing exactly this node: leave it alone, so the card does not reopen
+        // on every mouse-move event over the same dot.
+        if self.card_anchor == Some(crate::workspace::popups::CardAnchor::Node(slot)) {
+            return;
+        }
+        self.node_card_seq += 1;
+        let seq = self.node_card_seq;
+        self._node_card = Some(cx.spawn(async move |ws, cx| {
+            cx.background_executor()
+                .timer(crate::card::NODE_DWELL)
+                .await;
+            let _ = ws.update(cx, |ws, cx| {
+                // The belt to the brace: a countdown that woke after the pointer moved on
+                // writes nothing.
+                if ws.node_card_seq != seq {
+                    return;
+                }
+                ws.open_node_card(slot, cx);
+            });
+        }));
+    }
+
+    /// Put up the card for the node the pointer has been resting on.
+    ///
+    /// The path is asked for again here rather than carried through the wait: a frame can
+    /// arrive while the pointer is resting, and its slots are that frame's slots. Asking
+    /// the current view is what keeps a card from naming a note the picture no longer has.
+    fn open_node_card(&mut self, slot: usize, cx: &mut Context<Self>) {
+        let Some(path) = self
+            .graph_view()
+            .and_then(|view| view.read_with(cx, |view, _cx| view.node_path(slot)))
+        else {
+            return;
+        };
+        let path = PathBuf::from(path.as_str());
+        let Some((title, lines, hidden)) = self.node_preview(&path, cx) else {
+            return;
+        };
+        let (palette, family, size) = self.picker_style(cx);
+        let card =
+            cx.new(|_cx| crate::card::Preview::new(title, lines, hidden, palette, family, size));
+        self.card = Some(card);
+        self.card_anchor = Some(crate::workspace::popups::CardAnchor::Node(slot));
+        self.card_link_start = None;
+        cx.notify();
+    }
+
+    /// What a node card can say about a note: its name, the first lines of it with the
+    /// markers hidden, how many it left out, and — ahead of them — the names the note
+    /// declares for itself.
+    ///
+    /// The lines go through the same paint an embed's rows and the note's own rows use, so
+    /// a heading in a card is a heading and not a `#`. The text comes from the buffer while
+    /// a tab holds the note and from the disk otherwise — the rule the review strip already
+    /// follows, for the reason it states: a preview that lagged an unsaved edit would
+    /// disagree with the note the user is looking at.
+    fn node_preview(
+        &self,
+        path: &Path,
+        cx: &Context<Self>,
+    ) -> Option<(String, Vec<String>, usize)> {
+        let text = self.note_body(path, cx);
+        let mut written: Vec<String> = text.lines().map(|line| line.to_string()).collect();
+        // The frontmatter block is the note's bookkeeping, not its prose: the same fence
+        // the fold, the checker and the embed door already skip.
+        if let Some(block) = shale_core::frontmatter::block(&text) {
+            let (open, close) = block.lines;
+            written.drain(open..(close + 1).min(written.len()));
+        }
+        let painted = crate::editor::embeds::paint_body(
+            &written,
+            &[],
+            crate::editor::embeds::Reveal::default(),
+        );
+        let shown = crate::card::VISIBLE_LINES;
+        let mut lines: Vec<String> = painted
+            .into_iter()
+            .map(|row| row.text)
+            .take(shown)
+            .collect();
+        // A note that opens with a blank row — the gap under the frontmatter fence — would
+        // start the card with a hole. The card begins at the first row with something on
+        // it; the count of what is still below is untouched, because those rows are still
+        // there in the note.
+        while lines.first().is_some_and(|line| line.trim().is_empty()) {
+            lines.remove(0);
+        }
+        let hidden = written.len().saturating_sub(shown);
+        // The alias line goes first: it is a fact about *which note this is*, and what
+        // follows is what the note says. A note that declares nothing gets no line, so the
+        // card never spends a row saying nothing.
+        let aliases = self.declared_aliases(path);
+        if !aliases.is_empty() {
+            lines.insert(0, format!("also known as: {}", aliases.join(", ")));
+        }
+        let title = path
+            .file_stem()
+            .map(|stem| stem.to_string_lossy().to_string())
+            .unwrap_or_else(|| path.display().to_string());
+        Some((title, lines, hidden))
+    }
+
+    /// The note's text: the buffer while a tab holds it, the disk otherwise.
+    fn note_body(&self, path: &Path, cx: &Context<Self>) -> String {
+        if let Some(index) = self.tab_for_path(path) {
+            self.pane().tabs[index]
+                .editor()
+                .map(|editor| editor.read_with(cx, |editor, _cx| editor.text()))
+                .unwrap_or_default()
+        } else {
+            self.vault.read(path).unwrap_or_default()
+        }
+    }
+
+    /// The names a note declares for itself, in the order the vault lists them.
+    fn declared_aliases(&self, path: &Path) -> Vec<String> {
+        self.aliases
+            .iter()
+            .filter(|(_, owner)| Path::new(owner) == path)
+            .map(|(alias, _)| alias.clone())
+            .collect()
+    }
+
     /// Fold one set of disk changes into the graph, if it has been built.
     ///
     /// `set_note` and `remove_note` each rebuild the arena, so a burst of changes costs
@@ -554,11 +1309,16 @@ impl Workspace {
     /// is useful at, and it is what the integration contract's "incremental now,
     /// DB-backed extraction deferred" ruling covers.
     pub(super) fn graph_changes(&mut self, changes: &VaultChanges) {
-        let Some(index) = self.graph.as_mut() else {
-            // No index yet. If a scan is in flight it read the disk before these changes
-            // and will not have seen them, so they go on the queue and are folded in when
-            // it lands; with no scan running there is no graph to keep current, which is
-            // the same answer either way.
+        // A scan in flight is the case that matters: it read the disk before these changes
+        // and will not have seen them, so they go on the queue and are folded in when it
+        // lands — **even when an index is already live**. A live index is not enough on its
+        // own since the alias rebuild (below) can leave an old index standing while a new
+        // scan runs; a change applied only to the old one would be lost when the new one
+        // arrives. With no index and no scan there is no graph to keep current, which is
+        // the same answer either way.
+        let building = self.graph_build.is_some();
+        let live = if building { None } else { self.graph.as_mut() };
+        let Some(index) = live else {
             for removed in &changes.removed {
                 self.queue_graph_change(GraphChange::Removed(removed.clone()));
             }
@@ -579,9 +1339,14 @@ impl Workspace {
         }
         for path in changes.added.iter().chain(changes.modified.iter()) {
             match self.vault.read(path) {
-                Ok(text) => {
-                    index.set_note(path, &text, &self.entries, &self.attachments, &self.queries)
-                }
+                Ok(text) => index.set_note(
+                    path,
+                    &text,
+                    &self.entries,
+                    &self.attachments,
+                    &self.queries,
+                    &self.aliases,
+                ),
                 Err(err) => tracing::warn!(path = %path.display(), "graph re-scan failed: {err:#}"),
             }
         }
@@ -590,11 +1355,38 @@ impl Workspace {
     /// The graph follows a note Shale wrote itself. The watcher is stamped over our own
     /// saves, so this is the only way a link typed in the editor reaches the graph.
     pub(crate) fn graph_note_saved(&mut self, path: &Path, text: &str) {
-        if let Some(index) = self.graph.as_mut() {
-            index.set_note(path, text, &self.entries, &self.attachments, &self.queries);
+        // The same rule as [`Workspace::graph_changes`]: a scan in flight has not seen this
+        // save, so it belongs on the queue whether or not an index is standing.
+        let building = self.graph_build.is_some();
+        let live = if building { None } else { self.graph.as_mut() };
+        if let Some(index) = live {
+            index.set_note(
+                path,
+                text,
+                &self.entries,
+                &self.attachments,
+                &self.queries,
+                &self.aliases,
+            );
         } else {
             self.queue_graph_change(GraphChange::Saved(path.to_path_buf(), text.to_string()));
         }
+    }
+
+    /// The aliases the vault declares changed, so the graph's edges may have changed
+    /// **everywhere** — and the graph re-scans from the files.
+    ///
+    /// An alias is declared in one note's frontmatter and written in another note's body,
+    /// so the note that was saved is not the note whose link it is: re-scanning only the
+    /// saved note would leave `[[the deep one]]` a dead node in `b.md` while the editor is
+    /// already painting it live, which is the one disagreement the alias feature's own
+    /// comment says it cannot have. A full re-scan is what opening the tab already does —
+    /// on the background executor, and only when the alias set actually moved.
+    pub(crate) fn graph_aliases_changed(&mut self, cx: &mut Context<Self>) {
+        if self.graph.is_none() || self.graph_build.is_some() {
+            return;
+        }
+        self.start_graph_build(cx);
     }
 
     /// A note that is gone leaves the graph — and the ghosts and tags only it linked to
@@ -666,13 +1458,20 @@ impl Workspace {
         let entries = self.entries.clone();
         let attachments = self.attachments.clone();
         let queries = self.queries.clone();
+        let aliases = self.aliases.clone();
         self.graph_pending.clear();
         self.graph_build = Some(cx.spawn(async move |ws, cx| {
             let started = Instant::now();
             let built = cx
                 .background_executor()
                 .spawn(async move {
-                    shale_core::graph::GraphIndex::build(&vault, &entries, &attachments, &queries)
+                    shale_core::graph::GraphIndex::build(
+                        &vault,
+                        &entries,
+                        &attachments,
+                        &queries,
+                        &aliases,
+                    )
                 })
                 .await;
             ws.update(cx, |ws, cx| ws.graph_index_arrived(built, started, cx))
@@ -700,6 +1499,7 @@ impl Workspace {
                         &self.entries,
                         &self.attachments,
                         &self.queries,
+                        &self.aliases,
                     );
                 }
                 // Info, not debug: this is the line that answers "how long does the graph
@@ -710,6 +1510,7 @@ impl Workspace {
                     "the graph index was built"
                 );
                 self.graph = Some(index);
+                self.lens_index_arrived();
                 self.refresh_graph(cx);
                 self.say("graph", cx);
             }

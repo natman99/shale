@@ -40,6 +40,12 @@ pub struct Buffer {
     /// words, and a span past the short note's end indexes a row that does not
     /// exist. The low bits still move with this buffer's edits.
     change_id: u64,
+    /// The byte offset of every line's start, cached against `change_id`:
+    /// every mutation moves that id, so the table is rebuilt when — and
+    /// only when — the text changed. The paint and the vim engine ask for
+    /// line geometry row by row, and without this each answer scanned the
+    /// whole text from the top, which made a frame cost rows × text.
+    line_index: std::cell::RefCell<Option<(u64, Vec<usize>)>>,
 }
 
 impl Default for Buffer {
@@ -78,6 +84,7 @@ impl Buffer {
             desired_col: None,
             group_open: false,
             change_id: EPOCH.fetch_add(1, std::sync::atomic::Ordering::Relaxed) << 32,
+            line_index: std::cell::RefCell::new(None),
         }
     }
     pub fn text(&self) -> &str {

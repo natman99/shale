@@ -144,10 +144,14 @@ fn is_false(value: &bool) -> bool {
 
 /// What the graph tab was showing, as the session remembers it.
 ///
-/// The three toggles and the search line, and nothing else: `folder` is M3's
-/// constellation scope and has no way to be set yet, so it has no business in the
-/// file. Like the camera, this is a decision made inside a window rather than a
-/// setting to edit by hand, which is why it is here and not in the config.
+/// The three toggles, the search line, the local depth and the lens's name, and nothing
+/// else: `folder` is M3's constellation scope and has no way to be set yet, so it has no
+/// business in the file. Like the camera, this is a decision made inside a window rather
+/// than a setting to edit by hand, which is why it is here and not in the config.
+///
+/// The lens is remembered as a **name**, never as the paths it answered: the `.shq` file
+/// is the authority (EDGE-L1), and the vault may have moved since the window closed, so
+/// the next window re-asks it and wears whatever it answers now.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct GraphFilterSeat {
@@ -163,6 +167,8 @@ pub struct GraphFilterSeat {
     /// stored: it is whichever note the window opens on, and a remembered centre can be
     /// a note the user deleted on the way out.
     pub local: Option<usize>,
+    /// Which lens was on, by name (P4.16 M6). `None` is no lens — EDGE-L9.
+    pub lens: Option<String>,
 }
 
 impl Default for GraphFilterSeat {
@@ -174,6 +180,7 @@ impl Default for GraphFilterSeat {
             tags: true,
             search: None,
             local: None,
+            lens: None,
         }
     }
 }
@@ -481,6 +488,7 @@ mod tests {
                 tags: true,
                 search: Some("idea".into()),
                 local: Some(3),
+                lens: Some("tagged".into()),
             }),
         };
         session.save(dir.path())?;

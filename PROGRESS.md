@@ -1394,3 +1394,826 @@ app 500 / core 477. Nine app tests (name from the line, cleaned not verbatim, `:
 into a folder, the refusal on a named note, the refusal on a collision, the number on a
 derived name, nothing written out of nothing, no escape from the vault, an exit naming
 rather than losing) and ten in core for the naming itself.
+
+## An idle run pays nothing for being killable (2026-11-15)
+
+**The dead end.** The termination signal (P1.5) was caught with an atomic flag and *polled*:
+every window asked "yet?" every 200 ms, forever. At rest that poll was the single biggest
+wakeup source in the process — 5 wakeups a second per window, on top of everything else.
+Being killable should cost an idle run nothing.
+
+**The plumbing.** The handler still does only what signal context allows — an atomic store
+plus a one-byte write to a `pipe2` self-pipe (nonblocking write end, blocking read end). A
+small reader thread sleeps in `read()` until a byte lands and then sends on a
+`futures::channel::mpsc::unbounded` — the same channel idiom the LSP reader thread uses.
+One watcher task per process waits on that channel; when it wakes it walks
+`VaultWindows::all_windows` — the same registry walk `:qall` takes — and runs
+`finish_termination` for every window. No per-window task, no timer, and a `kill` now
+answers for *every* window the process holds, not just the ones that had a watch attached.
+
+**The gpui pitfall, recorded because it cost an hour:** a `Task` is *cancelled when its
+handle drops*. `spawn_watcher` discarding the handle silently killed the watcher before it
+ran. The registry owns the handle (`VaultWindows::set_termination_watcher`) because the
+registry lives as long as the run.
+
+**The flag is still the fact.** The watcher checks it before every wait, so a signal that
+lands between `main` installing handlers and the watcher spawning is not lost — one of the
+four tests pins exactly that race. The other three pin the promise: the dirty note reaches
+the disk, the window closes, and two windows on two vaults are both written by one wake —
+asserted by which file holds which words.
+
+**Idle measurement** (headless gpui — no `WAYLAND_DISPLAY`/`DISPLAY`, so no GPU driver in
+the numbers; `examples/graph/organic-1k` with Home.md open; 15 s windows; 3 runs each):
+
+| build | main-thread wake/s | CPU | RSS |
+|-------|-------------------|-----|-----|
+| before (poll) | 6.7–7.0 | ~0.5% | 31.5 MiB |
+| after (self-pipe + watcher) | 2.3–2.4 | 0.47–0.53% | 31.5–31.9 MiB |
+
+The remaining 2.3/s is the vault watcher's 750 ms walk beat (~1.3/s) and the pending-queue
+`read_dir` at 1 s (~1/s) — both intended behavior, both still on the clock.
+
+app 900 / core 857 / fixture 1 / mcp 42 — 1800 passed, 0 failed. fmt and clippy clean.
+
+## The vault's beats sleep until they have news (2026-11-15)
+
+**The dead end.** After the exit fix, the two beats left at rest were the vault
+watcher (walk every 750 ms–15 s) and the pending-queue read (every 1 s). Both
+were *intended behavior* — the tree following the disk, agent proposals arriving
+unasked — so the clocks stay. What went is the cost of agreeing nothing changed:
+each loop was a foreground gpui task, and a foreground task wakes the main
+thread at **every await** — timer, walk, all of it — even when the tick ends in
+`continue`.
+
+**The shape.** Both beats now look like the LSP reader thread: a background loop
+with only `Send` captures (timer, walk/read, compare-against-last) and a
+`futures::channel::mpsc::unbounded` for the news. A walk whose signature equals
+the last one's never sends; a queue read that matches the last one never sends;
+the folding task on the foreground side sits parked on the channel and the main
+thread never hears the beat at rest at all. Termination is a shared
+`AtomicBool` (the folding side raises it when the services entity is gone) plus
+the channel's own send-failure for the other direction.
+
+**Two pitfalls, both recorded because both cost a debugging cycle.**
+1. gpui v1.25.3's `AsyncApp` is **not `Send`** (`Weak<AppCell>` is `Rc`-based),
+   so a background loop cannot carry the app context across threads — the
+   channel is the only bridge.
+2. In gpui tests, `background_executor().timer()` is the **fake clock**: real
+   waiting never fires it, and `advance_clock` always does. The new
+   `tests/beats.rs` drives both loops deterministically with `advance_clock`
+   steps — no wall-clock sleeps, 0.02 s for both.
+
+**The behavior is pinned, not assumed.** `tests/beats.rs` opens a registry
+window (the beats belong to the vault's services), changes the disk under it,
+and asserts the change arrives *unasked* — the tree rows two outside notes
+beat after beat, and a proposal lands in the review strip within a beat. These
+are the regression gates for the unchanged-skip: a comparison that swallows a
+real change fails loudly.
+
+**Idle measurement** (headless, organic-1k with Home.md open, 15 s windows):
+
+| build | main-thread wake/s | CPU | RSS |
+|-------|-------------------|-----|-----|
+| before (foreground loops) | 2.3–2.4 | 0.47–0.53% | 31.5 MiB |
+| after (background + channel) | 0.0–0.1 | 0.20–0.33% | 31.7–32.0 MiB |
+
+The walk and the queue read still run on schedule — on background threads,
+which is where they belong. Combined with the exit fix, idle main-thread
+wakeups are down from 6.7–7.0/s to 0.0–0.1/s, and the remaining beats are
+only the ones with something to say.
+
+app 902 / core 857 / fixture 1 / mcp 42 — 1802 passed, 0 failed. fmt and clippy clean.
+
+## Cold start: what the 420 ms actually is (2026-11-15)
+
+**The harness bug first.** The 8.5 s "paint outliers" were never the app. gpui
+paints only when dirty, so two 50 ms polls can straddle the single first paint
+with no pair-difference to see; the diff-based detector then reported the *next*
+visual change — spell underlines arriving seconds later — as the paint. Fixed:
+`paint_ns` is now the first screenshot with content (PIL extrema, numeric per
+the bench rules), not the first pair-difference. The outliers vanished.
+
+**The breakdown** (warm page cache, real display, phase markers since removed):
+
+| phase | time |
+|-------|------|
+| exec → main → claim → `application()` | ~19 ms |
+| shale's own vault work (config, db, sessions, beats, workspace) | ~19 ms |
+| `cx.open_window` — first window | **~550 ms** |
+| — of which NVIDIA ioctls (wgpu device + shaders) | ~234 ms |
+| — of which font file I/O (461 files) | ~20 ms |
+| — of which Vulkan ICD enumeration | ~3 ms |
+
+`WGPU_BACKEND=vulkan` vs `gl` made no difference — the cost is the GPU device
+and shader setup gpui does for the first window, on any backend. It is gpui
+territory, not shale's: **shale's own startup is ~40 ms**, and the rest is the
+toolkit meeting the graphics driver. Chasing it means patching gpui (persisted
+pipeline cache, lazy device) — noted, not done.
+
+**Honest cold-start numbers** (dnd vault, 155 notes, fixed harness, 5 runs):
+mapped 372–439 ms, paint 410–496 ms, settled 629–713 ms, PSS ~141 MB. The PSS
+is mostly the GPU driver (NVIDIA libs ~75 MB + enumerated Vulkan ICDs ~10 MB);
+shale's own heap is **18 MB** (smaps breakdown) — the headless RSS of 31 MiB
+remains the honest app-size number.
+
+Note for the next profiler: `perf` is blocked on this machine
+(`perf_event_paranoid=2` + SELinux); `strace -f -T` with per-syscall totals
+attributed the startup well enough, and phase markers in the app beat both.
+
+## Hot-path breakdown + the search cache (2026-11-15)
+
+**The unbenched paths got benches.** `crates/core/src/bench_paths.rs`
+(ignored, same style as the graph benches): the editor's per-paint styling,
+the block map, vault-wide search, and the picker's fuzzy ranking. First
+numbers, ranked by what a keystroke pays:
+
+| path | cost |
+|------|------|
+| search, 1k-note vault | **6.7–6.8 ms/query** |
+| fuzzy ranked, 10k names | 7.4 ms/call |
+| fuzzy ranked, 1k names | 0.74 ms/call |
+| style_spans, 8k-word note | 146 µs/call |
+| block_map, 8k-word note | 43 µs/call |
+
+Search is the picker's `ctrl-shift-f` row source, asked on every keystroke:
+it reads every note from disk every time. A probe said the reads, not the
+scan, are the cost (stat×1000 ≈ 2.5 ms, read×1000 ≈ 9 ms in the probe's
+units; scan is noise next to the read).
+
+**The fix: `search::NoteCache`.** Each note's text is kept with the `Stamp`
+(size + mtime) read with it, and a query re-reads only notes whose stamp
+changed. Freshness is *exactly* what search had: every note is still stated
+on every query, so an edit made outside the app is seen before the note is
+scanned — only the read is skipped when the stamp says the note cannot have
+changed. Deleted notes drop their cached text. A 32 MiB budget bounds the
+memory; over budget the cache keeps nothing and search behaves as before.
+New `Vault::stamp` is the stat primitive. The Workspace holds the cache
+per window (the picker's row source runs without `cx`, so it captures an
+`Rc` clone); the cache lives for the window's life.
+
+| build | warm query, 1k notes |
+|-------|---------------------|
+| before (read every note) | 6.7–6.8 ms |
+| after (stamp-checked cache) | **2.9–3.2 ms** |
+
+The first query still pays the reads; every later keystroke pays stats and
+scan. The stat is now the floor (~2.5 ms for 1000 notes) — the next lever
+is parallel stats or trusting the watcher's signature, both noted, neither
+done: 3 ms is inside one frame.
+
+**Pinned, not assumed.** Four core tests: cached answers equal direct
+answers, an external edit shows up in the very next search, a deleted note
+is not answered from cache, and an over-budget cache still answers. One app
+test drives the real picker: warm a search, write the note from outside
+while the picker is open, retype — the row is the new line.
+
+app 903 / core 861 / fixture 1 / mcp 42 — 1807 passed, 0 failed. fmt and clippy clean.
+
+## Fuzzy ranking: the picker's other per-keystroke path (2026-11-15)
+
+`ranked` matched every candidate from scratch: the query was re-lowered per
+candidate, the alignment allocated two vectors per query character, and the
+parents matrix was copied row by row. Three changes, scoring untouched (the
+12 existing tests pin placements, scores and ranges exactly):
+
+- the query is lowered **once** per `ranked` call;
+- a no-allocation **subsequence pre-check** rejects candidates the dynamic
+  program would place nowhere — free for the common case of a picker full of
+  non-matches;
+- one **scratch** (chars, offsets, rows, parents) is reused across
+  candidates, and parents are written only into cells a query character
+  actually landed on — a traceback walks matched cells only, so stale
+  entries are never read and the matrix needs no clearing.
+
+| build | ranked, 1k names | ranked, 10k names |
+|-------|------------------|-------------------|
+| before | 736 µs | 7.40 ms |
+| after | **512 µs** | **6.19 ms** |
+
+The remaining cost is the dynamic program itself — O(query × candidate) per
+matching row — and every matching candidate in the bench matches, so
+pruning has nothing to prune. At vault sizes (1k names) half a millisecond
+per keystroke is inside the frame; noted, not chased further.
+
+## Search: the stat floor, parallelized (2026-11-15)
+
+With the note cache in place, the warm keystroke's remaining cost was the
+stats — one syscall per note, sequential. The stat is read-only, so
+`NoteCache::search` states the notes through `std::thread::scope`: each
+thread fills its own slice of the stamp vector, so the order — and the
+results — are exactly the sequential ones. Vaults under 256 notes stay
+single-threaded; the spawns would cost more than the stats they replace.
+
+| build | warm query, 1k notes |
+|-------|---------------------|
+| read every note (before) | 6.7 ms |
+| stamp-checked cache | 2.9 ms |
+| + parallel stats | **1.85 ms** |
+
+3.6× off the original per-keystroke cost. The scan of cached text and the
+hit construction are what's left, and they are noise at vault sizes.
+
+## The editor's frame: line geometry was quadratic (2026-11-15)
+
+**The bench.** `crates/app/src/tests/editor_bench.rs` (ignored, release-only,
+graph-paint-bench conventions): a real `MarkdownEditor` in a test window —
+a forced frame, a keystroke plus the frame that shows it, and a `999j`
+scroll. The first numbers were ugly and *superlinear*: 16× the note, 150×
+the frame. quads stayed at 26, so paint was virtualized — the cost was
+everything before it.
+
+**The cause.** `Buffer::line_start(row)` scanned the text from byte 0, and
+`line_count()` counted newlines across the whole text. The render path asks
+for line geometry *per row* — row_styles, hidden_markers, row_paint,
+display_lines, folds — so every frame cost rows × text. At 8000 words that
+is 89 ms for `row_styles` alone, 104 ms for markers+paint, and a 560 ms
+frame.
+
+**The fix.** `Buffer` keeps a line-start table cached against `change_id`,
+rebuilt only when the text moved; `line_start`/`line_end`/`line_count`
+answer from it. The naive scan and the table are pinned equal by a new test
+across insert, delete, undo, redo, `set_text`, and empty text.
+
+**The bug the fix exposed — and the rule it taught.** `snapshot()` bumps
+`change_id` *before* an edit, and `open_line_below` asks `line_end(row)`
+*between* the bump and its own `replace_range`: the cache got stamped with
+the fresh id and the stale text, and the splice that followed went
+unannounced. Four app tests caught it red-handed (a painted line containing
+a newline). The discipline now lives in one place: every text splice goes
+through `Buffer::splice`, which moves the id *after* the text. A bump before
+an edit is for the UI's sake; a cache must never be fillable between the
+bump and the mutation.
+
+| words | frame | keystroke | 999j |
+|-------|-------|-----------|------|
+| 2000 before | 39.8 ms | 59.9 ms | 155 ms |
+| 2000 after | **5.0 ms** | **6.7 ms** | **21 ms** |
+| 8000 before | 560 ms | 837 ms | 2.01 s |
+| 8000 after | **28.3 ms** | **45.6 ms** | **132 ms** |
+
+Scaling is linear now. What is left at 8k words is the per-keystroke re-wrap
+of every row (the wrap cache is keyed on the whole-buffer change id) and
+gpui laying out ~1000 display lines per frame — viewport-windowed wrap and
+element virtualization are the next levers, noted not done. At real note
+sizes (the dnd vault's longest notes) a frame is ~3–5 ms and a keystroke
+~5–7 ms: inside one frame with room to spare.
+
+app 903 / core 862 / fixture 1 / mcp 42 — 1808 passed, 0 failed. fmt and clippy clean.
+
+## The wrap cache keys on what the measurement saw, not on the buffer (2026-11-15)
+
+**The change.** The soft-wrap cache was keyed on the buffer's change id, so
+every keystroke re-measured every row's break points. `CachedRow` now carries
+what the measurement was a function of — the *painted* text (markers hidden,
+quotes redrawn), the wrapper index (face and size), and one level up the
+width — and a row is reused while those hold. A keystroke re-measures its own
+row and nothing else.
+
+**Two bugs the bench caught before this was true, both worth remembering.**
+
+1. *Keying on the raw bytes misses style moving under them.* The bench's
+   keystroke deletes characters (normal-mode `x`), and an eaten `**` cascades
+   bold across the rest of the note: the raw row text is unchanged, but the
+   painted text and the wrapper are not. Display lines piled up 66→681 as
+   rows kept stale narrow-face breaks. The key had to be the painted text,
+   not the row's bytes.
+2. *Absolute break offsets go stale when the row shifts.* Breaks were cached
+   as absolute buffer offsets; a deletion above a row shifts it left, the
+   text comparison still passes, and the re-validation guard happily lets the
+   shifted breaks through. Breaks are stored relative to the row start now.
+
+Both were invisible in the unit tests and obvious in the bench's primitive
+count (quads 26→2) and display-line count — the graph-paint bench's rule
+that the primitive count rides along because it does not move with the
+machine, paying for itself again.
+
+| words | frame | keystroke | 999j |
+|-------|-------|-----------|------|
+| 500 before | 3.43 ms | 5.36 ms | 12.9 ms |
+| 500 after | **1.19 ms** | **1.88 ms** | **5.6 ms** |
+| 2000 before | 4.99 ms | 6.70 ms | 21.2 ms |
+| 2000 after | 4.26 ms | 6.80 ms | 21.3 ms |
+| 8000 before | 28.3 ms | 45.6 ms | 132 ms |
+| 8000 after | 27.8 ms | 42.2 ms | 129 ms |
+
+Honest reading: the win is at real note sizes, where the per-frame whole-note
+re-measure was a big share of the frame — at 500 words a keystroke is now
+1.9 ms. At 8000 words the keystroke is dominated by the *other* whole-buffer
+passes that still run per change (restyle, row styles, marker/paint plans,
+and gpui laying out ~1000 display lines); the wrap measure was only part of
+it. Those passes are the next levers, noted not done.
+
+app 903 / core 862 / fixture 1 / mcp 42 — 1808 passed, 0 failed. fmt and clippy clean.
+## What the force layout costs over a selected set (measured, 2026-11-17)
+
+The graph lens item (roadmap P4.16) has been deferring one number: "measure the *sim*
+over a large selected set before promising a vault-wide lens; the 5k paint numbers
+(2.3–2.6 ms) are not the constraint, the force layout is." A lens hides everything its
+query did not answer, so the sim runs over the answer alone — the same `Vec<bool>` mask
+`graph::filter::apply` already hands back. A temporary `#[ignore]` probe in
+`crates/app/src/tests/graph/paint_bench.rs` (removed after this record) built the index
+for the organic fixtures, kept every *k*-th note so the subset is **spread** rather than
+one neighbourhood, and ran the sim to `settled()`. Release build, three runs, machine
+lightly loaded (load average ~1.7); the band across runs was within ~5% except at 100
+kept nodes, where the fixed cost makes the noise visible.
+
+| kept notes | settle, total | worst tick |
+| --- | --- | --- |
+| 100 | 5.0–8.1 ms | 24–84 µs |
+| 250 | 30–31 ms | 134–281 µs |
+| 500 | 87–93 ms | 311–563 µs |
+| 1000 | 279–292 ms | 1.0–1.5 ms |
+| 2000 | 878–902 ms | 3.3–4.5 ms |
+| 5000 | 4.33–4.42 s | 15.5–17.9 ms |
+| 5119 (the whole fixture) | 4.33–4.34 s | 16.1–16.7 ms |
+
+**The finding is a bound, not a warning.** Cost is superlinear in the kept set — about
+50 ms per 1k kept at 100 nodes, about 870 ms per 1k at 5000 — but a selected set can
+never cost more than the whole vault, and the whole vault is what the graph tab settles
+today: the 5000-of-5119 row and the 5119 row are the same number. A lens is always
+cheaper than the picture it replaces, so the item ships without a cap or a warning
+threshold. The honest guard is the node count the strip already shows.
+
+**Ticks do not grow** — 300 every time, which is the cooling schedule (`alpha_decay`
+0.0228 down to `alpha_min` 0.001), so the cost is per-tick work rather than a longer
+settle. The frame budget is the thing to watch: 1.0–1.5 ms per tick at 1000 kept,
+3.3–4.5 ms at 2000, 16–18 ms at 5000. The last is over budget, and it is today's
+whole-vault behaviour, not something a lens introduces.
+
+**What it changes in the plan:** EDGE-L7 ("a lens re-runs when the index moves") needs a
+second half. Re-running the *query* is one SQL call and cheap; re-heating the *layout* on
+every index move would pay ~0.9 s of sim work for a 2000-node answer while the reader is
+typing. So the rule is: re-run the query on an index move, and disturb the layout only
+when the answer's node set actually changed. The re-heat cost itself was **not** measured
+— the app's `GraphSim` keeps `reheat` private to its physics enum — but it is bounded by
+the cold settle above, since a re-heat starts at a lower alpha.
+
+## The lens is a filter dimension (P4.16 M1, 2026-11-17)
+
+`GraphFilter` gained `lens: Option<LensScope>` — a name, and the vault-relative paths one
+saved query answered. `apply()` chains it after folder scope and **ands** with it: a lens
+worn on a folder-scoped graph is the intersection, which is what "combine" was ruled to
+mean (EDGE-L3). Tags and ghosts go through the one neighbour pass folder scope already
+had, so a tag survives a lens when a lens note carries it and a ghost is drawn when a lens
+note names it (EDGE-L4). The chips and the search keep cutting inside the answer, which is
+what stops the filter strip lying about a lensed picture.
+
+Two rules the tests hold apart, because they look alike and are not:
+
+- **An empty answer is an answer.** A lens that came back with nothing draws nothing. A
+  local scope whose centre the index does not know leaves the graph alone, because the
+  window owns that centre; a lens's answer is not the window's to second-guess.
+- **A path with no node keeps nothing and is not an error.** Counting those answers is the
+  app's job (EDGE-L5), because `apply` answers with a bitmask and nothing else.
+
+Nothing in the app sets a lens yet: session restore carries `lens: None` and says so in a
+comment, with `GraphFilterSeat.lens` owed by M6.
+
+## A lens is a file the vault will not look at (P4.16 M2, 2026-11-17)
+
+`crates/core/src/lens.rs` is a lens's whole life outside the graph: where it lives
+(`<vault>/.shale/lenses/<name>.shq` — and `.shale` is already in the vault's ignore list,
+which is what puts a lens out of the tree, out of quick-open, out of the index and out of
+the agent's note tools while leaving it plain text: EDGE-L1), how a vault's lenses are
+listed, how one is read by name, and how its answer becomes a set of note paths.
+
+Three rules worth their weight:
+
+- **A lens name is one name.** A separator is refused *before* the name-shape guard, on
+  purpose: `../secret` is a path trying to walk out of the lens folder, and the sentence
+  that says so is the one worth reading. The dot guard would also have stopped it, by
+  accident of where the dots sit — and a refusal that lands by accident is one the next
+  edit can lose.
+- **A lens has no host.** `answer` always passes `host = None` into `query_note::ask`, so a
+  query that declares `relative = "current"` is refused in the picker's own words for the
+  same file (EDGE-L13). There is no lens-specific wording for the two doors to disagree in.
+- **The column is found by name.** A saved search compiles to `SELECT path AS note`, so
+  `note` is the name a lens reads; `path` is the hand-written query's habit; the first
+  column is the fallback, because the file is the authority. A cell that is not text is not
+  a path — it lands in the count of answers with no node (EDGE-L5) rather than being
+  guessed at.
+
+## The lens door: `:lens`, the picker, and a settled sim that ships nothing (P4.16 M3, 2026-11-17)
+
+The verb and the picker are in `crates/app/src/workspace/graph.rs`, next to the filter code
+that already owned the mask: `graph_lens_command` (`:lens [name]`), `graph_lens_action` (the
+palette row), `graph_lens_chosen` (a picker row), `set_lens` (the one place a name becomes a
+`LensScope`), and `open_lens_picker`. `PickerTarget::Lens(name)` carries the choice;
+`Ex::Lens` and the `graph.lens` registry row carry the word.
+
+What the door refuses to do matters as much as what it does:
+
+- **The palette row asks; it never acts.** `:lens` with nothing typed and the palette's
+  "Choose a lens for the graph" both open the picker, so there is no way to wear a lens
+  nobody chose (ruling 5).
+- **`none` is a name, not a mode** (EDGE-L9), and saying it with nothing on says "no lens is
+  on the graph" rather than pretending to undo.
+- **A lens that will not answer is not worn.** The status line gets core's sentence — the
+  same one the picker and an embedded table give for that file — and the picture stands
+  (EDGE-L6). An empty answer is different: it *is* an answer, so the picture goes empty.
+- **The picker measures at the moment it opens** (EDGE-L10), one query per lens on one read
+  connection, so two lenses cannot answer against two snapshots of the index. A lens whose
+  query will not run shows `—` and is still choosable: the row is how the reader finds out.
+
+The finding is **EDGE-L15**. The first version re-made the picture the way the strip's own
+path does — `rebuild_graph` then `pump_graph` — and every test that checked the *counts*
+stayed at three notes while the mask underneath had changed. `pump_graph` returns at once
+when the sim is **settled**, and a lens that only removes nodes can leave it settled: nobody
+ticks, so nobody ships a frame, and the view keeps the old picture and the old numbers.
+`refresh_graph` is the door that ships summary, frame and filter whatever the sim's heat,
+and M4's live re-run (EDGE-L7) owes the same.
+
+Ten app tests (`crates/app/src/tests/lens.rs`) run the whole door through the real keymap
+and picker; twelve mutations, all red (`falsify_lens_door.py`). `docs/graph.md` has a lens
+section, `docs/state-files.md` lists `lenses/<name>.shq`, and `docs/commands.md` regenerated
+the `graph.lens` row.
+
+## The graph learned what an alias is (2026-11-17)
+
+A link written by an alias — `[[the deep one]]` where `Deep.md` declares `aliases: [the
+deep one]` — was drawn as a **dead node**, and the edge went to the dead node, leaving
+`Deep.md` looking like nobody writes about it.
+
+It was never a resolution bug. `LinkResolver`'s fourth rule is aliases, and
+`with_aliases` is how a door learns them; the link colour, the hover card, the embed door
+and `ctrl-]` all call it. `GraphIndex::build` and `set_note` built plain resolvers and
+never did. The graph's own doc comment already states the rule the fix restores: *"four
+surfaces, one order, or the picture disagrees with the text it is a picture of."* The
+alias feature's comment in `refresh_link_names` goes further — *"the colour disagreeing
+with the resolution … is the one disagreement this feature cannot have"* — and the graph
+was the surface that had not been told.
+
+Two things worth keeping:
+
+- **An alias is declared in one note and written in another.** So the note that changed is
+  not the note whose link it is: `set_note` on the saved note cannot reach the edge. A
+  moved alias set now re-scans the vault (`graph_aliases_changed` → the same background
+  build opening the tab runs), and while that scan is in flight a save is queued **even
+  when an index is already standing** — otherwise the new index arrives without it.
+- **An alias connects a link, never steals one.** The resolver's order (exact path, path
+  with `.md`, stem, alias) holds in the graph, pinned by a fixture that has to put the real
+  note in a folder: at the vault root the exact-path rule answers first and the test says
+  nothing about the stem-vs-alias order. That fixture was too weak until the falsification
+  run said so — swapping the two rules in the resolver stayed green.
+
+Seven tests (three core, four through the live window), seven mutations, all red
+(`falsify_alias_graph.py`). `docs/graph.md` says it in the reader's words now.
+
+## The bar says what the graph is wearing (2026-11-17)
+
+A lens on the graph had no indicator anywhere: the strip's filter line answers only while
+the strip is focused, and the tab title's `· lens` segment is M4. So a narrowed picture
+looked like the vault, which is the failure mode a lens has — the reader forgets it is on
+and starts reasoning about absence.
+
+The status bar now carries `lens <name>` beside the view badge, in the accent colour the
+bar reserves for states that are not the default, and only while the **graph tab is on
+screen**: on a note tab the segment would read as a property of the note, and a lens on a
+graph you are not looking at belongs in that tab's title.
+
+The test asserts what the frame **drew**, not what a helper could have computed: the frame
+records the segment where the `.when` branch is taken, into a `#[cfg(test)]` cell cleared
+at the top of every frame — the same shape `chrome_drawn` uses for the panel marks. A hook
+that re-derived the string would have stayed green with the segment deleted from the bar
+entirely, and that mutation is the first one the battery runs. Three mutations, all red
+(`falsify_lens_bar.py`): no slot in the bar, the segment ignoring which tab is up, and a
+segment appearing with no lens on.
+
+## A graph pays a resting pointer a card (2026-11-17)
+
+The alias fix closed with the user's next word: "aliases are just invisible now". The graph
+has no way to say it — a frame's edges are pairs of node slots with no kind, so "draw alias
+edges differently" would push a kind through the frame, the simulation, the filter and the
+paint. The card is the cheaper half: the dot that was reached by an alias can say
+`also known as: …` above the note's first lines.
+
+The card is the same `card::Preview` the editor's link card uses, for the same reason — one
+look answers "what is this?" wherever the pointer asks it. The difference is the **wait**:
+500 ms of stillness (`card::NODE_DWELL`). Prose holds few links, so the editor answers the
+moment the pointer finds one; a graph is dots packed together and sweeping across one is
+ordinary, so an immediate card flashes at every dot on the way past.
+
+The window asks the picture where the pointer came to rest, once per frame; the graph does
+not tell it. Telling is the shape gpui refuses — the graph is usually being called *by* this
+window when its hover changes — and asking turns out to be free as well: a frame that
+reshuffles every slot simply answers differently next frame, so a changed frame costs no
+extra bookkeeping. A press ends the rest (`resting_on` refuses while the drag is down), and a
+graph tab sitting behind another tab is not asked at all — its hover is the last one the
+pointer left there, and reading it raises a card over a note the pointer is on. That last one
+was a bug the test found, not the code.
+
+Two traps the tests walked into before they pinned anything. A two-note graph fits itself to
+`MAX_ZOOM` (8.0), so the wheel that moves a dot in a small vault is the wheel **out** —
+zooming in from the fit is the one wheel the view refuses, and a zoom-in test there proves
+nothing. And the alias line reads the window's alias table, which arrives with a *delivered*
+index pass: a test that writes notes after the window opens has a graph and no aliases, so
+that vault is built the way the alias graph tests build theirs.
+
+Twelve tests (`tests/graph/node_card.rs`), twelve mutations red. The ghost rule needed **both**
+guards broken at once — the window's filter and the card's own path check each hold the line
+alone — which is the battery's own lesson: a doubly-guarded rule needs a doubly-broken
+mutation before a green suite means anything.
+
+## The perf branch, measured against the tree it replaced (2026-11-18)
+
+The perf work landed through a merge, so its numbers were recorded on a tree that has since
+absorbed 22 commits of features — block refs, dice chips, the lens, the alias fix, the node
+card — several of which add passes over the buffer per change. Two questions, both answered
+with measurements rather than memory.
+
+**Did the wins survive the merge?** Measured on both trees on the same machine minutes apart:
+the perf tip (`7f960ab`) in a scratch worktree, and merged main (`bc71780`).
+
+**What did the tree look like before the perf branch at all?** `75547da` — the merge base —
+was built in a second worktree, and the benchmark files the perf branch *added*
+(`editor_bench.rs`, `bench_paths.rs`) were copied onto it, so both sides run the same bench
+code. The pre-perf tree has no note cache, so its cache bench was dropped; its plain search
+line **is** the pre-perf keystroke cost.
+
+| path | pre-perf `75547da` | merged main `bc71780` | |
+|------|---|---|---|
+| picker search, per keystroke, 1k notes | 6.56 ms | 1.90 ms (cache + parallel stats) | **3.5×** |
+| fuzzy `ranked`, 1k names | 744 µs | 502 µs | 1.5× |
+| fuzzy `ranked`, 10k names | 7.77 ms | 5.66 ms | 1.4× |
+| `style_spans`, 8k words | 143 µs | 136 µs | flat |
+| `block_map`, 8k words | 42.3 µs | 43.8 µs | flat |
+| editor frame, 500 words | 3.59 ms | 1.18 ms | **3.0×** |
+| editor keystroke, 500 words | 5.60 ms | 1.81 ms | **3.1×** |
+| `999j` scroll, 500 words | 16.4 ms | 5.52 ms | **3.0×** |
+| editor frame, 2000 words | 41.7 ms | 5.17 ms | **8.1×** |
+| editor keystroke, 2000 words | 66.1 ms | 6.45 ms | **10.3×** |
+| editor frame, 8000 words | 568 ms | 32.9 ms | **17×** |
+| editor keystroke, 8000 words | 835 ms | 60.8 ms | **13.7×** |
+| `999j` scroll, 8000 words | 2.00 s | 120 ms | **16.7×** |
+
+The 8000-word rows are the shape of the thing: pre-perf the frame grew **super**linearly
+(3.6 ms → 41.7 ms → 568 ms across 4× the words), because row geometry was rebuilt per row
+from the buffer's start. Post-perf it grows roughly linearly (1.2 → 5.2 → 32.9 ms). The
+`quads=26` column never moved, which is the check that the *work* changed and not just the
+clock.
+
+**Cold start did not move, and that is the finding.** Same harness (`bench/cold_start.py`,
+fixed-window niri screenshots, 5 runs each, dnd vault), both binaries, minutes apart:
+
+| | pre-perf | merged main |
+|---|---|---|
+| mapped | 366 ms | 367 ms |
+| first content (paint) | 397 ms | 398 ms |
+| settled | 613 ms | 614 ms |
+| PSS at settled | 142.5 MB | 142.3 MB |
+
+Startup is gpui meeting the GPU driver; shale's own work is the ~40 ms between mapped and
+paint. The perf branch aimed at the hot paths — search, fuzzy, beats, the per-change editor
+passes — and that is exactly where the movement is.
+
+**The measurement lesson, which cost an hour to learn.** The first pass read main's warm
+search at 2.7 ms and its 8000-word frame at 36–38 ms — a 40% "regression" against the perf
+branch. It was the machine: those runs sat at a **load average of 5.6–6.7** (release builds
+competing for the same cores). The same binaries at load **2.0–2.5** read 1.90 ms and
+26.8 ms — indistinguishable from the perf branch. So: every number here carries a load
+reading, a suspicious gap gets re-run rather than explained, and the primitive count is the
+check that the work didn't change when the time did. A wall-clock benchmark without a load
+average next to it is a story, not a measurement.
+
+## A lens keeps up with the vault, and says its own name (P4.16 M4, 2026-11-18)
+
+M4 is the lens becoming a live dimension rather than a thing read once. Three surfaces and
+one behaviour:
+
+- **The tab title wears it.** A graph tab reads `graph`, or `graph · <lens>`. Recorded per
+  frame in a `#[cfg(test)] tab_labels` cell, because the rule the bar lens taught still
+  holds: a hook that *re-derives* the string stays green with the string deleted from the
+  bar, so the test asserts what the frame **drew**.
+- **The strip carries a row for it** — `lens <name> · 3 notes`, or
+  `lens <name> · not answering: <why>` — because the status line's sentence scrolls away and
+  the picture's silence does not. An answer naming notes the graph has no node for appends
+  `, 2 with no node` (EDGE-L5's count-out-loud, now in the place the reader is looking).
+- **It re-runs when the vault moves** (EDGE-L7). `lens_follow` re-asks the query on an index
+  move and compares the *node set*; the layout is only disturbed when that set moved, so a
+  lens over a vault that edited its notes' text keeps its picture. A hand-edited `.shq`
+  re-runs too: the vault's signature walk skips `.shale/` on purpose (EDGE-L1), so
+  `lens::stamps()` reads the lens folder's mtimes beside it.
+- **A lens that stops answering keeps the last good picture** (EDGE-L6) and carries the
+  sentence into the strip; a lens file deleted from under the graph says
+  "`<name>` is gone; the picture stays as it was" (EDGE-L11).
+
+The falsification battery caught its own usual thing: the strip's row recorder was written
+at **build** time, so it recorded whether a row *could* be drawn rather than whether one
+**was** — moving it inside the `.when` draw branch turned the mutation red. Eight new tests,
+all mutations red.
+
+## The strip can keep the picture it is showing (P4.16 M5, 2026-11-18)
+
+A lens used to be a file you write by hand. Now the graph can make one from the question
+already sitting in its filter line: `alt-s` in the strip asks for a name (starting from one
+made from the question), `:lens save <name>` is the same door with the name already given,
+and **a saved lens goes on right away** (ruled 2026-11-18) — the sentence says
+`saved lens `x`: 3 notes`, one clause for each half.
+
+The save is nearly free, and that was the point of P4.3 M6: `db::compile_sql` already turns
+a typed search into "the SQL a hand-written `.shq` would hold". The lens file is that
+statement, plus the question kept above it as a comment so the file says what it was asked
+in the words that were typed.
+
+What the door refuses:
+
+- **A question that cannot be kept is refused before a name is spent on it** — core's own
+  sentences, the same three keep-a-search makes.
+- **An existing lens is never written over** (ruling I). The file a reader wrote — and may
+  edit by hand, since it is the authority (EDGE-L1) — outranks the picture just saved.
+- **A lens name is one name, never a path.** `lens::read`'s guard is factored into
+  `guard_name` and both doors use it, with separators checked *before* the shape guard so
+  `../evil` reads as "a lens name is one name, not a path" rather than as a dot-name
+  complaint. A refusal that lands by accident is a refusal the next edit can lose.
+- **The strip's chips are not encoded into the file** (ruling 1). They stay dimensions, so
+  a lens never freezes an `orphans` choice into a query its author will later read. The test
+  pins it behaviourally rather than by string: save `modified:2020-01-01` with orphans
+  hidden, then switch the chip back — the orphan comes back, *inside* the lens (EDGE-L3).
+
+Two findings. **`modified:7d` will not save**, and that is correct: a duration counts from
+the moment it runs, so written into a file it would mean "since the day it was saved" — the
+refusal fired while the chips test was being written, and the test uses a date. And **the
+filter line is still its own dimension after the save** (ruling 2): `tag:tag` fuzzy-matches
+node *labels*, so the picture is empty until the reader takes the text out. The test clears
+the line and then checks the lens's answer, rather than asserting the surprise.
+
+Also fixed on the way, from the same family as a run-on sentence in a status line: three of
+core's refusal messages had picked up runs of 14 spaces where a Rust `\`-continuation was
+eaten by the tool that wrote them (`db/index.rs` twice, `graph/render.rs` once). The
+falsification battery found a second thing: its `alt-s` anchor matched **twice**, because
+the binding had been added to the keymap twice — the keymap docs test dedupes and stayed
+green. Thirteen mutations, all red (`falsify_lens_m5.py`); seven new tests in
+`tests/lens.rs`, 27 lens tests in all.
+
+
+## The session remembers a lens by its name (P4.16 M6, 2026-11-18)
+
+`GraphFilterSeat.lens` is an `Option<String>`. The seat could have kept the paths the lens
+answered, and that would have been a lie by the next morning: the `.shq` file is the
+authority (EDGE-L1) and the vault moves underneath it. So the seat holds the **question**
+and the next window re-asks it — `restore_lens` reads the file and answers it against the
+index as they are now, before any tab opens, so the graph tab's first frame is laid out
+under the lens rather than re-made after it was drawn without one.
+
+Two things the timing taught, both now pinned by tests:
+
+- **At restore the index has not read the vault yet.** A restored lens is worn empty for the
+  length of one index pass and answers when the pass lands — the same door `lens_follow`
+  walks through for a lens in a live window (EDGE-L7). The test reads the window *before*
+  `run_until_parked` to show the two steps: `("ab", 0)`, then `("ab", 1)`.
+- **A restored lens has not met a graph index either**, and the "with no node" count is
+  measured against that index. `lens_follow` will not recompute it when the answer's set has
+  not moved, so `lens_index_arrived` fills it in whenever an index arrives. Without that
+  call the strip says `lens half · 2 notes` where the truth is `1 note, 1 with no node`.
+
+A lens that will not answer at startup is not worn: the window opens on the whole vault and
+says which half failed. EDGE-L6's "the picture stands" can only mean "the picture starts
+unfiltered" when there is no previous picture.
+
+Five app tests, five mutations red (`falsify_lens_m6.py`). One battery note: the first
+version of "the seat forgets the lens" deleted the field from the seat literal and would not
+compile — the compiler pins the field, not the test — so the mutation had to be `lens: None`
+to ask the behavioural question at all.
+
+
+## The strip's line and the search's line are one grammar (2026-11-18)
+
+Found by asking a question, not by a bug report: *"I'm not sure if the graph's filter strip
+filters like the general app search does."* It did not, and the difference was total. Measured
+side by side in one vault before anything changed:
+
+| typed | the strip (`/`) | the vault search (`space s`) |
+| --- | --- | --- |
+| `tag` | the tag node **alone**, no notes | the line in the note that holds it |
+| `tag:tag` | **nothing at all** | the note that carries the tag, plus "save this search" |
+| `path:a.md` | nothing | `a.md` |
+| `md` | every note (a subsequence of each label) | nothing (no line holds "md") |
+
+The strip ran the whole line through `fuzzy_match` against node labels and paths. The search
+parsed it with `core::query`: operators answered by the index, a token shaped like an operator
+and not one *said* rather than searched, and plain text a literal scan of note lines. So the
+same characters meant opposite things two panels apart — and the seam was worst at `alt-s`,
+which compiles the line as a query: `tag:tag` emptied the graph and then saved a lens
+answering one note, a file that disagreed with the picture it was saved from.
+
+**The fix is one grammar in both places.** The line is parsed by `core::query`; its operator
+tokens are answered by the app's index and handed to core's mask as `GraphFilter::query` —
+paths, the same shape a `LensScope` carries, anding the same way. The words left over are what
+the labels are held to. A worn lens and a typed line can both be on: the lens is the saved
+question, the line a typed one, and the picture is where they agree.
+
+Three refusals carry the change, all of them the search's own words:
+
+- **A token that only looks like an operator** (`tagg:tag`) is said — `not an operator:
+  tagg:tag (tag: path: link: prop: modified:)` — and the picture stands where it was, words
+  included. Narrowing the graph to a typo's letters is how an empty picture passes for an
+  empty vault.
+- **An operator with no index** is said in the search's sentence, and the graph keeps showing
+  the vault.
+- **A save from a line with words in it** says what the file cannot hold: "saved (the line's
+  words stay outside) lens `x`: 1 note". A fuzzy label match has no SQL to compile to, and a
+  lens that quietly dropped half the line would be the same lie wearing a name.
+
+The mask's neighbour rule now runs for an answered line too: `link:a` answers one note, and the
+tag and the hole the *hidden* notes carried leave with them. A tag is a fact about its notes;
+an answer that hides the note takes the fact with it.
+
+Restore keeps the seat's shape — the raw line, not the paths — and the next window asks it
+again, quietly, when the index moves (`query_follow`), because an index that has not read the
+vault yet answers nothing. Asking loudly at restore would shout a refusal on every startup;
+asking at all is what keeps the seat from freezing a set of paths that go stale.
+
+Eleven tests (three in core's mask, six at the strip, two at the save door), ten mutations all
+red (`falsify_grammar.py`). One test had to be rewritten rather than kept:
+`the_strip_saves_its_question_as_a_lens` used to assert that `tag:tag` left the picture *empty* while the lens
+answered one note — the disagreement, pinned as if it were a rule.
+
+## A refused filter line says so where it was typed (2026-11-18)
+
+The one-grammar change said its refusals on the status bar, which is where the vault search
+says them — and the vault search's field *is* the status bar's neighbour, one panel apart.
+The graph's filter strip is at the top of a tab, and the user found the consequence
+immediately: *"on the graph it's hard to tell when the search is invalid or not."*
+
+So the sentence moved to the line. The strip is now a column: the chips and the line in the
+first row, and a second row under them — drawn only when the line is refused — in
+`callout_danger`, the palette's role for a broken thing (a refused properties block wears
+it). The line's own text wears the same colour, which is the half that answers at a glance;
+the row is the half that says why. `FieldOwner` gains `refused()` for it, default false, so
+the prompt and the pickers keep their own ways of refusing.
+
+**The bar stays quiet while the strip is speaking.** One sentence, one place: the place the
+reader is looking. The bar gets it when there is no strip on screen to draw it on — the
+session door is that case today. The window cannot ask which case it is without reading the
+view it is being called *from*, and gpui refuses that (`cannot read GraphView while it is
+already being updated` — the strip calls into the window from inside its own update). So the
+door hands the sentence back and the two callers decide: the strip draws it, the session door
+says it.
+
+Opening the strip now re-asks the line already in it. That is what makes a line that arrived
+from a session explain itself the moment the strip opens, and it is the same door that lets a
+filter which fell behind the index catch up on reopen.
+
+Five tests, seven mutations red (`falsify_strip_said.py`), one honest green: the *colour* of
+the line's text is paint, and gpui gives a test no way to see a painted colour. The decision
+the colour is drawn from (`refused()`) is pinned; the pixels need eyes.
+
+## A bare tag name brings the notes that wear it (2026-11-18)
+
+The one-grammar change left one half-broken case, and it was the common one: typing a word
+with no operator. A bare `monster` fuzzy-matched the `#monster` node and hid every note that
+carries it, so the picture was one lit dot with no edges — a shape that reads as a filter
+working. Same for a hole: `gone` lit the ghost and hid the note that linked to it, leaving a
+dot with nothing to explain it.
+
+The rule: **a tag or a ghost is a fact about notes, so matching it brings the notes it is a
+fact about** — one hop, no further, or a popular tag would light the vault again. The rescue
+runs one way only. A matched note does not light the tags and holes it mentions: typing
+`goblin` is a search for a note, not a request for everything the note talks about. And it
+reaches only what the chips and scopes left visible, so a tag match cannot smuggle back a note
+a folder, a lens or `existing only` excluded.
+
+One old test had the symptom pinned as if it were the rule (`the_query_narrows_the_picture`:
+one ghost, zero notes, zero links). Rewritten to the readable shape — the ghost, its writer,
+and the link between them.
+
+Seven mutations (`falsify_bare_tag.py`), five red, one red only when broken in two places at
+once, and two honest greens that say something about the code rather than the suite: the
+scope rule is held up twice — the rescue's `scope[nb]` guard and the final `*v &= matched[i]`
+— so breaking either one alone changes nothing observable. Redundancy, not a gap.
+
+## Starting from an icon (2026-11-18)
+
+The blocker on using Shale as a daily app was the smallest one possible: launching it with no
+arguments died with `no vault: name one on the command line`. A `.desktop` file or a Windows
+shortcut cannot name a path without baking in a vault, so the app could only be started from a
+terminal.
+
+The decision is now a function — command line, then memory, then ask — and the asking is a
+small window: the remembered vaults newest first, `Open a folder…`, and `New vault…`. Ruled
+with the user: a picker window rather than a Workspace with no vault. The Workspace assumes a
+vault in everything it touches (services, session, tree, tabs), so a vault-less Workspace would
+be a second of everything; what the screen reuses instead is the picker widget, which is why
+the rows, the filtering and the keyboard are already `:vault`'s.
+
+Three rules worth their weight:
+
+- **A double launch asks instead of dying.** The remembered vault is held by another Shale:
+  the picker opens with `already open in another Shale` in the danger role, and the keyboard
+  stays where the failure happened. A screen that vanished on a refusal would send the reader
+  back through the whole launch.
+- **A path named and no good is still a terminal answer.** `shale ./typo` writes to stderr and
+  exits; a script cannot read a window. Only the no-path start gets the screen.
+- **`New vault…` is a field, not a folder dialog.** A desktop dialog that can choose a folder
+  can rarely make one. A bare name lands under the home folder, `~/` is stripped because
+  readers type it, a spelled-out path is honored as spelled, and a folder with things in it is
+  refused — `.shale` alone does not count, because that is a vault opened once and emptied.
+
+The startup window is not a window on a vault, so it is not in the per-vault list the
+termination watcher walks; the registry keeps a second handle for it, and a `kill` that lands
+while the app is sitting on a question ends the run (EDGE-V16).
+
+Nineteen tests, twenty-six mutations across two batteries: twenty-five red, and one honest
+green — dropping the explicit absolute-path branch changes nothing, because `Path::join`
+already replaces the whole path when the argument is absolute. The branch stays: it is where
+the rule is written down.
