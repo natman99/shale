@@ -956,9 +956,7 @@ fn save_from_strip(cx: &mut VisualTestContext) {
     cx.run_until_parked();
 }
 
-/// Empty the filter line, leaving the lens on. The line's text is its own dimension
-/// (ruling 2), so a question like `tag:tag` fuzzy-matches node *labels* on the way to
-/// being saved, and the picture stays empty until the reader takes the text out.
+/// Empty the filter line, leaving the lens on: the picture then belongs to the lens alone.
 fn clear_line(cx: &mut VisualTestContext, window: &WindowHandle<Workspace>) {
     cx.simulate_keystrokes("escape");
     open_strip(cx, window);
@@ -1005,15 +1003,16 @@ fn the_strip_saves_its_question_as_a_lens(cx: &mut TestAppContext) {
     assert_eq!(worn(&window, &mut cx), Some(("tag".to_string(), 1)));
     assert_eq!(
         counts(&mut cx, &window).map(|c| c.notes),
-        Some(0),
-        "the line's own text is still a dimension of its own, and `tag:tag` matches no label"
+        Some(1),
+        "the line asks the index here the way the search does, so the lens is saved from \
+         a picture that means the same thing"
     );
 
     clear_line(&mut cx, &window);
     assert_eq!(
         counts(&mut cx, &window).map(|c| c.notes),
         Some(1),
-        "with the text out, the picture is what the lens asked the index"
+        "and taking the typed line out leaves the lens answering the same one note"
     );
 }
 
@@ -1174,5 +1173,70 @@ fn a_lens_name_is_never_a_path(cx: &mut TestAppContext) {
     assert!(
         !dir.path().parent().unwrap().join("evil.shq").exists(),
         "and nothing was written outside the lens folder"
+    );
+}
+
+// ------------------------------------------------------- one grammar (P4.16 follow-up)
+//
+// The strip's line and the search's line are read one way: the operator tokens ask the
+// index, and the words left over are what the node labels are held to. These two pin the
+// seam that used to sit between them — a line the picture read as a string of letters and
+// the save door read as a question, so that `tag:tag` emptied the graph and then saved a
+// lens answering one note.
+
+/// A line holding an operator is a question in the strip exactly as it is in the search,
+/// which is what makes the lens saved from a picture agree with that picture.
+#[gpui::test]
+fn a_lens_saved_from_an_operated_line_agrees_with_the_picture(cx: &mut TestAppContext) {
+    let (dir, window, mut cx) = lens_vault(cx, &[]);
+    on_graph(&mut cx, &window);
+    assert_eq!(
+        counts(&mut cx, &window).map(|c| c.notes),
+        Some(3),
+        "the whole vault is on screen to begin with"
+    );
+    open_strip(&mut cx, &window);
+    type_query(&mut cx, "tag:tag");
+    draw(&mut cx);
+    assert_eq!(
+        counts(&mut cx, &window).map(|c| c.notes),
+        Some(1),
+        "the line narrowed the picture by asking the index, not by holding its letters to labels"
+    );
+
+    save_from_strip(&mut cx);
+    assert!(
+        lens_file(&dir, "tag").contains("EXISTS"),
+        "the file holds the same question the line asked"
+    );
+    assert_eq!(
+        counts(&mut cx, &window).map(|c| c.notes),
+        Some(1),
+        "and putting the lens on changes nothing you could see: the two agree"
+    );
+}
+
+/// A line with words **and** operators says which half the file cannot carry: the lens
+/// keeps the question, and the words stay a label filter the picture applies by itself.
+#[gpui::test]
+fn a_line_with_words_says_what_the_lens_leaves_out(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = lens_vault(cx, &[]);
+    on_graph(&mut cx, &window);
+    open_strip(&mut cx, &window);
+    type_query(&mut cx, "tag:tag a");
+    draw(&mut cx);
+    assert_eq!(
+        counts(&mut cx, &window).map(|c| c.notes),
+        Some(1),
+        "the answer chooses the note, and the word narrows inside it"
+    );
+
+    cx.simulate_keystrokes("alt-s");
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+    assert!(
+        say(&window, &mut cx).contains("the line's words stay outside"),
+        "the sentence names the half the lens cannot hold: {}",
+        say(&window, &mut cx)
     );
 }

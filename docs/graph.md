@@ -96,7 +96,10 @@ starting from one made from the question. `:lens save <name>` is the same door w
 name already given. A saved lens goes on right away, and a lens that already exists is
 never written over: the file a reader wrote outranks the picture just saved. The strip's
 chips are **not** encoded into the file — they stay dimensions, so a lens never freezes an
-`orphans` choice into a query its author will later read.
+`orphans` choice into a query its author will later read. Neither are the line's **words**:
+a lens is a question for the index, and a fuzzy label match has no SQL to compile to, so
+saving from a line like `tag:boss bos` says the words stay outside. What the file holds is
+what the picture was narrowed by, which is the point of saving it.
 
 While a lens is on it keeps up with the vault: the query re-runs when the index moves or
 when the file changes under an editor's hands, and the layout is only disturbed when the
@@ -170,9 +173,22 @@ Ghosts and tags get no card. Neither is a note, so neither has lines to preview.
 `/` opens it; `escape` closes it and leaves the keyboard where it was — on the strip a
 moment ago, on the graph after that. Leaving the *tab* is tab paging — `g t`/`g T`,
 `:tabnext` — exactly as for any other tab. Three chips
-(`orphans`, `missing`, `tags`, on `alt-o`, `alt-x` and `alt-t`) and a search line that
-narrows the picture as it is typed. A filtered node leaves the simulation as well as the
-paint, so the layout closes up around what is left.
+(`orphans`, `missing`, `tags`, on `alt-o`, `alt-x` and `alt-t`) and a line that narrows
+the picture as it is typed. A filtered node leaves the simulation as well as the paint, so
+the layout closes up around what is left.
+
+**The line speaks the vault search's grammar** — the operators are
+[the same ones](notes.md#asking-with-operators), answered by the same door. `tag:` `path:`
+`link:` `prop:` and `modified:` ask the index which **notes** the picture holds, and the
+words left over are matched fuzzily against node labels and paths. So `tag:boss` shows the
+notes carrying `#boss` and the tags and holes those notes name — not the nodes whose names
+happen to contain the letters `b`, `o`, `s`, `s`. Words and operators **and** together:
+`tag:boss boss` narrows the answer by label.
+
+Two refusals, said in the status bar rather than answered with an empty picture. A token
+shaped like an operator and not one (`tags:boss`) is named as a typo, and the picture stands
+where it was; with the index off, the operators say they need it, and the words still work.
+An empty graph should only ever mean an empty answer.
 
 The strip has its own keyboard context, which is why the graph's `hjkl`, `f`, `+`
 and `-` are not in the stack while you are typing a query.

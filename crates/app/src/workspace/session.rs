@@ -312,6 +312,9 @@ impl Workspace {
                 existing_only: seat.existing_only,
                 tags: seat.tags,
                 search: seat.search.clone(),
+                // Not in the seat: the answer belongs to the index as it is now, so the
+                // line is asked again below rather than a set of paths inherited.
+                query: None,
                 folder: None,
                 lens: None,
             };
@@ -321,6 +324,14 @@ impl Workspace {
             // so the graph tab's first frame is laid out under the lens.
             if let Some(name) = seat.lens.as_deref() {
                 self.restore_lens(name, cx);
+            }
+            // The line is asked too, in the same spirit: the seat holds what was typed and
+            // the answer belongs to the index. Only when the graph is already built —
+            // before the first pass lands, an answer of "nothing" would paint an empty
+            // picture for a moment, and [`Workspace::query_follow`] answers it properly
+            // when the pass does land.
+            if self.graph.is_some() {
+                self.ask_filter_line(cx);
             }
         }
 

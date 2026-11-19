@@ -2075,3 +2075,55 @@ version of "the seat forgets the lens" deleted the field from the seat literal a
 compile — the compiler pins the field, not the test — so the mutation had to be `lens: None`
 to ask the behavioural question at all.
 
+
+## The strip's line and the search's line are one grammar (2026-11-18)
+
+Found by asking a question, not by a bug report: *"I'm not sure if the graph's filter strip
+filters like the general app search does."* It did not, and the difference was total. Measured
+side by side in one vault before anything changed:
+
+| typed | the strip (`/`) | the vault search (`space s`) |
+| --- | --- | --- |
+| `tag` | the tag node **alone**, no notes | the line in the note that holds it |
+| `tag:tag` | **nothing at all** | the note that carries the tag, plus "save this search" |
+| `path:a.md` | nothing | `a.md` |
+| `md` | every note (a subsequence of each label) | nothing (no line holds "md") |
+
+The strip ran the whole line through `fuzzy_match` against node labels and paths. The search
+parsed it with `core::query`: operators answered by the index, a token shaped like an operator
+and not one *said* rather than searched, and plain text a literal scan of note lines. So the
+same characters meant opposite things two panels apart — and the seam was worst at `alt-s`,
+which compiles the line as a query: `tag:tag` emptied the graph and then saved a lens
+answering one note, a file that disagreed with the picture it was saved from.
+
+**The fix is one grammar in both places.** The line is parsed by `core::query`; its operator
+tokens are answered by the app's index and handed to core's mask as `GraphFilter::query` —
+paths, the same shape a `LensScope` carries, anding the same way. The words left over are what
+the labels are held to. A worn lens and a typed line can both be on: the lens is the saved
+question, the line a typed one, and the picture is where they agree.
+
+Three refusals carry the change, all of them the search's own words:
+
+- **A token that only looks like an operator** (`tagg:tag`) is said — `not an operator:
+  tagg:tag (tag: path: link: prop: modified:)` — and the picture stands where it was, words
+  included. Narrowing the graph to a typo's letters is how an empty picture passes for an
+  empty vault.
+- **An operator with no index** is said in the search's sentence, and the graph keeps showing
+  the vault.
+- **A save from a line with words in it** says what the file cannot hold: "saved (the line's
+  words stay outside) lens `x`: 1 note". A fuzzy label match has no SQL to compile to, and a
+  lens that quietly dropped half the line would be the same lie wearing a name.
+
+The mask's neighbour rule now runs for an answered line too: `link:a` answers one note, and the
+tag and the hole the *hidden* notes carried leave with them. A tag is a fact about its notes;
+an answer that hides the note takes the fact with it.
+
+Restore keeps the seat's shape — the raw line, not the paths — and the next window asks it
+again, quietly, when the index moves (`query_follow`), because an index that has not read the
+vault yet answers nothing. Asking loudly at restore would shout a refusal on every startup;
+asking at all is what keeps the seat from freezing a set of paths that go stale.
+
+Eleven tests (three in core's mask, six at the strip, two at the save door), ten mutations all
+red (`falsify_grammar.py`). One test had to be rewritten rather than kept:
+`the_strip_saves_its_question_as_a_lens` used to assert that `tag:tag` left the picture *empty* while the lens
+answered one note — the disagreement, pinned as if it were a rule.

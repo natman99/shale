@@ -243,6 +243,10 @@ impl Workspace {
         // rides the same rebuild the mask change would need anyway — and one that did not
         // move disturbs the layout not at all, which is the half the measurement was for.
         self.lens_follow();
+        // The strip's line is a question too, and an index that has not read the vault
+        // yet answers nothing: a line restored from a session, or typed before the first
+        // pass lands, gets its answer here (the same door EDGE-L7 opens for a lens).
+        self.query_follow();
         let Some((summary, frame)) = self.rebuild_graph() else {
             return;
         };
@@ -382,9 +386,94 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> Option<(crate::graph::GraphSummary, Rc<crate::graph::GraphFrame>)> {
         self.graph_filter = filter;
+        self.ask_filter_line(cx);
         let built = self.rebuild_graph();
         self.pump_graph(cx);
         built
+    }
+
+    /// Read the strip's line the way the vault search reads it (P4.16 follow-up).
+    ///
+    /// One line, one grammar in both places: the operator tokens are questions for the
+    /// index, and the words left over are the label filter core's mask applies by itself.
+    /// Answering needs the database, which the mask does not have, so the answer lands on
+    /// the filter as paths and `apply` ands them exactly as it ands a lens. That is also
+    /// what makes `alt-s` honest: the line it compiles into a saved lens is the line the
+    /// picture in front of the reader was narrowed by.
+    ///
+    /// The refusals are the search's, in the search's words. A token shaped like an
+    /// operator and not one is *said*, not searched; an operator with no index to answer
+    /// it is said too. Otherwise a typo narrows the graph to nothing and the reader is
+    /// left to wonder whether the vault really is that empty.
+    pub(crate) fn ask_filter_line(&mut self, cx: &mut Context<Self>) {
+        match self.answer_filter_line() {
+            Ok(paths) => self.graph_filter.query = paths,
+            Err(None) => self.graph_filter.query = None,
+            Err(Some(sentence)) => {
+                self.graph_filter.query = None;
+                self.say(sentence, cx);
+            }
+        }
+    }
+
+    /// Answer the strip's line against the index, without touching the filter or the
+    /// status line: `Ok(Some(paths))` is what the mask should hold, `Ok(None)` is a line
+    /// with nothing in it for the index to answer, and `Err` carries the sentence the
+    /// window should say — or `Err(None)` for the line that should simply be inert.
+    fn answer_filter_line(&self) -> Result<Option<Vec<String>>, Option<String>> {
+        let line = self
+            .graph_filter
+            .search
+            .clone()
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        if line.is_empty() {
+            return Ok(None);
+        }
+        let q = shale_core::query::parse(&line);
+        if q.unknown.is_empty() && !q.needs_index() {
+            return Ok(None);
+        }
+        if !q.unknown.is_empty() {
+            let tokens = q.unknown.join("   ");
+            return Err(Some(format!(
+                "not an operator: {tokens}  (tag: path: link: prop: modified:)"
+            )));
+        }
+        // The search's sentence, word for word: an operator with no index is a fact about
+        // the setting, not an empty vault.
+        let Some(db) = self.db.as_ref() else {
+            return Err(Some(
+                "tag:, path:, link:, prop: and modified: ask the vault index, \
+                 and this vault has none (index.enabled in .shale/config.toml)"
+                    .to_string(),
+            ));
+        };
+        match db.notes_matching(&q) {
+            Ok(paths) => Ok(Some(
+                paths
+                    .iter()
+                    .map(shale_core::vault::rel_text)
+                    .collect::<Vec<_>>(),
+            )),
+            Err(err) => Err(Some(format!("the vault index could not answer: {err:#}"))),
+        }
+    }
+
+    /// Re-ask the strip's line after an index move, quietly. A typed question that fails
+    /// would re-fail on every index move, and a shout each time is noise rather than
+    /// news — the counts in the strip already say what the picture holds. An answer that
+    /// has not moved leaves the mask alone, so the layout is not disturbed for nothing
+    /// (the same care EDGE-L7 pays to a lens).
+    fn query_follow(&mut self) {
+        let Ok(Some(paths)) = self.answer_filter_line() else {
+            return;
+        };
+        if self.graph_filter.query.as_ref() == Some(&paths) {
+            return;
+        }
+        self.graph_filter.query = Some(paths);
     }
 
     // The lens (roadmap P4.16): a saved query the graph wears. The dimension itself is
@@ -487,7 +576,16 @@ impl Workspace {
         // The lens folder is not in the vault's signature, so the stamps beside it are
         // re-taken: a lens Shale wrote itself must not come back as somebody else's edit.
         self.resign();
-        self.wear_lens(name, "saved ", cx);
+        // The file holds the operators, not the words: a line's words are a label filter
+        // the picture applies and a saved question has no way to carry. Saying so keeps
+        // the lens honest about the picture it was saved from, now that the line and the
+        // search speak one grammar (P4.16 follow-up).
+        let said = if shale_core::query::parse(search).text.is_some() {
+            "saved (the line's words stay outside) "
+        } else {
+            "saved "
+        };
+        self.wear_lens(name, said, cx);
         Ok(())
     }
 

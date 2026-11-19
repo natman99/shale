@@ -21,10 +21,24 @@ pub struct GraphFilter {
     pub existing_only: bool,
     /// Show `#tag` nodes.
     pub tags: bool,
-    /// Fuzzy match against the node label and path; a node that does not
-    /// match is hidden (illumination mode, M5f, is a render-side variant of
-    /// the same match, not a different filter).
+    /// The strip's line, kept as typed. Its **words** are a fuzzy match against the
+    /// node label and path; a node that does not match is hidden (illumination mode,
+    /// M5f, is a render-side variant of the same match, not a different filter).
+    ///
+    /// The line speaks the same grammar the vault search speaks (P4.16 follow-up):
+    /// `tag:`/`path:`/`link:`/`prop:`/`modified:` tokens are questions for the index,
+    /// and only the words left over reach the labels. So `tag:boss` does not hide every
+    /// node whose label lacks a `b` — the token chooses the notes through [`Self::query`]
+    /// instead, exactly as it does in the search picker.
     pub search: Option<String>,
+    /// The notes the strip's operator tokens answered, as vault-relative paths, in the
+    /// answer's own order. `None` is a line with no operators in it.
+    ///
+    /// Answering needs the database, which this module does not have, so the app answers
+    /// once and hands the paths here — the same shape a [`LensScope`] carries, and it
+    /// **ands** with the other dimensions the same way. A typed line and a worn lens can
+    /// both be on at once: the lens is the saved question, the line is a typed one.
+    pub query: Option<Vec<String>>,
     /// Constellation scope (M3): only notes under this vault-relative folder,
     /// plus the tags and ghosts attached to them. `None` is the whole vault.
     pub folder: Option<String>,
@@ -87,6 +101,7 @@ impl Default for GraphFilter {
             existing_only: false,
             tags: true,
             search: None,
+            query: None,
             folder: None,
             local: None,
             lens: None,
@@ -146,12 +161,35 @@ pub fn apply(index: &GraphIndex, filter: &GraphFilter) -> Vec<bool> {
         }
     }
 
+    // The operators in the strip's line, answered by the app's index and handed over as
+    // paths: one more of the same shape, anding the same way. A worn lens and a typed
+    // line can both be on — the lens is the saved question, the line a typed one, and
+    // the picture is where the two agree.
+    if let Some(paths) = &filter.query {
+        let answered: HashSet<&str> = paths.iter().map(String::as_str).collect();
+        for (i, v) in visible.iter_mut().enumerate() {
+            let meta = index.meta(NodeIndex::new(i));
+            match meta.kind {
+                NodeKind::Note | NodeKind::Attachment | NodeKind::Query => {
+                    *v &= match meta.path.as_ref().map(rel_text) {
+                        Some(p) => answered.contains(p.as_str()),
+                        None => false,
+                    };
+                }
+                NodeKind::Tag | NodeKind::Ghost => {
+                    // Decided by their neighbours, below.
+                    *v = true;
+                }
+            }
+        }
+    }
+
     // ...then, for either path-shaped scope, tags and ghosts survive only if a visible
     // note links them: a tag is a fact about the notes that carry it, and a ghost is a
     // fact about the note that names it (EDGE-L4).
     // (Two passes: the neighbor check reads `visible` while deciding, so
     // the writes wait until every decision is made.)
-    if filter.folder.is_some() || filter.lens.is_some() {
+    if filter.folder.is_some() || filter.lens.is_some() || filter.query.is_some() {
         let mut hide = Vec::new();
         for i in 0..n {
             let node = NodeIndex::new(i);
@@ -217,9 +255,24 @@ pub fn apply(index: &GraphIndex, filter: &GraphFilter) -> Vec<bool> {
         }
     }
 
-    if let Some(query) = &filter.search
-        && !query.trim().is_empty()
-    {
+    // The line's **words**, last so they narrow whatever the chips, the scopes and the
+    // question left rather than fighting them. Only the words: the operator tokens in the
+    // same line have already had their say through the index above, and matching their
+    // characters against labels as well would empty the picture on a line the vault
+    // search answers fine — which is the whole reason the strip and the search now read
+    // one grammar (P4.16 follow-up).
+    // A line holding a token that *looks* like an operator but is not one filters nothing
+    // here at all: the window says the token instead, the way the search shows a notice
+    // rather than searching the string. Narrowing the picture by the letters of a typo is
+    // how an empty graph ends up looking like an empty vault.
+    let words = filter
+        .search
+        .as_deref()
+        .map(crate::query::parse)
+        .filter(|q| q.unknown.is_empty())
+        .and_then(|q| q.text)
+        .filter(|text| !text.trim().is_empty());
+    if let Some(words) = &words {
         for (i, v) in visible.iter_mut().enumerate() {
             if !*v {
                 continue;
@@ -228,8 +281,8 @@ pub fn apply(index: &GraphIndex, filter: &GraphFilter) -> Vec<bool> {
             let meta = index.meta(node);
             let label = &meta.label;
             let path = meta.path.as_ref().map(rel_text).unwrap_or_default();
-            let matched = fuzzy_match(query, label).is_some()
-                || (!path.is_empty() && fuzzy_match(query, &path).is_some());
+            let matched = fuzzy_match(words, label).is_some()
+                || (!path.is_empty() && fuzzy_match(words, &path).is_some());
             if !matched {
                 *v = false;
             }
@@ -450,6 +503,59 @@ mod tests {
             "the label is 'c' but the path contains 'cake'"
         );
         assert!(!visible[index.node_for_path("lonely.md").unwrap().index()]);
+        Ok(())
+    }
+
+    /// The strip's line is read with the vault search's grammar: its operator tokens are
+    /// answered by the app's index and handed over as paths, and the mask's job is only
+    /// who carries one of them — the same shape a lens and a folder are.
+    #[test]
+    fn answered_paths_narrow_by_path_and_keep_what_they_carry() -> anyhow::Result<()> {
+        let (_dir, _vault, index) = fixture()?;
+        let f = GraphFilter {
+            query: Some(vec!["root.md".into()]),
+            ..Default::default()
+        };
+        let visible = apply(&index, &f);
+        assert!(visible[index.node_for_path("root.md").unwrap().index()]);
+        assert!(!visible[index.node_for_path("child 1/cake/c.md").unwrap().index()]);
+        // A tag is a fact about the notes that carry it and a ghost about the note that
+        // names it, so they follow the answer rather than the label match.
+        assert!(visible[index.node_for_tag("top").unwrap().index()]);
+        assert!(visible[index.ghost_for_target("gone").unwrap().index()]);
+        assert!(!visible[index.node_for_tag("sweet").unwrap().index()]);
+        Ok(())
+    }
+
+    /// A line holding a token that only *looks* like an operator narrows nothing here.
+    /// The window says the token instead — the way the search shows a notice rather than
+    /// searching the string — because narrowing the picture by a typo's letters is how an
+    /// empty graph ends up passing for an empty vault.
+    #[test]
+    fn a_line_holding_a_bad_token_narrows_nothing() -> anyhow::Result<()> {
+        let (_dir, _vault, index) = fixture()?;
+        let f = GraphFilter {
+            search: Some("tagg:sweet".into()),
+            ..Default::default()
+        };
+        let visible = apply(&index, &f);
+        assert_eq!(count(&visible), index.node_count());
+        Ok(())
+    }
+
+    /// Two halves of one line, anding: the operators choose which notes, and the words
+    /// left over narrow inside that answer rather than fighting it.
+    #[test]
+    fn the_words_narrow_inside_an_answered_line() -> anyhow::Result<()> {
+        let (_dir, _vault, index) = fixture()?;
+        let f = GraphFilter {
+            search: Some("tag:top cake".into()),
+            query: Some(vec!["root.md".into(), "child 1/cake/c.md".into()]),
+            ..Default::default()
+        };
+        let visible = apply(&index, &f);
+        assert!(visible[index.node_for_path("child 1/cake/c.md").unwrap().index()]);
+        assert!(!visible[index.node_for_path("root.md").unwrap().index()]);
         Ok(())
     }
 

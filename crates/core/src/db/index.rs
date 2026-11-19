@@ -1613,7 +1613,8 @@ pub fn compile_sql(q: &Query) -> Result<String, String> {
     }
     if q.ops.iter().any(|op| matches!(op, Op::Path(_))) {
         return Err(
-            "path: is answered by Shale's own matcher, not by SQL; a saved query would ask              SQLite a different question"
+            "path: is answered by Shale's own matcher, not by SQL; a saved query would \
+             ask SQLite a different question"
                 .to_string(),
         );
     }

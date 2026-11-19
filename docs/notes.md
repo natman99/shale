@@ -255,7 +255,7 @@ has stopped being drawn.
 | `:sections [pattern]` | jump to a section: the open note's outline with no pattern, every section in the vault that holds the pattern with one (the vault-wide half needs the index) |
 | `:blocks [pattern]` | jump to a block by its id: the open note's ids with no pattern, every id in the vault that holds the pattern with one (the vault-wide half needs the index) |
 | `:block-id [id]` | give the block under the cursor an id; one `u` takes it back |
-| `space g` | the graph, whose filter strip narrows by `orphans` / `missing` / `tags` and by a search line |
+| `space g` | the graph, whose filter strip narrows by `orphans` / `missing` / `tags` and by a line holding the same operators as the vault search |
 
 `:sections` answers about headings. With no pattern it lists the sections of the note
 on screen, in reading order and indented by depth, and choosing one puts the cursor on

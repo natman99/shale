@@ -79,7 +79,11 @@ row) the first day; **M4** (the tab title's `graph · <lens>`, the strip's lens 
 lens that re-runs when the vault moves), **M5** (`alt-s` in the strip and `:lens save`,
 which keep the filter line's question as a lens and put it on) and **M6** (the seat, which
 remembers a lens by name and re-asks it in the next window) on the second. A lens is not
-only a file you write by hand. What P4.16 unblocks is the GM screen (P7.4) and
+only a file you write by hand. **Follow-up the same day:** the filter strip's line and the
+vault search's line are now **one grammar** — the operators in the strip ask the index the
+same question `space s` asks, the words left over stay a label match, and a token that only
+looks like an operator is said rather than searched, so `alt-s` saves the question the
+picture in front of the reader was actually narrowed by. What P4.16 unblocks is the GM screen (P7.4) and
 canvas-as-saved-selection (P6.10). Two items the user keeps asking for are still unstarted: **P4.10 trash** and
 **P4.12 attachment capture**. `ctrl-t` scratch tabs are ruled in full (2026-11-13) and
 genuinely unbuilt — `ctrl-t` still duplicates the current note.

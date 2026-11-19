@@ -345,7 +345,10 @@ its own, and `ctrl-w l` means the pane on the right here as it does everywhere e
 The filter strip takes the keyboard for itself: `escape` or `enter` closes it,
 `alt-o` / `alt-x` / `alt-t` toggle the `orphans` / `missing` / `tags` chips, `alt-s` keeps
 the question in the line as a lens (`docs/graph.md`), and typing narrows the picture, with
-a filtered node leaving the simulation as well as the paint.
+a filtered node leaving the simulation as well as the paint. The line speaks the vault
+search's grammar: `tag:` `path:` `link:` `prop:` and `modified:` ask the index which notes
+the picture holds, the words left over match node labels and paths, and a token that only
+looks like an operator is said rather than searched.
 
 ## The pointer
 
