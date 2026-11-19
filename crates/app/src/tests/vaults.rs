@@ -12,7 +12,7 @@ use crate::workspace::vaults::{self, OpenOptions};
 /// switcher's rows are named for the directory, so a test that types a vault's
 /// name has to have a vault whose name is in the path. Returns the temp dir
 /// that owns the tree and the vault path inside it.
-fn vault_dir(name: &str) -> (tempfile::TempDir, std::path::PathBuf) {
+pub(crate) fn vault_dir(name: &str) -> (tempfile::TempDir, std::path::PathBuf) {
     let base = tempfile::tempdir().unwrap();
     let dir = base.path().join(name);
     std::fs::create_dir_all(&dir).unwrap();

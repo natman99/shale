@@ -2181,3 +2181,39 @@ Seven mutations (`falsify_bare_tag.py`), five red, one red only when broken in t
 once, and two honest greens that say something about the code rather than the suite: the
 scope rule is held up twice — the rescue's `scope[nb]` guard and the final `*v &= matched[i]`
 — so breaking either one alone changes nothing observable. Redundancy, not a gap.
+
+## Starting from an icon (2026-11-18)
+
+The blocker on using Shale as a daily app was the smallest one possible: launching it with no
+arguments died with `no vault: name one on the command line`. A `.desktop` file or a Windows
+shortcut cannot name a path without baking in a vault, so the app could only be started from a
+terminal.
+
+The decision is now a function — command line, then memory, then ask — and the asking is a
+small window: the remembered vaults newest first, `Open a folder…`, and `New vault…`. Ruled
+with the user: a picker window rather than a Workspace with no vault. The Workspace assumes a
+vault in everything it touches (services, session, tree, tabs), so a vault-less Workspace would
+be a second of everything; what the screen reuses instead is the picker widget, which is why
+the rows, the filtering and the keyboard are already `:vault`'s.
+
+Three rules worth their weight:
+
+- **A double launch asks instead of dying.** The remembered vault is held by another Shale:
+  the picker opens with `already open in another Shale` in the danger role, and the keyboard
+  stays where the failure happened. A screen that vanished on a refusal would send the reader
+  back through the whole launch.
+- **A path named and no good is still a terminal answer.** `shale ./typo` writes to stderr and
+  exits; a script cannot read a window. Only the no-path start gets the screen.
+- **`New vault…` is a field, not a folder dialog.** A desktop dialog that can choose a folder
+  can rarely make one. A bare name lands under the home folder, `~/` is stripped because
+  readers type it, a spelled-out path is honored as spelled, and a folder with things in it is
+  refused — `.shale` alone does not count, because that is a vault opened once and emptied.
+
+The startup window is not a window on a vault, so it is not in the per-vault list the
+termination watcher walks; the registry keeps a second handle for it, and a `kill` that lands
+while the app is sitting on a question ends the run (EDGE-V16).
+
+Nineteen tests, twenty-six mutations across two batteries: twenty-five red, and one honest
+green — dropping the explicit absolute-path branch changes nothing, because `Path::join`
+already replaces the whole path when the argument is absolute. The branch stays: it is where
+the rule is written down.

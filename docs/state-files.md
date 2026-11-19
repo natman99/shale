@@ -32,7 +32,8 @@ use.
 `$XDG_STATE_HOME/shale/recent.json` (falling back to `~/.local/state/shale/`) holds
 the vaults the app knows — newest first, capped at 10. It is what `shale` with no
 argument opens, and what `:vault` lists. Deleting it costs you that list and
-nothing else.
+nothing else: the next no-argument start opens the vault picker rather than a vault,
+and says that the folder it looked for is not a vault any more.
 
 ## How a file gets written
 

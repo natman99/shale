@@ -89,6 +89,7 @@ mod session;
 mod sidebar;
 mod spell;
 mod start;
+mod startup;
 mod status;
 mod tabs;
 mod tree;

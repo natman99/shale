@@ -30,6 +30,7 @@ mod table_view;
 mod theme;
 mod tooltip;
 mod tree;
+mod vault_open;
 mod workspace;
 
 use std::path::PathBuf;
@@ -81,15 +82,13 @@ fn main() -> Result<()> {
         .with_writer(std::io::stderr)
         .init();
     // Which vault: the command line first (kept for testing and for muscle
-    // memory), then the vault this app opened last.
-    let vault_path = args
-        .vault
-        .clone()
-        .or_else(|| RecentVaults::load().startup_vault())
-        .context(
-            "no vault: name one on the command line, or open one from \
-                  another vault's `:vault` picker first",
-        )?;
+    // memory), then the vault this app opened last, and if neither answers, a
+    // window that asks (roadmap P4.20). A desktop shortcut cannot name a vault
+    // without hard-coding a path, so the no-argument start has to carry its own
+    // answer — and a path *named* on the command line still gets a terminal
+    // answer when it is no good, because a script needs an exit code rather than
+    // a window it cannot see.
+    let plan = vault_open::startup_plan(args.vault.clone(), &RecentVaults::load());
 
     // Roadmap P1.5: a termination signal is an exit the user asked for, not a crash.
     // The handler runs in signal context, where the only safe work is an atomic
@@ -171,14 +170,24 @@ fn main() -> Result<()> {
         });
     }
 
-    // Claim the vault before the GUI exists. A vault owned by another Shale
-    // is then a message and an exit code, not a window; gpui's loop has no
-    // clean way to end before its first window, so the refusal has to happen
-    // out here where `return` still means something.
-    let root = vault_path
-        .canonicalize()
-        .with_context(|| format!("{} is not a vault", vault_path.display()))?;
-    let claim = vaults::claim_vault(&root)?;
+    // Claim the vault before the GUI exists. A vault owned by another Shale is
+    // then decided out here, where `return` still means something: gpui's loop
+    // has no clean way to end before its first window. What changed with P4.20
+    // is what the answer *is*: a vault held elsewhere no longer ends the run, it
+    // opens the screen that asks for another one, with the sentence on it.
+    let mut opened: Option<(PathBuf, Option<vaults::Claim>)> = None;
+    let mut ask: Option<Option<String>> = None;
+    match plan {
+        vault_open::Startup::Vault(root) => match vaults::claim_vault(&root) {
+            Ok(claim) => opened = Some((root.clone(), claim)),
+            Err(e) => ask = Some(Some(format!("{e:#}"))),
+        },
+        vault_open::Startup::Refuse(said) => {
+            eprintln!("shale: {said}");
+            std::process::exit(1);
+        }
+        vault_open::Startup::Ask(reason) => ask = Some(reason),
+    }
 
     let options = vaults::OpenOptions {
         note: args.note.clone(),
@@ -197,12 +206,17 @@ fn main() -> Result<()> {
         // One watcher for the whole process: it sleeps on the channel and, when a
         // signal lands, exits every window the registry holds.
         exit::spawn_watcher(termination_watcher, cx);
-        vaults::seed_claim(root, claim, cx);
-        if let Err(e) = vaults::open_vault_window(&vault_path, options, cx) {
-            // The window is the app: no window, no app. The reason goes to
-            // the terminal the command came from. `quit` cannot end a run
-            // that never opened a window, so the process ends directly —
-            // nothing is open to clean up.
+        if let Some((root, claim)) = opened {
+            vaults::seed_claim(root.clone(), claim, cx);
+            if let Err(e) = vaults::open_vault_window(&root, options, cx) {
+                // The window is the app: no window, no app. The reason goes to the
+                // terminal the command came from. `quit` cannot end a run that never
+                // opened a window, so the process ends directly — nothing is open to
+                // clean up.
+                eprintln!("shale: {e:#}");
+                std::process::exit(1);
+            }
+        } else if let Err(e) = vault_open::open_startup_window(ask.flatten(), cx) {
             eprintln!("shale: {e:#}");
             std::process::exit(1);
         }

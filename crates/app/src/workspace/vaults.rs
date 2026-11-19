@@ -64,6 +64,11 @@ pub(crate) struct VaultWindows {
     /// Dropped with the vault's last window, which is what stops the loops
     /// and takes the MCP lockfile down.
     services: HashMap<PathBuf, Entity<VaultServices>>,
+    /// The startup screen, when this run opened one (roadmap P4.20). It is not a window
+    /// on a vault, so it sits beside the map rather than in it — but the registry still
+    /// owns the handle, which is what lets the termination watcher close it like any
+    /// other window (EDGE-V16).
+    startup: Option<gpui::WindowHandle<crate::vault_open::VaultOpen>>,
     /// The open claim handles. Dropping one releases the lock, so these live
     /// exactly as long as the registry — which lives as long as the run.
     _claims: HashMap<PathBuf, Claim>,
@@ -80,6 +85,7 @@ impl VaultWindows {
     pub(crate) fn new() -> Self {
         Self {
             windows: HashMap::new(),
+            startup: None,
             _termination: None,
             services: HashMap::new(),
             _claims: HashMap::new(),
@@ -498,7 +504,45 @@ fn build_window(
     Ok(window)
 }
 
-/// Seed the registry with a claim taken before the run began (see `main`).
+/// Note the startup screen, so the run's one termination watcher can close it too.
+pub(crate) fn set_startup_window(
+    window: gpui::WindowHandle<crate::vault_open::VaultOpen>,
+    cx: &mut App,
+) {
+    cx.update_global::<VaultWindows, _>(|g, _cx| g.startup = Some(window));
+}
+
+/// Whether the startup screen is still on screen. The test asks it after `escape` and
+/// after a refusal: a screen that let go of the registry without saying so would keep a
+/// run alive on an invisible window.
+#[cfg(test)]
+pub(crate) fn has_startup_window(cx: &App) -> bool {
+    cx.try_global::<VaultWindows>()
+        .is_some_and(|reg| reg.startup.is_some())
+}
+
+/// Forget the startup screen once it is gone, so the watcher never holds a dead handle.
+pub(crate) fn clear_startup_window(
+    window: gpui::WindowHandle<crate::vault_open::VaultOpen>,
+    cx: &mut App,
+) {
+    cx.update_global::<VaultWindows, _>(|g, _cx| {
+        if g.startup
+            .is_some_and(|held| held.window_id() == window.window_id())
+        {
+            g.startup = None;
+        }
+    });
+}
+
+/// The startup screen this run opened, if any. The termination watcher takes it.
+pub(crate) fn take_startup_window(
+    cx: &mut App,
+) -> Option<gpui::WindowHandle<crate::vault_open::VaultOpen>> {
+    cx.update_global::<VaultWindows, _>(|g, _cx| g.startup.take())
+}
+
+/// Seed the registry with a claim taken before the run began (see [`main`]).
 pub(crate) fn seed_claim(root: PathBuf, claim: Option<Claim>, cx: &mut App) {
     if let Some(claim) = claim {
         cx.update_global::<VaultWindows, _>(|g, _cx| {
@@ -562,6 +606,24 @@ pub(crate) fn forget_window(
     });
 }
 
+/// One vault's row, as both the switcher and the startup screen draw it: the folder's
+/// name leading, its path dimmed behind, and `here` marked when it is the vault the
+/// asking window already shows. Shared so the two screens cannot drift apart.
+pub(crate) fn vault_item(path: &Path, here: Option<&Path>) -> PickerItem {
+    let detail = path.display().to_string();
+    let detail = if here == Some(path) {
+        format!("{detail} · here")
+    } else {
+        detail
+    };
+    PickerItem {
+        label: vault_title(path).into(),
+        detail: detail.clone().into(),
+        detail_ranges: Vec::new(),
+        search: detail.into(),
+    }
+}
+
 /// The recent-vault list the switcher shows: most recent first, minus any
 /// that have stopped being directories.
 pub(crate) fn recent_vaults(cx: &App) -> Vec<PathBuf> {
@@ -609,21 +671,7 @@ impl Workspace {
             PickerTarget::VaultPrompt,
         )];
         for path in recent_vaults(cx) {
-            let detail = path.display().to_string();
-            let detail = if path == here {
-                format!("{detail} · here")
-            } else {
-                detail
-            };
-            rows.push((
-                PickerItem {
-                    label: vault_title(&path).into(),
-                    detail: detail.clone().into(),
-                    detail_ranges: Vec::new(),
-                    search: detail.into(),
-                },
-                PickerTarget::Vault(path),
-            ));
+            rows.push((vault_item(&path, Some(&here)), PickerTarget::Vault(path)));
         }
         self.open_picker("Switch vault", rows, window, cx);
     }

@@ -33,7 +33,7 @@ use gpui::{App, BorrowAppContext, Context, Window};
 use crate::acts::{CloseTab, CloseTabForce, Quit, QuitForce, WriteAll};
 
 use super::Workspace;
-use super::vaults::VaultWindows;
+use super::vaults::{self, VaultWindows};
 
 /// The meeting point between the signal handlers and the process's one
 /// termination watcher (see [`spawn_watcher`]).
@@ -125,6 +125,12 @@ pub(crate) fn spawn_watcher(watch: TerminationWatcher, cx: &mut App) {
                 // A window already gone answers nothing; its own teardown is
                 // under way.
                 let _ = handle.update(cx, |ws, _window, cx| ws.finish_termination(cx));
+            }
+            // The startup screen is not a window on a vault, so it is not in the
+            // per-vault list — but a signal asked to stop the program, and a window
+            // left open on a question is the program still running (P4.20 EDGE-V16).
+            if let Some(handle) = vaults::take_startup_window(cx) {
+                let _ = handle.update(cx, |_this, window, _cx| window.remove_window());
             }
         });
     });

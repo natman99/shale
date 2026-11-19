@@ -11,8 +11,12 @@ is a directory of markdown files, and Shale edits those files:
 
 Any folder works, including one an Obsidian vault already points at: `.obsidian/` is
 on the ignore list along with `.git`, `.trash` and `.shale`. With no folder named, Shale
-opens the vault it opened last; `:vault` opens the list of vaults the app remembers, and
-picking a row opens that vault in a new window.
+opens the vault it opened last — so a desktop shortcut needs no path baked into it. If
+there is nothing to remember, or the folder it remembers is gone, a small window asks
+instead: the vaults it remembers newest first, `Open a folder…` for one it has never
+seen, and `New vault…`, which makes the folder and opens it. It says why it is asking
+when it was asked by a folder that is no longer there. `escape` closes it, and with no
+window left the run ends. Inside a vault, `:vault` opens the same list as a switcher.
 
 The first time Shale opens a folder it writes a `.shale/` directory inside it. Config,
 session, themes, the index cache, backups and the agent's pending edits all live there,

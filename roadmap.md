@@ -2164,6 +2164,25 @@ edges, query nodes, MCP canvas tools) is P6.10.
   not papered over: an imported image's `![[name.png]]` embeds do not follow it, because the
   rewrite pass resolves notes and queries, not attachments; that belongs to P4.12.
 
+- **P4.20 Starting with no path named: the vault picker, and a vault to make** — **closed
+  2026-11-18**, because the app could not be a real app until it could be launched from an
+  icon instead of a terminal with a hard-coded path. `shale` with no argument opens the
+  vault it remembers; with nothing to remember, or a remembered folder that is gone, it
+  opens a small window that asks: the remembered vaults newest first, `Open a folder…` for
+  one it has never seen, and `New vault…`. Ruled with the user: a picker **window**, not a
+  Workspace with no vault — the Workspace assumes a vault in everything it touches, and half
+  a window would mean a second of everything — so what the screen reuses is the picker
+  widget, and the rows, the filtering and the keyboard are `:vault`'s. A vault another
+  Shale already holds **opens the picker instead of dying**, with the reason drawn in the
+  danger role and the keyboard left where the failure happened. A path *named* on the
+  command line and no good is still a **terminal** answer: a script needs an exit code, not
+  a screen it cannot see. `New vault…` asks for a name in a field rather than a folder
+  dialog — a dialog that can choose a folder can rarely *make* one; a bare name lands under
+  the home folder and a spelled-out path is honored as spelled, and a folder with things in
+  it is refused (`.shale` alone does not count: that is a vault opened once and emptied).
+  The screen is not a window on a vault, so the termination watcher takes it through a
+  second registry handle (EDGE-V16).
+
 **Exit criteria:** restore any note to any retained point; a `.shq` embedded in
 three notes renders live and refreshes on edit; tag rename rewrites every note
 and the DB; "notes the agent modified this week" returns the right set.

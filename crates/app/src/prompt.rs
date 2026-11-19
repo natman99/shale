@@ -71,6 +71,9 @@ pub(crate) enum PromptKind {
     /// question rides along for the same reason a saved query's does: the prompt
     /// outlives the strip that offered it.
     SaveLens(String),
+    /// The name of a vault the app is about to make (P4.20). Nothing rides along: the
+    /// answer is a folder name, and the folder is the whole point.
+    NewVault,
     /// vim's command line: one word naming one command, matched exactly. The field
     /// is the same; what the answer *means* is [`crate::ex`]'s business.
     Command,

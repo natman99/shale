@@ -308,6 +308,10 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> Result<()> {
         match kind {
+            // A new vault is asked for and answered by the startup screen, which has no
+            // vault; a workspace that gets here already has one, so the answer has
+            // nothing left to do (P4.20).
+            prompt::PromptKind::NewVault => bail!("a vault is already open here"),
             prompt::PromptKind::NewNote => {
                 // The typed name goes to the vault as text: `create_note_at`
                 // is what makes `inbox/Thought` mean a note in `inbox` on
