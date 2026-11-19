@@ -118,13 +118,32 @@ description of the whole queue, never as the object of a verb.
 - **Falsification**: the banned-word lint must go red when a banned word is put back; each
   renamed row's reachability assertion must go red when the label loses its noun.
 
-## Milestones
+## Milestones — all three shipped (2026-11-19)
 
-- **M1** — the table above, applied: `command.rs` labels, `action_note()` wording, key-hint
-  strings; docs regenerated; label-asserting tests updated. One commit, one before/after
-  diff for review.
-- **M2** — the vocabulary lint test (banned words + one-noun pairs) and the reachability
-  assertions, with their falsifications.
-- **M3** — a read-through of the surfaces the table does not cover — status-line refusals,
-  the review strip's own text, the sidebar's view names — reported as findings, fixed only
-  where they contradict rules 1–3.
+- **M1** `035cd05` — the table applied: 33 rows of `command.rs` labels, key hints and
+  `action_note()` wording, docs regenerated, the three tests that named a label updated.
+  The reachability rule bit here: `Show the note read-only` made the mode unfindable by the
+  word people type for it, and the test that types `preview` did not fail — it quietly ran
+  the *live* preview. The three view modes now share one shape and keep their nouns: `as
+  source`, `as live preview`, `as read-only preview`.
+- **M2** `3c382b0` — `tests/words.rs`: the banned-word list, the 40-character budget, and 19
+  reachability queries. Eleven mutations, all red. Two honest greens on the way: the lint
+  reads the generated docs, so a table change reaches it through the docs test that rewrites
+  them; and the budget covers palette rows, so the first length mutation went green on
+  `tab.next`, which is a docs row.
+- **M3** `e4e8367` — the lint extended to `README.md` and every hand-written `docs/*.md`,
+  which found 100 lines in 11 files still using a retired word (`docs/sidebar.md` said
+  "strip" nineteen times), and the sweep of them. Ruled on the way: **search bar** for what
+  `/` opens in a note, and the graph's **filter strip** keeps its name because `graph.md`
+  defines it. Four falsifications, all red.
+
+Two findings that were not vocabulary:
+
+- The graph's `+`/`-` note said "magnify at the cursor". Renaming it to the caret would have
+  been wrong twice: the graph has no caret, and the keyboard zoom anchors at the canvas
+  centre because there is no pointer to anchor at. The wheel, which does have a pointer,
+  says **pointer** in the prose. A vocabulary sweep has to check what a word refers to, not
+  just which word it is.
+- `keys.md` and `mcp.md` described `za` collapsing a *proposal* and `y` answering "all of
+  its hunks" — a unit the app does not have. The registry's unit is the hunk under the
+  marker. The docs had invented a level of the model.

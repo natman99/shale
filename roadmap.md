@@ -2183,6 +2183,24 @@ edges, query nodes, MCP canvas tools) is P6.10.
   The screen is not a window on a vault, so the termination watcher takes it through a
   second registry handle (EDGE-V16).
 
+- **P4.21 The words in the app: one verb, one noun, one grammar** — **closed 2026-11-19**,
+  because the palette said `Save` and `Write` for one thing, `hunk` and `proposal` for one
+  thing, `strip` and `sidebar` for one thing, and `caret` and `cursor` for one thing — in one
+  case in two adjacent rows of the same table (`Backspace` said "before the cursor",
+  `FieldBackspace` said "before the caret"). Seven rules, the first two the user's (parity:
+  opposite and similar actions rhyme, different actions do not; directness: name the action
+  and its object, no scenery), and mine: one thing one noun, reachable by the word people
+  type, one tail grammar for qualifiers, a state never says "again", and a length budget the
+  column can hold. Ruled with the user: **Save** over Write, **caret** over cursor, **search**
+  as the act and **query** as the saved `.shq`, **sidebar** for the panel and **review view**
+  for its pending-hunk view and **search bar** for what `/` opens, the graph's **filter strip**
+  keeping its name, and keys and `:` words untouched — muscle memory is not vocabulary. 103
+  prose lines and 33 palette rows later, the longest row is 40 characters where it was 52.
+  What makes it stick is a lint, not a habit: a banned-word list over the command table, the
+  keymap and every page in `docs/`, a 40-character budget, and 19 reachability assertions
+  against the palette's offered rows — the last because a rename that drops the typed noun
+  does not fail a test, it makes a green test run a different command.
+
 **Exit criteria:** restore any note to any retained point; a `.shq` embedded in
 three notes renders live and refreshes on edit; tag rename rewrites every note
 and the DB; "notes the agent modified this week" returns the right set.
