@@ -45,7 +45,9 @@ pub struct GraphFilter {
 ///
 /// The filter's job is only the mask — who carries one of these paths. Counting an
 /// answer that named no node is the app's, not this module's (EDGE-L5), because
-/// [`apply`] answers with a bitmask and nothing else.
+/// [`apply`] answers with a bitmask and nothing else. The app does the counting once and
+/// carries the result here, so the tab title, the strip and the status line all read one
+/// answer rather than each re-deriving a number that could disagree (EDGE-L14).
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct LensScope {
     /// The lens's name, as its file under `.shale/lenses/` is named. Carried for the
@@ -54,6 +56,14 @@ pub struct LensScope {
     /// The answer, as vault-relative paths, in the answer's own order. A path the graph
     /// has no node for simply keeps nothing here; the app counts it (EDGE-L5).
     pub paths: Vec<String>,
+    /// How many of `paths` this graph has no node for (EDGE-L5). Counted out loud in the
+    /// strip rather than dropped in silence: a picture that quietly disagrees with the
+    /// answer is the failure the lens exists to avoid.
+    pub unmatched: usize,
+    /// Set when the lens stopped answering: the picture is the **last good one** (EDGE-L6)
+    /// and this is the sentence for why it is not current — the database's own words, or
+    /// the file being gone (EDGE-L11). `apply` ignores it; the strip does not.
+    pub stale: Option<String>,
 }
 
 /// How far the local view reaches from its centre (M2b). Five is Obsidian's
@@ -470,6 +480,7 @@ mod tests {
             lens: Some(LensScope {
                 name: "goblins".into(),
                 paths: vec!["root.md".into(), "child 2/x.md".into()],
+                ..LensScope::default()
             }),
             ..Default::default()
         };
@@ -498,6 +509,7 @@ mod tests {
             lens: Some(LensScope {
                 name: "goblins".into(),
                 paths: vec!["root.md".into()],
+                ..LensScope::default()
             }),
             ..Default::default()
         };
@@ -522,6 +534,7 @@ mod tests {
             lens: Some(LensScope {
                 name: "goblins".into(),
                 paths: vec!["root.md".into()],
+                ..LensScope::default()
             }),
             ..Default::default()
         };
@@ -549,6 +562,7 @@ mod tests {
         let answered = |paths: &[&str]| LensScope {
             name: "goblins".into(),
             paths: paths.iter().map(|p| (*p).to_string()).collect(),
+            ..LensScope::default()
         };
 
         // A chip still cuts inside a lens: root is answered and names `[[gone]]`, but
@@ -610,6 +624,7 @@ mod tests {
             lens: Some(LensScope {
                 name: "nothing".into(),
                 paths: Vec::new(),
+                ..LensScope::default()
             }),
             ..Default::default()
         };
@@ -629,6 +644,7 @@ mod tests {
             lens: Some(LensScope {
                 name: "half-gone".into(),
                 paths: vec!["root.md".into(), "deleted.md".into()],
+                ..LensScope::default()
             }),
             ..Default::default()
         };

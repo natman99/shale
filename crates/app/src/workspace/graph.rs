@@ -238,6 +238,11 @@ impl Workspace {
         let Some(view) = self.graph_view().cloned() else {
             return;
         };
+        // EDGE-L7: every index move ends at this door, so this is where a worn lens is
+        // asked again. It happens before the picture is re-made, so an answer that moved
+        // rides the same rebuild the mask change would need anyway — and one that did not
+        // move disturbs the layout not at all, which is the half the measurement was for.
+        self.lens_follow();
         let Some((summary, frame)) = self.rebuild_graph() else {
             return;
         };
@@ -472,6 +477,8 @@ impl Workspace {
                 self.graph_filter.lens = Some(shale_core::graph::filter::LensScope {
                     name: name.clone(),
                     paths: Vec::new(),
+                    unmatched: 0,
+                    stale: None,
                 });
                 self.remake_graph(cx);
                 self.say(format!("lens `{name}`: no note answers this"), cx);
@@ -488,6 +495,8 @@ impl Workspace {
                 self.graph_filter.lens = Some(shale_core::graph::filter::LensScope {
                     name: name.clone(),
                     paths,
+                    unmatched: missing,
+                    stale: None,
                 });
                 self.remake_graph(cx);
                 let extra = if missing > 0 {
@@ -496,16 +505,14 @@ impl Workspace {
                     String::new()
                 };
                 self.say(
-                    format!("lens `{name}`: {kept} {}{extra}", Self::notes_word(kept)),
+                    format!(
+                        "lens `{name}`: {kept} {}{extra}",
+                        shale_core::lens::notes_word(kept)
+                    ),
                     cx,
                 );
             }
         }
-    }
-
-    /// One note or many, so the status line and the picker read like sentences.
-    fn notes_word(count: usize) -> &'static str {
-        if count == 1 { "note" } else { "notes" }
     }
 
     /// Re-make the picture for a filter the view did not ask for, and tell the view what
@@ -517,6 +524,114 @@ impl Workspace {
     /// counts. `refresh_graph` ships both, settled or not.
     fn remake_graph(&mut self, cx: &mut Context<Self>) {
         self.refresh_graph(cx);
+    }
+
+    /// EDGE-L7: a worn lens **re-runs when the index moves**.
+    ///
+    /// Re-asking is one SQL call, which is cheap. The layout is the expensive half —
+    /// ~0.9 s of sim work for a 2000-node answer while the reader is typing
+    /// (`PROGRESS.md`, 2026-11-17) — so the scope is replaced, and the picture re-made,
+    /// only when the answer's **node set** actually changed. An answer that came back in
+    /// a different order is the same picture.
+    ///
+    /// A lens that stops answering keeps its last good picture (EDGE-L6) and carries the
+    /// sentence for why, which the strip says out loud. The status line stays quiet: a
+    /// broken lens re-fails on every index move, and a shout each time is noise, not news.
+    fn lens_follow(&mut self) {
+        let Some(worn) = self.graph_filter.lens.clone() else {
+            return;
+        };
+        // EDGE-L12: with the index off there is nothing to answer from, and that is a fact
+        // about the setting rather than a failure of the lens. The picture keeps what it
+        // last answered.
+        let Some(db) = self.db.as_ref() else {
+            return;
+        };
+        let Ok(conn) = db.read() else {
+            return;
+        };
+        // The file is the authority, so it is read again here. A lens whose file is gone
+        // is not a lens that failed: [`Workspace::check_lenses`] is the door that says so,
+        // and it says it once.
+        let Ok(text) = shale_core::lens::read(self.vault.root(), &worn.name) else {
+            return;
+        };
+        let stem = worn
+            .name
+            .strip_suffix(&format!(".{}", shale_core::query_note::EXTENSION))
+            .unwrap_or(&worn.name);
+        let paths = match shale_core::lens::answer(&text, stem, &conn) {
+            shale_core::lens::LensOutcome::Answered { paths, .. } => paths,
+            shale_core::lens::LensOutcome::Empty { .. } => Vec::new(),
+            shale_core::lens::LensOutcome::Refused { why } => {
+                if worn.stale.as_deref() != Some(why.as_str())
+                    && let Some(scope) = self.graph_filter.lens.as_mut()
+                {
+                    scope.stale = Some(why);
+                }
+                return;
+            }
+        };
+        // The set, not the order: a query without an `ORDER BY` may answer in any order,
+        // and the mask is the same mask either way.
+        let mut before: Vec<&str> = worn.paths.iter().map(String::as_str).collect();
+        let mut after: Vec<&str> = paths.iter().map(String::as_str).collect();
+        before.sort_unstable();
+        after.sort_unstable();
+        if before == after && worn.stale.is_none() {
+            return;
+        }
+        let unmatched = self
+            .graph
+            .as_ref()
+            .map(|index| shale_core::lens::unmatched(index, &paths).len())
+            .unwrap_or(0);
+        self.graph_filter.lens = Some(shale_core::graph::filter::LensScope {
+            name: worn.name,
+            paths,
+            unmatched,
+            stale: None,
+        });
+        #[cfg(test)]
+        self.lens_replaced.set(self.lens_replaced.get() + 1);
+    }
+
+    /// EDGE-L7's other half, and EDGE-L11: the lens **files**. The vault's signature walk
+    /// skips `.shale/` on purpose (EDGE-L1), so the lens folder is stamped beside it on
+    /// the same tick — one small directory, no recursive walk.
+    pub(super) fn check_lenses(&mut self, cx: &mut Context<Self>) {
+        let now = shale_core::lens::stamps(self.vault.root());
+        let before = std::mem::replace(&mut self.lens_stamps, now.clone());
+        let Some(worn) = self
+            .graph_filter
+            .lens
+            .as_ref()
+            .map(|scope| scope.name.clone())
+        else {
+            return;
+        };
+        if !now.contains_key(&worn) {
+            // EDGE-L11: the file went away under a graph that is wearing it. The picture
+            // stands — the mask still holds the paths it last answered — and says the lens
+            // is gone. The next `:lens`, or a restart, is what clears it.
+            if let Some(scope) = self.graph_filter.lens.as_mut() {
+                scope.stale = Some(format!("`{worn}` is gone"));
+            }
+            self.say(
+                format!("lens `{worn}` is gone; the picture stays as it was"),
+                cx,
+            );
+            // The strip draws its row from the copy the window pushes in, so the sentence
+            // has to be shipped — `refresh_graph` re-asks the lens, finds no file, and
+            // leaves the standing picture and the new sentence exactly as they are.
+            self.refresh_graph(cx);
+            return;
+        }
+        if before.get(&worn) != now.get(&worn) {
+            // The program changed under the picture. `refresh_graph` re-asks it, and the
+            // layout moves only if the answer's set moved with it.
+            self.refresh_graph(cx);
+        }
     }
 
     /// The lens picker: one row per lens the vault holds, each carrying how many nodes it
@@ -563,9 +678,11 @@ impl Workspace {
                             .map(|index| shale_core::lens::unmatched(index, &paths).len())
                             .unwrap_or(0);
                         let kept = paths.len() - missing;
-                        format!("{} {}", kept, Self::notes_word(kept))
+                        format!("{} {}", kept, shale_core::lens::notes_word(kept))
                     }
-                    shale_core::lens::LensOutcome::Empty { .. } => "0 notes".to_string(),
+                    shale_core::lens::LensOutcome::Empty { .. } => {
+                        format!("0 {}", shale_core::lens::notes_word(0))
+                    }
                     shale_core::lens::LensOutcome::Refused { .. } => {
                         "\u{2014} not answering".to_string()
                     }

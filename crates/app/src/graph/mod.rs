@@ -357,6 +357,11 @@ pub(crate) struct GraphView {
     /// The strip's keyboard, so the `graph-filter` context can be the active one and the
     /// field can receive the letters a query is made of.
     panel_focus: FocusHandle,
+    /// What the filter strip's lens row **drew** last frame, or `None` when it drew no
+    /// such row. A test that re-derived the sentence would stay green with the row deleted
+    /// from the strip, so the frame records what it painted (the `bar_lens` rule).
+    #[cfg(test)]
+    strip_lens: std::cell::RefCell<Option<String>>,
     /// The window, because the simulation and the notes are its, not the view's: a
     /// node drag and a click both go through it. Weak — the window owns this view, and
     /// a strong handle back would be a cycle.
@@ -403,6 +408,8 @@ impl GraphView {
             filter: GraphFilter::default(),
             filter_field: Field::new(""),
             panel_focus: cx.focus_handle(),
+            #[cfg(test)]
+            strip_lens: Default::default(),
             workspace,
         }
     }
@@ -872,6 +879,12 @@ impl GraphView {
             .enumerate()
             .find(|(_, node)| node.path.as_deref() == Some(center))
             .map(|(slot, _)| slot)
+    }
+
+    /// The lens row the strip drew last frame, in the exact words the frame painted.
+    #[cfg(test)]
+    pub(crate) fn strip_lens(&self) -> Option<String> {
+        self.strip_lens.borrow().clone()
     }
 
     /// Whether the view is currently moving its own camera.

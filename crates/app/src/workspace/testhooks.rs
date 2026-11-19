@@ -154,6 +154,24 @@ impl Workspace {
     pub(crate) fn bar_lens(&self) -> Option<String> {
         self.bar_lens.borrow().clone()
     }
+
+    /// The labels the tab bar **drew** for graph tabs last frame — `graph`, or
+    /// `graph · <lens>` while a lens is on.
+    pub(crate) fn tab_labels(&self) -> Vec<String> {
+        self.tab_labels.borrow().clone()
+    }
+
+    /// How many times a lens re-run replaced the worn scope (EDGE-L7's layout half).
+    pub(crate) fn lens_replaced(&self) -> usize {
+        self.lens_replaced.get()
+    }
+
+    /// What the graph view's filter strip **drew** as its lens row last frame, or `None`
+    /// when it drew no such row (no lens on, or the strip closed).
+    pub(crate) fn strip_lens(&self, cx: &mut Context<Self>) -> Option<String> {
+        self.graph_view()
+            .and_then(|view| view.read_with(cx, |view, _cx| view.strip_lens()))
+    }
     /// The cursor's buffer position (row, column), 0-based: how a test checks
     /// that choosing a search hit lands on the line that row was showing.
     #[cfg(test)]

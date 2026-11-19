@@ -56,6 +56,30 @@ enum Chip {
     Local,
 }
 
+/// What the strip says about the lens the picture is wearing (ruling 9): the name, how
+/// many notes it answers, and how many of its answers this graph has no node for
+/// (EDGE-L5). When the lens has stopped answering the row says *that*, with the sentence
+/// for why: the picture on screen is the last good one (EDGE-L6), and the strip is where
+/// a reader looks to find out why it stopped matching the vault.
+fn lens_said(lens: &shale_core::graph::filter::LensScope) -> String {
+    match &lens.stale {
+        Some(why) => format!("lens {} · not answering: {why}", lens.name),
+        None => {
+            let kept = lens.paths.len().saturating_sub(lens.unmatched);
+            let extra = if lens.unmatched > 0 {
+                format!(", {} with no node", lens.unmatched)
+            } else {
+                String::new()
+            };
+            format!(
+                "lens {} · {kept} {}{extra}",
+                lens.name,
+                shale_core::lens::notes_word(kept)
+            )
+        }
+    }
+}
+
 /// The depth the local view starts at when it is switched on rather than stepped: two
 /// hops, because one hop is the note and its links, which reads as a list rather than a
 /// picture.
@@ -226,6 +250,16 @@ impl GraphView {
             Some(depth) => format!("local {depth}"),
             None => "local".to_string(),
         };
+        let lens_row = self.filter.lens.as_ref().map(lens_said);
+        // The strip is built every frame whether or not it is showing, so the row is
+        // recorded at the one place that decides to draw it — inside the branch that puts
+        // it in the frame, and only while the strip itself is part of the frame. A
+        // recorder that ran at build time would stay green with the row deleted from the
+        // strip, which is the whole thing the `bar_lens` rule exists to prevent.
+        #[cfg(test)]
+        let drawn = lens_row.clone();
+        #[cfg(test)]
+        let strip_open = self.panel;
         field_key_actions!(
             div()
                 .key_context(FILTER_CONTEXT)
@@ -298,6 +332,20 @@ impl GraphView {
                             this.toggle(Chip::Local, cx);
                         })),
                 )
+                // The lens is not a chip: the strip does not toggle it (`:lens none`
+                // takes it off), so it is drawn as a row rather than as a thing to click.
+                .when(lens_row.is_some(), |d| {
+                    #[cfg(test)]
+                    if strip_open {
+                        *self.strip_lens.borrow_mut() = drawn.clone();
+                    }
+                    d.child(
+                        div()
+                            .flex_none()
+                            .text_color(gpui::rgb(palette.ui_dim))
+                            .child(lens_row.clone().unwrap_or_default()),
+                    )
+                })
                 .child(
                     div()
                         .flex_1()

@@ -214,8 +214,15 @@ impl Workspace {
             .map(|(index, tab)| {
                 let label = if tab.graph {
                     // The graph tab has no file name to show, and "graph" is what the
-                    // tab is: the same word the status bar's badge uses.
-                    "graph".to_string()
+                    // tab is: the same word the status bar's badge uses. While a lens is
+                    // on, the tab says what the picture is wearing (ruled 2026-11-13:
+                    // `Graph · <lens>`) — a lens changes which graph the tab *is*, not
+                    // merely what it happens to be showing, which is why it belongs in
+                    // the title and not only in the strip.
+                    match self.graph_filter.lens.as_ref() {
+                        Some(lens) => format!("graph · {}", lens.name),
+                        None => "graph".to_string(),
+                    }
                 } else {
                     tab.path
                         .as_ref()
@@ -227,6 +234,10 @@ impl Workspace {
                         })
                         .unwrap_or_else(|| "no note".to_string())
                 };
+                #[cfg(test)]
+                if tab.graph {
+                    self.tab_labels.borrow_mut().push(label.clone());
+                }
                 let entity = cx.entity().clone();
                 let close = cx.entity().clone();
                 let id = tab.id;
@@ -536,6 +547,8 @@ impl Render for Workspace {
         self.chrome_drawn.borrow_mut().clear();
         #[cfg(test)]
         self.bar_lens.borrow_mut().take();
+        #[cfg(test)]
+        self.tab_labels.borrow_mut().clear();
         // A tab change that had no window to rehook the hover subscription with gets
         // it here, one frame later, rather than never: the pointer can only hover over
         // the note that is drawn, so the subscription has to be the drawn tab's. The

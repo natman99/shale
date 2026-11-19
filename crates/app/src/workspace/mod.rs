@@ -359,6 +359,12 @@ pub(crate) struct Workspace {
     /// What every path in the vault looked like the last time the disk was
     /// checked, which is what the next check explains the difference to.
     signature: BTreeMap<PathBuf, Stamp>,
+    /// What each lens file under `.shale/lenses/` looked like the last time the disk was
+    /// checked. The vault's own signature walk skips `.shale/` on purpose (EDGE-L1), so
+    /// the lens folder is stamped beside it — the only way a lens edited by hand outside
+    /// Shale reaches the graph that is wearing it (EDGE-L7), and the only way a lens
+    /// deleted out from under a graph can say so (EDGE-L11).
+    lens_stamps: BTreeMap<String, Stamp>,
     /// The vault index, when one is configured and opened: the cache of notes,
     /// tags, links and word counts that `:wordcount` reads now and the graph,
     /// vault search and agent read later.
@@ -428,6 +434,16 @@ pub(crate) struct Workspace {
     /// thing that decides whether a segment is drawn at all.
     #[cfg(test)]
     bar_lens: std::cell::RefCell<Option<String>>,
+    /// The labels the tab bar **drew** for graph tabs last frame. The tab title is the
+    /// only place a lens is named without opening the strip, so a test has to read what
+    /// the frame painted rather than re-derive the words (the `bar_lens` rule).
+    #[cfg(test)]
+    tab_labels: std::cell::RefCell<Vec<String>>,
+    /// How many times a re-run **replaced** a worn lens's scope. EDGE-L7's layout half:
+    /// re-asking is cheap, and the picture is only re-made when the answer's node set
+    /// moved — so a move that changed nothing must leave this counter where it was.
+    #[cfg(test)]
+    lens_replaced: std::cell::Cell<usize>,
     /// Whether the keyboard has to follow the frame. A tab owns its editor, so the
     /// node with the keyboard is the drawn tab's editor; after a tab change the
     /// keyboard is still on the entity that is no longer drawn, and the next keystroke
@@ -502,6 +518,8 @@ impl Workspace {
         let entries = vault.list_markdown().unwrap_or_default();
         let dirs = vault.list_dirs().unwrap_or_default();
         let signature = vault.signature().unwrap_or_default();
+        // The lens folder is not in that walk (EDGE-L1), so it is stamped beside it.
+        let lens_stamps = shale_core::lens::stamps(vault.root());
         // Folders start **closed**. The tree is the vault, but a vault with a few
         // thousand notes and every folder open is a few thousand rows laid out on every
         // frame, and a sidebar nobody can scan is not a tree. What the user opens is
@@ -660,6 +678,7 @@ impl Workspace {
             graph_pending: Vec::new(),
             // Everything on, which is Obsidian's default graph and core's.
             graph_filter: shale_core::graph::filter::GraphFilter::default(),
+            lens_stamps,
             graph_dim: crate::graph::Dim::Two,
             expanded,
             // The window starts with no tabs and gets its first one below, which is
@@ -716,6 +735,10 @@ impl Workspace {
             chrome_drawn: std::cell::RefCell::new(Vec::new()),
             #[cfg(test)]
             bar_lens: std::cell::RefCell::new(None),
+            #[cfg(test)]
+            tab_labels: std::cell::RefCell::new(Vec::new()),
+            #[cfg(test)]
+            lens_replaced: std::cell::Cell::new(0),
             focus_stale: false,
             _keystroke_observer: keystroke_observer,
         };
@@ -979,6 +1002,9 @@ impl Workspace {
         after: BTreeMap<PathBuf, Stamp>,
         cx: &mut Context<Self>,
     ) {
+        // The lens files ride the same tick, ahead of the empty check: they are not vault
+        // files (EDGE-L1), so a hand edit to a lens arrives as no vault change at all.
+        self.check_lenses(cx);
         let changes = VaultChanges::between(&self.signature, &after);
         if changes.is_empty() {
             return;
@@ -1102,6 +1128,9 @@ impl Workspace {
     /// back as somebody else's edit.
     pub(super) fn resign(&mut self) {
         self.signature = self.vault.signature().unwrap_or_default();
+        // The lens folder is not in that walk, so it is re-taken here: a lens Shale
+        // itself wrote (M5's `alt-s`) must not come back as somebody else's edit.
+        self.lens_stamps = shale_core::lens::stamps(self.vault.root());
     }
 }
 

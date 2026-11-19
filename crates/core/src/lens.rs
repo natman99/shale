@@ -24,6 +24,7 @@
 //! [`crate::query_note`]'s own words, which is also EDGE-L13's rule that wearing a lens
 //! does not make a graph tab a note.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Result, anyhow};
@@ -116,6 +117,45 @@ pub enum LensOutcome {
     /// wording [`query_note::ask`] gives the picker and an embedded table, so a lens
     /// cannot disagree with the editor about the same file.
     Refused { why: String },
+}
+
+/// One note or many, so every surface that counts an answer reads like a sentence.
+/// The status line, the picker's rows and the filter strip all say the same count in the
+/// same words (EDGE-L14: one producer, so no two of them can disagree).
+pub fn notes_word(count: usize) -> &'static str {
+    if count == 1 { "note" } else { "notes" }
+}
+
+/// What each lens file on disk looks like right now: name → stamp (EDGE-L7).
+///
+/// The vault's own signature walk skips `.shale/` on purpose — a lens is not a note
+/// (EDGE-L1) — so a lens edited by hand in another editor would otherwise never be
+/// noticed, and a lens worn by a graph would keep answering with a program that no longer
+/// exists. This is the small answer: one directory, a handful of files, no recursive walk.
+/// The same file filter as [`list`], so a swap file is not a lens here either.
+pub fn stamps(root: &Path) -> BTreeMap<String, crate::watch::Stamp> {
+    let mut out = BTreeMap::new();
+    if let Ok(entries) = std::fs::read_dir(dir(root)) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            if path.extension().and_then(|e| e.to_str()) != Some(query_note::EXTENSION) {
+                continue;
+            }
+            let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+                continue;
+            };
+            if stem.starts_with('.') {
+                continue;
+            }
+            if let Ok(stamp) = crate::watch::Stamp::for_file(&entry) {
+                out.insert(stem.to_string(), stamp);
+            }
+        }
+    }
+    out
 }
 
 /// Ask a lens what it answers, on a connection the surface already holds.

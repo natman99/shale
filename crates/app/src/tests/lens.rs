@@ -393,3 +393,319 @@ fn the_status_bar_keeps_the_lens_off_a_note_tab(cx: &mut TestAppContext) {
         "the lens is still on the graph, segment or no segment"
     );
 }
+
+// ------------------------------------------------- the title, the strip, the re-run
+//
+// M4: a lens is not only a mask. The tab says which graph it is, the strip counts what the
+// answer holds (EDGE-L14: one answer, so no two surfaces disagree), and the answer keeps
+// up with the vault — re-asked when the index moves or when the file is edited by hand
+// (EDGE-L7), never silently replaced by a lens that stopped answering (EDGE-L6), and said
+// aloud when the file goes away under it (EDGE-L11).
+
+/// The labels the tab bar **drew** for graph tabs last frame.
+fn tab_labels(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> Vec<String> {
+    window
+        .update(cx, |ws, _window, _cx| ws.tab_labels())
+        .unwrap()
+}
+
+/// What the filter strip **drew** as its lens row last frame, or `None` when it drew no
+/// such row — no lens on, or the strip closed.
+fn strip_lens(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> Option<String> {
+    window
+        .update(cx, |ws, _window, cx| ws.strip_lens(cx))
+        .unwrap()
+}
+
+/// How many times a re-run replaced the worn scope. The layout half of EDGE-L7: re-asking
+/// is one SQL call, and only a moved answer is allowed to re-make the picture.
+fn replaced(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> usize {
+    window
+        .update(cx, |ws, _window, _cx| ws.lens_replaced())
+        .unwrap()
+}
+
+/// `/` opens the strip, and a frame later the strip is part of what was drawn.
+fn open_strip(cx: &mut VisualTestContext, window: &WindowHandle<Workspace>) {
+    cx.simulate_keystrokes("/");
+    draw(cx);
+    assert!(
+        window
+            .update(cx, |ws, _window, cx| ws.graph_panel(cx))
+            .unwrap()
+            .0,
+        "the strip is on screen"
+    );
+}
+
+/// Notice, right now, what changed on disk — including under `.shale/lenses`, which the
+/// vault's own walk never sees (EDGE-L1).
+fn disk_tick(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) {
+    window
+        .update(cx, |ws, _window, cx| ws.check_vault_now(cx))
+        .unwrap();
+    cx.run_until_parked();
+}
+
+/// Rewrite a lens on disk, as an editor outside Shale would. Every rewrite here changes
+/// the **length** as well as the text: the stamp that notices a hand edit carries size and
+/// mtime, and a same-length edit could land inside the same clock tick as the file it
+/// replaces — which would make the test about the filesystem's clock rather than the rule.
+fn rewrite_lens(dir: &tempfile::TempDir, name: &str, text: &str) {
+    std::fs::write(
+        dir.path()
+            .join(".shale")
+            .join("lenses")
+            .join(format!("{name}.shq")),
+        text,
+    )
+    .unwrap();
+}
+
+/// A lens changes which graph the tab *is*, not merely what it is showing, so the tab says
+/// it — and says nothing once the lens is off.
+#[gpui::test]
+fn the_tab_names_the_lens_the_graph_is_wearing(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = lens_vault(
+        cx,
+        &[("ab", "SELECT path AS note FROM notes WHERE path = 'b.md'")],
+    );
+    on_graph(&mut cx, &window);
+    draw(&mut cx);
+    assert_eq!(
+        tab_labels(&window, &mut cx),
+        vec!["graph"],
+        "no lens, no name"
+    );
+
+    command_line("lens ab", &mut cx);
+    draw(&mut cx);
+    assert_eq!(
+        tab_labels(&window, &mut cx),
+        vec!["graph · ab"],
+        "the tab says which graph this is"
+    );
+
+    command_line("lens none", &mut cx);
+    draw(&mut cx);
+    assert_eq!(
+        tab_labels(&window, &mut cx),
+        vec!["graph"],
+        "and stops saying it when the lens comes off"
+    );
+}
+
+/// The strip's lens row: the name, and how many notes the answer holds. Not a chip — the
+/// strip does not toggle a lens.
+#[gpui::test]
+fn the_strip_names_the_lens_and_counts_what_it_answers(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = lens_vault(
+        cx,
+        &[(
+            "ab",
+            "SELECT path AS note FROM notes WHERE path IN ('b.md', 'a.md') ORDER BY path",
+        )],
+    );
+    on_graph(&mut cx, &window);
+    open_strip(&mut cx, &window);
+    assert_eq!(strip_lens(&window, &mut cx), None, "no lens, no row");
+
+    command_line("lens ab", &mut cx);
+    open_strip(&mut cx, &window);
+    assert_eq!(
+        strip_lens(&window, &mut cx).as_deref(),
+        Some("lens ab · 2 notes"),
+        "the row counts the answer, in the same words the status line and the picker use"
+    );
+}
+
+/// EDGE-L5 in the strip (ruling 9): an answer naming paths the graph has no node for is
+/// counted there too, rather than only in the sentence the command left behind.
+#[gpui::test]
+fn the_strip_counts_the_answers_with_no_node(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = lens_vault(
+        cx,
+        &[(
+            "half",
+            "SELECT 'nowhere.md' AS note UNION SELECT 'a.md' AS note",
+        )],
+    );
+    on_graph(&mut cx, &window);
+    command_line("lens half", &mut cx);
+    open_strip(&mut cx, &window);
+    assert_eq!(
+        strip_lens(&window, &mut cx).as_deref(),
+        Some("lens half · 1 note, 1 with no node"),
+        "the picture and the answer disagree by one, and the strip says which one"
+    );
+}
+
+/// EDGE-L7: the lens re-runs when the index moves. A note added to the vault that the
+/// lens's own query would answer joins the picture without the lens being taken off and
+/// put back on.
+#[gpui::test]
+fn a_lens_re_runs_when_the_index_moves(cx: &mut TestAppContext) {
+    let (dir, window, mut cx) = lens_vault(
+        cx,
+        &[(
+            "under",
+            "SELECT path AS note FROM notes WHERE path < 'c.md' ORDER BY path",
+        )],
+    );
+    on_graph(&mut cx, &window);
+    command_line("lens under", &mut cx);
+    assert_eq!(worn(&window, &mut cx), Some(("under".to_string(), 2)));
+    assert_eq!(counts(&mut cx, &window).map(|c| c.notes), Some(2));
+
+    std::fs::write(dir.path().join("a2.md"), "new, and under the same rule\n").unwrap();
+    disk_tick(&window, &mut cx);
+
+    assert_eq!(
+        worn(&window, &mut cx),
+        Some(("under".to_string(), 3)),
+        "the answer moved with the vault"
+    );
+    assert_eq!(
+        counts(&mut cx, &window).map(|c| c.notes),
+        Some(3),
+        "and the picture moved with the answer"
+    );
+}
+
+/// EDGE-L7's other half, the one the measurement was for: re-asking is cheap, and the
+/// layout is only disturbed when the answer's **node set** moved. An index move the lens
+/// does not care about leaves the scope standing.
+#[gpui::test]
+fn an_index_move_that_changes_no_answer_leaves_the_picture_alone(cx: &mut TestAppContext) {
+    let (dir, window, mut cx) = lens_vault(
+        cx,
+        &[(
+            "ab",
+            "SELECT path AS note FROM notes WHERE path IN ('b.md', 'a.md') ORDER BY path",
+        )],
+    );
+    on_graph(&mut cx, &window);
+    command_line("lens ab", &mut cx);
+    assert_eq!(
+        replaced(&window, &mut cx),
+        0,
+        "wearing a lens is not a re-run"
+    );
+
+    std::fs::write(dir.path().join("z.md"), "outside the answer entirely\n").unwrap();
+    disk_tick(&window, &mut cx);
+
+    assert_eq!(
+        replaced(&window, &mut cx),
+        0,
+        "the lens was re-asked and its answer did not move, so the picture was not re-made"
+    );
+    assert_eq!(worn(&window, &mut cx), Some(("ab".to_string(), 2)));
+    assert_eq!(
+        counts(&mut cx, &window).map(|c| c.notes),
+        Some(2),
+        "the new note is in the vault and not in the lens"
+    );
+}
+
+/// EDGE-L7's file half: the lens is a file, the file is the authority, and an edit made in
+/// an editor outside Shale reaches the graph that is wearing it — the vault's own walk
+/// never looks in `.shale/`, so the lens folder is stamped beside it.
+#[gpui::test]
+fn a_lens_edited_by_hand_re_runs_under_the_picture(cx: &mut TestAppContext) {
+    let (dir, window, mut cx) = lens_vault(
+        cx,
+        &[(
+            "ab",
+            "SELECT path AS note FROM notes WHERE path IN ('b.md', 'a.md') ORDER BY path",
+        )],
+    );
+    on_graph(&mut cx, &window);
+    command_line("lens ab", &mut cx);
+    assert_eq!(counts(&mut cx, &window).map(|c| c.notes), Some(2));
+
+    rewrite_lens(
+        &dir,
+        "ab",
+        "SELECT path AS note FROM notes WHERE path = 'b.md'",
+    );
+    disk_tick(&window, &mut cx);
+
+    assert_eq!(worn(&window, &mut cx), Some(("ab".to_string(), 1)));
+    assert_eq!(
+        counts(&mut cx, &window).map(|c| c.notes),
+        Some(1),
+        "the picture followed the edited program without being asked to"
+    );
+}
+
+/// EDGE-L6 live: a lens edited into something that will not answer keeps the picture it
+/// last gave, and the strip says it is not answering rather than leaving the reader to
+/// notice the picture has gone stale.
+#[gpui::test]
+fn a_lens_that_stops_answering_keeps_the_picture_and_says_so(cx: &mut TestAppContext) {
+    let (dir, window, mut cx) = lens_vault(
+        cx,
+        &[(
+            "ab",
+            "SELECT path AS note FROM notes WHERE path IN ('b.md', 'a.md') ORDER BY path",
+        )],
+    );
+    on_graph(&mut cx, &window);
+    command_line("lens ab", &mut cx);
+    open_strip(&mut cx, &window);
+
+    rewrite_lens(&dir, "ab", "SELECT FROM WHERE");
+    disk_tick(&window, &mut cx);
+
+    assert_eq!(
+        counts(&mut cx, &window).map(|c| c.notes),
+        Some(2),
+        "a broken program does not empty a graph"
+    );
+    let row = strip_lens(&window, &mut cx).unwrap_or_default();
+    assert!(
+        row.starts_with("lens ab · not answering: "),
+        "the strip says the picture is standing, in the strip's own words: {row}"
+    );
+    assert_eq!(
+        worn(&window, &mut cx),
+        Some(("ab".to_string(), 2)),
+        "the mask still holds the last good answer"
+    );
+}
+
+/// EDGE-L11: the file goes away under a graph that is wearing it. The picture stands, the
+/// window says the lens is gone, and the strip keeps saying it — clearing is the next
+/// `:lens`, or a restart, not an event reaching into a live view.
+#[gpui::test]
+fn a_lens_deleted_from_under_the_graph_says_it_is_gone(cx: &mut TestAppContext) {
+    let (dir, window, mut cx) = lens_vault(
+        cx,
+        &[(
+            "ab",
+            "SELECT path AS note FROM notes WHERE path IN ('b.md', 'a.md') ORDER BY path",
+        )],
+    );
+    on_graph(&mut cx, &window);
+    command_line("lens ab", &mut cx);
+    open_strip(&mut cx, &window);
+
+    std::fs::remove_file(dir.path().join(".shale").join("lenses").join("ab.shq")).unwrap();
+    disk_tick(&window, &mut cx);
+
+    assert_eq!(
+        say(&window, &mut cx),
+        "lens `ab` is gone; the picture stays as it was"
+    );
+    assert_eq!(
+        counts(&mut cx, &window).map(|c| c.notes),
+        Some(2),
+        "deleting a lens is not deleting a picture"
+    );
+    let row = strip_lens(&window, &mut cx).unwrap_or_default();
+    assert!(
+        row.starts_with("lens ab · not answering: "),
+        "and the strip keeps saying it after the sentence has scrolled away: {row}"
+    );
+}
