@@ -1,16 +1,16 @@
 # The sidebar
 
-`space b` (or `:sidebar`) puts a strip on the **right** of the window, opposite the file
+`space b` (or `:sidebar`) puts the sidebar on the **right** of the window, opposite the file
 tree. It answers questions about one thing: the note the window is looking at. The tree
-says where the notes are; the strip says what is inside this one.
+says where the notes are; the sidebar says what is inside this one.
 
 It is chrome, not a pane. It has its own keyboard, its own visibility, and its own place
 in the `ctrl-w` path — the same arrangement the file tree has, and for the same reason:
-the note is what both strips give room to, and neither is something you split or tab.
+the note is what the tree and the sidebar give room to, and neither is something you split or tab.
 
 ## One view at a time
 
-The strip shows **one** view, named in its header along with a count. `[` and `]` step
+The sidebar shows **one** view, named in its header along with a count. `[` and `]` step
 through the five; `:sidebar <name>` jumps to one directly.
 
 | view | header | `:sidebar` word | built |
@@ -42,11 +42,11 @@ The section your caret is in is marked in the list with the palette's "you are h
 colour — a different fact from the keyboard's selection, and a different visual. When the
 caret crosses into another section, the list scrolls **once**, and only if that row is off
 screen. A scroll you made yourself is never undone: your scroll does not change the mark,
-so there is nothing to scroll for. And while the strip has the keyboard, the caret does
+so there is nothing to scroll for. And while the sidebar has the keyboard, the caret does
 not move the list at all — there the selection moves it, and the two would fight.
 
 Moving the selection in the Outline **scrubs** the note: the note scrolls to that section
-without moving its caret. Back out of the strip and the note is exactly where you left it.
+without moving its caret. Back out of the sidebar and the note is exactly where you left it.
 This is Outline-only; a row in another view has no position in this note to reveal.
 
 ## Jumping
@@ -62,7 +62,7 @@ uses, which refuses to overwrite the only view of a note that is ahead of its fi
 
 ## Reshaping the note
 
-The strip is an outliner as well as a table of contents. With the keyboard in it:
+The sidebar is an outliner as well as a table of contents. With the keyboard in it:
 
 | key | |
 | --- | --- |
@@ -131,7 +131,7 @@ already in the list.
 
 A value written as a wiki-link is a link the author wrote, so `enter` opens its note,
 resolved by the same rules `gd` uses (file rules, then aliases, then saved queries), which
-is what stops the strip and a wiki-link meaning two different files. A value that resolves
+is what stops the sidebar and a wiki-link meaning two different files. A value that resolves
 to nothing keeps its row and is marked, and `enter` says which half is missing rather than
 making a file. Anything that is not written as a link is a string — `name: Goblin` in a
 vault that happens to have a `Goblin.md` is a string — and `enter` asks `prop:name` of the
@@ -139,7 +139,7 @@ search instead.
 
 ## The keyboard
 
-The strip's keys are the tree's, because the two strips are one family:
+The sidebar's keys are the tree's, because the sidebar and the tree are one family:
 
 | key | |
 | --- | --- |
@@ -149,38 +149,38 @@ The strip's keys are the tree's, because the two strips are one family:
 | `shift-k` / `shift-j` | move this section up / down |
 | `Tab` / `shift-Tab` | one level up / down for it and its subtree |
 | `[` / `]` | which view is showing (a view with rows opens on its first one) |
-| `p` | stick the strip to this note, or let it follow the tabs again |
+| `p` | stick the sidebar to this note, or let it follow the tabs again |
 | `escape` | back to the note |
-| `space b` | put the strip away |
+| `space b` | put the sidebar away |
 
 `ctrl-w h/j/k/l` reaches it like any other surface. Both edges are unified on the
 **seat** — the pane that last had the keyboard — so going back the way you came lands you
 where you came from, and there is no wrapping around the window. `ctrl-w j`/`k` from the
-strip has nowhere to go: it spans the window's height.
+sidebar has nowhere to go: it spans the window's height.
 
 The full binding list is generated in [keymap.md](keymap.md) under the `sidebar` context;
 the commands are in [commands.md](commands.md).
 
 ## Pinning it to one note
 
-`p` (with the keyboard in the strip) sticks the strip to the note it is describing. The
-header grows a `◆` and the strip stops following the tabs: switch notes, close the tab, open
-three others — the strip keeps answering about the pinned note, reading its file when it is
+`p` (with the keyboard in the sidebar) sticks the sidebar to the note it is describing. The
+header grows a `◆` and the sidebar stops following the tabs: switch notes, close the tab, open
+three others — the sidebar keeps answering about the pinned note, reading its file when it is
 not on screen. `p` again lets it follow.
 
 That is the whole of it: a way to hold one note's outline, links or tags open in the corner
 while you work through other notes. The pin rides the session, so a window that opens with
 one pinned opens pinned. A pin to a note that has since been deleted is kept rather than
-quietly dropped — the strip reports the read failure the same way a restored tab would.
+quietly dropped — the sidebar reports the read failure the same way a restored tab would.
 
 ## What comes back
 
-Whether the strip was open, which view it was on, and what it was pinned to ride the session
-file — they are decisions you made, not facts about the notes. A session written before the strip existed
+Whether the sidebar was open, which view it was on, and what it was pinned to ride the session
+file — they are decisions you made, not facts about the notes. A session written before the sidebar existed
 restores a window without one, and the first `space b` opens it.
 
 ## Not yet
 
-Resizing (the strip is a constant width for now). The other half of the pin the plan
+Resizing (the sidebar is a constant width for now). The other half of the pin the plan
 sketched — `:pin` on a **tab**, meaning "do not replace me" — landed as its own item,
 P4.13a; see [windows-panes-tabs.md](windows-panes-tabs.md).

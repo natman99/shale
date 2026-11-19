@@ -400,8 +400,8 @@ in hand. `docs/keys.md` is the human map of both halves.
 | `/` | open the filter strip | `GraphFilterOpen` | — |
 | `2` | switch the graph between its two spaces | `GraphMode` | `graph.projected` |
 | `3` | switch the graph between its two spaces | `GraphMode` | `graph.projected` |
-| `+` | magnify at the caret | `GraphZoom` | — |
-| `-` | magnify at the caret | `GraphZoom` | — |
+| `+` | magnify at the middle of the canvas | `GraphZoom` | — |
+| `-` | magnify at the middle of the canvas | `GraphZoom` | — |
 | `[` | narrow or widen the local graph | `GraphLocalStep` | — |
 | `]` | narrow or widen the local graph | `GraphLocalStep` | — |
 | `\` | show the whole vault | `GraphLocal` | `graph.global` |

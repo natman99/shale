@@ -53,7 +53,7 @@ has; 3D→flat carries the arrangement back. There is no camera glide on the swi
 turn is the movement.
 
 In the projected view the pointer's gestures are the ones the flat view has: the
-wheel **magnifies at the cursor**, `ctrl`+wheel travels, dragging the background
+wheel **magnifies at the pointer**, `ctrl`+wheel travels, dragging the background
 turns or pans the view, and the eye sits outside the cloud rather than inside it.
 
 ## The local neighbourhood
@@ -81,12 +81,12 @@ graph" row opens the same picker.
 Like local scope, a lens is a **filter dimension**: what it did not answer leaves the
 simulation as well as the paint, and the layout closes up around what is left. A lens and
 a local scope **and** each other — a lens worn on a neighbourhood is the notes in both —
-and the strip's chips and search still cut inside the answer.
+and the filter strip's chips and search still cut inside the answer.
 
 While a lens is on, the **status bar says so**: a segment beside the view badge reads
 `lens <name>`, in the colour the bar reserves for states that are not the default. It is
 there because a lens that narrows the picture quietly is a lens the reader forgets is on,
-and the strip's filter line only answers when the strip is focused. It appears on the graph
+and the filter strip's line only answers when it is focused. It appears on the graph
 tab and not on a note tab, because there it would read as a property of the note.
 
 A lens is also a file Shale will write for you. With the filter strip open, `alt-s` keeps
@@ -94,7 +94,7 @@ the question in the line as a lens: the operators compile to the SQL a hand-writ
 would hold — the same translation keep-a-search makes — and the prompt asks for a name,
 starting from one made from the question. `:lens save <name>` is the same door with the
 name already given. A saved lens goes on right away, and a lens that already exists is
-never written over: the file a reader wrote outranks the picture just saved. The strip's
+never written over: the file a reader wrote outranks the picture just saved. The filter strip's
 chips are **not** encoded into the file — they stay dimensions, so a lens never freezes an
 `orphans` choice into a query its author will later read. Neither are the line's **words**:
 a lens is a question for the index, and a fuzzy label match has no SQL to compile to, so
@@ -107,7 +107,7 @@ answer names a different set of notes. A lens that cannot be answered — SQL th
 a query with no note column — says so and leaves the last good picture standing; an answer
 that names notes the graph has no node for counts them out loud rather than dropping them.
 
-The strip carries a row for it — `lens <name> · 3 notes`, or `lens <name> · not answering:
+The filter strip carries a row for it — `lens <name> · 3 notes`, or `lens <name> · not answering:
 <why>` — because the status line's sentence scrolls away and the picture's silence does
 not. The tab's title carries it too: a graph tab reads `graph · <name>`.
 
@@ -170,7 +170,7 @@ Ghosts and tags get no card. Neither is a note, so neither has lines to preview.
 
 ## The filter strip
 
-`/` opens it; `escape` closes it and leaves the keyboard where it was — on the strip a
+`/` opens it; `escape` closes it and leaves the keyboard where it was — on the filter strip a
 moment ago, on the graph after that. Leaving the *tab* is tab paging — `g t`/`g T`,
 `:tabnext` — exactly as for any other tab. Three chips
 (`orphans`, `missing`, `tags`, on `alt-o`, `alt-x` and `alt-t`) and a line that narrows
@@ -201,16 +201,16 @@ operator and not one (`tags:boss`) is named as a typo, and the picture stands wh
 with the index off, the operators say they need it, and the words still work. An empty graph
 should only ever mean an empty answer.
 
-**A refused line says so where it was typed.** The strip grows a second row under the line,
+**A refused line says so where it was typed.** The filter strip grows a second row under the line,
 in the colour it reserves for a broken thing, holding the sentence; the line's own text is
-drawn in that colour too, so a glance at the strip answers "is this filter doing anything"
-without looking anywhere else. The status bar stays quiet while the strip is open — the bar
+drawn in that colour too, so a glance at the filter strip answers "is this filter doing anything"
+without looking anywhere else. The status bar stays quiet while the filter strip is open — the bar
 sits a panel away from the line being read, and a sentence said there is a sentence that
-never arrived. It is the bar's to say when there is no strip on screen to say it on: a line
-that came back with the session, for instance. Opening the strip asks the line already in it,
+never arrived. It is the bar's to say when there is no filter strip on screen to say it on: a line
+that came back with the session, for instance. Opening the filter strip asks the line already in it,
 which is also how a filter that has fallen behind the index catches up.
 
-The strip has its own keyboard context, which is why the graph's `hjkl`, `f`, `+`
+The filter strip has its own keyboard context, which is why the graph's `hjkl`, `f`, `+`
 and `-` are not in the stack while you are typing a query.
 
 ## Keyboard, in the graph

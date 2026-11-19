@@ -38,7 +38,7 @@ and all of it is safe to delete. See [state-files.md](state-files.md).
 │  h/l fold │   (or the graph, in a       │  enter   │
 │  enter    │    graph tab)               │  [/]     │
 │           ├─────────────────────────────┤          │
-│           │ review strip — edits wait   │          │
+│           │ review view — edits wait     │          │
 ├───────────┴─────────────────────────────┴──────────┤
 │ mode · checker count · dirty · path · row:col      │
 └────────────────────────────────────────────────────┘
@@ -48,10 +48,10 @@ The file tree is the vault's folders and notes. The tab bar belongs to a pane,
 and a window can hold more than one pane
 ([windows-panes-tabs.md](windows-panes-tabs.md)). The status bar's segments come
 and go: the mode, the checker's count, a dirty dot, the note's path, and the
-cursor's display row and column.
+caret's display row and column.
 
 `ctrl-w h` puts the keyboard in the tree, `ctrl-w l` puts it back on the note.
-`space e` hides the tree and shows it again. The strip on the right is the tree's
+`space e` hides the tree and shows it again. The sidebar on the right is the tree's
 mirror — it answers about the note you are looking at rather than about the vault —
 and `ctrl-w l` walks into it when it is open
 ([sidebar.md](sidebar.md)); `space b` hides it and shows it again.
@@ -99,7 +99,7 @@ Write a wiki-link and it resolves against the vault:
 ```
 
 Resolved links are tinted, unresolved ones are dimmed, and `gd` follows the link under
-the cursor. If the target does not exist, `gD` creates the note and follows it. It lands
+the caret. If the target does not exist, `gD` creates the note and follows it. It lands
 beside the note you are standing in rather than at the vault root, and a target that
 spells a path out, `[[areas/x/y]]`, is created where it says. Renaming a note rewrites
 every link that pointed at it.

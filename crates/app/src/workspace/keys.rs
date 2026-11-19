@@ -649,7 +649,12 @@ fn build() -> (Vec<KeyBinding>, Vec<KeymapRow>) {
         );
     }
     for (key, factor) in [("+", ZOOM_STEP), ("-", 1.0 / ZOOM_STEP)] {
-        b.bind(graph, key, GraphZoom(factor), "magnify at the caret");
+        b.bind(
+            graph,
+            key,
+            GraphZoom(factor),
+            "magnify at the middle of the canvas",
+        );
     }
     // `[` and `]` narrow and widen the local graph (M2b). Brackets because they are the
     // shape of a scope, they are free in this context, and they are not `+`/`-`, which

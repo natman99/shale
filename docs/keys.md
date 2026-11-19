@@ -58,7 +58,7 @@ authority on ids and `:` spellings.
 | `ctrl-w S` / `ctrl-w V` | the same, **with the note you are looking at** in the new pane |
 | `ctrl-w >` / `ctrl-w <` (also `+` / `-`) | the pane in hand takes more / less of the space its split offers |
 | `ctrl-w =` | even the panes out |
-| `ctrl-w q` (or `ctrl-w c`) | close this pane, writing its notes first |
+| `ctrl-w q` (or `ctrl-w c`) | close this pane, saving first |
 | `ctrl-w o` | close every pane but this one |
 
 `>` and `<` are not tied to an axis: the pane grows along whatever axis the split
@@ -102,16 +102,16 @@ rather than deleting a line.
 
 **Operators.** `d` (delete), `c` (change), `y` (yank), each with a motion or a
 text object; `dd`, `cc`, `yy` for the whole line; `x` to delete the character
-under the cursor; `p` and `P` to put the register after or before.
+under the caret; `p` and `P` to put the register after or before.
 
 **One-keystroke edits.** `r<char>` replaces one character (or `3r<char>` replaces
 three) without touching the register; `~` switches the case of the character under
-the cursor and steps right; `s` substitutes (`cl`) and `S` the whole line (`cc`),
+the caret and steps right; `s` substitutes (`cl`) and `S` the whole line (`cc`),
 both into insert mode; `C` changes to end of line, `D` deletes to end of line; `X`
-deletes the character *before* the cursor; `Y` yanks the whole line. A change keeps
+deletes the character *before* the caret; `Y` yanks the whole line. A change keeps
 its line: `cc` empties a line, `dd` removes it.
 
-**Joining.** `J` pulls the line below up onto the cursor's line, and in visual mode
+**Joining.** `J` pulls the line below up onto the caret's line, and in visual mode
 it joins the lines the selection touches. The line break becomes a space and the
 next line's leading whitespace goes with it; a blank line below adds no space, a
 line that already ends in whitespace does not get a second one, and after `.`, `?`
@@ -126,7 +126,7 @@ In visual mode the same keys widen the selection instead.
 
 The markdown constructs have their own objects: `iL` / `aL` (a link), `i#` / `a#` (a
 section, from its heading to the next one of the same level or higher), `i*` / `a*` (a
-callout box), `` i` `` / `` a` `` (a fenced block, or an inline span when the cursor is not
+callout box), `` i` `` / `` a` `` (a fenced block, or an inline span when the caret is not
 in one), `iq` / `aq` (a quoted span), `it` / `at` (a table cell), and `i^` / `a^` — **one
 block**: a paragraph, one list item with its children, a whole quote, callout, table or
 code fence, or one heading line. That is the same span a `^id` names, so `:block-id` writes
@@ -143,17 +143,17 @@ not there yet.
 
 **Insert.** `i` `a` `I` `A` `o` `O`, `v` / `V` for visual (charwise / linewise;
 blockwise `ctrl-v` is not implemented), `gv` to bring back the selection that was
-last active, in the mode it was in and with the cursor where it was, `u` for undo, and `.`
+last active, in the mode it was in and with the caret where it was, `u` for undo, and `.`
 to repeat the last change.
 
 **Folding** (a heading owns the rows below it): `za` toggle, `zc` close, `zo`
 open, `zd` remove the fold, `zM` close all, `zR` / `zE` open all. A folded heading
 carries a `⋯ n more lines` marker you can click.
 
-**Searching the note.** `/` opens the strip, `n` / `N` step through the matches.
-The query outlives the strip, so `n` keeps working after `enter` closed it.
+**Searching the note.** `/` opens the search bar, `n` / `N` step through the matches.
+The query outlives the search bar, so `n` keeps working after `enter` closed it.
 
-**Links.** `gd` follows the wiki-link under the cursor (`gx` does the same, and is
+**Links.** `gd` follows the wiki-link under the caret (`gx` does the same, and is
 the older spelling); `gD` makes the note first when the link resolves to nothing,
 then follows it. `ctrl`+click is the mouse door to the same thing.
 
@@ -176,10 +176,10 @@ opens the embedded note in this tab, the way it does for any other link.
 **Tabs.** `gt` / `gT` walk the tab bar (wrapping). `gf` is quick-open, like
 `space f`.
 
-**Checker.** `K` opens the checker's note for the word under the cursor, with the
+**Checker.** `K` opens the checker's note for the word under the caret, with the
 fixes it offers. Resting the pointer on a marked word does the same.
 
-**Cards.** With nothing marked under the cursor, `K` asks the app the other question the
+**Cards.** With nothing marked under the caret, `K` asks the app the other question the
 same position can raise: the note a `[[wiki-link]]` points at, or the distribution a `!p`
 line asks for — the card the pointer already opens, from the keyboard. The checker answers
 first: a word with a squiggle under it has a specific answer, and `K` over it is asking
@@ -189,19 +189,19 @@ that question.
 mode: inside one, `h` `l` `w` `b` `e` move cell to cell, `0` `^` `$` go to the
 cell's ends, and `j` `k` step between rows in the same column (outside a table,
 `K` is the checker). `DD` deletes a column, `|` and `\` insert one, and
-`alt+hjkl` moves a whole row or column under the cursor.
+`alt+hjkl` moves a whole row or column under the caret.
 
-**Agent review, while the note has the keyboard.** A queued proposal is painted
+**Agent review, while the note has the keyboard.** A queued edit is painted
 in the note it belongs to: the lines it would take away are struck through in the
 palette's red, and the lines it would bring sit between the note's own lines in
-green. Over *those* lines three keys belong to the proposal rather than to vim:
+green. Over *those* lines three keys belong to the edit rather than to vim:
 `y` accepts that hunk, `x` rejects it, and `za` folds its additions to a
 `−N +M` count. Over every other line they are still yank, delete-char and fold,
 and a count or a pending operator means you are spelling a vim command: `2y` and `dy`
 stay vim's even over a struck line. The additions are not in the buffer: `j`
 and `k` step past them, search cannot match them, and the ruler never counts them.
 `]a` and `[a` hop the review marker to the next / previous pending hunk from
-anywhere in the note, and the note's `y` names the hunk under its own cursor
+anywhere in the note, and the note's `y` names the hunk under its own caret
 rather than the marked one.
 
 **Leader chords.**
@@ -219,7 +219,7 @@ rather than the marked one.
 ## The note — insert mode
 
 `escape` out. `enter` is a newline, and it continues a list, task or quote by copying the
-marker. `ctrl-backspace` deletes the word before the cursor; vim's own
+marker. `ctrl-backspace` deletes the word before the caret; vim's own
 key for that, `ctrl-w`, is left to the window commands. Arrows move the caret;
 `delete` deletes forward. `tab` writes a tab character (Shale indents notes with tabs)
 and `shift-tab` takes one indent level back off the line — a tab, or up to four spaces
@@ -243,7 +243,7 @@ While the tree has the keyboard (`ctrl-w h`):
 
 ## The sidebar
 
-The strip on the right (`space b`) answers about the note on screen. While it has the
+The sidebar (`space b`) answers about the note on screen. While it has the
 keyboard (`ctrl-w l` from the note, when it is open):
 
 | keys | what |
@@ -253,20 +253,20 @@ keyboard (`ctrl-w l` from the note, when it is open):
 | `enter` | do what the row is about: jump to a heading, open the linked note at the line that links, open the note a property names, or put `tag:x` / `prop:key` in the vault search |
 | `shift-k` `shift-j` | move this section up / down among its siblings, subtree included |
 | `tab` `shift-tab` | one level up / down for this heading and everything under it |
-| `[` `]` | which view the strip is showing |
-| `p` | stick the strip to the note it is describing, or let it follow the tabs again |
-| `space b` | hide the strip (works from inside it) |
+| `[` `]` | which view the sidebar is showing |
+| `p` | stick the sidebar to the note it describes, or let it follow the tabs again |
+| `space b` | hide the sidebar (works from inside it) |
 | `escape` | hand the keyboard back to the note |
 
-The keys are the tree's on purpose: the two strips are one family. Moving the selection
+The keys are the tree's on purpose: the sidebar and the tree are one family. Moving the selection
 in the Outline scrolls the note to that section **without moving its caret**, so backing
 out leaves the note where it was; the outline, tags and properties all read the note's
 **buffer**, so what you have typed but not saved is already in them, and only the link views
 and the tag census wait for the index. The structure keys belong to the Outline and refuse
 out loud — a `#` cannot be promoted, a section cannot be moved out from under its parent, and a
 row in a link view is a place in a list of *other* notes, not a line in this one — each
-refusal one line in the status bar. The strip's header carries a `◆` while it is pinned to one note
-(`p`), and a pinned strip keeps describing that note while the tabs move on. Details in
+refusal one line in the status bar. The sidebar's header carries a `◆` while it is pinned to one note
+(`p`), and a pinned sidebar keeps describing that note while the tabs move on. Details in
 [sidebar.md](sidebar.md).
 
 ## Pickers and prompts
@@ -306,11 +306,11 @@ plain arrow leaves the selection at the end it was heading for rather than stepp
 not know runs nothing. `enter` runs it, `escape` closes it. Every
 spelling, with its argument, is in [commands.md](commands.md).
 
-## The review strip
+## The review view
 
-Only while the strip has the keyboard (`:review`). The bindings live *only* here;
-the note reaches the same commands through its own `y` / `x` / `za` over a line a
-proposal speaks for (above), and there the hunk under the cursor is the one that
+Only while the review view has the keyboard (`:review`). The bindings live *only* here;
+the note reaches the same commands through its own `y` / `x` / `za` over an line a
+edit speaks for (above), and there the hunk under the caret is the one that
 is meant.
 
 | keys | what |
@@ -318,7 +318,7 @@ is meant.
 | `j` / `k` | move the marker |
 | `y` / `x` | accept / reject the hunk under the marker |
 | `o` | open the note the hunk is about |
-| `z a` | collapse or expand the proposal (then `y` answers all of its hunks) |
+| `z a` | collapse or expand the hunk under the marker (then `y` answers all of it) |
 | `escape` | give the keyboard back to the note |
 
 ## The graph tab
@@ -377,7 +377,7 @@ rather than on the status bar a panel away.
   is taken is refused rather than overwritten, and a file that already lives in the vault
   is refused too — inside the vault, files move with `:move`.
 - Click a folded heading's `⋯ n more lines` marker to open it.
-- In the graph: the wheel magnifies at the cursor (`ctrl`+wheel travels), drag
+- In the graph: the wheel magnifies at the pointer (`ctrl`+wheel travels), drag
   pans the view, drag a node moves it (a press only grabs after the pointer has
   travelled a little, and `shift` leaves it pinned), click a node to open it.
-- Click a row of the start block, the review strip, or the checker popup.
+- Click a row of the start block, the review view, or the checker popup.

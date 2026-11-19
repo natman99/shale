@@ -72,12 +72,12 @@ Useful flags:
 
 1. Point your agent at the `shale-mcp` binary. It connects over stdio, and when a Shale
    window is running it finds it over a loopback port (`.shale/mcp.lock`) and gains the
-   live tools: what is open, where the cursor is, the jump chain.
+   live tools: what is open, where the caret is, the jump chain.
 2. Give the agent a **profile** (path globs + tool allowlist). An untrusted profile
    queues writes instead of applying them.
 3. Agent edits land as plain-text files in `<vault>/.shale/pending-edits/`, which is why
    they survive a crash or a kill.
-4. The review strip appears - accept / reject per hunk. Nothing is applied silently.
+4. The review view appears - accept / reject per hunk. Nothing is applied silently.
 
 Details: [docs/mcp.md](docs/mcp.md).
 
@@ -95,7 +95,7 @@ The user-facing docs live in [`docs/`](docs/) - start with
 | [notes.md](docs/notes.md) | notes, folders and the tree, saving and naming, wiki-links and embeds, block ids, tags and properties, saved queries, dice, search |
 | [windows-panes-tabs.md](docs/windows-panes-tabs.md) | windows, vaults, splits, tabs, and what comes back next launch |
 | [graph.md](docs/graph.md) | the link graph: flat, projected 3D, the local neighbourhood |
-| [sidebar.md](docs/sidebar.md) | the right-hand strip: outline, backlinks, outgoing links, tags, properties |
+| [sidebar.md](docs/sidebar.md) | the sidebar: outline, backlinks, outgoing links, tags, properties |
 | [mcp.md](docs/mcp.md) | the MCP surface: tools, profiles and scopes, the review queue |
 | [config.md](docs/config.md) | `<vault>/.shale/config.toml`, themes, fonts |
 | [state-files.md](docs/state-files.md) | everything Shale writes to disk, and what is safe to delete |

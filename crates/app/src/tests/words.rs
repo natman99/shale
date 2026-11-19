@@ -10,8 +10,13 @@ use crate::command::Command;
 /// CRLF-normalised. Those tests already pin the file to the table that generates it, so
 /// scanning the file is scanning the table — and the failure names a line a reader sees.
 fn doc(name: &str) -> String {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/");
-    std::fs::read_to_string(format!("{path}{name}"))
+    doc_page(&format!("docs/{name}"))
+}
+
+/// A page of the docs, read from the repo root, CRLF-normalised.
+fn doc_page(rel: &str) -> String {
+    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../");
+    std::fs::read_to_string(format!("{root}{rel}"))
         .unwrap_or_default()
         .replace("\r\n", "\n")
 }
@@ -80,9 +85,37 @@ fn the_reader_sees_one_word_per_thing() {
             }
         }
     }
+    // The hand-written pages. They are the surfaces a reader reaches for when the
+    // palette is not what they are looking for, and a page named `sidebar.md` that
+    // says "strip" nineteen times is how the drift outlives a sweep of the tables.
+    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../");
+    let mut pages = vec!["README.md".to_string()];
+    let mut entries: Vec<String> = std::fs::read_dir(format!("{root}docs"))
+        .ok()
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.ends_with(".md") && name != "commands.md" && name != "keymap.md")
+        .collect();
+    entries.sort();
+    pages.extend(entries.into_iter().map(|name| format!("docs/{name}")));
+    for page in &pages {
+        let text = doc_page(page);
+        for (n, line) in text.lines().enumerate() {
+            let found = hits(line);
+            if !found.is_empty() {
+                offenders.push(format!("{page}:{}: {found:?} — {line}", n + 1));
+            }
+        }
+    }
     assert!(
         offenders.is_empty(),
-        "a word the vocabulary has already settled reappears:\n{}",
+        "{} settled words are still being shown to a reader:\n{}\n\n\
+         The settled names: sidebar for the panel, review view for its pending-hunk \
+         view, search bar for what `/` opens in a note, caret for the point in the \
+         text. The graph's filter strip keeps its name.",
+        offenders.len(),
         offenders.join("\n")
     );
 }
