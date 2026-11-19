@@ -95,6 +95,9 @@ the no-path case, which is the desktop case.
 
 ## Milestones
 
+All three shipped 2026-11-18 (`57076be` and the desktop-entry commit after it): the
+decision and the window, `New vault…`, and the desktop story (`Exec=shale`, no path).
+
 - **M1** — the decision and the window: `startup_plan` (named path / remembered path /
   picker-with-a-reason), `main` wiring that no longer exits, the picker view with recents
   and "Open a folder…", the reason line, escape ending the run. Tests: the decision table,

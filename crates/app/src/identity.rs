@@ -141,6 +141,10 @@ mod tests {
             text.contains("Exec=shale"),
             "and run the binary this crate builds"
         );
+        // And name no vault: a launcher that bakes in a path can only ever open one
+        // vault, which is the reason the no-argument start has an answer of its own.
+        let exec = text.lines().find(|line| line.starts_with("Exec=")).unwrap();
+        assert_eq!(exec.trim(), "Exec=shale", "the launcher names no vault");
     }
 
     /// The SVG and the raster are the same four bars in the same colour, or the

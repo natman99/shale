@@ -18,6 +18,11 @@ seen, and `New vault…`, which makes the folder and opens it. It says why it is
 when it was asked by a folder that is no longer there. `escape` closes it, and with no
 window left the run ends. Inside a vault, `:vault` opens the same list as a switcher.
 
+So a launcher needs no path baked into it: the shipped `assets/shale.desktop` runs plain
+`shale`, and a Windows shortcut with `shale.exe` and no arguments does the same. Name a
+folder on the command line when you want that vault specifically — `shale ~/vaults/notes`
+still means exactly that vault, and still answers in the terminal when the path is no good.
+
 The first time Shale opens a folder it writes a `.shale/` directory inside it. Config,
 session, themes, the index cache, backups and the agent's pending edits all live there,
 and all of it is safe to delete. See [state-files.md](state-files.md).
