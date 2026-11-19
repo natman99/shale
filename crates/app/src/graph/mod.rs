@@ -348,6 +348,11 @@ pub(crate) struct GraphView {
     /// and it is the only thing in the tab with a text field, so it is also the only
     /// thing that takes the keyboard away from the graph.
     panel: bool,
+    /// The sentence for why the filter line is currently refused, if it is. Drawn under
+    /// the line ([`GraphView::filter_panel`]) and echoed in the colour of the line itself
+    /// ([`crate::field::FieldOwner::refused`]), because the graph's strip is too far from
+    /// the status bar for a sentence said there to be seen.
+    refusal: Option<String>,
     /// What the strip's chips show. The window owns the filter that does the work — its
     /// mask decides what the simulation holds — and this is the copy the chips are drawn
     /// from, pushed back on every refresh.
@@ -362,6 +367,10 @@ pub(crate) struct GraphView {
     /// from the strip, so the frame records what it painted (the `bar_lens` rule).
     #[cfg(test)]
     strip_lens: std::cell::RefCell<Option<String>>,
+    /// What the filter strip's **refusal row** drew last frame, or `None` when it drew no
+    /// such row — recorded the same way, for the same reason, as `strip_lens`.
+    #[cfg(test)]
+    strip_said: std::cell::RefCell<Option<String>>,
     /// The window, because the simulation and the notes are its, not the view's: a
     /// node drag and a click both go through it. Weak — the window owns this view, and
     /// a strong handle back would be a cycle.
@@ -403,6 +412,7 @@ impl GraphView {
             selected: None,
             drag: None,
             panel: false,
+            refusal: None,
             // Everything on, which is what the window's default filter is and what an
             // empty strip with no query says.
             filter: GraphFilter::default(),
@@ -410,6 +420,8 @@ impl GraphView {
             panel_focus: cx.focus_handle(),
             #[cfg(test)]
             strip_lens: Default::default(),
+            #[cfg(test)]
+            strip_said: Default::default(),
             workspace,
         }
     }
@@ -879,6 +891,12 @@ impl GraphView {
             .enumerate()
             .find(|(_, node)| node.path.as_deref() == Some(center))
             .map(|(slot, _)| slot)
+    }
+
+    /// The refusal row the strip drew last frame, in the exact words the frame painted.
+    #[cfg(test)]
+    pub(crate) fn strip_said(&self) -> Option<String> {
+        self.strip_said.borrow().clone()
     }
 
     /// The lens row the strip drew last frame, in the exact words the frame painted.

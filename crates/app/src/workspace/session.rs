@@ -331,7 +331,11 @@ impl Workspace {
             // picture for a moment, and [`Workspace::query_follow`] answers it properly
             // when the pass does land.
             if self.graph.is_some() {
-                self.ask_filter_line(cx);
+                if let Some(sentence) = self.ask_filter_line() {
+                    // No strip is on screen to draw a refusal, so the bar is the only
+                    // place left for one.
+                    self.say(sentence, cx);
+                }
             }
         }
 

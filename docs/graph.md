@@ -185,10 +185,19 @@ notes carrying `#boss` and the tags and holes those notes name — not the nodes
 happen to contain the letters `b`, `o`, `s`, `s`. Words and operators **and** together:
 `tag:boss boss` narrows the answer by label.
 
-Two refusals, said in the status bar rather than answered with an empty picture. A token
-shaped like an operator and not one (`tags:boss`) is named as a typo, and the picture stands
-where it was; with the index off, the operators say they need it, and the words still work.
-An empty graph should only ever mean an empty answer.
+Two refusals, neither of them answered with an empty picture. A token shaped like an
+operator and not one (`tags:boss`) is named as a typo, and the picture stands where it was;
+with the index off, the operators say they need it, and the words still work. An empty graph
+should only ever mean an empty answer.
+
+**A refused line says so where it was typed.** The strip grows a second row under the line,
+in the colour it reserves for a broken thing, holding the sentence; the line's own text is
+drawn in that colour too, so a glance at the strip answers "is this filter doing anything"
+without looking anywhere else. The status bar stays quiet while the strip is open — the bar
+sits a panel away from the line being read, and a sentence said there is a sentence that
+never arrived. It is the bar's to say when there is no strip on screen to say it on: a line
+that came back with the session, for instance. Opening the strip asks the line already in it,
+which is also how a filter that has fallen behind the index catches up.
 
 The strip has its own keyboard context, which is why the graph's `hjkl`, `f`, `+`
 and `-` are not in the stack while you are typing a query.

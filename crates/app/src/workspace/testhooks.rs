@@ -168,6 +168,19 @@ impl Workspace {
 
     /// What the graph view's filter strip **drew** as its lens row last frame, or `None`
     /// when it drew no such row (no lens on, or the strip closed).
+    /// What the graph's filter strip drew as its refusal row last frame, and whether its
+    /// line is drawn in the danger role.
+    #[cfg(test)]
+    pub(crate) fn strip_said(&self, cx: &mut Context<Self>) -> Option<String> {
+        self.graph_view()
+            .and_then(|view| view.read_with(cx, |view, _cx| view.strip_said()))
+    }
+    #[cfg(test)]
+    pub(crate) fn line_refused(&self, cx: &mut Context<Self>) -> bool {
+        self.graph_view()
+            .map(|view| view.read_with(cx, |view, _cx| view.line_refused()))
+            .unwrap_or(false)
+    }
     pub(crate) fn strip_lens(&self, cx: &mut Context<Self>) -> Option<String> {
         self.graph_view()
             .and_then(|view| view.read_with(cx, |view, _cx| view.strip_lens()))

@@ -407,6 +407,15 @@ pub(crate) trait FieldOwner {
     fn size(&self) -> f32;
     /// The focus the input handler is registered for.
     fn focus(&self) -> FocusHandle;
+    /// Whether what is in the line has been **refused**: the owner tried to read it as a
+    /// question and could not. The field then draws its text in the palette's danger role,
+    /// which is how a reader finds out the line is dead without looking away from it — the
+    /// graph's filter line is far from the status bar, and a sentence said there is a
+    /// sentence nobody sees. Default false: the prompt and the pickers answer their own
+    /// refusals in their own rows.
+    fn refused(&self) -> bool {
+        false
+    }
 }
 
 /// The selection and clipboard keys every field answers, wired onto the element that
@@ -626,7 +635,11 @@ impl<E: FieldOwner + EntityInputHandler + 'static> Element for FieldElement<E> {
         let text = owner.field().painted();
         let family = owner.family();
         let size = owner.size();
-        let run = RunStyle::plain(owner.palette()).text_run(text.len(), &font(family));
+        let mut run = RunStyle::plain(owner.palette());
+        if owner.refused() {
+            run.color = owner.palette().callout_danger;
+        }
+        let run = run.text_run(text.len(), &font(family));
         window
             .text_system()
             .shape_line(text, px(size), &[run], None)

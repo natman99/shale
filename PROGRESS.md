@@ -2127,3 +2127,33 @@ Eleven tests (three in core's mask, six at the strip, two at the save door), ten
 red (`falsify_grammar.py`). One test had to be rewritten rather than kept:
 `the_strip_saves_its_question_as_a_lens` used to assert that `tag:tag` left the picture *empty* while the lens
 answered one note — the disagreement, pinned as if it were a rule.
+
+## A refused filter line says so where it was typed (2026-11-18)
+
+The one-grammar change said its refusals on the status bar, which is where the vault search
+says them — and the vault search's field *is* the status bar's neighbour, one panel apart.
+The graph's filter strip is at the top of a tab, and the user found the consequence
+immediately: *"on the graph it's hard to tell when the search is invalid or not."*
+
+So the sentence moved to the line. The strip is now a column: the chips and the line in the
+first row, and a second row under them — drawn only when the line is refused — in
+`callout_danger`, the palette's role for a broken thing (a refused properties block wears
+it). The line's own text wears the same colour, which is the half that answers at a glance;
+the row is the half that says why. `FieldOwner` gains `refused()` for it, default false, so
+the prompt and the pickers keep their own ways of refusing.
+
+**The bar stays quiet while the strip is speaking.** One sentence, one place: the place the
+reader is looking. The bar gets it when there is no strip on screen to draw it on — the
+session door is that case today. The window cannot ask which case it is without reading the
+view it is being called *from*, and gpui refuses that (`cannot read GraphView while it is
+already being updated` — the strip calls into the window from inside its own update). So the
+door hands the sentence back and the two callers decide: the strip draws it, the session door
+says it.
+
+Opening the strip now re-asks the line already in it. That is what makes a line that arrived
+from a session explain itself the moment the strip opens, and it is the same door that lets a
+filter which fell behind the index catch up on reopen.
+
+Five tests, seven mutations red (`falsify_strip_said.py`), one honest green: the *colour* of
+the line's text is paint, and gpui gives a test no way to see a painted colour. The decision
+the colour is drawn from (`refused()`) is pinned; the pixels need eyes.

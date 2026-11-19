@@ -384,12 +384,16 @@ impl Workspace {
         &mut self,
         filter: shale_core::graph::filter::GraphFilter,
         cx: &mut Context<Self>,
-    ) -> Option<(crate::graph::GraphSummary, Rc<crate::graph::GraphFrame>)> {
+    ) -> Option<(
+        crate::graph::GraphSummary,
+        Rc<crate::graph::GraphFrame>,
+        Option<String>,
+    )> {
         self.graph_filter = filter;
-        self.ask_filter_line(cx);
+        let said = self.ask_filter_line();
         let built = self.rebuild_graph();
         self.pump_graph(cx);
-        built
+        built.map(|(summary, frame)| (summary, frame, said))
     }
 
     /// Read the strip's line the way the vault search reads it (P4.16 follow-up).
@@ -405,15 +409,28 @@ impl Workspace {
     /// operator and not one is *said*, not searched; an operator with no index to answer
     /// it is said too. Otherwise a typo narrows the graph to nothing and the reader is
     /// left to wonder whether the vault really is that empty.
-    pub(crate) fn ask_filter_line(&mut self, cx: &mut Context<Self>) {
-        match self.answer_filter_line() {
-            Ok(paths) => self.graph_filter.query = paths,
-            Err(None) => self.graph_filter.query = None,
+    /// ...and hands the sentence back rather than saying it, which is who the sentence is
+    /// for: the strip draws it under the line that was refused, and the window's session
+    /// door puts it on the status bar when there is no strip to draw it on. The graph's
+    /// strip sits a panel away from the bar, so a sentence said there is a sentence that
+    /// never arrived — and the window cannot ask which the case is without reading the
+    /// view it is being called *from*, which gpui will not allow.
+    pub(crate) fn ask_filter_line(&mut self) -> Option<String> {
+        let sentence = match self.answer_filter_line() {
+            Ok(paths) => {
+                self.graph_filter.query = paths;
+                return None;
+            }
+            Err(None) => {
+                self.graph_filter.query = None;
+                return None;
+            }
             Err(Some(sentence)) => {
                 self.graph_filter.query = None;
-                self.say(sentence, cx);
+                sentence
             }
-        }
+        };
+        Some(sentence)
     }
 
     /// Answer the strip's line against the index, without touching the filter or the

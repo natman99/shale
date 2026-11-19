@@ -957,6 +957,21 @@ fn said(cx: &mut VisualTestContext, window: &WindowHandle<Workspace>) -> String 
     window.update(cx, |ws, _window, _cx| ws.status()).unwrap()
 }
 
+/// What the strip drew as its refusal row last frame, and whether its line is drawn in
+/// the danger role. The row is read off the frame rather than re-derived, so a strip that
+/// stopped drawing it fails the test instead of quietly agreeing with it.
+fn strip(cx: &mut VisualTestContext, window: &WindowHandle<Workspace>) -> Option<String> {
+    window
+        .update(cx, |ws, _window, cx| ws.strip_said(cx))
+        .unwrap()
+}
+
+fn refused(cx: &mut VisualTestContext, window: &WindowHandle<Workspace>) -> bool {
+    window
+        .update(cx, |ws, _window, cx| ws.line_refused(cx))
+        .unwrap()
+}
+
 /// An operator is a question for the index, not a string of letters to hold the labels to.
 /// This is the case that used to read as an empty vault.
 #[gpui::test]
@@ -985,9 +1000,15 @@ fn a_token_that_is_not_an_operator_is_said_and_the_picture_stands(cx: &mut TestA
     // it is at it.
     type_line(&mut cx, &window, "tagg:tag a");
     assert!(
-        said(&mut cx, &window).contains("not an operator: tagg:tag"),
-        "the typo is named: {}",
-        said(&mut cx, &window)
+        strip(&mut cx, &window)
+            .unwrap_or_default()
+            .contains("not an operator: tagg:tag"),
+        "the typo is named under the line that was typed: {:?}",
+        strip(&mut cx, &window)
+    );
+    assert!(
+        refused(&mut cx, &window),
+        "and the line itself is drawn as refused"
     );
     assert_eq!(
         counts(&mut cx, &window).map(|counts| counts.notes),
@@ -1041,9 +1062,11 @@ fn an_operator_with_no_index_is_said(cx: &mut TestAppContext) {
     let (_dir, window, mut cx) = linked_vault(cx);
     type_line(&mut cx, &window, "tag:tag");
     assert!(
-        said(&mut cx, &window).contains("ask the vault index"),
-        "the sentence says which half is missing: {}",
-        said(&mut cx, &window)
+        strip(&mut cx, &window)
+            .unwrap_or_default()
+            .contains("ask the vault index"),
+        "the sentence says which half is missing: {:?}",
+        strip(&mut cx, &window)
     );
     assert_eq!(
         counts(&mut cx, &window).map(|counts| counts.notes),
@@ -1115,4 +1138,127 @@ fn indexed_vault_with_session(
     session.save(dir.path()).unwrap();
     let window = open_window(cx, dir.path(), test_config());
     (dir, window)
+}
+
+/// The sentence is said once, in the place the reader is looking. With the strip open the
+/// row under the line carries it and the status bar stays quiet; a bar a panel away is
+/// where the sentence used to go, and where it was not seen.
+#[gpui::test]
+fn the_bar_stays_quiet_while_the_strip_is_speaking(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = indexed_linked_vault(cx);
+    type_line(&mut cx, &window, "tagg:tag");
+    assert!(
+        strip(&mut cx, &window).is_some(),
+        "the row is drawn under the line"
+    );
+    assert!(
+        !said(&mut cx, &window).contains("not an operator"),
+        "and the bar does not say the same thing twice: {}",
+        said(&mut cx, &window)
+    );
+}
+
+/// The row belongs to the strip: closing the strip takes the row with it, and the picture
+/// keeps whatever the line decided. What stays is the *filter*, not the sentence.
+#[gpui::test]
+fn a_closed_strip_reports_no_row(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = indexed_linked_vault(cx);
+    type_line(&mut cx, &window, "tagg:tag");
+    assert!(
+        strip(&mut cx, &window).is_some(),
+        "drawn while the strip is open"
+    );
+    cx.simulate_keystrokes("escape");
+    paint(&mut cx, &window);
+    assert_eq!(
+        strip(&mut cx, &window),
+        None,
+        "and not reported once the strip is shut"
+    );
+}
+
+/// A line made good loses the row and the danger colour, and the picture follows the
+/// question rather than the typo it used to be.
+#[gpui::test]
+fn a_line_made_good_loses_its_row(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = indexed_linked_vault(cx);
+    type_line(&mut cx, &window, "tagg:tag");
+    assert!(refused(&mut cx, &window), "refused to begin with");
+
+    // More backspaces than the line holds: an empty field ignores the rest.
+    for _ in 0..12 {
+        cx.simulate_keystrokes("backspace");
+    }
+    cx.simulate_input("tag:tag");
+    paint(&mut cx, &window);
+    assert_eq!(
+        strip(&mut cx, &window),
+        None,
+        "the row is gone once the line answers"
+    );
+    assert!(
+        !refused(&mut cx, &window),
+        "and the line is drawn normally again"
+    );
+    assert_eq!(
+        counts(&mut cx, &window).map(|counts| counts.notes),
+        Some(1),
+        "and the picture is the answer"
+    );
+}
+
+/// A line that arrived with the session was never typed in this window, so nothing has
+/// asked it yet. Opening the strip asks it: the row appears under the line the reader
+/// finds waiting there.
+#[gpui::test]
+fn a_line_that_arrived_with_the_session_is_asked_when_the_strip_opens(cx: &mut TestAppContext) {
+    let session = Session {
+        tabs: vec![Tab {
+            path: None,
+            view: String::new(),
+            pinned: false,
+            graph: true,
+            camera: None,
+            mode: None,
+            orientation: None,
+        }],
+        active_tab: Some(0),
+        graph_filter: Some(GraphFilterSeat {
+            search: Some("tagg:tag".into()),
+            ..Default::default()
+        }),
+        ..Session::default()
+    };
+    let (_dir, window) = indexed_vault_with_session(
+        cx,
+        &[
+            ("a.md", "see [[b]] and [[gone]] and #tag\n"),
+            ("b.md", "back to [[a]]\n"),
+            ("c.md", "alone\n"),
+        ],
+        &session,
+    );
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    paint(&mut cx, &window);
+    assert_eq!(
+        panel(&mut cx, &window).1,
+        "tagg:tag",
+        "the line came back as it was typed"
+    );
+    assert_eq!(
+        strip(&mut cx, &window),
+        None,
+        "and nothing is drawn under a strip that is not on screen"
+    );
+
+    repaint(&mut cx);
+    cx.simulate_keystrokes("/");
+    paint(&mut cx, &window);
+    assert!(
+        strip(&mut cx, &window)
+            .unwrap_or_default()
+            .contains("not an operator: tagg:tag"),
+        "opening the strip asks the line already in it: {:?}",
+        strip(&mut cx, &window)
+    );
 }

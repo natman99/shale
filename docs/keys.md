@@ -348,7 +348,9 @@ the question in the line as a lens (`docs/graph.md`), and typing narrows the pic
 a filtered node leaving the simulation as well as the paint. The line speaks the vault
 search's grammar: `tag:` `path:` `link:` `prop:` and `modified:` ask the index which notes
 the picture holds, the words left over match node labels and paths, and a token that only
-looks like an operator is said rather than searched.
+looks like an operator is said rather than searched. A refused line turns its own text red
+and grows a row underneath with the sentence, so the answer is where the question was typed
+rather than on the status bar a panel away.
 
 ## The pointer
 
