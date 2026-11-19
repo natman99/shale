@@ -35,7 +35,11 @@ mod workspace;
 
 use std::path::PathBuf;
 
-use anyhow::{Context as _, Result};
+use anyhow::Result;
+// `.context()` is reached only inside the unix signal block below, so the import is
+// named for the platform that uses it; the Windows target reads it as unused otherwise.
+#[cfg(unix)]
+use anyhow::Context as _;
 use clap::Parser;
 use gpui::App;
 use shale_core::RecentVaults;
