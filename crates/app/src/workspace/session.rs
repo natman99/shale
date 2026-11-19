@@ -67,6 +67,9 @@ fn filter_seat(filter: &GraphFilter) -> Option<GraphFilterSeat> {
             .clone()
             .filter(|query| !query.trim().is_empty()),
         local: filter.local.as_ref().map(|scope| scope.depth),
+        // The name, not the answer: the file is the authority, and the next window asks
+        // it again rather than inheriting a set of paths that may have gone stale.
+        lens: filter.lens.as_ref().map(|scope| scope.name.clone()),
     };
     (seat != GraphFilterSeat::default()).then_some(seat)
 }
@@ -310,10 +313,15 @@ impl Workspace {
                 tags: seat.tags,
                 search: seat.search.clone(),
                 folder: None,
-                // No lens yet: the seat has no lens field, so a restored window starts
-                // without one. `GraphFilterSeat.lens` is M6 of P4.16.
                 lens: None,
             };
+            // The lens is the one part of the seat that has to be *asked* rather than
+            // copied: the seat holds a name, and the answer belongs to the file and the
+            // index as they are now (EDGE-L1). This still happens before any tab opens,
+            // so the graph tab's first frame is laid out under the lens.
+            if let Some(name) = seat.lens.as_deref() {
+                self.restore_lens(name, cx);
+            }
         }
 
         // The panes before the tabs: every tab goes to the pane that held it, so the

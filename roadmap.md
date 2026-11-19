@@ -72,15 +72,14 @@ words** (P4.18, 2026-11-13) — plus a long todo-driven sweep, 2026-11-13 to 202
 jumplist and mouse 4/5, arrows and paging, the `h`/`l` line-edge rule, frontmatter folding,
 the panel marks and their per-pane fix, the whole-run crash, moving a note between folders
 by keyboard and mouse, and importing a file from outside the vault (**P4.19**, below).
-**P4.16, the graph lens, is being built now** (2026-11-17): the design pass, the
+**P4.16, the graph lens, is closed** (2026-11-17 to 2026-11-18): the design pass, the
 measurement, all nine rulings, then **M1** (the lens as a filter dimension), **M2** (the
 `.shale/lenses/*.shq` files and the reader) and **M3** (`:lens`, the picker, the palette
-row) closed the same day, and **M4** (the tab title's `graph · <lens>`, the strip's lens
-row, and a lens that re-runs when the vault moves) and **M5** (`alt-s` in the strip and
-`:lens save`, which keep the filter line's question as a lens and put it on) on 2026-11-18.
-What is left on the item is **M6**: the seat (`GraphFilterSeat.lens`), restore, and the
-roadmap close. A lens is no longer only a file you write by hand. What P4.16 unblocks is
-the GM screen (P7.4) and
+row) the first day; **M4** (the tab title's `graph · <lens>`, the strip's lens row, and a
+lens that re-runs when the vault moves), **M5** (`alt-s` in the strip and `:lens save`,
+which keep the filter line's question as a lens and put it on) and **M6** (the seat, which
+remembers a lens by name and re-asks it in the next window) on the second. A lens is not
+only a file you write by hand. What P4.16 unblocks is the GM screen (P7.4) and
 canvas-as-saved-selection (P6.10). Two items the user keeps asking for are still unstarted: **P4.10 trash** and
 **P4.12 attachment capture**. `ctrl-t` scratch tabs are ruled in full (2026-11-13) and
 genuinely unbuilt — `ctrl-t` still duplicates the current note.
@@ -2052,6 +2051,28 @@ edges, query nodes, MCP canvas tools) is P6.10.
     `pump_graph` no-ops on a settled sim — the view keeps the old picture and the old
     counts. `refresh_graph` is the door that ships regardless, and M4's live re-run owes
     the same.
+  - **M4 closed (2026-11-18):** the tab title reads `graph · <lens>`, the strip carries a
+    lens row (`lens <name> · 3 notes`, or `· not answering: <why>`, with `, N with no node`
+    appended), and a worn lens **re-runs** when the index moves or when the file changes
+    under an editor's hands — the layout is disturbed only when the answer's node set moved,
+    which is the half M0 measured for (EDGE-L7). A lens that stops answering keeps the last
+    good picture and carries the sentence (EDGE-L6); a lens file deleted from under the
+    graph says it is gone (EDGE-L11). Eight app tests, all mutations red.
+  - **M5 closed (2026-11-18):** the door that *makes* one. `alt-s` in the filter strip keeps
+    the line's question as a lens through the search→SQL translation P4.3 M6 already had;
+    `:lens save <name>` is the same door with the name already given; a saved lens goes on
+    right away (ruled 2026-11-18). It never overwrites a lens a reader wrote, refuses a
+    question the index cannot be asked again before a name is spent on it, and keeps the
+    strip's chips out of the file (ruling 1 — pinned by showing an orphan come back when its
+    chip does, inside the lens). Seven app tests, thirteen mutations red.
+  - **M6 closed (2026-11-18): P4.16 is closed.** `GraphFilterSeat.lens` remembers a lens by
+    **name**, never by the paths it answered — that would be a lie by the next morning — and
+    the next window re-asks the file (EDGE-L1). A lens that no longer answers leaves the
+    window unfiltered and says so, rather than opening on an empty picture. The seat is
+    restored before any tab opens, so the graph tab's first frame is laid out under the lens;
+    the index has usually not read the vault yet at that moment, so a restored lens answers
+    empty for the length of one pass and fills in when it lands. Five app tests, five
+    mutations red.
 
 - **P4.17 One note, one buffer per window (the registry)** — **added 2026-11-06 by the
   P4.0b design pass; it is P4.0b's first commit, not a later cleanup.** A per-window

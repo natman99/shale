@@ -513,6 +513,88 @@ impl Workspace {
     /// import. A lens that will not answer leaves the picture standing (EDGE-L6) and says
     /// why on the status line, because the command line has already closed and the status
     /// line is where a reader looks for why nothing changed.
+    /// A lens coming back with the session (P4.16 M6). The seat remembers a **name**;
+    /// the answer belongs to the file and the index as they are now, so this re-asks it
+    /// (EDGE-L1). Nothing is re-laid-out here: the seat is restored before any tab opens,
+    /// and the graph tab's first frame is built from the filter this fills.
+    ///
+    /// The index has usually not read the vault yet at that moment, so a restored lens
+    /// starts empty and answers when the first pass lands — [`Workspace::lens_follow`] is
+    /// the same door EDGE-L7 walks through in a live window. The alternative is replaying
+    /// the paths the last window saw, which is the lie the seat refuses to tell.
+    ///
+    /// A lens that will not answer leaves the window without one and says so — the same
+    /// posture the door takes (EDGE-L6), where "the picture stands" at startup can only
+    /// mean "the picture starts unfiltered".
+    pub(super) fn restore_lens(&mut self, name: &str, cx: &mut Context<Self>) {
+        let text = match shale_core::lens::read(self.vault.root(), name) {
+            Ok(text) => text,
+            Err(err) => {
+                self.say(
+                    format!("the lens `{name}` this window left on cannot be read: {err:#}"),
+                    cx,
+                );
+                return;
+            }
+        };
+        let Some(db) = self.db.as_ref() else {
+            self.say(
+                format!(
+                    "the lens `{name}` this window left on cannot be answered: there is no \
+                     vault index to read (index.enabled = false)"
+                ),
+                cx,
+            );
+            return;
+        };
+        let Ok(conn) = db.read() else {
+            self.say(
+                format!("the lens `{name}` this window left on cannot be answered: the vault index could not be read"),
+                cx,
+            );
+            return;
+        };
+        let stem = name
+            .strip_suffix(&format!(".{}", shale_core::query_note::EXTENSION))
+            .unwrap_or(name);
+        let scope = |name: String, paths: Vec<String>| shale_core::graph::filter::LensScope {
+            name,
+            paths,
+            // Measured against the graph index, which a restored window does not have
+            // yet; [`Workspace::lens_index_arrived`] fills it in when the first one does.
+            unmatched: 0,
+            stale: None,
+        };
+        match shale_core::lens::answer(&text, stem, &conn) {
+            shale_core::lens::LensOutcome::Refused { why } => self.say(
+                format!("the lens `{name}` this window left on is not answering: {why}"),
+                cx,
+            ),
+            shale_core::lens::LensOutcome::Empty { name } => {
+                self.graph_filter.lens = Some(scope(name, Vec::new()));
+            }
+            shale_core::lens::LensOutcome::Answered { name, paths } => {
+                self.graph_filter.lens = Some(scope(name, paths));
+            }
+        }
+    }
+
+    /// The lens's "with no node" count is measured against the graph index, so it is
+    /// filled in whenever an index arrives. A lens worn in a live window already has it
+    /// (the door measures it); a lens restored from the seat meets its first index here.
+    fn lens_index_arrived(&mut self) {
+        let Some(scope) = self.graph_filter.lens.as_ref() else {
+            return;
+        };
+        let Some(index) = self.graph.as_ref() else {
+            return;
+        };
+        let unmatched = shale_core::lens::unmatched(index, &scope.paths).len();
+        if let Some(scope) = self.graph_filter.lens.as_mut() {
+            scope.unmatched = unmatched;
+        }
+    }
+
     fn wear_lens(&mut self, name: &str, said: &str, cx: &mut Context<Self>) {
         // EDGE-L9: `none` is a name, not a mode — the same dimension set back to None.
         if name == "none" {
@@ -1313,6 +1395,7 @@ impl Workspace {
                     "the graph index was built"
                 );
                 self.graph = Some(index);
+                self.lens_index_arrived();
                 self.refresh_graph(cx);
                 self.say("graph", cx);
             }

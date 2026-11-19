@@ -2045,3 +2045,33 @@ the binding had been added to the keymap twice — the keymap docs test dedupes 
 green. Thirteen mutations, all red (`falsify_lens_m5.py`); seven new tests in
 `tests/lens.rs`, 27 lens tests in all.
 
+
+## The session remembers a lens by its name (P4.16 M6, 2026-11-18)
+
+`GraphFilterSeat.lens` is an `Option<String>`. The seat could have kept the paths the lens
+answered, and that would have been a lie by the next morning: the `.shq` file is the
+authority (EDGE-L1) and the vault moves underneath it. So the seat holds the **question**
+and the next window re-asks it — `restore_lens` reads the file and answers it against the
+index as they are now, before any tab opens, so the graph tab's first frame is laid out
+under the lens rather than re-made after it was drawn without one.
+
+Two things the timing taught, both now pinned by tests:
+
+- **At restore the index has not read the vault yet.** A restored lens is worn empty for the
+  length of one index pass and answers when the pass lands — the same door `lens_follow`
+  walks through for a lens in a live window (EDGE-L7). The test reads the window *before*
+  `run_until_parked` to show the two steps: `("ab", 0)`, then `("ab", 1)`.
+- **A restored lens has not met a graph index either**, and the "with no node" count is
+  measured against that index. `lens_follow` will not recompute it when the answer's set has
+  not moved, so `lens_index_arrived` fills it in whenever an index arrives. Without that
+  call the strip says `lens half · 2 notes` where the truth is `1 note, 1 with no node`.
+
+A lens that will not answer at startup is not worn: the window opens on the whole vault and
+says which half failed. EDGE-L6's "the picture stands" can only mean "the picture starts
+unfiltered" when there is no previous picture.
+
+Five app tests, five mutations red (`falsify_lens_m6.py`). One battery note: the first
+version of "the seat forgets the lens" deleted the field from the seat literal and would not
+compile — the compiler pins the field, not the test — so the mutation had to be `lens: None`
+to ask the behavioural question at all.
+

@@ -253,6 +253,7 @@ fn a_filter_change_is_remembered_by_the_session(cx: &mut TestAppContext) {
             tags: true,
             search: Some("idea".into()),
             local: None,
+            lens: None,
         }),
         "and a filter the user chose is"
     );
@@ -279,6 +280,7 @@ fn the_filter_comes_back_with_the_session(cx: &mut TestAppContext) {
             tags: false,
             search: None,
             local: None,
+            lens: None,
         }),
         ..Session::default()
     };
@@ -472,6 +474,7 @@ fn the_local_depth_comes_back_with_the_session(cx: &mut TestAppContext) {
             tags: true,
             search: None,
             local: Some(2),
+            lens: None,
         }),
         ..Session::default()
     };

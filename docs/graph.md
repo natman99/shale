@@ -108,6 +108,11 @@ The strip carries a row for it — `lens <name> · 3 notes`, or `lens <name> · 
 <why>` — because the status line's sentence scrolls away and the picture's silence does
 not. The tab's title carries it too: a graph tab reads `graph · <name>`.
 
+A lens comes back with the session. The seat remembers its **name**, never the paths it
+answered — the file is the authority and the vault moves — so the next window asks it again
+and wears whatever it answers now. A lens that no longer answers leaves the window
+unfiltered and says so, rather than opening on an empty picture.
+
 The demo vault ships one to read — `:lens Tagged notes` narrows the picture to the three
 notes that write a tag — at
 `examples/demo-vault/.shale/lenses/Tagged notes.shq`.

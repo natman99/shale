@@ -710,6 +710,209 @@ fn a_lens_deleted_from_under_the_graph_says_it_is_gone(cx: &mut TestAppContext) 
     );
 }
 
+// ------------------------------------------------------------------- the seat (M6)
+//
+// The session remembers a lens by **name**. It could remember the paths it answered, and
+// that would be a lie by the next morning: the `.shq` file is the authority (EDGE-L1) and
+// the vault moves, so the seat holds the question and the next window asks it again.
+
+use shale_core::session::{GraphFilterSeat, Session, Tab};
+
+/// A window restored over `session`, index on, with these lens files written before the
+/// window opens. The notes are the graph's usual shape.
+fn lens_session(
+    cx: &mut TestAppContext,
+    lenses: &[(&str, &str)],
+    session: &Session,
+) -> (tempfile::TempDir, WindowHandle<Workspace>) {
+    let dir = tempfile::tempdir().unwrap();
+    for (name, text) in [
+        ("a.md", "see [[b]] and [[gone]] and #tag\n"),
+        ("b.md", "back to [[a]]\n"),
+        ("c.md", "alone\n"),
+    ] {
+        std::fs::write(dir.path().join(name), text).unwrap();
+    }
+    write_lenses(&dir, lenses);
+    session.save(dir.path()).expect("the session file");
+    let window = open_window(cx, dir.path(), test_config());
+    cx.run_until_parked();
+    (dir, window)
+}
+
+/// A session whose only tab is the graph, wearing `lens` (or no lens at all).
+fn graph_session(lens: Option<&str>) -> Session {
+    Session {
+        tabs: vec![Tab {
+            path: None,
+            view: String::new(),
+            pinned: false,
+            graph: true,
+            camera: None,
+            mode: None,
+            orientation: None,
+        }],
+        active_tab: Some(0),
+        graph_filter: Some(GraphFilterSeat {
+            lens: lens.map(str::to_string),
+            ..GraphFilterSeat::default()
+        }),
+        ..Session::default()
+    }
+}
+
+/// What the seat would hold for the filter as it stands.
+fn seat(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> GraphFilterSeat {
+    window
+        .update(cx, |ws, _window, cx| ws.session_snapshot(cx))
+        .unwrap()
+        .graph_filter
+        .unwrap_or_default()
+}
+
+/// The seat keeps a lens's **name**, and nothing else: no paths, no count.
+#[gpui::test]
+fn the_seat_remembers_a_lens_by_name(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = lens_vault(
+        cx,
+        &[("ab", "SELECT path AS note FROM notes WHERE path = 'a.md'")],
+    );
+    on_graph(&mut cx, &window);
+    assert_eq!(
+        seat(&window, &mut cx).lens,
+        None,
+        "no lens, nothing to remember (EDGE-L9)"
+    );
+
+    command_line("lens ab", &mut cx);
+    assert_eq!(
+        seat(&window, &mut cx).lens.as_deref(),
+        Some("ab"),
+        "the seat holds the question, not the answer it gave"
+    );
+}
+
+/// The next window wears it again — and answers for itself, from the file and the index
+/// as they are now.
+#[gpui::test]
+fn a_worn_lens_comes_back_with_the_session(cx: &mut TestAppContext) {
+    let (_dir, window) = lens_session(
+        cx,
+        &[("ab", "SELECT path AS note FROM notes WHERE path = 'a.md'")],
+        &graph_session(Some("ab")),
+    );
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    assert_eq!(
+        worn(&window, &mut cx),
+        Some(("ab".to_string(), 1)),
+        "the lens was re-asked, not replayed"
+    );
+    assert_eq!(
+        counts(&mut cx, &window).map(|c| c.notes),
+        Some(1),
+        "and the picture is under it"
+    );
+}
+
+/// The seat is restored before any tab opens, and at that moment the vault index has not
+/// read the vault yet — so a restored lens is worn **empty** for the length of one index
+/// pass, and answers when the pass lands. That is the same door EDGE-L7 walks through for
+/// a lens in a live window, and it is worth pinning because the alternative — replaying
+/// the paths the last window saw — is the lie the seat refuses to tell.
+#[gpui::test]
+fn a_restored_lens_answers_when_the_index_arrives(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    for (name, text) in [
+        ("a.md", "see [[b]] and [[gone]] and #tag\n"),
+        ("b.md", "back to [[a]]\n"),
+        ("c.md", "alone\n"),
+    ] {
+        std::fs::write(dir.path().join(name), text).unwrap();
+    }
+    write_lenses(
+        &dir,
+        &[("ab", "SELECT path AS note FROM notes WHERE path = 'a.md'")],
+    );
+    graph_session(Some("ab")).save(dir.path()).unwrap();
+    let window = open_window(cx, dir.path(), test_config());
+
+    let worn_now = window
+        .update(cx, |ws, _window, _cx| {
+            ws.graph_filter()
+                .lens
+                .as_ref()
+                .map(|lens| (lens.name.clone(), lens.paths.len()))
+        })
+        .unwrap();
+    assert_eq!(
+        worn_now,
+        Some(("ab".to_string(), 0)),
+        "the lens is on the window the moment it is built, and holds nothing yet"
+    );
+
+    cx.run_until_parked();
+    let later = window
+        .update(cx, |ws, _window, _cx| {
+            ws.graph_filter()
+                .lens
+                .as_ref()
+                .map(|lens| (lens.name.clone(), lens.paths.len()))
+        })
+        .unwrap();
+    assert_eq!(
+        later,
+        Some(("ab".to_string(), 1)),
+        "and it answers with the index"
+    );
+}
+
+/// The seat's name is not a promise the file keeps. A lens that will not answer leaves
+/// the window without one and says which half failed — the same posture the door takes
+/// (EDGE-L6), where "the picture stands" at startup can only mean the picture starts
+/// unfiltered.
+#[gpui::test]
+fn a_lens_that_no_longer_answers_does_not_come_back(cx: &mut TestAppContext) {
+    let (_dir, window) = lens_session(
+        cx,
+        &[("broken", "SELECT note FROM wherever")],
+        &graph_session(Some("broken")),
+    );
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    assert_eq!(worn(&window, &mut cx), None, "no lens is worn");
+    assert_eq!(
+        counts(&mut cx, &window).map(|c| c.notes),
+        Some(3),
+        "and the picture is the whole vault, not an empty one"
+    );
+}
+
+/// A lens restored from the seat has not met a graph index yet when it is asked, so its
+/// "with no node" count is filled in when the first index arrives — the strip's row is
+/// where a reader would notice if it were not.
+#[gpui::test]
+fn a_restored_lens_counts_its_answers_with_no_node(cx: &mut TestAppContext) {
+    let (_dir, window) = lens_session(
+        cx,
+        &[(
+            "half",
+            "SELECT 'nowhere.md' AS note UNION SELECT 'a.md' AS note",
+        )],
+        &graph_session(Some("half")),
+    );
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    assert_eq!(
+        worn(&window, &mut cx),
+        Some(("half".to_string(), 2)),
+        "the answer is two paths, one of them a note this vault does not have"
+    );
+    open_strip(&mut cx, &window);
+    assert_eq!(
+        strip_lens(&window, &mut cx).as_deref(),
+        Some("lens half · 1 note, 1 with no node"),
+        "and the strip says so, measured against the index that arrived after the lens did"
+    );
+}
+
 // ------------------------------------------------------------------- the save door
 //
 // M5: the way *in* to a lens is a picture the reader is already looking at. The filter
