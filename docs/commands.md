@@ -90,5 +90,5 @@ two halves of a promise (`:q!`, `:wq`) rather than rows to browse,
 `app.quit-force` and `app.write-quit` are the exit that throws unsaved edits
 away and the one that keeps them (not a row to offer next to *Quit Shale* in
 a list you pick from), and the `review.*` keys other than `review.focus` mean
-nothing while the review strip is off screen — which is only when nothing is
+nothing while the review view is off screen — which is only when nothing is
 waiting.

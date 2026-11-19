@@ -95,6 +95,7 @@ mod tabs;
 mod tree;
 mod vaults;
 mod views;
+mod words;
 mod writing;
 
 /// The simulated clock, taken from the `TestAppContext` before a window context

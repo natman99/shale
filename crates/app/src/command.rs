@@ -227,7 +227,7 @@ impl Command {
              `app.quit-force` and `app.write-quit` are the exit that throws unsaved edits\n\
              away and the one that keeps them (not a row to offer next to *Quit Shale* in\n\
              a list you pick from), and the `review.*` keys other than `review.focus` mean\n\
-             nothing while the review strip is off screen — which is only when nothing is\n\
+             nothing while the review view is off screen — which is only when nothing is\n\
              waiting.\n",
             hidden.join(", "),
         ));
