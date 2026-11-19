@@ -365,7 +365,7 @@ const ALL: &[Command] = &[
         id: "graph.lens",
         label: "Choose a lens for the graph",
         keys: "",
-        ex: &["lens"],
+        ex: &["lens", "lens save"],
         args: "[name]",
         in_palette: true,
         action: Some(|| Box::new(GraphLens)),

@@ -67,6 +67,10 @@ pub(crate) enum PromptKind {
     /// because the prompt outlives the picker that offered the row, and a name without
     /// the question it names is nothing to write.
     SaveQuery(String),
+    /// The name for the graph's filter line being kept as a lens (P4.16 M5). The
+    /// question rides along for the same reason a saved query's does: the prompt
+    /// outlives the strip that offered it.
+    SaveLens(String),
     /// vim's command line: one word naming one command, matched exactly. The field
     /// is the same; what the answer *means* is [`crate::ex`]'s business.
     Command,

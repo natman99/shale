@@ -116,8 +116,9 @@ pub(crate) enum Ex {
     /// follows. Renaming while moving is `:rename`'s job; this verb does not do it.
     Move(String),
     /// `lens [name]`: the graph wears a saved query (P4.16). No name opens the picker;
-    /// `none` takes the lens off — a name, not a mode (EDGE-L9). The name is a lens's
-    /// own, never a path: `lens::read` refuses a separator rather than resolving it.
+    /// `none` takes the lens off — a name, not a mode (EDGE-L9). `lens save <name>` keeps
+    /// the filter line's question as a lens and puts it on. The name is a lens's own,
+    /// never a path: `lens::write` refuses a separator rather than resolving it.
     Lens(String),
     /// `sections [pattern]`: jump to a section (P4.3b M3). No pattern outlines the
     /// note on screen from its buffer; a pattern searches the vault's sections through

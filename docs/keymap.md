@@ -431,6 +431,7 @@ in hand. `docs/keys.md` is the human map of both halves.
 | `alt-o` | show or hide unlinked notes | `GraphFilterOrphans` | — |
 | `alt-x` | show or hide links to notes that do not exist | `GraphFilterMissing` | — |
 | `alt-t` | show or hide tags | `GraphFilterTags` | — |
+| `alt-s` | keep the filter line's question as a lens | `GraphFilterSaveLens` | — |
 | `backspace` | delete the character before the caret | `FieldBackspace` | — |
 | `delete` | delete the character at the caret | `FieldDelete` | — |
 | `ctrl-backspace` | delete the word before the caret | `FieldDeleteWordBack` | — |

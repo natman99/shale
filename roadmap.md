@@ -75,10 +75,12 @@ by keyboard and mouse, and importing a file from outside the vault (**P4.19**, b
 **P4.16, the graph lens, is being built now** (2026-11-17): the design pass, the
 measurement, all nine rulings, then **M1** (the lens as a filter dimension), **M2** (the
 `.shale/lenses/*.shq` files and the reader) and **M3** (`:lens`, the picker, the palette
-row) closed the same day. What is left on the item is **M4** (the view taking the mask
-live, the tab title's `· lens`, the strip's lens row), **M5** (the door that *makes* one:
-`s` in the strip, `:lens save`) and **M6** (the seat, restore, docs). Until M5 lands a lens
-is a file you write by hand. What P4.16 unblocks is the GM screen (P7.4) and
+row) closed the same day, and **M4** (the tab title's `graph · <lens>`, the strip's lens
+row, and a lens that re-runs when the vault moves) and **M5** (`alt-s` in the strip and
+`:lens save`, which keep the filter line's question as a lens and put it on) on 2026-11-18.
+What is left on the item is **M6**: the seat (`GraphFilterSeat.lens`), restore, and the
+roadmap close. A lens is no longer only a file you write by hand. What P4.16 unblocks is
+the GM screen (P7.4) and
 canvas-as-saved-selection (P6.10). Two items the user keeps asking for are still unstarted: **P4.10 trash** and
 **P4.12 attachment capture**. `ctrl-t` scratch tabs are ruled in full (2026-11-13) and
 genuinely unbuilt — `ctrl-t` still duplicates the current note.

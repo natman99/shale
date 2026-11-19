@@ -1974,3 +1974,74 @@ competing for the same cores). The same binaries at load **2.0–2.5** read 1.90
 reading, a suspicious gap gets re-run rather than explained, and the primitive count is the
 check that the work didn't change when the time did. A wall-clock benchmark without a load
 average next to it is a story, not a measurement.
+
+## A lens keeps up with the vault, and says its own name (P4.16 M4, 2026-11-18)
+
+M4 is the lens becoming a live dimension rather than a thing read once. Three surfaces and
+one behaviour:
+
+- **The tab title wears it.** A graph tab reads `graph`, or `graph · <lens>`. Recorded per
+  frame in a `#[cfg(test)] tab_labels` cell, because the rule the bar lens taught still
+  holds: a hook that *re-derives* the string stays green with the string deleted from the
+  bar, so the test asserts what the frame **drew**.
+- **The strip carries a row for it** — `lens <name> · 3 notes`, or
+  `lens <name> · not answering: <why>` — because the status line's sentence scrolls away and
+  the picture's silence does not. An answer naming notes the graph has no node for appends
+  `, 2 with no node` (EDGE-L5's count-out-loud, now in the place the reader is looking).
+- **It re-runs when the vault moves** (EDGE-L7). `lens_follow` re-asks the query on an index
+  move and compares the *node set*; the layout is only disturbed when that set moved, so a
+  lens over a vault that edited its notes' text keeps its picture. A hand-edited `.shq`
+  re-runs too: the vault's signature walk skips `.shale/` on purpose (EDGE-L1), so
+  `lens::stamps()` reads the lens folder's mtimes beside it.
+- **A lens that stops answering keeps the last good picture** (EDGE-L6) and carries the
+  sentence into the strip; a lens file deleted from under the graph says
+  "`<name>` is gone; the picture stays as it was" (EDGE-L11).
+
+The falsification battery caught its own usual thing: the strip's row recorder was written
+at **build** time, so it recorded whether a row *could* be drawn rather than whether one
+**was** — moving it inside the `.when` draw branch turned the mutation red. Eight new tests,
+all mutations red.
+
+## The strip can keep the picture it is showing (P4.16 M5, 2026-11-18)
+
+A lens used to be a file you write by hand. Now the graph can make one from the question
+already sitting in its filter line: `alt-s` in the strip asks for a name (starting from one
+made from the question), `:lens save <name>` is the same door with the name already given,
+and **a saved lens goes on right away** (ruled 2026-11-18) — the sentence says
+`saved lens `x`: 3 notes`, one clause for each half.
+
+The save is nearly free, and that was the point of P4.3 M6: `db::compile_sql` already turns
+a typed search into "the SQL a hand-written `.shq` would hold". The lens file is that
+statement, plus the question kept above it as a comment so the file says what it was asked
+in the words that were typed.
+
+What the door refuses:
+
+- **A question that cannot be kept is refused before a name is spent on it** — core's own
+  sentences, the same three keep-a-search makes.
+- **An existing lens is never written over** (ruling I). The file a reader wrote — and may
+  edit by hand, since it is the authority (EDGE-L1) — outranks the picture just saved.
+- **A lens name is one name, never a path.** `lens::read`'s guard is factored into
+  `guard_name` and both doors use it, with separators checked *before* the shape guard so
+  `../evil` reads as "a lens name is one name, not a path" rather than as a dot-name
+  complaint. A refusal that lands by accident is a refusal the next edit can lose.
+- **The strip's chips are not encoded into the file** (ruling 1). They stay dimensions, so
+  a lens never freezes an `orphans` choice into a query its author will later read. The test
+  pins it behaviourally rather than by string: save `modified:2020-01-01` with orphans
+  hidden, then switch the chip back — the orphan comes back, *inside* the lens (EDGE-L3).
+
+Two findings. **`modified:7d` will not save**, and that is correct: a duration counts from
+the moment it runs, so written into a file it would mean "since the day it was saved" — the
+refusal fired while the chips test was being written, and the test uses a date. And **the
+filter line is still its own dimension after the save** (ruling 2): `tag:tag` fuzzy-matches
+node *labels*, so the picture is empty until the reader takes the text out. The test clears
+the line and then checks the lens's answer, rather than asserting the surprise.
+
+Also fixed on the way, from the same family as a run-on sentence in a status line: three of
+core's refusal messages had picked up runs of 14 spaces where a Rust `\`-continuation was
+eaten by the tool that wrote them (`db/index.rs` twice, `graph/render.rs` once). The
+falsification battery found a second thing: its `alt-s` anchor matched **twice**, because
+the binding had been added to the keymap twice — the keymap docs test dedupes and stayed
+green. Thirteen mutations, all red (`falsify_lens_m5.py`); seven new tests in
+`tests/lens.rs`, 27 lens tests in all.
+

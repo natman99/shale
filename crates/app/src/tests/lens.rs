@@ -709,3 +709,267 @@ fn a_lens_deleted_from_under_the_graph_says_it_is_gone(cx: &mut TestAppContext) 
         "and the strip keeps saying it after the sentence has scrolled away: {row}"
     );
 }
+
+// ------------------------------------------------------------------- the save door
+//
+// M5: the way *in* to a lens is a picture the reader is already looking at. The filter
+// line's question compiles to the SQL a hand-written `.shq` would hold — the same
+// translation keep-a-search uses — so the lens answers what the line answered. The strip's
+// chips are not encoded (ruling 1): they stay dimensions, and a lens never freezes a chip
+// choice into a file its author will later edit by hand.
+
+/// The name the prompt opened with, if a prompt is open.
+fn prompt_name(window: &WindowHandle<Workspace>, cx: &mut VisualTestContext) -> Option<String> {
+    window
+        .update(cx, |ws, _window, cx| ws.prompt_text(cx))
+        .unwrap()
+}
+
+/// The lens file's text, as it sits on disk.
+fn lens_file(dir: &tempfile::TempDir, name: &str) -> String {
+    let here = dir.path().join(".shale").join("lenses");
+    let path = here.join(format!("{name}.shq"));
+    let listing: Vec<String> = std::fs::read_dir(&here)
+        .map(|entries| {
+            entries
+                .flatten()
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .collect()
+        })
+        .unwrap_or_default();
+    std::fs::read_to_string(&path)
+        .unwrap_or_else(|_| panic!("no {name}.shq; folder holds {listing:?}"))
+}
+
+/// Type into the filter line, with the strip open.
+fn type_query(cx: &mut VisualTestContext, text: &str) {
+    cx.simulate_input(text);
+}
+
+/// `alt-s` in the strip, and the name accepted from the prompt it opens.
+fn save_from_strip(cx: &mut VisualTestContext) {
+    cx.simulate_keystrokes("alt-s");
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+}
+
+/// Empty the filter line, leaving the lens on. The line's text is its own dimension
+/// (ruling 2), so a question like `tag:tag` fuzzy-matches node *labels* on the way to
+/// being saved, and the picture stays empty until the reader takes the text out.
+fn clear_line(cx: &mut VisualTestContext, window: &WindowHandle<Workspace>) {
+    cx.simulate_keystrokes("escape");
+    open_strip(cx, window);
+    // More backspaces than any line these tests type: an empty field ignores the rest.
+    for _ in 0..32 {
+        cx.simulate_keystrokes("backspace");
+    }
+    draw(cx);
+}
+
+/// The strip's `alt-s`: the line's question becomes a file under `.shale/lenses`, and the
+/// graph puts it on right away (ruled 2026-11-18).
+#[gpui::test]
+fn the_strip_saves_its_question_as_a_lens(cx: &mut TestAppContext) {
+    let (dir, window, mut cx) = lens_vault(cx, &[]);
+    on_graph(&mut cx, &window);
+    open_strip(&mut cx, &window);
+    type_query(&mut cx, "tag:tag");
+
+    cx.simulate_keystrokes("alt-s");
+    assert_eq!(
+        prompt_name(&window, &mut cx),
+        Some("tag".to_string()),
+        "the prompt starts with a name made from the question, so the reader edits one"
+    );
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+
+    let text = lens_file(&dir, "tag");
+    assert!(text.contains(r#"name = "tag""#), "{text}");
+    assert!(
+        text.contains("-- Saved from the graph's filter line: tag:tag"),
+        "the file says the question in the words it was typed: {text}"
+    );
+    assert!(
+        text.contains("SELECT path AS note FROM notes n WHERE 1=1 AND EXISTS"),
+        "and holds the statement those words compile to: {text}"
+    );
+    assert_eq!(
+        say(&window, &mut cx),
+        "saved lens `tag`: 1 note",
+        "one sentence says both halves: it was saved, and it is on"
+    );
+    assert_eq!(worn(&window, &mut cx), Some(("tag".to_string(), 1)));
+    assert_eq!(
+        counts(&mut cx, &window).map(|c| c.notes),
+        Some(0),
+        "the line's own text is still a dimension of its own, and `tag:tag` matches no label"
+    );
+
+    clear_line(&mut cx, &window);
+    assert_eq!(
+        counts(&mut cx, &window).map(|c| c.notes),
+        Some(1),
+        "with the text out, the picture is what the lens asked the index"
+    );
+}
+
+/// `:lens save <name>` is the same door with the name already given — no prompt, because
+/// the reader arrived having decided.
+#[gpui::test]
+fn a_lens_can_be_saved_with_its_name(cx: &mut TestAppContext) {
+    let (dir, window, mut cx) = lens_vault(cx, &[]);
+    on_graph(&mut cx, &window);
+    open_strip(&mut cx, &window);
+    type_query(&mut cx, "tag:tag");
+    cx.simulate_keystrokes("escape");
+
+    command_line("lens save tagged", &mut cx);
+
+    assert!(
+        dir.path()
+            .join(".shale")
+            .join("lenses")
+            .join("tagged.shq")
+            .is_file(),
+        "the file landed in the lens folder"
+    );
+    assert_eq!(say(&window, &mut cx), "saved lens `tagged`: 1 note");
+    assert_eq!(worn(&window, &mut cx), Some(("tagged".to_string(), 1)));
+}
+
+/// A question the index cannot be asked again is refused by name, before any file is
+/// written — the same three refusals keep-a-search makes, in the same words.
+#[gpui::test]
+fn a_question_that_cannot_be_kept_is_refused(cx: &mut TestAppContext) {
+    let (dir, window, mut cx) = lens_vault(cx, &[]);
+    on_graph(&mut cx, &window);
+    open_strip(&mut cx, &window);
+    type_query(&mut cx, "b");
+
+    cx.simulate_keystrokes("alt-s");
+    assert_eq!(
+        say(&window, &mut cx),
+        "plain text searches the lines of notes, and a saved query asks the index",
+        "the refusal is core's, said before a name is spent on it"
+    );
+    assert!(
+        prompt_name(&window, &mut cx).is_none(),
+        "and no prompt opens for a question that cannot be kept"
+    );
+    let here = dir.path().join(".shale").join("lenses");
+    assert_eq!(
+        std::fs::read_dir(here)
+            .map(|entries| entries.count())
+            .unwrap_or(0),
+        0,
+        "nothing was written"
+    );
+}
+
+/// An empty line is not a question. The strip says which half is missing.
+#[gpui::test]
+fn an_empty_filter_line_saves_nothing(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = lens_vault(cx, &[]);
+    on_graph(&mut cx, &window);
+    open_strip(&mut cx, &window);
+    cx.simulate_keystrokes("alt-s");
+    assert_eq!(
+        say(&window, &mut cx),
+        "the filter line is empty: type the question first, or name one you have with \
+         `:lens save <name>`"
+    );
+
+    command_line("lens save", &mut cx);
+    assert_eq!(say(&window, &mut cx), "name it: `:lens save <name>`");
+}
+
+/// Ruling I, inherited: the file a reader wrote — and may have edited by hand, since it is
+/// the authority — outranks the picture someone just saved over it.
+#[gpui::test]
+fn a_saved_lens_is_never_written_over(cx: &mut TestAppContext) {
+    let (dir, window, mut cx) = lens_vault(cx, &[]);
+    on_graph(&mut cx, &window);
+    open_strip(&mut cx, &window);
+    type_query(&mut cx, "tag:tag");
+    save_from_strip(&mut cx);
+    let first = lens_file(&dir, "tag");
+
+    command_line("lens save tag", &mut cx);
+    assert!(
+        say(&window, &mut cx).contains("will not overwrite"),
+        "the second save says what it refused to do: {}",
+        say(&window, &mut cx)
+    );
+    assert_eq!(lens_file(&dir, "tag"), first, "and the first file stands");
+}
+
+/// Ruling 1, pinned where it matters: the chips are not encoded into the file. A chip that
+/// was hiding something when the lens was saved is still a chip afterwards — switching it
+/// back shows what it was hiding, inside the lens. `modified:2020-01-01` answers all three
+/// notes (a duration would not save: it would mean something different the next time the
+/// file ran), so the orphan the chip was hiding is inside the lens's answer and comes back
+/// when the chip does; a lens that had frozen the chip would keep it out.
+#[gpui::test]
+fn the_strip_s_chips_stay_out_of_the_lens(cx: &mut TestAppContext) {
+    let (dir, window, mut cx) = lens_vault(cx, &[]);
+    on_graph(&mut cx, &window);
+    assert_eq!(
+        counts(&mut cx, &window).map(|c| c.notes),
+        Some(3),
+        "three notes, one of them an orphan"
+    );
+
+    open_strip(&mut cx, &window);
+    type_query(&mut cx, "modified:2020-01-01");
+    cx.simulate_keystrokes("alt-o"); // "orphans" off, at the moment of the save
+    save_from_strip(&mut cx);
+
+    let text = lens_file(&dir, "2020-01-01");
+    assert!(
+        text.contains("-- Saved from the graph's filter line: modified:2020-01-01"),
+        "the file holds the question: {text}"
+    );
+    assert!(
+        !text.contains("orphan") && !text.contains("degree"),
+        "and nothing chip-shaped: {text}"
+    );
+
+    clear_line(&mut cx, &window);
+    assert_eq!(
+        counts(&mut cx, &window).map(|c| c.notes),
+        Some(2),
+        "the chip is still a chip, cutting inside the lens (EDGE-L3)"
+    );
+
+    // The strip is still open from clearing the line, so the chip key goes straight in.
+    cx.simulate_keystrokes("alt-o");
+    draw(&mut cx);
+    assert_eq!(
+        counts(&mut cx, &window).map(|c| c.notes),
+        Some(3),
+        "and switching the chip back shows the orphan again, under the same lens"
+    );
+}
+
+/// A lens name is one name. The door the graph offers is the same door `:lens` reads
+/// through, so `../` is refused as a path rather than resolved as one.
+#[gpui::test]
+fn a_lens_name_is_never_a_path(cx: &mut TestAppContext) {
+    let (dir, window, mut cx) = lens_vault(cx, &[]);
+    on_graph(&mut cx, &window);
+    open_strip(&mut cx, &window);
+    type_query(&mut cx, "tag:tag");
+    cx.simulate_keystrokes("escape");
+
+    command_line("lens save ../evil", &mut cx);
+    assert!(
+        say(&window, &mut cx).contains("one name, not a path"),
+        "the refusal names what is wrong with the name: {}",
+        say(&window, &mut cx)
+    );
+    assert!(
+        !dir.path().parent().unwrap().join("evil.shq").exists(),
+        "and nothing was written outside the lens folder"
+    );
+}

@@ -89,14 +89,27 @@ there because a lens that narrows the picture quietly is a lens the reader forge
 and the strip's filter line only answers when the strip is focused. It appears on the graph
 tab and not on a note tab, because there it would read as a property of the note.
 
-The file is read when the lens goes on, so editing it in any editor takes effect the next
-time. A lens that cannot be answered — SQL that fails, or a query with no note column —
-says so on the status line and leaves the picture standing; an answer that names notes the
-graph has no node for counts them out loud rather than dropping them.
+A lens is also a file Shale will write for you. With the filter strip open, `alt-s` keeps
+the question in the line as a lens: the operators compile to the SQL a hand-written `.shq`
+would hold — the same translation keep-a-search makes — and the prompt asks for a name,
+starting from one made from the question. `:lens save <name>` is the same door with the
+name already given. A saved lens goes on right away, and a lens that already exists is
+never written over: the file a reader wrote outranks the picture just saved. The strip's
+chips are **not** encoded into the file — they stay dimensions, so a lens never freezes an
+`orphans` choice into a query its author will later read.
 
-Saving a lens from a search you typed, and a lens row in the strip, are not built yet: for
-now a lens is a file you write. The demo vault ships one to read — `:lens Tagged notes`
-narrows the picture to the three notes that write a tag — at
+While a lens is on it keeps up with the vault: the query re-runs when the index moves or
+when the file changes under an editor's hands, and the layout is only disturbed when the
+answer names a different set of notes. A lens that cannot be answered — SQL that fails, or
+a query with no note column — says so and leaves the last good picture standing; an answer
+that names notes the graph has no node for counts them out loud rather than dropping them.
+
+The strip carries a row for it — `lens <name> · 3 notes`, or `lens <name> · not answering:
+<why>` — because the status line's sentence scrolls away and the picture's silence does
+not. The tab's title carries it too: a graph tab reads `graph · <name>`.
+
+The demo vault ships one to read — `:lens Tagged notes` narrows the picture to the three
+notes that write a tag — at
 `examples/demo-vault/.shale/lenses/Tagged notes.shq`.
 
 ## The camera moves, and then it stops

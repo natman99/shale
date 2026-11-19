@@ -24,7 +24,7 @@ as you would type it.
 | `folder.new` | New folder | `ctrl-shift-n, shift-n in the tree` | — | — |
 | `note.add-properties` | Add frontmatter properties to the top of the note | — | — | — |
 | `note.rename` | Rename the selected note | `ctrl-shift-r, r in the tree` | — | — |
-| `graph.lens` | Choose a lens for the graph | — | `:lens [name]` | `[name]` |
+| `graph.lens` | Choose a lens for the graph | — | `:lens [name]`, `:lens save [name]` | `[name]` |
 | `note.move` | Move the selected note to another folder | `ctrl-shift-m, m in the tree` | `:move [folder]` | `[folder]` |
 | `note.delete` | Delete the selected note | `ctrl-shift-d, shift-d in the tree` | — | — |
 | `note.open` | Open a note | `space f, g f` | `:e`, `:edit`, `:open` | — |

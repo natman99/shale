@@ -1622,7 +1622,7 @@ pub fn compile_sql(q: &Query) -> Result<String, String> {
         .any(|op| matches!(op, Op::Modified(After::Since(_))))
     {
         return Err(
-            "modified: with a duration counts from the moment it runs; written into a file it              would mean \"since the day it was saved\" — a date (modified:2026-11-01) saves fine"
+            "modified: with a duration counts from the moment it runs; written into a file it would mean \"since the day it was saved\" — a date (modified:2026-11-01) saves fine"
                 .to_string(),
         );
     }
@@ -3502,12 +3502,12 @@ mod tests {
         assert!(db.block_id_taken("ab99xy").unwrap());
         assert!(
             !db.block_id_taken("ab12").unwrap(),
-            "the front half of a real id is not that id: a prefix would make the              create command redraw an id it could have used"
+            "the front half of a real id is not that id: a prefix would make the create command redraw an id it could have used"
         );
         assert_eq!(
             db.blocks_matching("100%", 10).unwrap().len(),
             0,
-            "a wildcard the reader typed is quoted, not obeyed: `100%` is an id              called `100%`, not `100` followed by anything"
+            "a wildcard the reader typed is quoted, not obeyed: `100%` is an id called `100%`, not `100` followed by anything"
         );
         assert_eq!(
             db.blocks_matching("x100y", 10).unwrap().len(),

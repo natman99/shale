@@ -404,7 +404,91 @@ impl Workspace {
             self.open_lens_picker(window, cx);
             return;
         }
-        self.set_lens(name, cx);
+        // `save` is the verb's other reserved word, like `none`: `:lens save goblins`
+        // keeps the filter line's question under that name and puts it on. A lens actually
+        // named `save` is unreachable through this verb — the picker still lists it, and
+        // the picker is where it stays reachable.
+        if let Some(rest) = name.strip_prefix("save") {
+            let rest = rest.trim();
+            if rest.is_empty() {
+                self.say("name it: `:lens save <name>`", cx);
+                return;
+            }
+            let Some(search) = self.graph_filter.search.clone() else {
+                self.say(
+                    "there is no question in the graph's filter line to keep",
+                    cx,
+                );
+                return;
+            };
+            if let Err(err) = self.write_lens(&search, rest, cx) {
+                self.say(format!("{err:#}"), cx);
+            }
+            return;
+        }
+        self.wear_lens(name, "", cx);
+    }
+
+    /// `alt-s` in the filter strip: ask for a name for the question the line holds
+    /// (M5). The name is asked rather than invented, because a picture nobody named is a
+    /// picture that cannot be found again.
+    pub(crate) fn ask_save_lens(
+        &mut self,
+        search: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let search = search.trim();
+        if search.is_empty() {
+            self.say(
+                "the filter line is empty: type the question first, or name one you have with `:lens save <name>`",
+                cx,
+            );
+            return;
+        }
+        // Asked before the name is typed, exactly as `:save-query` does it: a question
+        // that cannot be kept should say which part of it cannot before the reader has
+        // spent a name on it.
+        if let Err(reason) = shale_core::db::compile_sql(&shale_core::query::parse(search)) {
+            self.say(reason, cx);
+            return;
+        }
+        self.open_prompt(
+            crate::prompt::PromptKind::SaveLens(search.to_string()),
+            "name this lens",
+            &Self::query_name(search),
+            window,
+            cx,
+        );
+    }
+
+    /// Write the lens and put it on (ruled 2026-11-18: a saved lens goes on right away).
+    ///
+    /// The file holds the SQL the filter line's operators mean — the same translation
+    /// keep-a-search uses, so the lens answers what the line answered. The strip's chips
+    /// are **not** encoded (ruling 1): they stay filter dimensions, so a lens never
+    /// freezes a chip choice into a file its author will later edit by hand.
+    pub(crate) fn write_lens(
+        &mut self,
+        search: &str,
+        name: &str,
+        cx: &mut Context<Self>,
+    ) -> anyhow::Result<()> {
+        let sql = shale_core::db::compile_sql(&shale_core::query::parse(search))
+            .map_err(anyhow::Error::msg)?;
+        // The question is kept above the statement as a comment, so the file says what it
+        // was asked in the words that were typed. A lens is not a vault note, so it is
+        // written through `lens::write` rather than the vault's doors (EDGE-L1).
+        let text = format!(
+            "+++\nname = \"{}\"\n+++\n-- Saved from the graph's filter line: {search}\n{sql}\n",
+            name.trim().replace('"', "\\\"")
+        );
+        shale_core::lens::write(self.vault.root(), name, &text)?;
+        // The lens folder is not in the vault's signature, so the stamps beside it are
+        // re-taken: a lens Shale wrote itself must not come back as somebody else's edit.
+        self.resign();
+        self.wear_lens(name, "saved ", cx);
+        Ok(())
     }
 
     /// The palette row: `:lens` with nothing typed, which asks rather than acts.
@@ -419,7 +503,7 @@ impl Workspace {
 
     /// A lens chosen in the picker.
     pub(crate) fn graph_lens_chosen(&mut self, name: &str, cx: &mut Context<Self>) {
-        self.set_lens(name, cx);
+        self.wear_lens(name, "", cx);
     }
 
     /// Put a lens on the graph, or take it off.
@@ -429,7 +513,7 @@ impl Workspace {
     /// import. A lens that will not answer leaves the picture standing (EDGE-L6) and says
     /// why on the status line, because the command line has already closed and the status
     /// line is where a reader looks for why nothing changed.
-    fn set_lens(&mut self, name: &str, cx: &mut Context<Self>) {
+    fn wear_lens(&mut self, name: &str, said: &str, cx: &mut Context<Self>) {
         // EDGE-L9: `none` is a name, not a mode — the same dimension set back to None.
         if name == "none" {
             if self.graph_filter.lens.is_none() {
@@ -471,7 +555,7 @@ impl Workspace {
             shale_core::lens::LensOutcome::Refused { why } => {
                 // The picture stands; the sentence is core's, the same one the picker and
                 // an embedded table give for the same file.
-                self.say(format!("lens `{name}`: {why}"), cx);
+                self.say(format!("{said}lens `{name}`: {why}"), cx);
             }
             shale_core::lens::LensOutcome::Empty { name } => {
                 self.graph_filter.lens = Some(shale_core::graph::filter::LensScope {
@@ -481,7 +565,7 @@ impl Workspace {
                     stale: None,
                 });
                 self.remake_graph(cx);
-                self.say(format!("lens `{name}`: no note answers this"), cx);
+                self.say(format!("{said}lens `{name}`: no note answers this"), cx);
             }
             shale_core::lens::LensOutcome::Answered { name, paths } => {
                 // EDGE-L5: an answer can name paths the graph has no node for. They are
@@ -506,7 +590,7 @@ impl Workspace {
                 };
                 self.say(
                     format!(
-                        "lens `{name}`: {kept} {}{extra}",
+                        "{said}lens `{name}`: {kept} {}{extra}",
                         shale_core::lens::notes_word(kept)
                     ),
                     cx,

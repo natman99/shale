@@ -24,7 +24,7 @@ use shale_core::theme::Palette;
 
 use crate::acts::{
     FieldBackspace, FieldDelete, FieldDeleteWordBack, FieldLeft, FieldRight, GraphFilterClose,
-    GraphFilterMissing, GraphFilterOpen, GraphFilterOrphans, GraphFilterTags,
+    GraphFilterMissing, GraphFilterOpen, GraphFilterOrphans, GraphFilterSaveLens, GraphFilterTags,
 };
 use crate::field::{Field, FieldElement, FieldOwner, approx_char_width};
 use crate::field_key_actions;
@@ -193,6 +193,16 @@ impl GraphView {
         self.toggle(Chip::Missing, cx);
     }
 
+    /// `alt-s`: keep the filter line's question as a lens. The window owns that door —
+    /// the file, the name, and what wearing it means — so the strip only hands over the
+    /// one thing it holds.
+    fn save_lens(&mut self, _: &GraphFilterSaveLens, window: &mut Window, cx: &mut Context<Self>) {
+        let search = self.filter_field.text().to_string();
+        let _ = self.workspace.update(cx, move |ws, cx| {
+            ws.ask_save_lens(&search, window, cx);
+        });
+    }
+
     /// `alt-t`.
     fn toggle_tags(&mut self, _: &GraphFilterTags, _window: &mut Window, cx: &mut Context<Self>) {
         self.toggle(Chip::Tags, cx);
@@ -304,6 +314,7 @@ impl GraphView {
                 .on_action(cx.listener(Self::toggle_orphans))
                 .on_action(cx.listener(Self::toggle_missing))
                 .on_action(cx.listener(Self::toggle_tags))
+                .on_action(cx.listener(Self::save_lens))
                 .child(
                     chip(&palette, "orphans", orphans)
                         .id("graph-filter-orphans")

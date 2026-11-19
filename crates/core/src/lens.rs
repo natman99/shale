@@ -27,7 +27,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Result, anyhow};
+use anyhow::{Context as _, Result, anyhow};
 
 use crate::db::{Cell, Rows};
 use crate::graph::index::GraphIndex;
@@ -78,20 +78,7 @@ pub fn list(root: &Path) -> Vec<String> {
 /// the vault. A trailing `.shq` is dropped, so `:lens goblins.shq` names the same lens as
 /// `:lens goblins`.
 pub fn read(root: &Path, name: &str) -> Result<String> {
-    let name = name
-        .trim()
-        .strip_suffix(&format!(".{}", query_note::EXTENSION))
-        .unwrap_or(name.trim());
-    // Separators first: `../secret` is a path trying to walk out of the lens folder, and
-    // that is the sentence worth reading — the name-shape guard below would also stop it,
-    // by accident of where the dots sit, and a refusal that lands by accident is a refusal
-    // the next edit can lose.
-    if name.contains('/') || name.contains('\\') {
-        return Err(anyhow!("a lens name is one name, not a path: `{name}`"));
-    }
-    if name.is_empty() || name == "." || name == ".." || name.starts_with('.') {
-        return Err(anyhow!("`{name}` is not a lens name"));
-    }
+    let name = guard_name(name)?;
     let path = dir(root).join(format!("{name}.{}", query_note::EXTENSION));
     if !path.is_file() {
         return Err(anyhow!(
@@ -124,6 +111,51 @@ pub enum LensOutcome {
 /// same words (EDGE-L14: one producer, so no two of them can disagree).
 pub fn notes_word(count: usize) -> &'static str {
     if count == 1 { "note" } else { "notes" }
+}
+
+/// The name a lens answers to, checked: one name, never a path, never a hidden file.
+///
+/// Separators are refused **before** the shape guard: `../secret` is a path trying to walk
+/// out of the lens folder, and that is the sentence worth reading — the shape guard would
+/// also stop it, by accident of where the dots sit, and a refusal that lands by accident is
+/// a refusal the next edit can lose. A trailing `.shq` is forgiven, so `:lens goblins.shq`
+/// names the same lens as `:lens goblins`.
+fn guard_name(name: &str) -> Result<&str> {
+    let name = name
+        .trim()
+        .strip_suffix(&format!(".{}", query_note::EXTENSION))
+        .unwrap_or(name.trim());
+    if name.contains('/') || name.contains('\\') {
+        return Err(anyhow!("a lens name is one name, not a path: `{name}`"));
+    }
+    if name.is_empty() || name == "." || name == ".." || name.starts_with('.') {
+        return Err(anyhow!("`{name}` is not a lens name"));
+    }
+    Ok(name)
+}
+
+/// Write a lens, and return the path written (M5's save door).
+///
+/// The folder appears with the first lens; its absence is "no lenses", not an error. An
+/// existing lens is **not** overwritten: the file a reader wrote — and may have edited by
+/// hand, since it is the authority (EDGE-L1) — outranks the picture someone just saved
+/// over it. The name is checked by the same guard [`read`] uses, so a lens cannot be saved
+/// somewhere the lens folder does not own.
+pub fn write(root: &Path, name: &str, text: &str) -> Result<PathBuf> {
+    let name = guard_name(name)?;
+    let here = dir(root);
+    std::fs::create_dir_all(&here)
+        .with_context(|| format!("creating the lens folder {}", here.display()))?;
+    let path = here.join(format!("{name}.{}", query_note::EXTENSION));
+    if path.exists() {
+        return Err(anyhow!(
+            "{} already holds a lens — Shale will not overwrite it",
+            path.display()
+        ));
+    }
+    crate::atomic::write_file(&path, text)
+        .with_context(|| format!("writing lens {}", path.display()))?;
+    Ok(path)
 }
 
 /// What each lens file on disk looks like right now: name → stamp (EDGE-L7).

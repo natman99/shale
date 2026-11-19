@@ -409,6 +409,9 @@ actions!(
         GraphFilterOrphans,
         GraphFilterMissing,
         GraphFilterTags,
+        // `alt-s`: keep the filter line's question as a lens (P4.16 M5). Not a chip —
+        // it does not change the picture, it names one.
+        GraphFilterSaveLens,
     ]
 );
 

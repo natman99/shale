@@ -343,8 +343,9 @@ its own, and `ctrl-w l` means the pane on the right here as it does everywhere e
 | `space f/s/e/d/g`, `gt`/`gT` | the same chords the note has |
 
 The filter strip takes the keyboard for itself: `escape` or `enter` closes it,
-`alt-o` / `alt-x` / `alt-t` toggle the `orphans` / `missing` / `tags` chips, and typing
-narrows the picture, with a filtered node leaving the simulation as well as the paint.
+`alt-o` / `alt-x` / `alt-t` toggle the `orphans` / `missing` / `tags` chips, `alt-s` keeps
+the question in the line as a lens (`docs/graph.md`), and typing narrows the picture, with
+a filtered node leaving the simulation as well as the paint.
 
 ## The pointer
 

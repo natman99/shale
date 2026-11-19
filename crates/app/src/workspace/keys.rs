@@ -622,6 +622,10 @@ fn build() -> (Vec<KeyBinding>, Vec<KeymapRow>) {
         "alt-o" => GraphFilterOrphans,
         "alt-x" => GraphFilterMissing,
         "alt-t" => GraphFilterTags,
+        // Ruled 2026-11-18: the strip's save key is `alt-s`. A bare `s` was the first
+        // idea and cannot work — every printable letter this context receives is a
+        // letter of the query being typed.
+        "alt-s" => GraphFilterSaveLens,
     ]);
     field_keys!(b, crate::graph::FILTER_CONTEXT);
     // The camera and selection keys carry their step, so they are pushed one by one as
@@ -786,6 +790,7 @@ fn action_note(name: &str) -> Option<&'static str> {
         "GraphFilterOrphans" => "show or hide unlinked notes",
         "GraphFilterMissing" => "show or hide links to notes that do not exist",
         "GraphFilterTags" => "show or hide tags",
+        "GraphFilterSaveLens" => "keep the filter line's question as a lens",
         _ => return None,
     })
 }

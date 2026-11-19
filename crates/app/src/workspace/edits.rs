@@ -343,6 +343,9 @@ impl Workspace {
             prompt::PromptKind::SaveQuery(search) => {
                 self.write_query(&search, answer, cx)?;
             }
+            prompt::PromptKind::SaveLens(search) => {
+                self.write_lens(&search, answer, cx)?;
+            }
             prompt::PromptKind::RenameKey(old) => {
                 self.rename_property_key(&old, answer, cx)?;
             }
