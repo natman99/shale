@@ -406,9 +406,11 @@ impl GraphView {
         field_key_actions!(strip, cx, Self::field_text_changed)
     }
 
-    /// Whether the filter strip is showing. The window asks it to decide where a refusal
-    /// is said — under the line when the line is on screen, on the status bar when it is
-    /// not — and the tests that open and close the strip ask for the same reason.
+    /// Whether the filter strip is showing. The tests that open and close the strip ask;
+    /// the *window* never does, because it cannot — the strip calls into the window from
+    /// inside its own update, and gpui refuses a read of a view already being updated, so
+    /// the refusal sentence is handed back to the callers instead of asked about.
+    #[cfg(test)]
     pub(crate) fn panel_open(&self) -> bool {
         self.panel
     }

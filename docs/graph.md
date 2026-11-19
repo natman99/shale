@@ -185,6 +185,17 @@ notes carrying `#boss` and the tags and holes those notes name — not the nodes
 happen to contain the letters `b`, `o`, `s`, `s`. Words and operators **and** together:
 `tag:boss boss` narrows the answer by label.
 
+**A word that lands on a tag or a hole brings the notes it is about.** A bare `monster`
+matches the `#monster` dot, and the notes wearing it come along — one hop, no further. The
+shape before was the dot alone with every note that carries it hidden: a dot with nothing to
+explain it, which read as a filter working. A hole works the same way, since it is a fact
+about the note that wrote the link — typing `gone` shows the missing note *and* the note that
+linked to it, joined by the link that reaches nowhere. The rescue runs one way: a matched note
+does not light the tags and holes it happens to mention, because typing `goblin` is a search
+for a note, not a request for everything the note talks about. And it reaches only what the
+chips and scopes left on screen — a tag match cannot smuggle back a note a folder, a lens or
+`existing only` has taken away.
+
 Two refusals, neither of them answered with an empty picture. A token shaped like an
 operator and not one (`tags:boss`) is named as a typo, and the picture stands where it was;
 with the index off, the operators say they need it, and the words still work. An empty graph

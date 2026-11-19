@@ -83,7 +83,11 @@ only a file you write by hand. **Follow-up the same day:** the filter strip's li
 vault search's line are now **one grammar** — the operators in the strip ask the index the
 same question `space s` asks, the words left over stay a label match, and a token that only
 looks like an operator is said rather than searched, so `alt-s` saves the question the
-picture in front of the reader was actually narrowed by. What P4.16 unblocks is the GM screen (P7.4) and
+picture in front of the reader was actually narrowed by. Two more from the same thread: a
+refused line now says so **under the line it was typed in** (danger colour, plus the sentence
+in a row of its own) rather than on the status bar a panel away, and a bare word that lands on
+a tag or a hole **brings the notes it is about** — one hop — so `monster` lights the tag and
+the notes wearing it instead of one dot with nothing to explain it. What P4.16 unblocks is the GM screen (P7.4) and
 canvas-as-saved-selection (P6.10). Two items the user keeps asking for are still unstarted: **P4.10 trash** and
 **P4.12 attachment capture**. `ctrl-t` scratch tabs are ruled in full (2026-11-13) and
 genuinely unbuilt — `ctrl-t` still duplicates the current note.

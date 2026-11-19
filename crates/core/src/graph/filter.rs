@@ -273,19 +273,46 @@ pub fn apply(index: &GraphIndex, filter: &GraphFilter) -> Vec<bool> {
         .and_then(|q| q.text)
         .filter(|text| !text.trim().is_empty());
     if let Some(words) = &words {
-        for (i, v) in visible.iter_mut().enumerate() {
-            if !*v {
+        // A word that lands on a tag or a ghost has landed on a *fact about notes*, not on a
+        // node standing on its own: a tag dot with every note that carries it hidden is a dot
+        // that cannot be read, which is what a bare `monster` used to paint. So the notes a
+        // matched tag carries, and the notes a matched ghost names, come along — one hop, no
+        // further, or a popular tag would light the vault again.
+        //
+        // The other direction is deliberately not rescued: a matched note keeps its own tags
+        // and ghosts hidden, because typing `goblin` is a search for a note, not a request
+        // for everything the note mentions.
+        //
+        // Only notes the scopes and chips left visible are rescued — a tag match cannot
+        // resurrect a note a folder, a lens or an answered token already excluded.
+        let scope = visible.clone();
+        let mut matched = vec![false; n];
+        for i in 0..n {
+            if !scope[i] {
                 continue;
             }
             let node = NodeIndex::new(i);
             let meta = index.meta(node);
             let label = &meta.label;
             let path = meta.path.as_ref().map(rel_text).unwrap_or_default();
-            let matched = fuzzy_match(words, label).is_some()
+            matched[i] = fuzzy_match(words, label).is_some()
                 || (!path.is_empty() && fuzzy_match(words, &path).is_some());
-            if !matched {
-                *v = false;
+        }
+        for i in 0..n {
+            if !matched[i] {
+                continue;
             }
+            let node = NodeIndex::new(i);
+            if matches!(index.meta(node).kind, NodeKind::Tag | NodeKind::Ghost) {
+                for nb in index.neighbors(node) {
+                    if scope[nb.index()] {
+                        matched[nb.index()] = true;
+                    }
+                }
+            }
+        }
+        for (i, v) in visible.iter_mut().enumerate() {
+            *v &= matched[i];
         }
     }
 
@@ -503,6 +530,161 @@ mod tests {
             "the label is 'c' but the path contains 'cake'"
         );
         assert!(!visible[index.node_for_path("lonely.md").unwrap().index()]);
+        Ok(())
+    }
+
+    /// A bare word that lands on a tag has landed on a *fact about notes*, so the notes come
+    /// with it. The old shape painted a tag dot with every note that carries it hidden: a dot
+    /// that cannot be read, and the reason `monster` in the strip looked like a filter working.
+    #[test]
+    fn a_bare_word_on_a_tag_bring_the_notes_that_carry_it() -> anyhow::Result<()> {
+        let (_dir, _vault, index) = fixture()?;
+        let f = GraphFilter {
+            search: Some("top".into()),
+            ..Default::default()
+        };
+        let visible = apply(&index, &f);
+        assert!(visible[index.node_for_tag("top").unwrap().index()]);
+        assert!(
+            visible[index.node_for_path("root.md").unwrap().index()],
+            "the note carrying #top came along"
+        );
+        assert!(
+            !visible[index.node_for_path("lonely.md").unwrap().index()],
+            "and one hop only: the rescue does not walk on to the vault"
+        );
+        assert!(
+            !visible[index.ghost_for_target("gone").unwrap().index()],
+            "a ghost root happens to name is not part of this match"
+        );
+        Ok(())
+    }
+
+    /// The same rule the other way round in kind: a ghost is a fact about the note that wrote
+    /// the link, so matching the ghost brings the writer.
+    #[test]
+    fn a_bare_word_on_a_ghost_names_the_note_that_wrote_it() -> anyhow::Result<()> {
+        let (_dir, _vault, index) = fixture()?;
+        let f = GraphFilter {
+            search: Some("gone".into()),
+            ..Default::default()
+        };
+        let visible = apply(&index, &f);
+        assert!(visible[index.ghost_for_target("gone").unwrap().index()]);
+        assert!(
+            visible[index.node_for_path("root.md").unwrap().index()],
+            "the note that linked to it"
+        );
+        assert!(!visible[index.node_for_tag("top").unwrap().index()]);
+        Ok(())
+    }
+
+    /// A tag carried on both sides of a scope boundary: the tag is in because one of its
+    /// notes is, and the rescue may reach that note and no other. Without the scope guard the
+    /// word would smuggle an excluded note back in through a fact it happens to share.
+    #[test]
+    fn a_tag_rescue_reaches_only_the_notes_the_scope_left() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let root = dir.path();
+        fs::create_dir_all(root.join("in"))?;
+        fs::create_dir_all(root.join("out"))?;
+        fs::write(root.join("in/one.md"), "wears #shared")?;
+        fs::write(root.join("out/two.md"), "wears #shared too")?;
+        let vault = Vault::open(root)?;
+        let index = GraphIndex::build(
+            &vault,
+            &vault.list_markdown()?,
+            &vault.list_attachments()?,
+            &vault.list_queries()?,
+            &[],
+        )?;
+        let f = GraphFilter {
+            folder: Some("in".into()),
+            search: Some("shared".into()),
+            ..Default::default()
+        };
+        let visible = apply(&index, &f);
+        assert!(visible[index.node_for_tag("shared").unwrap().index()]);
+        assert!(visible[index.node_for_path("in/one.md").unwrap().index()]);
+        assert!(
+            !visible[index.node_for_path("out/two.md").unwrap().index()],
+            "the folder took it out and the tag match cannot put it back"
+        );
+        Ok(())
+    }
+
+    /// The word pass narrows the mask; it never overwrites it. A note the folder excluded
+    /// stays out even when its label is the word, exactly typed.
+    #[test]
+    fn a_word_cannot_bring_back_a_note_the_folder_excluded() -> anyhow::Result<()> {
+        let (_dir, _vault, index) = fixture()?;
+        let f = GraphFilter {
+            folder: Some("child 1".into()),
+            search: Some("root".into()),
+            ..Default::default()
+        };
+        let visible = apply(&index, &f);
+        assert!(
+            !visible[index.node_for_path("root.md").unwrap().index()],
+            "the label matches perfectly and the scope still wins"
+        );
+        Ok(())
+    }
+
+    /// Same for a chip: `existing only` took the ghosts out, and a word that lands on a
+    /// ghost cannot put one back on the canvas.
+    #[test]
+    fn a_word_cannot_bring_back_what_a_chip_took_out() -> anyhow::Result<()> {
+        let (_dir, _vault, index) = fixture()?;
+        let f = GraphFilter {
+            existing_only: true,
+            search: Some("gone".into()),
+            ..Default::default()
+        };
+        let visible = apply(&index, &f);
+        assert!(
+            !visible[index.ghost_for_target("gone").unwrap().index()],
+            "the chip's decision outlasts the match"
+        );
+        Ok(())
+    }
+
+    /// The rescue runs one way. A matched note does not light the tags and ghosts it
+    /// mentions: typing `cake` is a search for a note, not a request for everything the note
+    /// talks about, and a picture that grows sideways from every note match stops being a
+    /// search.
+    #[test]
+    fn a_matched_note_does_not_light_what_it_mentions() -> anyhow::Result<()> {
+        let (_dir, _vault, index) = fixture()?;
+        let f = GraphFilter {
+            search: Some("cake".into()),
+            ..Default::default()
+        };
+        let visible = apply(&index, &f);
+        assert!(visible[index.node_for_path("child 1/cake/c.md").unwrap().index()]);
+        assert!(
+            !visible[index.node_for_tag("sweet").unwrap().index()],
+            "#sweet is on that note and stays hidden"
+        );
+        Ok(())
+    }
+
+    /// The rescue reaches notes the scopes left visible, never ones they excluded: a tag match
+    /// cannot resurrect a note a folder, a lens or an answered token has already taken away.
+    #[test]
+    fn a_tag_match_cannot_resurrect_what_a_scope_excluded() -> anyhow::Result<()> {
+        let (_dir, _vault, index) = fixture()?;
+        let f = GraphFilter {
+            folder: Some("child 1".into()),
+            search: Some("top".into()),
+            ..Default::default()
+        };
+        let visible = apply(&index, &f);
+        assert_eq!(
+            count(&visible),
+            0,
+            "#top's only note is out of scope, so the tag has nothing to bring and nothing to show"
+        );
         Ok(())
     }
 

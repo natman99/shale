@@ -198,15 +198,18 @@ fn the_query_narrows_the_picture(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("/");
     cx.simulate_input("gone");
     paint(&mut cx, &window);
+    // A ghost is a fact about the note that wrote the link, so the writer comes with it. The
+    // old shape here was one lonely dot and no edges — a picture that could not be read,
+    // pinned as if it were the rule.
     assert_eq!(
         circles(&mut cx, &window).len(),
-        1,
-        "only the missing note the query names"
+        2,
+        "the missing note the query names, and the note that named it"
     );
     assert_eq!(
         counts(&mut cx, &window).map(|counts| (counts.notes, counts.ghosts, counts.links)),
-        Some((0, 1, 0)),
-        "and no links, because both ends have to be on screen"
+        Some((1, 1, 1)),
+        "joined by the link that reaches nowhere, which is the point of the ghost"
     );
 
     cx.simulate_keystrokes("ctrl-backspace");
@@ -986,6 +989,29 @@ fn an_operator_in_the_line_asks_the_index_and_not_the_labels(cx: &mut TestAppCon
     assert_eq!(
         counts.tags, 1,
         "and the tag it carries is there with it, because a tag is a fact about its notes"
+    );
+}
+
+/// A bare word that lands on a tag is a match on a fact about notes, so the notes wearing it
+/// come along. This used to light the tag dot and hide every note that carries it: a dot with
+/// nothing to explain it, which is what made a bare tag name look like a filter working.
+#[gpui::test]
+fn a_bare_tag_name_lights_the_tag_and_its_notes(cx: &mut TestAppContext) {
+    let (_dir, window, mut cx) = indexed_linked_vault(cx);
+    type_line(&mut cx, &window, "tag");
+    let counts = counts(&mut cx, &window).unwrap();
+    assert_eq!(counts.tags, 1, "the tag itself: {counts:?}");
+    assert_eq!(
+        counts.notes, 1,
+        "and the one note wearing it, not a dot on its own"
+    );
+    assert_eq!(
+        counts.ghosts, 0,
+        "and nothing the hidden notes happen to name"
+    );
+    assert_eq!(
+        counts.links, 1,
+        "the tag-to-note edge is on screen, which is the half that makes it readable"
     );
 }
 

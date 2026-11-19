@@ -2157,3 +2157,27 @@ filter which fell behind the index catch up on reopen.
 Five tests, seven mutations red (`falsify_strip_said.py`), one honest green: the *colour* of
 the line's text is paint, and gpui gives a test no way to see a painted colour. The decision
 the colour is drawn from (`refused()`) is pinned; the pixels need eyes.
+
+## A bare tag name brings the notes that wear it (2026-11-18)
+
+The one-grammar change left one half-broken case, and it was the common one: typing a word
+with no operator. A bare `monster` fuzzy-matched the `#monster` node and hid every note that
+carries it, so the picture was one lit dot with no edges — a shape that reads as a filter
+working. Same for a hole: `gone` lit the ghost and hid the note that linked to it, leaving a
+dot with nothing to explain it.
+
+The rule: **a tag or a ghost is a fact about notes, so matching it brings the notes it is a
+fact about** — one hop, no further, or a popular tag would light the vault again. The rescue
+runs one way only. A matched note does not light the tags and holes it mentions: typing
+`goblin` is a search for a note, not a request for everything the note talks about. And it
+reaches only what the chips and scopes left visible, so a tag match cannot smuggle back a note
+a folder, a lens or `existing only` excluded.
+
+One old test had the symptom pinned as if it were the rule (`the_query_narrows_the_picture`:
+one ghost, zero notes, zero links). Rewritten to the readable shape — the ghost, its writer,
+and the link between them.
+
+Seven mutations (`falsify_bare_tag.py`), five red, one red only when broken in two places at
+once, and two honest greens that say something about the code rather than the suite: the
+scope rule is held up twice — the rescue's `scope[nb]` guard and the final `*v &= matched[i]`
+— so breaking either one alone changes nothing observable. Redundancy, not a gap.
