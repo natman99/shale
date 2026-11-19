@@ -637,7 +637,7 @@ fn the_palette_offers_the_command_from_several_words(cx: &mut TestAppContext) {
         assert!(
             offered
                 .iter()
-                .any(|row| row == "Add frontmatter properties to the top of the note"),
+                .any(|row| row == "Add frontmatter properties to the note"),
             "{query} offers: {offered:?}"
         );
         cx.simulate_keystrokes("escape");

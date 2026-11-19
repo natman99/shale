@@ -649,7 +649,7 @@ fn build() -> (Vec<KeyBinding>, Vec<KeymapRow>) {
         );
     }
     for (key, factor) in [("+", ZOOM_STEP), ("-", 1.0 / ZOOM_STEP)] {
-        b.bind(graph, key, GraphZoom(factor), "magnify at the cursor");
+        b.bind(graph, key, GraphZoom(factor), "magnify at the caret");
     }
     // `[` and `]` narrow and widen the local graph (M2b). Brackets because they are the
     // shape of a scope, they are free in this context, and they are not `+`/`-`, which
@@ -664,12 +664,7 @@ fn build() -> (Vec<KeyBinding>, Vec<KeymapRow>) {
         );
     }
     // `\` widens all the way out: the local view off, the whole vault back on screen.
-    b.bind(
-        graph,
-        "\\",
-        GraphLocal(Some(0)),
-        "show the whole vault again",
-    );
+    b.bind(graph, "\\", GraphLocal(Some(0)), "show the whole vault");
     // The arrows move the view, and their shift forms move it three times as far, which
     // is the spec's "`Shift` = 3× speed".
     // The shift forms are spelled out rather than built with `format!`, because a
@@ -731,15 +726,15 @@ fn action_note(name: &str) -> Option<&'static str> {
         "SearchPrev" => "previous match in this note",
         "NextLine" => "go to the next line",
         "Newline" => "break the line here",
-        "Backspace" => "delete the character before the cursor",
-        "DeleteWordBack" => "delete the word before the cursor",
+        "Backspace" => "delete the character before the caret",
+        "DeleteWordBack" => "delete the word before the caret",
         "InsertTab" => "insert a tab character",
         "OutdentLine" => "remove one indent level from the line",
-        "DeleteForward" => "delete the character under the cursor",
-        "MoveLeft" => "move the cursor left",
-        "MoveRight" => "move the cursor right",
-        "MoveUp" => "move the cursor up",
-        "MoveDown" => "move the cursor down",
+        "DeleteForward" => "delete the character under the caret",
+        "MoveLeft" => "move the caret left",
+        "MoveRight" => "move the caret right",
+        "MoveUp" => "move the caret up",
+        "MoveDown" => "move the caret down",
         "TreeDown" => "move the selection down",
         "TreeUp" => "move the selection up",
         "TreeCollapse" => "collapse this folder, or step out of it",
@@ -750,12 +745,12 @@ fn action_note(name: &str) -> Option<&'static str> {
         "SidebarCollapse" => "fold this section in the note",
         "SidebarExpand" => "unfold this section in the note",
         "SidebarOpen" => "jump the note to this section",
-        "SidebarPrevView" => "show the previous view in the strip",
-        "SidebarNextView" => "show the next view in the strip",
+        "SidebarPrevView" => "show the previous view in the sidebar",
+        "SidebarNextView" => "show the next view in the sidebar",
         "SidebarSectionUp" => "move this section up among its siblings",
         "SidebarSectionDown" => "move this section down among its siblings",
         "SidebarPromote" => "one level up for this heading and its subtree",
-        "PinSidebar" => "stick the strip to the note it is describing, or let it follow again",
+        "PinSidebar" => "stick the sidebar to the note it describes, or let it follow again",
         "SidebarDemote" => "one level down for this heading and its subtree",
         "FocusEditor" => "hand the keyboard to the tab on screen",
         "FieldSubmit" => "accept what is typed",
